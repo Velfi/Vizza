@@ -984,21 +984,33 @@ fn reset_agents(
     settings: &Settings,
     agent_count: usize,
 ) {
+    use rand::Rng;
+    
+    tracing::info!("Resetting {} agents to random positions", agent_count);
+    
+    let speed = (settings.agent_speed_min + settings.agent_speed_max) / 2.0;
+    let width = physical_width as f32;
+    let height = physical_height as f32;
+    
+    // Pre-allocate and fill vector efficiently 
     let mut agent_data = Vec::with_capacity(agent_count * 4);
-
-    for _ in 0..agent_count {
-        // Random position
-        agent_data.push(rand::random::<f32>() * physical_width as f32);
-        agent_data.push(rand::random::<f32>() * physical_height as f32);
-
-        // Random angle
-        agent_data.push(rand::random::<f32>() * 2.0 * std::f32::consts::PI);
-
-        // Speed (average of min and max)
-        agent_data.push((settings.agent_speed_min + settings.agent_speed_max) / 2.0);
+    let mut rng = rand::thread_rng();
+    
+    // Generate data in chunks for better cache performance
+    const CHUNK_SIZE: usize = 1024;
+    for chunk_start in (0..agent_count).step_by(CHUNK_SIZE) {
+        let chunk_end = (chunk_start + CHUNK_SIZE).min(agent_count);
+        for _ in chunk_start..chunk_end {
+            agent_data.push(rng.gen::<f32>() * width);                      // x position
+            agent_data.push(rng.gen::<f32>() * height);                     // y position  
+            agent_data.push(rng.gen::<f32>() * 2.0 * std::f32::consts::PI); // angle
+            agent_data.push(speed);                                         // speed (constant)
+        }
     }
 
+    tracing::info!("Writing {} bytes of agent data to GPU buffer", agent_data.len() * 4);
     queue.write_buffer(agent_buffer, 0, bytemuck::cast_slice(&agent_data));
+    tracing::info!("Agent reset completed");
 }
 
 fn update_settings(

@@ -212,7 +212,7 @@ fn update_agents(
     let deposit_y = i32(y);
     if (deposit_x >= 0 && deposit_x < i32(sim_size.width) && deposit_y >= 0 && deposit_y < i32(sim_size.height)) {
         let idx = deposit_y * i32(sim_size.width) + deposit_x;
-        trail_map[idx] = clamp(trail_map[idx] + sim_size.pheromone_deposition_rate, 0.0, 1.0);
+        trail_map[idx] = clamp(trail_map[idx] + sim_size.pheromone_deposition_rate * 0.01, 0.0, 1.0);
     }
 
     // Update agent in the buffer
@@ -229,7 +229,7 @@ fn decay_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let idx = y * sim_size.width + x;
     // Apply decay rate
-    let decay_rate = sim_size.decay_rate * 0.001;
+    let decay_rate = sim_size.decay_rate * 0.0001;
     trail_map[idx] = max(0.0, trail_map[idx] - decay_rate);
 }
 
@@ -255,7 +255,7 @@ fn diffuse_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     let down = trail_map[y_next * sim_size.width + x];
     
     // Simple diffusion: average of neighbors
-    let diffusion_rate = sim_size.diffusion_rate;
+    let diffusion_rate = sim_size.diffusion_rate * 0.01;
     let new_value = center * (1.0 - diffusion_rate) + 
                    (left + right + up + down) * (diffusion_rate * 0.25);
     

@@ -171,7 +171,6 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 300.0,
             agent_sensor_angle: 0.7,
             agent_sensor_distance: 5.0,
-            pheromone_decay_rate: 3.5,
             ..Settings::default()
         },
     ));
@@ -183,8 +182,6 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_min: 200.0,
             agent_speed_max: 300.0,
             agent_sensor_angle: 0.3,
-            pheromone_decay_rate: 10.0,
-
             ..Settings::default()
         },
     ));
@@ -196,7 +193,6 @@ pub fn init_preset_manager() -> PresetManager {
             agent_sensor_angle: 0.3,
             agent_speed_min: 50.0,
             agent_speed_max: 150.0,
-            pheromone_decay_rate: 5.0,
             ..Settings::default()
         },
     ));
@@ -218,7 +214,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 300.0,
             agent_sensor_angle: 1.95,
             agent_sensor_distance: 60.0,
-            pheromone_decay_rate: 3.0,
+            pheromone_decay_rate: 30.0,
             ..Settings::default()
         },
     ));
@@ -231,22 +227,22 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 100.0,
             agent_sensor_angle: 1.57,
             agent_sensor_distance: 225.0,
-            pheromone_decay_rate: 40.0,
+            pheromone_decay_rate: 400.0,
             ..Settings::default()
         },
     ));
     preset_manager.add_preset(Preset::new(
         "Bars".to_string(),
         Settings {
-            agent_jitter: 3.949_936_4,
-            agent_sensor_angle: 2.193_287_4,
-            agent_sensor_distance: 443.473_57,
-            agent_speed_max: 482.086_7,
-            agent_speed_min: 426.720_86,
-            agent_turn_rate: 4.969_109_5,
-            pheromone_decay_rate: 10.0,
-            pheromone_deposition_rate: 0.435_905_75,
-            pheromone_diffusion_rate: 0.474_814_41,
+            agent_jitter: 3.9499364,
+            agent_sensor_angle: 2.1932874,
+            agent_sensor_distance: 443.47357,
+            agent_speed_max: 482.0867,
+            agent_speed_min: 426.72086,
+            agent_turn_rate: 4.9691095,
+            pheromone_decay_rate: 100.0,
+            pheromone_deposition_rate: 43.590575,
+            pheromone_diffusion_rate: 47.481441,
             gradient_type: GradientType::Disabled,
             gradient_strength: 0.5,
             gradient_center_x: 0.5,
@@ -259,60 +255,60 @@ pub fn init_preset_manager() -> PresetManager {
     preset_manager.add_preset(Preset::new(
         "Healthy Fungus".to_string(),
         Settings {
-            agent_jitter: 3.164_667_1,
-            agent_sensor_angle: 1.250_608_9,
-            agent_sensor_distance: 8.729_994,
-            agent_speed_max: 479.033_1,
-            agent_speed_min: 294.058_1,
-            agent_turn_rate: 0.887_346_15,
-            pheromone_decay_rate: 15.0,
-            pheromone_deposition_rate: 0.525_721_9,
-            pheromone_diffusion_rate: 0.243_336_98,
+            agent_jitter: 3.1646671,
+            agent_sensor_angle: 1.2506089,
+            agent_sensor_distance: 8.729994,
+            agent_speed_max: 479.0331,
+            agent_speed_min: 294.0581,
+            agent_turn_rate: 0.88734615,
+            pheromone_decay_rate: 100.0,
+            pheromone_deposition_rate: 52.57219,
+            pheromone_diffusion_rate: 24.33,
             ..Settings::default()
         },
     ));
     preset_manager.add_preset(Preset::new(
         "Sand On A Speaker".to_string(),
         Settings {
-            agent_jitter: 2.991_177,
-            agent_sensor_angle: 0.642_961_9,
-            agent_sensor_distance: 144.372_2,
-            agent_speed_max: 447.087_68,
-            agent_speed_min: 416.390_87,
-            agent_turn_rate: 2.136_445_8,
-            pheromone_decay_rate: 50.0,
-            pheromone_deposition_rate: 0.633_740_1,
-            pheromone_diffusion_rate: 0.079_050_72,
+            agent_jitter: 2.991177,
+            agent_sensor_angle: 0.6429619,
+            agent_sensor_distance: 144.3722,
+            agent_speed_max: 447.08768,
+            agent_speed_min: 416.39087,
+            agent_turn_rate: 2.1364458,
+            pheromone_decay_rate: 100.0,
+            pheromone_deposition_rate: 63.37401,
+            pheromone_diffusion_rate: 7.905072,
             ..Settings::default()
         },
     ));
     preset_manager.add_preset(Preset::new(
         "Spots".to_string(),
         Settings {
-            agent_jitter: 0.254_688_26,
-            agent_sensor_angle: 1.547_680_5,
-            agent_sensor_distance: 31.146_05,
-            agent_speed_max: 350.695_13,
-            agent_speed_min: 300.851_14,
-            agent_turn_rate: 4.500_079_6,
-            pheromone_decay_rate: 15.0,
-            pheromone_deposition_rate: 0.228_417_04,
-            pheromone_diffusion_rate: 0.062_788_37,
+            agent_jitter: 0.25468826,
+            agent_sensor_angle: 1.5476805,
+            agent_sensor_distance: 31.14605,
+            agent_speed_max: 350.69513,
+            agent_speed_min: 300.85114,
+            agent_turn_rate: 4.5000796,
+            pheromone_decay_rate: 100.0,
+            pheromone_deposition_rate: 22.841704,
+            pheromone_diffusion_rate: 6.278837,
             ..Settings::default()
         },
     ));
     preset_manager.add_preset(Preset::new(
         "Cascades".to_string(),
         Settings {
-            agent_jitter: 4.625_645_6,
-            agent_sensor_angle: 0.897_250_9,
-            agent_sensor_distance: 239.661_82,
-            agent_speed_max: 381.274_63,
+            agent_jitter: 4.6256456,
+            agent_sensor_angle: 0.8972509,
+            agent_sensor_distance: 239.66182,
+            agent_speed_max: 381.27463,
             agent_speed_min: 276.855_5,
             agent_turn_rate: 0.733_131_2,
-            pheromone_decay_rate: 3.1,
-            pheromone_deposition_rate: 0.277_263_16,
-            pheromone_diffusion_rate: 0.660_592_73,
+            pheromone_decay_rate: 100.0,
+            pheromone_deposition_rate: 27.726316,
+            pheromone_diffusion_rate: 66.059273,
             ..Settings::default()
         },
     ));

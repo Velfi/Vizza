@@ -52,13 +52,16 @@ impl GpuContext {
         let adapter_info = adapter.get_info();
         println!("Using adapter: {:?}", adapter_info);
 
-        // Request device and queue
+        // Request device and queue with increased buffer size limit
+        let mut limits = wgpu::Limits::default();
+        limits.max_buffer_size = 1_073_741_824; // 1 gigabyte (1024^3 bytes)
+        
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Main GPU Device"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
+                    required_limits: limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
                 None,
@@ -534,6 +537,14 @@ async fn get_current_settings(
 }
 
 #[tauri::command]
+async fn get_current_agent_count(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Option<u32>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_current_agent_count())
+}
+
+#[tauri::command]
 async fn set_fps_limit(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     enabled: bool,
@@ -746,6 +757,7 @@ fn main() {
             apply_lut_by_name,
             toggle_lut_reversed,
             get_current_settings,
+            get_current_agent_count,
             set_fps_limit,
             reset_trails,
             reset_agents,

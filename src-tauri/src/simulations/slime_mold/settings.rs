@@ -119,9 +119,9 @@ impl Default for Settings {
             agent_speed_max: 60.0,
             agent_speed_min: 30.0,
             agent_turn_rate: 0.43, // ~25 degrees
-            pheromone_decay_rate: 1.0,
-            pheromone_deposition_rate: 1.0,
-            pheromone_diffusion_rate: 1.0,
+            pheromone_decay_rate: 10.0,
+            pheromone_deposition_rate: 100.0,
+            pheromone_diffusion_rate: 100.0,
             gradient_type: GradientType::Disabled,
             gradient_strength: 0.5,
             gradient_center_x: 0.5,

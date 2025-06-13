@@ -51,7 +51,7 @@ impl SimulationManager {
                     device,
                     surface_config,
                     adapter_info,
-                    100000, // agent_count
+                    1_000_000, // agent_count - match frontend default
                     settings,
                     &self.lut_manager,
                     &available_luts,
@@ -181,6 +181,12 @@ impl SimulationManager {
         self.slime_mold_state
             .as_ref()
             .map(|sim| sim.settings.clone())
+    }
+
+    pub fn get_current_agent_count(&self) -> Option<u32> {
+        self.slime_mold_state
+            .as_ref()
+            .map(|sim| sim.agent_count as u32)
     }
 
     // LUT management methods
