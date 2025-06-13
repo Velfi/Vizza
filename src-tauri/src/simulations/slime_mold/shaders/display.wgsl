@@ -91,8 +91,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let y = i32(fy);
         let idx = y * i32(sim_size.width) + x;
         
-        // Get trail intensity and scale it for better visibility
-        let trail_intensity = clamp(trail_map[idx] * 10.0, 0.0, 1.0);
+        // Get trail intensity
+        let trail_intensity = clamp(trail_map[idx], 0.0, 1.0);
         
         // Get gradient intensity if enabled
         var gradient_intensity: f32;

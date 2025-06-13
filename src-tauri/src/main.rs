@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 use tauri::{Manager, State, WebviewWindow, Emitter};
-use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration, Adapter};
+use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
 use tracing::{info, debug};
 
 mod simulation_manager;
