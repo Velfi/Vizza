@@ -20,7 +20,6 @@ serde_json = "1.0"
 pretty_env_logger = "0"
 wgpu = "24"
 bytemuck = { version = "1.23.0", features = ["derive"] }
-slime-mold = { path = "../slime-mold" }
 winit = "0.30"
 tracing-subscriber = "0.3"
 toml = "0.8.23"

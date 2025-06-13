@@ -1,6 +1,8 @@
 <script lang="ts">
   import { message } from '@tauri-apps/plugin-dialog';
   import { openUrl } from '@tauri-apps/plugin-opener';
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
 
   let greetInput = '';
   let greetMsg = '';
@@ -33,6 +35,29 @@
   async function testAlert() {
     await showAlert('This is a test alert from Tauri with Svelte!', 'Test Alert');
   }
+
+  onMount(() => {
+    let running = true;
+    async function renderLoop() {
+      if (!running) return;
+      try {
+        await invoke('render_frame');
+      } catch (e) {
+        // Optionally handle errors
+        console.error(e);
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    // Start the simulation, then start the render loop
+    invoke('start_slime_mold_simulation').then(() => {
+      renderLoop();
+    });
+
+    return () => {
+      running = false;
+    };
+  });
 
   // Make functions available globally
   if (typeof window !== 'undefined') {
@@ -117,8 +142,6 @@
   .logo.typescript:hover {
     filter: drop-shadow(0 0 2em #2d79c7);
   }
-
-
 
   .logo-button {
     background: none;
