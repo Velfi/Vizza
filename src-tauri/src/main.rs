@@ -54,7 +54,8 @@ impl GpuContext {
 
         // Request device and queue with increased buffer size limit
         let mut limits = wgpu::Limits::default();
-        limits.max_buffer_size = 1_073_741_824; // 1 gigabyte (1024^3 bytes)
+        limits.max_buffer_size = 2_147_483_648; // 2 gigabytes 
+        limits.max_storage_buffer_binding_size = 2_147_483_648; // 2 gigabyte binding size
         
         let (device, queue) = adapter
             .request_device(
@@ -156,6 +157,7 @@ async fn start_slime_mold_simulation(
         .start_simulation(
             "slime_mold".to_string(),
             &gpu_ctx.device,
+            &gpu_ctx.queue,
             &surface_config,
             &gpu_ctx.adapter_info,
         )
@@ -582,7 +584,7 @@ async fn reset_agents(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.reset_agents(&gpu_ctx.queue) {
+    match sim_manager.reset_agents(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => Ok("Agents reset successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to reset agents: {}", e);

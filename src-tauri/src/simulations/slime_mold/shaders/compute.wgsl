@@ -22,8 +22,8 @@ struct SimSizeUniform {
     gradient_center_y: f32,
     gradient_size: f32,
     gradient_angle: f32,
+    random_seed: u32,
     _pad1: u32,
-    _pad2: u32,
 };
 
 @group(0) @binding(0)
@@ -139,11 +139,20 @@ fn update_agents(
     @builtin(global_invocation_id) id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>
 ) {
-    let agent_index = id.x + id.y * 16u;
-    // Remove the agent_count check since we'll handle this with dispatch workgroup size
-    // if (agent_index >= u32(sim_size.agent_count)) {
-    //     return;
-    // }
+    // Calculate linear agent index from 2D global invocation
+    let agents_per_row = 65535u * 16u; // Max workgroups per row * threads per workgroup row
+    let agent_index = id.x + id.y * agents_per_row;
+    
+    // For consistent random seeding, create a sequential index (preserves old preset behavior)
+    // This ensures random patterns remain the same regardless of dispatch method
+    let workgroup_linear_id = (id.x / 16u) + (id.y / 16u) * 65535u; 
+    let thread_in_workgroup = (id.x % 16u) + (id.y % 16u) * 16u;
+    let random_seed_index = workgroup_linear_id * 256u + thread_in_workgroup;
+    
+    // Bounds check - exit if this thread doesn't correspond to a valid agent
+    if (agent_index >= arrayLength(&agents)) {
+        return;
+    }
 
     // Get agent data
     let agent = agents[agent_index];
@@ -194,10 +203,12 @@ fn update_agents(
     x = x + move_dist * cos(angle);
     y = y + move_dist * sin(angle);
 
-    // Apply jitter
+    // Apply jitter with proper random distribution
     let jitter_strength = sim_size.agent_jitter;
-    let random_x = fract(sin(f32(agent_index)) * 1e4);
-    let random_y = fract(sin(f32(agent_index) + 1.0) * 1e4);
+    let jitter_x_seed = hash(random_seed_index * 2654435761u + 1013904223u);
+    let jitter_y_seed = hash(random_seed_index * 1664525u + 1073741827u);
+    let random_x = random_float(jitter_x_seed);
+    let random_y = random_float(jitter_y_seed);
     x += (random_x * 2.0 - 1.0) * jitter_strength;
     y += (random_y * 2.0 - 1.0) * jitter_strength;
 
@@ -279,4 +290,53 @@ fn update_agent_speeds(@builtin(global_invocation_id) id: vec3<u32>) {
     
     // Update agent with new speed
     agents[agent_index] = vec4<f32>(x, y, angle, new_speed);
+}
+
+// Better random number generation using multiple hash functions
+fn hash(seed: u32) -> u32 {
+    var x = seed;
+    x = ((x >> 16u) ^ x) * 0x45d9f3bu;
+    x = ((x >> 16u) ^ x) * 0x45d9f3bu;
+    x = (x >> 16u) ^ x;
+    return x;
+}
+
+fn random_float(seed: u32) -> f32 {
+    return f32(hash(seed)) / f32(0xffffffffu);
+}
+
+fn random_range(seed: u32, min_val: f32, max_val: f32) -> f32 {
+    return min_val + random_float(seed) * (max_val - min_val);
+}
+
+@compute @workgroup_size(64, 1, 1)
+fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    // With 2D dispatch and workgroup_size(64, 1, 1):
+    // global_id.x = linear thread index across all workgroups
+    // global_id.y = second dimension for large dispatches  
+    let agent_index = global_id.x + global_id.y * 65535u * 64u;
+    let total_agents = arrayLength(&agents);
+    
+    if (agent_index >= total_agents) {
+        return;
+    }
+    
+    // Use multiple different seeds for better randomness, incorporating the random seed
+    let base_seed = agent_index * 2654435761u + sim_size.random_seed;
+    let x_seed = hash(base_seed);
+    let y_seed = hash(base_seed + 1013904223u);
+    let angle_seed = hash(base_seed + 1664525u);
+    
+    // Generate random position
+    let x = random_range(x_seed, 0.0, f32(sim_size.width));
+    let y = random_range(y_seed, 0.0, f32(sim_size.height));
+    
+    // Generate random angle
+    let angle = random_range(angle_seed, 0.0, TAU);
+    
+    // Set speed to average of min/max
+    let speed = (sim_size.agent_speed_min + sim_size.agent_speed_max) * 0.5;
+    
+    // Update agent
+    agents[agent_index] = vec4<f32>(x, y, angle, speed);
 } 

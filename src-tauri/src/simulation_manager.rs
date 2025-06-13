@@ -33,6 +33,7 @@ impl SimulationManager {
         &mut self,
         simulation_type: String,
         device: &Arc<Device>,
+        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -49,9 +50,10 @@ impl SimulationManager {
 
                 let simulation = SlimeMoldSimulation::new(
                     device,
+                    queue,
                     surface_config,
                     adapter_info,
-                    1_000_000, // agent_count - match frontend default
+                    10_000_000, // agent_count - 10M default
                     settings,
                     &self.lut_manager,
                     &available_luts,
@@ -342,9 +344,9 @@ impl SimulationManager {
         Ok(())
     }
 
-    pub fn reset_agents(&mut self, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn reset_agents(&mut self, device: &Arc<wgpu::Device>, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
-            simulation.reset_agents(queue);
+            simulation.reset_agents(device, queue);
         }
         Ok(())
     }

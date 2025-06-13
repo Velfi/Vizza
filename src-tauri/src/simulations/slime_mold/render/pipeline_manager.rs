@@ -7,6 +7,7 @@ pub struct PipelineManager {
     pub decay_pipeline: ComputePipeline,
     pub diffuse_pipeline: ComputePipeline,
     pub display_pipeline: ComputePipeline,
+    pub reset_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
     pub compute_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
@@ -205,6 +206,21 @@ impl PipelineManager {
             compilation_options: Default::default(),
         });
 
+        let reset_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Reset Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Reset Pipeline Layout"),
+                    bind_group_layouts: &[&compute_bind_group_layout],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            module: &shader_manager.compute_shader,
+            entry_point: Some("reset_agents"),
+            cache: None,
+            compilation_options: Default::default(),
+        });
+
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(
@@ -254,6 +270,7 @@ impl PipelineManager {
             decay_pipeline,
             diffuse_pipeline,
             display_pipeline,
+            reset_pipeline,
             render_pipeline,
             compute_bind_group_layout,
             display_bind_group_layout,

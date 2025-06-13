@@ -30,8 +30,8 @@ pub struct SimSizeUniform {
     pub gradient_center_y: f32,
     pub gradient_size: f32,
     pub gradient_angle: f32,
+    pub random_seed: u32,
     pub _pad1: u32,
-    pub _pad2: u32,
 }
 
 impl SimSizeUniform {
@@ -66,8 +66,8 @@ impl SimSizeUniform {
             gradient_center_y: settings.gradient_center_y,
             gradient_size: settings.gradient_size,
             gradient_angle: settings.gradient_angle,
+            random_seed: settings.random_seed,
             _pad1: 0,
-            _pad2: 0,
         }
     }
 }
@@ -109,6 +109,7 @@ impl SlimeMoldSimulation {
     /// Create a new slime mold simulation using Tauri's shared GPU resources
     pub fn new(
         device: &Arc<Device>,
+        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
         agent_count: usize,
@@ -250,7 +251,7 @@ impl SlimeMoldSimulation {
         // Create buffer pool
         let buffer_pool = BufferPool::new();
 
-        Ok(Self {
+        let mut simulation = Self {
             bind_group_manager,
             pipeline_manager,
             agent_buffer,
@@ -272,7 +273,12 @@ impl SlimeMoldSimulation {
             current_agent_buffer_size: agent_count as u64,
             current_width: physical_width,
             current_height: physical_height,
-        })
+        };
+
+        // Initialize agents using GPU compute shader instead of CPU
+        simulation.reset_agents(device, queue);
+
+        Ok(simulation)
     }
 
     /// Update simulation with new surface configuration (e.g., window resize)
@@ -495,10 +501,17 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let workgroups = self
-                .workgroup_config
-                .workgroups_2d(self.agent_count as u32, 1);
-            compute_pass.dispatch_workgroups(workgroups.0, workgroups.1, 1);
+            
+            // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
+            let workgroup_size = 16 * 16; // 256 threads per workgroup
+            let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
+            
+            // Calculate 2D dispatch grid
+            let max_workgroups_per_dim = 65535;
+            let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
+            let workgroups_y = (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+            
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
         // Decay pass
@@ -560,16 +573,49 @@ impl SlimeMoldSimulation {
         );
     }
 
-    /// Reset agents to random positions
-    pub fn reset_agents(&self, queue: &Arc<Queue>) {
-        reset_agents(
-            &self.agent_buffer,
+    /// Reset agents to random positions using GPU compute shader
+    pub fn reset_agents(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
+        tracing::info!("Resetting {} agents using GPU compute shader", self.agent_count);
+        
+        // Generate a new random seed for this reset
+        let new_seed = rand::random::<u32>();
+        self.settings.random_seed = new_seed;
+        
+        // Update the settings buffer with the new seed
+        update_settings(
+            &self.settings,
+            &self.sim_size_buffer,
             queue,
             self.display_texture.width(),
             self.display_texture.height(),
-            &self.settings,
-            self.agent_count,
         );
+        
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Reset Agents Encoder"),
+        });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Reset Agents Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.reset_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
+            
+            // Calculate workgroups for agents (using 2D dispatch to handle large counts)
+            let workgroup_size = 64; // From shader workgroup_size
+            let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
+            
+            // GPU workgroup limit is 65535 per dimension, so use 2D dispatch if needed
+            let max_workgroups_per_dim = 65535;
+            let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
+            let workgroups_y = (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+            
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        tracing::info!("GPU agent reset dispatch completed with seed: {}", new_seed);
     }
 
     /// Update a single setting by name
@@ -742,6 +788,9 @@ impl SlimeMoldSimulation {
         // Recreate bind groups with new agent buffer
         self.recreate_bind_groups(device);
 
+        // Initialize agents using GPU compute shader
+        self.reset_agents(device, queue);
+
         Ok(())
     }
 
@@ -775,97 +824,38 @@ impl Drop for SlimeMoldSimulation {
 fn create_agent_buffer(
     device: &wgpu::Device,
     agent_count: usize,
-    physical_width: u32,
-    physical_height: u32,
-    settings: &Settings,
+    _physical_width: u32,
+    _physical_height: u32,
+    _settings: &Settings,
 ) -> wgpu::Buffer {
-    let agent_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    // Create buffer without CPU initialization - GPU will initialize via reset shader
+    device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Buffer"),
         size: (agent_count * 4 * std::mem::size_of::<f32>()) as u64,
         usage: wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::COPY_SRC
             | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: true,
-    });
-
-    initialize_agent_buffer(
-        &agent_buffer,
-        agent_count,
-        physical_width,
-        physical_height,
-        settings,
-    );
-    agent_buffer
+        mapped_at_creation: false,
+    })
 }
 
 fn create_agent_buffer_pooled(
     buffer_pool: &mut BufferPool,
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    _queue: &wgpu::Queue,
     agent_count: usize,
-    physical_width: u32,
-    physical_height: u32,
-    settings: &Settings,
+    _physical_width: u32,
+    _physical_height: u32,
+    _settings: &Settings,
 ) -> wgpu::Buffer {
     let size = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
     let usage =
         wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
 
-    // Get buffer from pool
-    let agent_buffer = buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage);
-
-    // Initialize with agent data
-    let temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Temp Agent Init Buffer"),
-        size,
-        usage: wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: true,
-    });
-
-    initialize_agent_buffer(
-        &temp_buffer,
-        agent_count,
-        physical_width,
-        physical_height,
-        settings,
-    );
-
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Agent Buffer Init"),
-    });
-    encoder.copy_buffer_to_buffer(&temp_buffer, 0, &agent_buffer, 0, size);
-    queue.submit(std::iter::once(encoder.finish()));
-
-    agent_buffer
+    // Get buffer from pool - GPU will initialize via reset shader
+    buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage)
 }
 
-fn initialize_agent_buffer(
-    buffer: &wgpu::Buffer,
-    agent_count: usize,
-    physical_width: u32,
-    physical_height: u32,
-    settings: &Settings,
-) {
-    let mut buffer_slice = buffer.slice(..).get_mapped_range_mut();
-    let agent_data: &mut [f32] = bytemuck::cast_slice_mut(&mut buffer_slice);
-
-    for i in 0..agent_count {
-        let base_idx = i * 4;
-
-        // Random position
-        agent_data[base_idx] = rand::random::<f32>() * physical_width as f32;
-        agent_data[base_idx + 1] = rand::random::<f32>() * physical_height as f32;
-
-        // Random angle
-        agent_data[base_idx + 2] = rand::random::<f32>() * 2.0 * std::f32::consts::PI;
-
-        // Speed (average of min and max)
-        agent_data[base_idx + 3] = (settings.agent_speed_min + settings.agent_speed_max) / 2.0;
-    }
-
-    drop(buffer_slice);
-    buffer.unmap();
-}
 
 fn create_agent_buffer_with_scaling(
     buffer_pool: &mut BufferPool,
@@ -976,42 +966,6 @@ fn reset_trails(
     queue.write_buffer(trail_map_buffer, 0, &zero_data);
 }
 
-fn reset_agents(
-    agent_buffer: &wgpu::Buffer,
-    queue: &wgpu::Queue,
-    physical_width: u32,
-    physical_height: u32,
-    settings: &Settings,
-    agent_count: usize,
-) {
-    use rand::Rng;
-    
-    tracing::info!("Resetting {} agents to random positions", agent_count);
-    
-    let speed = (settings.agent_speed_min + settings.agent_speed_max) / 2.0;
-    let width = physical_width as f32;
-    let height = physical_height as f32;
-    
-    // Pre-allocate and fill vector efficiently 
-    let mut agent_data = Vec::with_capacity(agent_count * 4);
-    let mut rng = rand::thread_rng();
-    
-    // Generate data in chunks for better cache performance
-    const CHUNK_SIZE: usize = 1024;
-    for chunk_start in (0..agent_count).step_by(CHUNK_SIZE) {
-        let chunk_end = (chunk_start + CHUNK_SIZE).min(agent_count);
-        for _ in chunk_start..chunk_end {
-            agent_data.push(rng.gen::<f32>() * width);                      // x position
-            agent_data.push(rng.gen::<f32>() * height);                     // y position  
-            agent_data.push(rng.gen::<f32>() * 2.0 * std::f32::consts::PI); // angle
-            agent_data.push(speed);                                         // speed (constant)
-        }
-    }
-
-    tracing::info!("Writing {} bytes of agent data to GPU buffer", agent_data.len() * 4);
-    queue.write_buffer(agent_buffer, 0, bytemuck::cast_slice(&agent_data));
-    tracing::info!("Agent reset completed");
-}
 
 fn update_settings(
     settings: &Settings,

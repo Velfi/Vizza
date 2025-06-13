@@ -79,6 +79,10 @@ pub struct Settings {
     ///
     /// Defaults to 1 (every frame). Higher values improve performance.
     pub decay_frequency: u32,
+    /// Random seed for agent reset operations.
+    ///
+    /// This is updated whenever agents are reset to ensure different randomization.
+    pub random_seed: u32,
 }
 
 // Custom serialization for Range<f32>
@@ -130,6 +134,7 @@ impl Default for Settings {
             gradient_angle: 0.0,
             diffusion_frequency: 1,
             decay_frequency: 1,
+            random_seed: 0,
         }
     }
 }
