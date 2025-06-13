@@ -1,100 +1,25 @@
 <script lang="ts">
-  import { message } from '@tauri-apps/plugin-dialog';
-  import { openUrl } from '@tauri-apps/plugin-opener';
-  import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import MainMenu from './lib/MainMenu.svelte';
+  import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
 
-  let greetInput = '';
-  let greetMsg = '';
+  type AppMode = 'menu' | 'slime-mold';
+  let currentMode: AppMode = 'menu';
 
-  async function openExternalLink(url: string) {
-    try {
-      await openUrl(url);
-    } catch (error) {
-      console.error('Failed to open link:', error);
-      await message('Failed to open link', { title: 'Error', kind: 'error' });
-    }
+  function navigateToMode(mode: AppMode) {
+    currentMode = mode;
   }
 
-  async function showAlert(msg: string, title = 'Alert') {
-    try {
-      await message(msg, { title, kind: 'info' });
-    } catch (error) {
-      console.error('Failed to show alert:', error);
-    }
-  }
-
-  async function greet(event: Event) {
-    event.preventDefault();
-    if (greetInput) {
-      greetMsg = `Hello, ${greetInput}!`;
-      await showAlert(`Hello, ${greetInput}! Welcome to Tauri with Svelte!`);
-    }
-  }
-
-  async function testAlert() {
-    await showAlert('This is a test alert from Tauri with Svelte!', 'Test Alert');
-  }
-
-  onMount(() => {
-    let running = true;
-    async function renderLoop() {
-      if (!running) return;
-      try {
-        await invoke('render_frame');
-      } catch (e) {
-        // Optionally handle errors
-        console.error(e);
-      }
-      requestAnimationFrame(renderLoop);
-    }
-
-    // Start the simulation, then start the render loop
-    invoke('start_slime_mold_simulation').then(() => {
-      renderLoop();
-    });
-
-    return () => {
-      running = false;
-    };
-  });
-
-  // Make functions available globally
-  if (typeof window !== 'undefined') {
-    (window as any).showTauriAlert = showAlert;
-    (window as any).openTauriLink = openExternalLink;
+  function returnToMenu() {
+    currentMode = 'menu';
   }
 </script>
 
 <main>
-  <div class="container">
-    <h1>Welcome to Tauri + Svelte!</h1>
-
-    <div class="row">
-      <button class="logo-button" on:click={() => openExternalLink('https://vitejs.dev')}>
-        <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-      </button>
-      <button class="logo-button" on:click={() => openExternalLink('https://tauri.app')}>
-        <img src="/src/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </button>
-      <button class="logo-button" on:click={() => openExternalLink('https://www.typescriptlang.org/docs')}>
-        <img src="/src/assets/typescript.svg" class="logo typescript" alt="TypeScript logo" />
-      </button>
-    </div>
-
-    <p>Click on the logos to learn more about each framework</p>
-
-    <form class="row" on:submit={greet}>
-      <input bind:value={greetInput} placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-
-    {#if greetMsg}
-      <p id="greet-msg">{greetMsg}</p>
-    {/if}
-
-    <button class="test-button" on:click={testAlert}>Test Alert</button>
-  </div>
+  {#if currentMode === 'menu'}
+    <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
+  {:else if currentMode === 'slime-mold'}
+    <SlimeMoldMode on:back={returnToMenu} />
+  {/if}
 </main>
 
 <style>

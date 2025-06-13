@@ -8,8 +8,10 @@ use tracing::{info, debug};
 
 mod simulation_manager;
 mod simulations;
+mod main_menu_renderer;
 
 use simulation_manager::SimulationManager;
+use main_menu_renderer::MainMenuRenderer;
 
 /// Unified GPU context managed by Tauri with surface
 pub struct GpuContext {
@@ -19,6 +21,7 @@ pub struct GpuContext {
     pub adapter_info: wgpu::AdapterInfo,
     pub surface: Surface<'static>,
     pub surface_config: Arc<tokio::sync::Mutex<SurfaceConfiguration>>,
+    pub main_menu_renderer: MainMenuRenderer,
 }
 
 impl GpuContext {
@@ -87,13 +90,18 @@ impl GpuContext {
         
         println!("Surface initialized successfully: {}x{}", surface_config.width, surface_config.height);
 
+        // Create main menu renderer
+        let device_arc = Arc::new(device);
+        let main_menu_renderer = MainMenuRenderer::new(&device_arc, &surface_config)?;
+
         Ok(Self {
-            device: Arc::new(device),
+            device: device_arc,
             queue: Arc::new(queue),
             instance,
             adapter_info,
             surface,
             surface_config: Arc::new(tokio::sync::Mutex::new(surface_config)),
+            main_menu_renderer,
         })
     }
 
@@ -175,8 +183,28 @@ async fn render_frame(
     
     // Check if simulation is running
     if !sim_manager.is_running() {
-        debug!("No simulation running");
-        return Ok("No simulation running".to_string());
+        debug!("No simulation running - rendering main menu triangle");
+        // Render triangle when no simulation is running
+        match gpu_ctx.get_current_texture() {
+            Ok(output) => {
+                let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                
+                match gpu_ctx.main_menu_renderer.render(&gpu_ctx.device, &gpu_ctx.queue, &view) {
+                    Ok(_) => {
+                        output.present();
+                        return Ok("Triangle rendered".to_string());
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to render triangle: {}", e);
+                        return Err(format!("Failed to render triangle: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to get surface texture for triangle: {}", e);
+                return Err(format!("Failed to get surface texture for triangle: {}", e));
+            }
+        }
     }
     
     // Get surface texture
