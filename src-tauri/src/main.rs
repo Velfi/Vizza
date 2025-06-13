@@ -4,7 +4,6 @@
 use std::sync::Arc;
 use tauri::{Manager, State, WebviewWindow, Emitter};
 use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
-use tracing::{info, debug};
 
 mod simulation_manager;
 mod simulations;
@@ -129,8 +128,9 @@ impl GpuContext {
 async fn start_slime_mold_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    app: tauri::AppHandle,
 ) -> Result<String, String> {
-    info!("start_slime_mold_simulation called");
+    tracing::info!("start_slime_mold_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     
@@ -145,7 +145,20 @@ async fn start_slime_mold_simulation(
         &gpu_ctx.adapter_info,
     ).await {
         Ok(_) => {
-            info!("Slime mold simulation started successfully");
+            tracing::info!("Slime mold simulation started successfully");
+            
+            // Start the backend render loop
+            sim_manager.start_render_loop(
+                app.clone(),
+                gpu_context.inner().clone(),
+                manager.inner().clone(),
+            );
+            
+            // Emit event to notify frontend that simulation is initialized
+            if let Err(e) = app.emit("simulation-initialized", ()) {
+                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
+            }
+            
             Ok("Slime mold simulation started successfully".to_string())
         },
         Err(e) => {
@@ -160,6 +173,7 @@ async fn stop_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
+    sim_manager.stop_render_loop();
     sim_manager.stop_simulation();
     Ok("Simulation stopped".to_string())
 }
@@ -183,7 +197,6 @@ async fn render_frame(
     
     // Check if simulation is running
     if !sim_manager.is_running() {
-        debug!("No simulation running - rendering main menu triangle");
         // Render triangle when no simulation is running
         match gpu_ctx.get_current_texture() {
             Ok(output) => {
@@ -270,6 +283,285 @@ async fn check_gpu_context_ready(
     }
 }
 
+#[tauri::command]
+async fn update_simulation_setting(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    setting_name: String,
+    value: serde_json::Value,
+) -> Result<String, String> {
+    tracing::info!("update_simulation_setting called: {} = {:?}", setting_name, value);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.update_setting(&setting_name, value, &gpu_ctx.queue) {
+        Ok(_) => Ok(format!("Setting {} updated successfully", setting_name)),
+        Err(e) => {
+            tracing::error!("Failed to update setting {}: {}", setting_name, e);
+            Err(format!("Failed to update setting {}: {}", setting_name, e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn update_agent_count(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    count: u32,
+) -> Result<String, String> {
+    tracing::info!("update_agent_count called with count: {}", count);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    // Get current surface configuration
+    let surface_config = gpu_ctx.surface_config.lock().await.clone();
+    
+    match sim_manager.update_agent_count(
+        count,
+        &gpu_ctx.device,
+        &gpu_ctx.queue,
+        &surface_config,
+        &gpu_ctx.adapter_info,
+    ).await {
+        Ok(_) => Ok(format!("Agent count updated to {}", count)),
+        Err(e) => {
+            tracing::error!("Failed to update agent count: {}", e);
+            Err(format!("Failed to update agent count: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_available_presets(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<String>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_available_presets())
+}
+
+#[tauri::command]
+async fn apply_preset(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    preset_name: String,
+) -> Result<String, String> {
+    tracing::info!("apply_preset called: {}", preset_name);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.apply_preset(&preset_name, &gpu_ctx.queue) {
+        Ok(_) => Ok(format!("Preset '{}' applied successfully", preset_name)),
+        Err(e) => {
+            tracing::error!("Failed to apply preset {}: {}", preset_name, e);
+            Err(format!("Failed to apply preset {}: {}", preset_name, e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn save_preset(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    preset_name: String,
+) -> Result<String, String> {
+    tracing::info!("save_preset called: {}", preset_name);
+    let sim_manager = manager.lock().await;
+    
+    if let Some(current_settings) = sim_manager.get_current_settings() {
+        match sim_manager.save_preset(&preset_name, &current_settings) {
+            Ok(_) => Ok(format!("Preset '{}' saved successfully", preset_name)),
+            Err(e) => {
+                tracing::error!("Failed to save preset {}: {}", preset_name, e);
+                Err(format!("Failed to save preset {}: {}", preset_name, e))
+            }
+        }
+    } else {
+        Err("No active simulation to save preset from".to_string())
+    }
+}
+
+#[tauri::command]
+async fn delete_preset(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    preset_name: String,
+) -> Result<String, String> {
+    tracing::info!("delete_preset called: {}", preset_name);
+    let mut sim_manager = manager.lock().await;
+    
+    match sim_manager.delete_preset(&preset_name) {
+        Ok(_) => Ok(format!("Preset '{}' deleted successfully", preset_name)),
+        Err(e) => {
+            tracing::error!("Failed to delete preset {}: {}", preset_name, e);
+            Err(format!("Failed to delete preset {}: {}", preset_name, e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_available_luts(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<String>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_available_luts())
+}
+
+#[tauri::command]
+async fn apply_lut_by_index(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    lut_index: usize,
+) -> Result<String, String> {
+    tracing::info!("apply_lut_by_index called: {}", lut_index);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.apply_lut_by_index(lut_index, &gpu_ctx.queue) {
+        Ok(_) => Ok(format!("LUT at index {} applied successfully", lut_index)),
+        Err(e) => {
+            tracing::error!("Failed to apply LUT at index {}: {}", lut_index, e);
+            Err(format!("Failed to apply LUT at index {}: {}", lut_index, e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn apply_lut_by_name(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    lut_name: String,
+) -> Result<String, String> {
+    tracing::info!("apply_lut_by_name called: {}", lut_name);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.apply_lut(&lut_name, &gpu_ctx.queue) {
+        Ok(_) => Ok(format!("LUT '{}' applied successfully", lut_name)),
+        Err(e) => {
+            tracing::error!("Failed to apply LUT {}: {}", lut_name, e);
+            Err(format!("Failed to apply LUT {}: {}", lut_name, e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn toggle_lut_reversed(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("toggle_lut_reversed called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.reverse_current_lut(&gpu_ctx.queue) {
+        Ok(_) => Ok("LUT reversed toggled successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to toggle LUT reversed: {}", e);
+            Err(format!("Failed to toggle LUT reversed: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_current_settings(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Option<serde_json::Value>, String> {
+    let sim_manager = manager.lock().await;
+    if let Some(settings) = sim_manager.get_current_settings() {
+        match serde_json::to_value(&settings) {
+            Ok(json_settings) => Ok(Some(json_settings)),
+            Err(e) => Err(format!("Failed to serialize settings: {}", e))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn set_fps_limit(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    enabled: bool,
+    limit: u32,
+) -> Result<String, String> {
+    let sim_manager = manager.lock().await;
+    sim_manager.set_fps_limit(enabled, limit);
+    Ok(format!("FPS limit set to {} (enabled: {})", limit, enabled))
+}
+
+#[tauri::command]
+async fn reset_trails(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("reset_trails called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.reset_trails(&gpu_ctx.queue) {
+        Ok(_) => Ok("Trails reset successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to reset trails: {}", e);
+            Err(format!("Failed to reset trails: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn reset_agents(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("reset_agents called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.reset_agents(&gpu_ctx.queue) {
+        Ok(_) => Ok("Agents reset successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to reset agents: {}", e);
+            Err(format!("Failed to reset agents: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn randomize_settings(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    // Get current settings and agent count
+    let mut settings = if let Some(current) = sim_manager.get_current_settings() {
+        current
+    } else {
+        crate::simulations::slime_mold::Settings::default()
+    };
+
+    // Randomize settings (logic from app.rs)
+    settings.pheromone_decay_rate = rand::random::<f32>() * 10.0;
+    settings.pheromone_deposition_rate = rand::random::<f32>() * 100.0 / 100.0;
+    settings.pheromone_diffusion_rate = rand::random::<f32>() * 100.0 / 100.0;
+    settings.agent_speed_min = rand::random::<f32>() * 500.0;
+    settings.agent_speed_max = settings.agent_speed_min + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
+    settings.agent_turn_rate = (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0;
+    settings.agent_jitter = rand::random::<f32>() * 5.0;
+    settings.agent_sensor_angle = (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0;
+    settings.agent_sensor_distance = rand::random::<f32>() * 500.0;
+    settings.gradient_type = crate::simulations::slime_mold::settings::GradientType::Disabled;
+    settings.gradient_strength = 0.5;
+    settings.gradient_center_x = 0.5;
+    settings.gradient_center_y = 0.5;
+    settings.gradient_size = 1.0;
+    settings.gradient_angle = 0.0;
+    let start = rand::random::<f32>() * 360.0;
+    let end = start + rand::random::<f32>() * (360.0 - start);
+    settings.agent_possible_starting_headings = start..end;
+
+    // Apply new settings
+    sim_manager.apply_preset_settings(settings, &gpu_ctx.queue).map_err(|e| e.to_string())?;
+    Ok("Settings randomized successfully".to_string())
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     tauri::Builder::default()
@@ -280,6 +572,22 @@ fn main() {
 
             // Get the main window
             let window = app.get_webview_window("main").unwrap();
+            window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(0, 0))).expect("Failed to set window position");
+
+            // Set window size to active monitor dimensions
+            if let Ok(monitor) = window.current_monitor() {
+                if let Some(monitor) = monitor {
+                    let size = monitor.size();
+                    if let Err(e) = window.set_size(tauri::Size::Physical(*size)) {
+                        tracing::warn!("Failed to set window size to monitor dimensions: {}", e);
+                    } else {
+                        tracing::info!("Window sized to monitor dimensions: {}x{}", size.width, size.height);
+                        
+                        // Force a resize event to ensure GPU surface is properly configured
+                        // This will be handled by the frontend resize listener in App.svelte
+                    }
+                }
+            }
 
             // Initialize GPU context with surface on main thread (synchronously)
             let app_handle = app.handle().clone();
@@ -287,7 +595,7 @@ fn main() {
                 Ok(gpu_context) => {
                     let gpu_context = Arc::new(tokio::sync::Mutex::new(gpu_context));
                     app.manage(gpu_context);
-                    info!("GPU context with surface initialized successfully");
+                    tracing::info!("GPU context with surface initialized successfully");
                     // Emit event to frontend that GPU context is ready
                     let _ = app_handle.emit("gpu-context-ready", ());
                 }
@@ -305,7 +613,22 @@ fn main() {
             get_simulation_status,
             render_frame,
             handle_window_resize,
-            check_gpu_context_ready
+            check_gpu_context_ready,
+            update_simulation_setting,
+            update_agent_count,
+            get_available_presets,
+            apply_preset,
+            save_preset,
+            delete_preset,
+            get_available_luts,
+            apply_lut_by_index,
+            apply_lut_by_name,
+            toggle_lut_reversed,
+            get_current_settings,
+            set_fps_limit,
+            reset_trails,
+            reset_agents,
+            randomize_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

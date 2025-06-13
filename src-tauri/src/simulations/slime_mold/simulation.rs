@@ -95,6 +95,10 @@ pub struct SlimeMoldSimulation {
     pub current_trail_map_size: u64,
     pub current_gradient_buffer_size: u64,
     pub current_agent_buffer_size: u64,
+    
+    // Dimension tracking for resize scaling
+    pub current_width: u32,
+    pub current_height: u32,
 }
 
 impl SlimeMoldSimulation {
@@ -264,6 +268,8 @@ impl SlimeMoldSimulation {
             current_trail_map_size: trail_map_size as u64,
             current_gradient_buffer_size: trail_map_size as u64,
             current_agent_buffer_size: agent_count as u64,
+            current_width: physical_width,
+            current_height: physical_height,
         })
     }
 
@@ -344,21 +350,44 @@ impl SlimeMoldSimulation {
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
 
-        // For agent buffer, we need special handling since it needs initialization
-        self.agent_buffer = create_agent_buffer_pooled(
+        // For agent buffer, we need special handling to preserve and scale existing positions
+        let old_agent_buffer = std::mem::replace(
+            &mut self.agent_buffer,
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Temp Agent Buffer"),
+                size: 1,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            })
+        );
+
+        // Create new agent buffer and scale existing positions
+        self.agent_buffer = create_agent_buffer_with_scaling(
             &mut self.buffer_pool,
             device,
             queue,
+            &old_agent_buffer,
             self.agent_count,
+            self.current_width,
+            self.current_height,
             physical_width,
             physical_height,
             &self.settings,
         );
 
-        // Update current sizes
+        // Return old buffer to pool
+        self.buffer_pool.return_buffer(
+            old_agent_buffer,
+            self.current_agent_buffer_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        );
+
+        // Update current sizes and dimensions
         self.current_trail_map_size = trail_map_size_bytes;
         self.current_gradient_buffer_size = trail_map_size_bytes;
         self.current_agent_buffer_size = agent_buffer_size_bytes;
+        self.current_width = physical_width;
+        self.current_height = physical_height;
 
         // Recreate display texture with new dimensions
         let max_texture_dimension = device.limits().max_texture_dimension_2d;
@@ -543,6 +572,178 @@ impl SlimeMoldSimulation {
         self.buffer_pool.clear();
     }
 
+    /// Update a single setting by name
+    pub fn update_setting(
+        &mut self,
+        setting_name: &str,
+        value: serde_json::Value,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use super::settings::GradientType;
+        
+        match setting_name {
+            "pheromone_decay_rate" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.pheromone_decay_rate = v as f32;
+                }
+            }
+            "pheromone_deposition_rate" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.pheromone_deposition_rate = v as f32;
+                }
+            }
+            "pheromone_diffusion_rate" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.pheromone_diffusion_rate = v as f32;
+                }
+            }
+            "decay_frequency" => {
+                if let Some(v) = value.as_u64() {
+                    self.settings.decay_frequency = v as u32;
+                }
+            }
+            "diffusion_frequency" => {
+                if let Some(v) = value.as_u64() {
+                    self.settings.diffusion_frequency = v as u32;
+                }
+            }
+            "agent_speed_min" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_speed_min = v as f32;
+                }
+            }
+            "agent_speed_max" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_speed_max = v as f32;
+                }
+            }
+            "agent_turn_rate" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_turn_rate = v as f32;
+                }
+            }
+            "agent_jitter" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_jitter = v as f32;
+                }
+            }
+            "agent_sensor_angle" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_sensor_angle = v as f32;
+                }
+            }
+            "agent_sensor_distance" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.agent_sensor_distance = v as f32;
+                }
+            }
+            "gradient_type" => {
+                if let Some(v) = value.as_str() {
+                    self.settings.gradient_type = match v {
+                        "disabled" => GradientType::Disabled,
+                        "linear" => GradientType::Linear,
+                        "radial" => GradientType::Radial,
+                        "ellipse" => GradientType::Ellipse,
+                        "spiral" => GradientType::Spiral,
+                        "checkerboard" => GradientType::Checkerboard,
+                        _ => GradientType::Disabled,
+                    };
+                }
+            }
+            "gradient_strength" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.gradient_strength = v as f32;
+                }
+            }
+            "gradient_center_x" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.gradient_center_x = v as f32;
+                }
+            }
+            "gradient_center_y" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.gradient_center_y = v as f32;
+                }
+            }
+            "gradient_size" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.gradient_size = v as f32;
+                }
+            }
+            "gradient_angle" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.gradient_angle = v as f32;
+                }
+            }
+            _ => {
+                return Err(format!("Unknown setting: {}", setting_name).into());
+            }
+        }
+        
+        // Update the GPU uniforms with the new settings
+        update_settings(
+            &self.settings,
+            &self.sim_size_buffer,
+            queue,
+            self.display_texture.width(),
+            self.display_texture.height(),
+        );
+        
+        Ok(())
+    }
+
+    /// Update agent count (requires buffer recreation)
+    pub async fn update_agent_count(
+        &mut self,
+        count: u32,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_config: &SurfaceConfiguration,
+        adapter_info: &wgpu::AdapterInfo,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.agent_count = count as usize;
+        
+        // Recreate the agent buffer with new count
+        let agent_buffer_size_bytes = (self.agent_count * 4 * std::mem::size_of::<f32>()) as u64;
+        
+        // Return old buffer to pool
+        let old_agent_buffer = std::mem::replace(
+            &mut self.agent_buffer,
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Temp Agent Buffer"),
+                size: 1,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            })
+        );
+        self.buffer_pool.return_buffer(
+            old_agent_buffer,
+            self.current_agent_buffer_size,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        );
+        
+        // Create new agent buffer with new count
+        let physical_width = surface_config.width;
+        let physical_height = surface_config.height;
+        
+        self.agent_buffer = create_agent_buffer_pooled(
+            &mut self.buffer_pool,
+            device,
+            queue,
+            self.agent_count,
+            physical_width,
+            physical_height,
+            &self.settings,
+        );
+        
+        self.current_agent_buffer_size = agent_buffer_size_bytes;
+        
+        // Recreate bind groups with new agent buffer
+        self.recreate_bind_groups(device);
+        
+        Ok(())
+    }
+
     /// Recreate bind groups (called after buffer/texture changes)
     fn recreate_bind_groups(&mut self, device: &Arc<Device>) {
         self.bind_group_manager = BindGroupManager::new(
@@ -649,6 +850,95 @@ fn initialize_agent_buffer(
     
     drop(buffer_slice);
     buffer.unmap();
+}
+
+fn create_agent_buffer_with_scaling(
+    buffer_pool: &mut BufferPool,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    old_buffer: &wgpu::Buffer,
+    agent_count: usize,
+    old_width: u32,
+    old_height: u32,
+    new_width: u32,
+    new_height: u32,
+    settings: &Settings,
+) -> wgpu::Buffer {
+    let size = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
+    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+    
+    // Get new buffer from pool
+    let new_buffer = buffer_pool.get_buffer(device, Some("Scaled Agent Buffer"), size, usage);
+    
+    // Calculate scaling factors
+    let scale_x = new_width as f32 / old_width as f32;
+    let scale_y = new_height as f32 / old_height as f32;
+    
+    // Create staging buffer to read old data and write scaled data
+    let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Agent Scaling Staging Buffer"),
+        size,
+        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::MAP_WRITE,
+        mapped_at_creation: false,
+    });
+    
+    // Copy old buffer to staging for reading
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Agent Scaling Copy Old"),
+    });
+    encoder.copy_buffer_to_buffer(old_buffer, 0, &staging_buffer, 0, size);
+    queue.submit(std::iter::once(encoder.finish()));
+    
+    // Wait for copy to complete and map for reading
+    let (sender, receiver) = std::sync::mpsc::channel();
+    staging_buffer.slice(..).map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    receiver.recv().unwrap().unwrap();
+
+    // Read old data and scale positions
+    {
+        let buffer_slice = staging_buffer.slice(..).get_mapped_range();
+        let old_agent_data: &[f32] = bytemuck::cast_slice(&buffer_slice);
+        
+        // Create new buffer for scaled data
+        let new_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Agent Scaling New Staging Buffer"),
+            size,
+            usage: wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: true,
+        });
+        
+        let mut new_buffer_slice = new_staging_buffer.slice(..).get_mapped_range_mut();
+        let new_agent_data: &mut [f32] = bytemuck::cast_slice_mut(&mut new_buffer_slice);
+        
+        for i in 0..agent_count {
+            let base_idx = i * 4;
+            
+            // Scale X and Y positions, clamp to new boundaries
+            new_agent_data[base_idx] = (old_agent_data[base_idx] * scale_x).min(new_width as f32).max(0.0);
+            new_agent_data[base_idx + 1] = (old_agent_data[base_idx + 1] * scale_y).min(new_height as f32).max(0.0);
+            
+            // Keep angle unchanged
+            new_agent_data[base_idx + 2] = old_agent_data[base_idx + 2];
+            
+            // Keep speed unchanged  
+            new_agent_data[base_idx + 3] = old_agent_data[base_idx + 3];
+        }
+        
+        drop(new_buffer_slice);
+        new_staging_buffer.unmap();
+        
+        // Copy scaled data to final buffer
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Agent Scaling Copy New"),
+        });
+        encoder.copy_buffer_to_buffer(&new_staging_buffer, 0, &new_buffer, 0, size);
+        queue.submit(std::iter::once(encoder.finish()));
+    }
+    
+    staging_buffer.unmap();
+    
+    new_buffer
 }
 
 fn reset_trails(

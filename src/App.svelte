@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import MainMenu from './lib/MainMenu.svelte';
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
 
@@ -12,6 +14,39 @@
   function returnToMenu() {
     currentMode = 'menu';
   }
+
+  // Handle window resize events
+  async function handleResize() {
+    try {
+      // Convert logical pixels to physical pixels using device pixel ratio
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const logicalWidth = window.innerWidth;
+      const logicalHeight = window.innerHeight;
+      const physicalWidth = Math.round(logicalWidth * devicePixelRatio);
+      const physicalHeight = Math.round(logicalHeight * devicePixelRatio);
+      
+      console.log(`Resize: Logical ${logicalWidth}x${logicalHeight}, Physical ${physicalWidth}x${physicalHeight}, DPR ${devicePixelRatio}`);
+      
+      await invoke('handle_window_resize', { 
+        width: physicalWidth, 
+        height: physicalHeight 
+      });
+    } catch (e) {
+      console.error('Failed to handle window resize:', e);
+    }
+  }
+
+  onMount(() => {
+    // Listen for resize events
+    window.addEventListener('resize', handleResize);
+    
+    // Send initial size
+    handleResize();
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  });
 </script>
 
 <main>

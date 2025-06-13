@@ -1,12 +1,10 @@
 //! Presets for the simulation
 
-use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use toml;
-use tracing::{debug, error, info, warn};
 use super::settings::{GradientType, Settings};
 use dirs::home_dir;
 
@@ -229,7 +227,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 300.0,
             agent_sensor_angle: 1.95,
             agent_sensor_distance: 60.0,
-            pheromone_decay_rate: 30.0,
+            pheromone_decay_rate: 3.0,
             ..Settings::default()
         },
     ));
@@ -238,7 +236,7 @@ pub fn init_preset_manager() -> PresetManager {
         Settings {
             agent_jitter: 3.0,
             agent_turn_rate: 6.0,
-            agent_speed_min: 100.0,
+            agent_speed_min: 99.0,
             agent_speed_max: 100.0,
             agent_sensor_angle: 1.57,
             agent_sensor_distance: 225.0,
@@ -255,7 +253,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 482.086_7,
             agent_speed_min: 426.720_86,
             agent_turn_rate: 4.969_109_5,
-            pheromone_decay_rate: 100.0,
+            pheromone_decay_rate: 10.0,
             pheromone_deposition_rate: 0.435_905_75,
             pheromone_diffusion_rate: 0.474_814_41,
             gradient_type: GradientType::Disabled,
@@ -291,7 +289,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_speed_max: 447.087_68,
             agent_speed_min: 416.390_87,
             agent_turn_rate: 2.136_445_8,
-            pheromone_decay_rate: 15.0,
+            pheromone_decay_rate: 50.0,
             pheromone_deposition_rate: 0.633_740_1,
             pheromone_diffusion_rate: 0.079_050_72,
             ..Settings::default()

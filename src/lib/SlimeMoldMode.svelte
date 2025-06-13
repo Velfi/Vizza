@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
 
   const dispatch = createEventDispatcher();
 
@@ -38,15 +39,9 @@
   };
 
   // Preset and LUT state
-  let current_preset = 'default';
-  let available_presets = ['default', 'dense', 'sparse', 'fast', 'slow'];
-  let available_luts = [
-    'MATPLOTLIB_bone_r',
-    'MATPLOTLIB_viridis',
-    'MATPLOTLIB_plasma',
-    'MATPLOTLIB_magma',
-    'MATPLOTLIB_inferno'
-  ];
+  let current_preset = '';
+  let available_presets: string[] = [];
+  let available_luts: string[] = [];
 
   // Dialog state
   let show_save_preset_dialog = false;
@@ -64,80 +59,313 @@
   $: gradient_center_y_percent = settings.gradient_center_y * 100;
 
   // Two-way binding handlers
-  function updateAgentCount(value: number) {
+  async function updateAgentCount(value: number) {
     settings.agent_count = fromMillions(value);
-    dispatch('command', { type: 'SetAgentCount', value: settings.agent_count });
+    try {
+      await invoke('update_agent_count', { count: settings.agent_count });
+    } catch (e) {
+      console.error('Failed to update agent count:', e);
+    }
   }
 
-  function updateGradientCenterX(value: number) {
+  async function updateGradientCenterX(value: number) {
     settings.gradient_center_x = value / 100;
-    dispatch('command', { type: 'SetSetting', value: { name: 'gradient_center_x', value: settings.gradient_center_x } });
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_center_x', 
+        value: settings.gradient_center_x 
+      });
+    } catch (e) {
+      console.error('Failed to update gradient center X:', e);
+    }
   }
 
-  function updateGradientCenterY(value: number) {
+  async function updateGradientCenterY(value: number) {
     settings.gradient_center_y = value / 100;
-    dispatch('command', { type: 'SetSetting', value: { name: 'gradient_center_y', value: settings.gradient_center_y } });
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_center_y', 
+        value: settings.gradient_center_y 
+      });
+    } catch (e) {
+      console.error('Failed to update gradient center Y:', e);
+    }
   }
 
-  function updateTurnRate(value: number) {
+  async function updateTurnRate(value: number) {
     settings.agent_turn_rate = value;
-    dispatch('command', { type: 'SetSetting', value: { name: 'agent_turn_rate', value: settings.agent_turn_rate } });
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_turn_rate', 
+        value: settings.agent_turn_rate 
+      });
+    } catch (e) {
+      console.error('Failed to update turn rate:', e);
+    }
   }
 
-  function updateSensorAngle(value: number) {
+  async function updateSensorAngle(value: number) {
     settings.agent_sensor_angle = value;
-    dispatch('command', { type: 'SetSetting', value: { name: 'agent_sensor_angle', value: settings.agent_sensor_angle } });
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_sensor_angle', 
+        value: settings.agent_sensor_angle 
+      });
+    } catch (e) {
+      console.error('Failed to update sensor angle:', e);
+    }
   }
 
-  function updateFpsLimit(value: number) {
+  async function updateFpsLimit(value: number) {
     settings.fps_limit = value;
-    dispatch('command', { type: 'SetFpsLimit', value: settings.fps_limit });
+    try {
+      await invoke('set_fps_limit', { 
+        enabled: settings.fps_limit_enabled, 
+        limit: settings.fps_limit 
+      });
+      console.log(`FPS limit set to: ${value}`);
+    } catch (e) {
+      console.error('Failed to update FPS limit:', e);
+    }
   }
 
-  function updateFpsLimitEnabled(value: boolean) {
+  async function updateFpsLimitEnabled(value: boolean) {
     settings.fps_limit_enabled = value;
-    dispatch('command', { type: 'SetFpsLimitEnabled', value: settings.fps_limit_enabled });
+    try {
+      await invoke('set_fps_limit', { 
+        enabled: settings.fps_limit_enabled, 
+        limit: settings.fps_limit 
+      });
+      console.log(`FPS limiting ${value ? 'enabled' : 'disabled'}`);
+    } catch (e) {
+      console.error('Failed to update FPS limit enabled:', e);
+    }
   }
 
-  function updateLutIndex(value: number) {
+  async function updateLutIndex(value: number) {
     settings.lut_index = value;
-    dispatch('command', { type: 'SetLutIndex', value: settings.lut_index });
+    try {
+      await invoke('apply_lut_by_index', { lutIndex: value });
+    } catch (e) {
+      console.error('Failed to update LUT index:', e);
+    }
   }
 
-  function updateLutReversed(value: boolean) {
+  async function updateLutReversed(value: boolean) {
     settings.lut_reversed = value;
-    dispatch('command', { type: 'SetLutReversed' });
+    try {
+      await invoke('toggle_lut_reversed');
+    } catch (e) {
+      console.error('Failed to toggle LUT reversed:', e);
+    }
   }
 
-  function updatePreset(value: string) {
+  // Helper functions for direct input event handlers
+  async function handlePheromoneDecayRate(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.pheromone_decay_rate = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'pheromone_decay_rate', 
+        value: settings.pheromone_decay_rate 
+      });
+    } catch (err) {
+      console.error('Failed to update pheromone decay rate:', err);
+    }
+  }
+
+  async function handlePheromoneDepositionRate(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.pheromone_deposition_rate = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'pheromone_deposition_rate', 
+        value: settings.pheromone_deposition_rate 
+      });
+    } catch (err) {
+      console.error('Failed to update pheromone deposition rate:', err);
+    }
+  }
+
+  async function handlePheromoneDiffusionRate(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.pheromone_diffusion_rate = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'pheromone_diffusion_rate', 
+        value: settings.pheromone_diffusion_rate 
+      });
+    } catch (err) {
+      console.error('Failed to update pheromone diffusion rate:', err);
+    }
+  }
+
+  async function handleAgentSpeedMin(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.agent_speed_min = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_speed_min', 
+        value: settings.agent_speed_min 
+      });
+    } catch (err) {
+      console.error('Failed to update min speed:', err);
+    }
+  }
+
+  async function handleAgentSpeedMax(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.agent_speed_max = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_speed_max', 
+        value: settings.agent_speed_max 
+      });
+    } catch (err) {
+      console.error('Failed to update max speed:', err);
+    }
+  }
+
+  async function handleAgentJitter(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.agent_jitter = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_jitter', 
+        value: settings.agent_jitter 
+      });
+    } catch (err) {
+      console.error('Failed to update agent jitter:', err);
+    }
+  }
+
+  async function handleAgentSensorDistance(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.agent_sensor_distance = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'agent_sensor_distance', 
+        value: settings.agent_sensor_distance 
+      });
+    } catch (err) {
+      console.error('Failed to update sensor distance:', err);
+    }
+  }
+
+  async function handleGradientType(e: Event) {
+    const value = (e.target as HTMLSelectElement).value;
+    settings.gradient_type = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_type', 
+        value: settings.gradient_type 
+      });
+    } catch (err) {
+      console.error('Failed to update gradient type:', err);
+    }
+  }
+
+  async function handleGradientStrength(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.gradient_strength = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_strength', 
+        value: settings.gradient_strength 
+      });
+    } catch (err) {
+      console.error('Failed to update gradient strength:', err);
+    }
+  }
+
+  async function handleGradientSize(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.gradient_size = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_size', 
+        value: settings.gradient_size 
+      });
+    } catch (err) {
+      console.error('Failed to update gradient size:', err);
+    }
+  }
+
+  async function handleGradientAngle(e: Event) {
+    const value = parseFloat((e.target as HTMLInputElement).value);
+    settings.gradient_angle = value;
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName: 'gradient_angle', 
+        value: settings.gradient_angle 
+      });
+    } catch (err) {
+      console.error('Failed to update gradient angle:', err);
+    }
+  }
+
+  async function updatePreset(value: string) {
     current_preset = value;
-    dispatch('command', { type: 'ApplyPreset', value: current_preset });
+    try {
+      await invoke('apply_preset', { presetName: value });
+      await invoke('reset_trails'); // Clear all existing trails
+      await invoke('reset_agents'); // Reset agents to new positions with preset settings
+      await syncSettingsFromBackend(); // Sync UI with new settings
+      console.log(`Applied preset: ${value}`);
+    } catch (e) {
+      console.error('Failed to apply preset:', e);
+    }
   }
 
-  function cyclePresetBack() {
-    dispatch('command', { type: 'CyclePresetBack' });
+  async function cyclePresetBack() {
+    const currentIndex = available_presets.indexOf(current_preset);
+    const newIndex = currentIndex > 0 ? currentIndex - 1 : available_presets.length - 1;
+    const newPreset = available_presets[newIndex];
+    await updatePreset(newPreset);
   }
 
-  function cyclePresetForward() {
-    dispatch('command', { type: 'CyclePresetForward' });
+  async function cyclePresetForward() {
+    const currentIndex = available_presets.indexOf(current_preset);
+    const newIndex = currentIndex < available_presets.length - 1 ? currentIndex + 1 : 0;
+    const newPreset = available_presets[newIndex];
+    await updatePreset(newPreset);
   }
 
-  function cycleLutBack() {
-    dispatch('command', { type: 'CycleLutBack' });
+  async function cycleLutBack() {
+    const newIndex = settings.lut_index > 0 ? settings.lut_index - 1 : available_luts.length - 1;
+    await updateLutIndex(newIndex);
   }
 
-  function cycleLutForward() {
-    dispatch('command', { type: 'CycleLutForward' });
+  async function cycleLutForward() {
+    const newIndex = settings.lut_index < available_luts.length - 1 ? settings.lut_index + 1 : 0;
+    await updateLutIndex(newIndex);
   }
 
-  function savePreset() {
-    dispatch('command', { type: 'SavePreset', value: new_preset_name });
-    show_save_preset_dialog = false;
-    new_preset_name = '';
+  async function savePreset() {
+    try {
+      await invoke('save_preset', { presetName: new_preset_name });
+      show_save_preset_dialog = false;
+      new_preset_name = '';
+      // Refresh the available presets list
+      await loadAvailablePresets();
+    } catch (e) {
+      console.error('Failed to save preset:', e);
+    }
   }
 
-  function deletePreset() {
-    dispatch('command', { type: 'DeletePreset', value: current_preset });
+  async function deletePreset() {
+    try {
+      await invoke('delete_preset', { presetName: current_preset });
+      // Refresh the available presets list
+      await loadAvailablePresets();
+      // Reset to first available preset
+      if (available_presets.length > 0) {
+        current_preset = available_presets[0];
+        await updatePreset(current_preset);
+      }
+    } catch (e) {
+      console.error('Failed to delete preset:', e);
+    }
   }
 
   function showGradientEditor() {
@@ -173,28 +401,25 @@
 
   let running = false;
   let loading = false;
-  let renderLoopId: number | null = null;
+  
+  // FPS tracking (now received from backend)
+  let currentFps = 0;
+  
+  // UI visibility toggle
+  let showUI = true;
 
   async function startSimulation() {
     if (running || loading) return;
     
     loading = true;
-    
-    async function renderLoop() {
-      if (!running) return;
-      try {
-        await invoke('render_frame');
-      } catch (e) {
-        console.error(e);
-      }
-      renderLoopId = requestAnimationFrame(renderLoop);
-    }
 
     try {
       await invoke('start_slime_mold_simulation');
       loading = false;
       running = true;
-      renderLoop();
+      
+      // Backend now handles the render loop, we just track state
+      currentFps = 0;
     } catch (e) {
       console.error('Failed to start simulation:', e);
       loading = false;
@@ -204,14 +429,17 @@
 
   async function stopSimulation() {
     running = false;
-    if (renderLoopId !== null) {
-      cancelAnimationFrame(renderLoopId);
-      renderLoopId = null;
-    }
     
     try {
-      // Stop the backend simulation
+      // Stop the backend simulation and render loop
       await invoke('stop_simulation');
+      
+      // Reset window title
+      const { appWindow } = await import('@tauri-apps/api/window');
+      await appWindow.setTitle('Slime Mold Simulation');
+      
+      // Reset FPS
+      currentFps = 0;
       
       // Immediately render a frame to show the triangle instead of last simulation frame
       await invoke('render_frame');
@@ -220,17 +448,138 @@
     }
   }
 
-  function returnToMenu() {
-    stopSimulation();
+  async function returnToMenu() {
+    await stopSimulation();
+    
+    // Reset window title when returning to menu
+    try {
+      const { appWindow } = await import('@tauri-apps/api/window');
+      await appWindow.setTitle('Sim-Pix');
+    } catch (e) {
+      console.error('Failed to reset window title:', e);
+    }
+    
     dispatch('back');
   }
 
-  onMount(() => {
+  // Load available presets from backend
+  async function loadAvailablePresets() {
+    try {
+      available_presets = await invoke('get_available_presets');
+      if (available_presets.length > 0 && !current_preset) {
+        current_preset = available_presets[0];
+      }
+    } catch (e) {
+      console.error('Failed to load available presets:', e);
+    }
+  }
+
+  // Load available LUTs from backend
+  async function loadAvailableLuts() {
+    try {
+      available_luts = await invoke('get_available_luts');
+    } catch (e) {
+      console.error('Failed to load available LUTs:', e);
+    }
+  }
+
+  // Sync settings from backend to frontend
+  async function syncSettingsFromBackend() {
+    try {
+      const currentSettings = await invoke('get_current_settings');
+      if (currentSettings) {
+        // Handle gradient type conversion from enum to lowercase string
+        if (currentSettings.gradient_type) {
+          currentSettings.gradient_type = currentSettings.gradient_type.toLowerCase();
+        }
+        
+        // Update the settings object with current backend values
+        settings = {
+          ...settings,
+          ...currentSettings
+        };
+        
+        // Update computed values
+        agentCountInput = toMillions(settings.agent_count);
+        gradientCenterXInput = settings.gradient_center_x * 100;
+        gradientCenterYInput = settings.gradient_center_y * 100;
+      }
+    } catch (e) {
+      console.error('Failed to sync settings from backend:', e);
+    }
+  }
+
+  let simulationInitializedUnlisten: (() => void) | null = null;
+  let fpsUpdateUnlisten: (() => void) | null = null;
+
+  // Keyboard event handler
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === '/') {
+      event.preventDefault();
+      showUI = !showUI;
+    } else if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      randomizeSimulation();
+    }
+  }
+
+  async function randomizeSimulation() {
+    try {
+      await invoke('randomize_settings');
+      await syncSettingsFromBackend();
+      console.log('Settings randomized via keyboard shortcut');
+    } catch (e) {
+      console.error('Failed to randomize settings:', e);
+    }
+  }
+
+  onMount(async () => {
+    // Load presets and LUTs first
+    await loadAvailablePresets();
+    await loadAvailableLuts();
+    
+    // Add keyboard event listener
+    window.addEventListener('keydown', handleKeydown);
+    
+    // Listen for simulation initialization event
+    simulationInitializedUnlisten = await listen('simulation-initialized', async () => {
+      console.log('Simulation initialized, syncing settings...');
+      await syncSettingsFromBackend();
+    });
+
+    // Listen for FPS updates from backend
+    fpsUpdateUnlisten = await listen('fps-update', (event) => {
+      currentFps = event.payload as number;
+      
+      // Update window title with FPS
+      (async () => {
+        try {
+          const { appWindow } = await import('@tauri-apps/api/window');
+          await appWindow.setTitle(`Slime Mold Simulation - ${currentFps} FPS`);
+        } catch (e) {
+          console.error('Failed to update window title:', e);
+        }
+      })();
+    });
+    
+    // Then start simulation
     startSimulation();
     
     return () => {
       stopSimulation();
     };
+  });
+
+  onDestroy(() => {
+    // Remove keyboard event listener
+    window.removeEventListener('keydown', handleKeydown);
+    
+    if (simulationInitializedUnlisten) {
+      simulationInitializedUnlisten();
+    }
+    if (fpsUpdateUnlisten) {
+      fpsUpdateUnlisten();
+    }
   });
 </script>
 
@@ -246,289 +595,28 @@
     </div>
   {/if}
 
-  <div class="controls">
-    <button class="back-button" on:click={returnToMenu}>
-      ← Back to Menu
-    </button>
-    
-    <div class="status">
-      <span class="status-indicator" class:running></span>
-      Slime Mold Simulation {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+  {#if showUI}
+    <div class="controls">
+      <button class="back-button" on:click={returnToMenu}>
+        ← Back to Menu
+      </button>
+      
+      <div class="status">
+        <span class="status-indicator" class:running></span>
+        Slime Mold Simulation {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+      </div>
     </div>
-  </div>
 
-  <!-- Simulation Controls -->
-  <div class="simulation-controls">
+    <!-- Simulation Controls -->
+    <div class="simulation-controls">
     <form on:submit|preventDefault>
-      <!-- Pheromone Settings -->
+      <!-- 1. FPS Display & Limiter -->
       <fieldset>
-        <legend>Pheromone Settings</legend>
-        
+        <legend>FPS & Display</legend>
         <div class="control-group">
-          <label for="decayRate">Decay Rate (%)</label>
-          <input 
-            type="range" 
-            id="decayRate" 
-            min="0" 
-            max="10" 
-            step="0.1" 
-            bind:value={settings.pheromone_decay_rate}
-            on:input={(e: Event) => console.log('Decay Rate:', (e.target as HTMLInputElement).value)}
-          />
+          <label>FPS:</label>
+          <span>{currentFps}</span>
         </div>
-
-        <div class="control-group">
-          <label for="depositionRate">Deposition Rate (%)</label>
-          <input 
-            type="range" 
-            id="depositionRate" 
-            min="0" 
-            max="100" 
-            step="1" 
-            bind:value={settings.pheromone_deposition_rate}
-            on:input={(e: Event) => console.log('Deposition Rate:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="diffusionRate">Diffusion Rate (%)</label>
-          <input 
-            type="range" 
-            id="diffusionRate" 
-            min="0" 
-            max="100" 
-            step="1" 
-            bind:value={settings.pheromone_diffusion_rate}
-            on:input={(e: Event) => console.log('Diffusion Rate:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="decayFrequency">Decay Frequency</label>
-          <input 
-            type="number" 
-            id="decayFrequency" 
-            min="1" 
-            bind:value={settings.decay_frequency}
-            on:input={(e: Event) => console.log('Decay Frequency:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="diffusionFrequency">Diffusion Frequency</label>
-          <input 
-            type="number" 
-            id="diffusionFrequency" 
-            min="1" 
-            bind:value={settings.diffusion_frequency}
-            on:input={(e: Event) => console.log('Diffusion Frequency:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Agent Settings -->
-      <fieldset>
-        <legend>Agent Settings</legend>
-        
-        <div class="control-group">
-          <label for="agentCount">Agent Count (millions)</label>
-          <input 
-            type="number" 
-            id="agentCount" 
-            min="0" 
-            max="100" 
-            step="0.1" 
-            bind:value={agentCountInput}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="minSpeed">Min Speed</label>
-          <input 
-            type="range" 
-            id="minSpeed" 
-            min="0" 
-            max="500" 
-            step="0.1" 
-            bind:value={settings.agent_speed_min}
-            on:input={(e: Event) => console.log('Min Speed:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="maxSpeed">Max Speed</label>
-          <input 
-            type="range" 
-            id="maxSpeed" 
-            min="0" 
-            max="500" 
-            step="0.1" 
-            bind:value={settings.agent_speed_max}
-            on:input={(e: Event) => console.log('Max Speed:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="turnRate">Turn Rate (degrees)</label>
-          <input 
-            type="range" 
-            id="turnRate" 
-            min="0" 
-            max="360" 
-            step="1" 
-            bind:value={settings.agent_turn_rate}
-            on:input={(e: Event) => {
-              const rads = parseFloat((e.target as HTMLInputElement).value);
-              updateTurnRate(rads);
-            }}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="jitter">Jitter</label>
-          <input 
-            type="range" 
-            id="jitter" 
-            min="0" 
-            max="5" 
-            step="0.01" 
-            bind:value={settings.agent_jitter}
-            on:input={(e: Event) => console.log('Jitter:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="sensorAngle">Sensor Angle (degrees)</label>
-          <input 
-            type="range" 
-            id="sensorAngle" 
-            min="0" 
-            max="180" 
-            step="1" 
-            bind:value={settings.agent_sensor_angle}
-            on:input={(e: Event) => {
-              const rads = parseFloat((e.target as HTMLInputElement).value);
-              updateSensorAngle(rads);
-            }}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="sensorDistance">Sensor Distance</label>
-          <input 
-            type="range" 
-            id="sensorDistance" 
-            min="0" 
-            max="500" 
-            step="1" 
-            bind:value={settings.agent_sensor_distance}
-            on:input={(e: Event) => console.log('Sensor Distance:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Gradient Settings -->
-      <fieldset>
-        <legend>Gradient Settings</legend>
-        
-        <div class="control-group">
-          <label for="gradientType">Gradient Type</label>
-          <select 
-            id="gradientType"
-            bind:value={settings.gradient_type}
-            on:change={(e: Event) => console.log('Gradient Type:', (e.target as HTMLSelectElement).value)}
-          >
-            <option value="disabled">Disabled</option>
-            <option value="radial">Radial</option>
-            <option value="linear">Linear</option>
-            <option value="spiral">Spiral</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="gradientStrength">Gradient Strength</label>
-          <input 
-            type="range" 
-            id="gradientStrength" 
-            min="0" 
-            max="100" 
-            step="1" 
-            bind:value={settings.gradient_strength}
-            on:input={(e: Event) => console.log('Gradient Strength:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="gradientCenterX">Center X (%)</label>
-          <input 
-            type="range" 
-            id="gradientCenterX" 
-            min="0" 
-            max="100" 
-            step="1" 
-            bind:value={gradientCenterXInput}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="gradientCenterY">Center Y (%)</label>
-          <input 
-            type="range" 
-            id="gradientCenterY" 
-            min="0" 
-            max="100" 
-            step="1" 
-            bind:value={gradientCenterYInput}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="gradientSize">Size</label>
-          <input 
-            type="range" 
-            id="gradientSize" 
-            min="0.1" 
-            max="2" 
-            step="0.01" 
-            bind:value={settings.gradient_size}
-            on:input={(e: Event) => console.log('Gradient Size:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div class="control-group">
-          <label for="gradientAngle">Angle (degrees)</label>
-          <input 
-            type="range" 
-            id="gradientAngle" 
-            min="0" 
-            max="360" 
-            step="1" 
-            bind:value={settings.gradient_angle}
-            on:input={(e: Event) => console.log('Gradient Angle:', (e.target as HTMLInputElement).value)}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        
-        <div class="control-group">
-          <label for="fpsLimit">FPS Limit</label>
-          <input 
-            type="number" 
-            id="fpsLimit" 
-            min="1" 
-            max="1200" 
-            step="1" 
-            bind:value={settings.fps_limit}
-            on:input={(e: Event) => {
-              const value = parseFloat((e.target as HTMLInputElement).value);
-              updateFpsLimit(value);
-            }}
-          />
-        </div>
-
         <div class="control-group">
           <label for="fpsLimitEnabled">Enable FPS Limit</label>
           <input 
@@ -541,41 +629,28 @@
             }}
           />
         </div>
-
-        <div class="control-group">
-          <label for="lutIndex">Color Scheme</label>
-          <select 
-            id="lutIndex"
-            bind:value={settings.lut_index}
-            on:change={(e: Event) => {
-              const value = parseInt((e.target as HTMLSelectElement).value);
-              updateLutIndex(value);
-            }}
-          >
-            {#each available_luts as lut, i}
-              <option value={i}>{lut}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="lutReversed">Reverse Colors</label>
-          <input 
-            type="checkbox" 
-            id="lutReversed"
-            bind:checked={settings.lut_reversed}
-            on:change={(e: Event) => {
-              const value = (e.target as HTMLInputElement).checked;
-              updateLutReversed(value);
-            }}
-          />
-        </div>
+        {#if settings.fps_limit_enabled}
+          <div class="control-group">
+            <label for="fpsLimit">FPS Limit</label>
+            <input 
+              type="number" 
+              id="fpsLimit" 
+              min="1" 
+              max="1200" 
+              step="1" 
+              bind:value={settings.fps_limit}
+              on:input={(e: Event) => {
+                const value = parseFloat((e.target as HTMLInputElement).value);
+                updateFpsLimit(value);
+              }}
+            />
+          </div>
+        {/if}
       </fieldset>
 
-      <!-- Preset Controls -->
+      <!-- 2. Preset Controls -->
       <fieldset>
-        <legend>Preset Controls</legend>
-        
+        <legend>Presets</legend>
         <div class="control-group">
           <label for="presetSelector">Current Preset</label>
           <div class="preset-controls">
@@ -605,7 +680,6 @@
             </button>
           </div>
         </div>
-
         <div class="control-group preset-actions">
           <button 
             type="button"
@@ -613,15 +687,14 @@
           >
             💾 Save Current
           </button>
-          <button 
+          <!-- TODO: Implement preset deletion -->
+          <!-- <button 
             type="button"
             on:click={deletePreset}
           >
             🗑 Delete
-          </button>
+          </button> -->
         </div>
-
-        <!-- Save Preset Dialog -->
         {#if show_save_preset_dialog}
           <div class="save-preset-dialog">
             <div class="dialog-content">
@@ -660,10 +733,9 @@
         {/if}
       </fieldset>
 
-      <!-- LUT Controls -->
+      <!-- 3. LUT Controls (Color Scheme) -->
       <fieldset>
-        <legend>LUT Controls</legend>
-        
+        <legend>Color Scheme</legend>
         <div class="control-group">
           <label for="lutSelector">Current LUT</label>
           <div class="lut-controls">
@@ -693,7 +765,18 @@
             </button>
           </div>
         </div>
-
+        <div class="control-group">
+          <label for="lutReversed">Reverse Colors</label>
+          <input 
+            type="checkbox" 
+            id="lutReversed"
+            bind:checked={settings.lut_reversed}
+            on:change={(e: Event) => {
+              const value = (e.target as HTMLInputElement).checked;
+              updateLutReversed(value);
+            }}
+          />
+        </div>
         <div class="control-group">
           <button 
             type="button"
@@ -702,8 +785,6 @@
             🎨 Create Custom LUT
           </button>
         </div>
-
-        <!-- Gradient Editor Dialog -->
         {#if show_gradient_editor}
           <div class="gradient-editor-dialog">
             <div class="dialog-content">
@@ -742,8 +823,256 @@
           </div>
         {/if}
       </fieldset>
+
+      <!-- 4. Controls (Pause/Resume, Reset Trails, Reset Agents, Randomize) -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="control-group">
+          <button type="button" on:click={startSimulation} disabled={running}>▶ Resume</button>
+          <button type="button" on:click={stopSimulation} disabled={!running}>⏸ Pause</button>
+          <button type="button" on:click={async () => {
+            try {
+              await invoke('reset_trails');
+              console.log('Trails reset successfully');
+            } catch (e) {
+              console.error('Failed to reset trails:', e);
+            }
+          }}>Reset Trails</button>
+          <button type="button" on:click={async () => {
+            try {
+              await invoke('reset_agents');
+              console.log('Agents reset successfully');
+            } catch (e) {
+              console.error('Failed to reset agents:', e);
+            }
+          }}>Reset Agents</button>
+          <button type="button" on:click={async () => {
+            try {
+              await invoke('randomize_settings');
+              await syncSettingsFromBackend(); // Sync UI with new random settings
+              console.log('Settings randomized successfully');
+            } catch (e) {
+              console.error('Failed to randomize settings:', e);
+            }
+          }}>🎲 Randomize Settings</button>
+        </div>
+      </fieldset>
+
+      <!-- 5. Pheromone Settings -->
+      <fieldset>
+        <legend>Pheromone Settings</legend>
+        <div class="control-group">
+          <label for="decayRate">Decay Rate (%)</label>
+          <input 
+            type="number" 
+            id="decayRate" 
+            min="0" 
+            max="10" 
+            step="0.1" 
+            bind:value={settings.pheromone_decay_rate}
+            on:input={handlePheromoneDecayRate}
+          />
+        </div>
+        <div class="control-group">
+          <label for="depositionRate">Deposition Rate (%)</label>
+          <input 
+            type="number" 
+            id="depositionRate" 
+            min="0" 
+            max="100" 
+            step="1" 
+            bind:value={settings.pheromone_deposition_rate}
+            on:input={handlePheromoneDepositionRate}
+          />
+        </div>
+        <div class="control-group">
+          <label for="diffusionRate">Diffusion Rate (%)</label>
+          <input 
+            type="number" 
+            id="diffusionRate" 
+            min="0" 
+            max="100" 
+            step="1" 
+            bind:value={settings.pheromone_diffusion_rate}
+            on:input={handlePheromoneDiffusionRate}
+          />
+        </div>
+      </fieldset>
+
+      <!-- 6. Agent Settings -->
+      <fieldset>
+        <legend>Agent Settings</legend>
+        <div class="control-group">
+          <label for="agentCount">Agent Count (millions)</label>
+          <input 
+            type="number" 
+            id="agentCount" 
+            min="0" 
+            max="100" 
+            step="0.1" 
+            bind:value={agentCountInput}
+          />
+        </div>
+        <div class="control-group">
+          <label for="minSpeed">Min Speed</label>
+          <input 
+            type="number" 
+            id="minSpeed" 
+            min="0" 
+            max="500" 
+            step="0.1" 
+            bind:value={settings.agent_speed_min}
+            on:input={handleAgentSpeedMin}
+          />
+        </div>
+        <div class="control-group">
+          <label for="maxSpeed">Max Speed</label>
+          <input 
+            type="number" 
+            id="maxSpeed" 
+            min="0" 
+            max="500" 
+            step="0.1" 
+            bind:value={settings.agent_speed_max}
+            on:input={handleAgentSpeedMax}
+          />
+        </div>
+        <div class="control-group">
+          <label for="turnRate">Turn Rate (degrees)</label>
+          <input 
+            type="number" 
+            id="turnRate" 
+            min="0" 
+            max="360" 
+            step="1" 
+            bind:value={settings.agent_turn_rate}
+            on:input={(e: Event) => {
+              const rads = parseFloat((e.target as HTMLInputElement).value);
+              updateTurnRate(rads);
+            }}
+          />
+        </div>
+        <div class="control-group">
+          <label for="jitter">Jitter</label>
+          <input 
+            type="number" 
+            id="jitter" 
+            min="0" 
+            max="5" 
+            step="0.01" 
+            bind:value={settings.agent_jitter}
+            on:input={handleAgentJitter}
+          />
+        </div>
+        <div class="control-group">
+          <label for="sensorAngle">Sensor Angle (degrees)</label>
+          <input 
+            type="number" 
+            id="sensorAngle" 
+            min="0" 
+            max="180" 
+            step="1" 
+            bind:value={settings.agent_sensor_angle}
+            on:input={(e: Event) => {
+              const rads = parseFloat((e.target as HTMLInputElement).value);
+              updateSensorAngle(rads);
+            }}
+          />
+        </div>
+        <div class="control-group">
+          <label for="sensorDistance">Sensor Distance</label>
+          <input 
+            type="number" 
+            id="sensorDistance" 
+            min="0" 
+            max="500" 
+            step="1" 
+            bind:value={settings.agent_sensor_distance}
+            on:input={handleAgentSensorDistance}
+          />
+        </div>
+      </fieldset>
+
+      <!-- 7. Gradient Settings -->
+      <fieldset>
+        <legend>Gradient Settings</legend>
+        <div class="control-group">
+          <label for="gradientType">Gradient Type</label>
+          <select 
+            id="gradientType"
+            bind:value={settings.gradient_type}
+            on:change={handleGradientType}
+          >
+            <option value="disabled">Disabled</option>
+            <option value="radial">Radial</option>
+            <option value="linear">Linear</option>
+            <option value="spiral">Spiral</option>
+          </select>
+        </div>
+        {#if settings.gradient_type !== 'disabled'}
+          <div class="control-group">
+            <label for="gradientStrength">Gradient Strength</label>
+            <input 
+              type="number" 
+              id="gradientStrength" 
+              min="0" 
+              max="100" 
+              step="1" 
+              bind:value={settings.gradient_strength}
+              on:input={handleGradientStrength}
+            />
+          </div>
+          <div class="control-group">
+            <label for="gradientCenterX">Center X (%)</label>
+            <input 
+              type="number" 
+              id="gradientCenterX" 
+              min="0" 
+              max="100" 
+              step="1" 
+              bind:value={gradientCenterXInput}
+            />
+          </div>
+          <div class="control-group">
+            <label for="gradientCenterY">Center Y (%)</label>
+            <input 
+              type="number" 
+              id="gradientCenterY" 
+              min="0" 
+              max="100" 
+              step="1" 
+              bind:value={gradientCenterYInput}
+            />
+          </div>
+          <div class="control-group">
+            <label for="gradientSize">Size</label>
+            <input 
+              type="number" 
+              id="gradientSize" 
+              min="0.1" 
+              max="2" 
+              step="0.01" 
+              bind:value={settings.gradient_size}
+              on:input={handleGradientSize}
+            />
+          </div>
+          <div class="control-group">
+            <label for="gradientAngle">Angle (degrees)</label>
+            <input 
+              type="number" 
+              id="gradientAngle" 
+              min="0" 
+              max="360" 
+              step="1" 
+              bind:value={settings.gradient_angle}
+              on:input={handleGradientAngle}
+            />
+          </div>
+        {/if}
+      </fieldset>
     </form>
-  </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -804,6 +1133,8 @@
     padding: 1rem;
     max-width: 800px;
     margin: 0 auto;
+    background: rgba(0, 0, 0, 1.0);
+
   }
 
   fieldset {

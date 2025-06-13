@@ -229,7 +229,7 @@ fn decay_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     let idx = y * sim_size.width + x;
     // Apply decay rate
-    let decay_rate = sim_size.decay_rate * 0.0001;
+    let decay_rate = sim_size.decay_rate * 0.001;
     trail_map[idx] = max(0.0, trail_map[idx] - decay_rate);
 }
 
