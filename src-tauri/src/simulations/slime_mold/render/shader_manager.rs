@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
-use crate::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 
 pub struct ShaderManager {
     pub compute_shader: ShaderModule,

@@ -1,51 +1,40 @@
-use crate::egui_tools::EguiRenderer;
-use crate::lut_manager::LutManager;
-use crate::render::{
-    bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager,
-};
-use crate::settings::Settings;
-use crate::simulation::SimSizeUniform;
-use crate::workgroup_optimizer::WorkgroupConfig;
-use crate::buffer_pool::BufferPool;
+use super::lut_manager::{LutManager, LutData};
+use super::settings::Settings;
+use super::simulation::SimSizeUniform;
+use super::workgroup_optimizer::WorkgroupConfig;
+use super::buffer_pool::{BufferPool, BufferPoolStats};
+use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use std::sync::Arc;
 use tracing::debug;
 use wgpu::util::DeviceExt;
-use wgpu::{Backends, Buffer, BufferUsages, Device, Instance, Queue, TextureUsages};
+use wgpu::{
+    Backends, Device, Instance, Queue, Surface, SurfaceConfiguration, TextureUsages,
+    TextureView,
+};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window};
 
 pub struct GpuState {
     pub window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
+    pub surface: Surface<'static>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
-    config: wgpu::SurfaceConfiguration,
-
-    // Rendering components
-    pub egui_renderer: EguiRenderer,
-    bind_group_manager: BindGroupManager,
-    pipeline_manager: PipelineManager,
-
-    // Buffers and textures
-    agent_buffer: Buffer,
-    trail_map_buffer: Buffer,
-    gradient_buffer: Buffer,
-    sim_size_buffer: Arc<Buffer>,
-    lut_buffer: Arc<Buffer>,
-    display_texture: wgpu::Texture,
-    display_view: wgpu::TextureView,
-    display_sampler: wgpu::Sampler,
-    
-    // Workgroup optimization
-    workgroup_config: WorkgroupConfig,
-    
-    // Buffer pool for efficient buffer reuse
-    buffer_pool: BufferPool,
-    
-    // Track current buffer sizes for returning to pool
-    current_trail_map_size: u64,
-    current_gradient_buffer_size: u64,
-    current_agent_buffer_size: u64,
+    pub config: SurfaceConfiguration,
+    pub bind_group_manager: BindGroupManager,
+    pub pipeline_manager: PipelineManager,
+    pub agent_buffer: wgpu::Buffer,
+    pub trail_map_buffer: wgpu::Buffer,
+    pub gradient_buffer: wgpu::Buffer,
+    pub sim_size_buffer: Arc<wgpu::Buffer>,
+    pub lut_buffer: Arc<wgpu::Buffer>,
+    pub display_texture: wgpu::Texture,
+    pub display_view: TextureView,
+    pub display_sampler: wgpu::Sampler,
+    pub workgroup_config: WorkgroupConfig,
+    pub buffer_pool: BufferPool,
+    pub current_trail_map_size: u64,
+    pub current_gradient_buffer_size: u64,
+    pub current_agent_buffer_size: u64,
 }
 
 impl GpuState {
@@ -202,46 +191,43 @@ impl GpuState {
         );
         let sim_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Size Uniform Buffer"),
-            contents: bytemuck::bytes_of(&sim_size_uniform),
+            contents: bytemuck::cast_slice(&[sim_size_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let sim_size_buffer = Arc::new(sim_size_buffer);
 
-        // Initialize shader and pipeline managers
-        let adapter_info = adapter.get_info();
-        let workgroup_config = WorkgroupConfig::new(&device, &adapter_info);
-        let pipeline_manager = PipelineManager::new(&device, &workgroup_config);
+        // Create LUT buffer
+        let lut_data = if current_lut_index < available_luts.len() {
+            lut_manager.load_lut(&available_luts[current_lut_index])?
+        } else {
+            return Err("Invalid LUT index".into());
+        };
 
-        // Load LUT
-        let mut lut_data = lut_manager.load_lut(&available_luts[current_lut_index])?;
-        if lut_reversed {
-            lut_data.reverse();
-        }
-
-        let mut lut_data_combined = Vec::with_capacity(768);
-        lut_data_combined.extend_from_slice(&lut_data.red);
-        lut_data_combined.extend_from_slice(&lut_data.green);
-        lut_data_combined.extend_from_slice(&lut_data.blue);
-
-        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_u32),
+            contents: bytemuck::cast_slice(&lut_data.red),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
+        let lut_buffer = Arc::new(lut_buffer);
 
-        // Create sampler
+        // Create display sampler
         let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Display Sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
-        // Initialize bind group manager
+        // Create workgroup config
+        let workgroup_config = WorkgroupConfig::new(&device, &adapter.get_info());
+
+        // Create pipeline manager
+        let pipeline_manager = PipelineManager::new(&device, &workgroup_config);
+
+        // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
             &device,
             &pipeline_manager.compute_bind_group_layout,
@@ -257,19 +243,8 @@ impl GpuState {
             &lut_buffer,
         );
 
-        let sim_size_buffer = Arc::new(sim_size_buffer);
-        let lut_buffer = Arc::new(lut_buffer);
-
-        // Create egui renderer
-        let egui_renderer = EguiRenderer::new(device.as_ref(), surface_format, None, 1, &window);
-        egui_renderer.context().set_visuals(egui::Visuals::dark());
-
-        // Initialize buffer pool
+        // Create buffer pool
         let buffer_pool = BufferPool::new();
-        
-        // Track initial buffer sizes
-        let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
-        let agent_buffer_size_bytes = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
 
         Ok(Self {
             window,
@@ -277,7 +252,6 @@ impl GpuState {
             device,
             queue,
             config,
-            egui_renderer,
             bind_group_manager,
             pipeline_manager,
             agent_buffer,
@@ -290,27 +264,10 @@ impl GpuState {
             display_sampler,
             workgroup_config,
             buffer_pool,
-            current_trail_map_size: trail_map_size_bytes,
-            current_gradient_buffer_size: trail_map_size_bytes,
-            current_agent_buffer_size: agent_buffer_size_bytes,
+            current_trail_map_size: trail_map_size as u64,
+            current_gradient_buffer_size: trail_map_size as u64,
+            current_agent_buffer_size: agent_count as u64,
         })
-    }
-
-    fn recreate_bind_groups(&mut self) {
-        self.bind_group_manager = BindGroupManager::new(
-            &self.device,
-            &self.pipeline_manager.compute_bind_group_layout,
-            &self.pipeline_manager.gradient_bind_group_layout,
-            &self.pipeline_manager.display_bind_group_layout,
-            &self.pipeline_manager.render_bind_group_layout,
-            &self.agent_buffer,
-            &self.trail_map_buffer,
-            &self.gradient_buffer,
-            &self.sim_size_buffer,
-            &self.display_view,
-            &self.display_sampler,
-            &self.lut_buffer,
-        );
     }
 
     pub fn recreate_agent_buffer(&mut self, agent_count: usize, settings: &Settings) {
@@ -321,14 +278,14 @@ impl GpuState {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Temp Agent Buffer"),
                 size: 1,
-                usage: BufferUsages::STORAGE,
+                usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             })
         );
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
-            BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
 
         // Create new buffer using pool
@@ -398,14 +355,14 @@ impl GpuState {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Temp Agent Buffer"),
                 size: 1,
-                usage: BufferUsages::STORAGE,
+                usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             })
         );
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
-            BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
 
         // Get new buffers from pool (or create new if none available)
@@ -467,7 +424,7 @@ impl GpuState {
         self.recreate_bind_groups();
     }
 
-    pub fn update_lut(&mut self, lut_data: &crate::lut_manager::LutData) {
+    pub fn update_lut(&mut self, lut_data: &LutData) {
         let mut lut_data_combined = Vec::with_capacity(768);
         lut_data_combined.extend_from_slice(&lut_data.red);
         lut_data_combined.extend_from_slice(&lut_data.green);
@@ -550,13 +507,30 @@ impl GpuState {
     }
 
     /// Get buffer pool statistics for debugging
-    pub fn buffer_pool_stats(&self) -> crate::buffer_pool::BufferPoolStats {
+    pub fn buffer_pool_stats(&self) -> BufferPoolStats {
         self.buffer_pool.memory_stats()
     }
 
     /// Clear buffer pool (useful for freeing memory)
     pub fn clear_buffer_pool(&mut self) {
         self.buffer_pool.clear();
+    }
+
+    fn recreate_bind_groups(&mut self) {
+        self.bind_group_manager = BindGroupManager::new(
+            &self.device,
+            &self.pipeline_manager.compute_bind_group_layout,
+            &self.pipeline_manager.gradient_bind_group_layout,
+            &self.pipeline_manager.display_bind_group_layout,
+            &self.pipeline_manager.render_bind_group_layout,
+            &self.agent_buffer,
+            &self.trail_map_buffer,
+            &self.gradient_buffer,
+            &self.sim_size_buffer,
+            &self.display_view,
+            &self.display_sampler,
+            &self.lut_buffer,
+        );
     }
 }
 
@@ -572,7 +546,7 @@ impl Drop for GpuState {
         let temp_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Drop Temp Buffer"),
             size: 1,
-            usage: BufferUsages::STORAGE,
+            usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         
@@ -594,7 +568,7 @@ impl Drop for GpuState {
         self.buffer_pool.return_buffer(
             agent_buffer,
             self.current_agent_buffer_size,
-            BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
         
         let stats = self.buffer_pool.memory_stats();
@@ -612,11 +586,11 @@ fn create_agent_buffer(
     physical_width: u32,
     physical_height: u32,
     settings: &Settings,
-) -> Buffer {
+) -> wgpu::Buffer {
     let agent_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Buffer"),
         size: (agent_count * 4 * std::mem::size_of::<f32>()) as u64,
-        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: true,
     });
     initialize_agent_buffer(&agent_buffer, agent_count, physical_width, physical_height, settings);
@@ -631,9 +605,9 @@ fn create_agent_buffer_pooled(
     physical_width: u32,
     physical_height: u32,
     settings: &Settings,
-) -> Buffer {
+) -> wgpu::Buffer {
     let size = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
-    let usage = BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST;
+    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
     
     // Get buffer from pool
     let agent_buffer = buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage);
@@ -643,7 +617,7 @@ fn create_agent_buffer_pooled(
     let temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Temp Agent Init Buffer"),
         size,
-        usage: BufferUsages::COPY_SRC,
+        usage: wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: true,
     });
     
@@ -660,7 +634,7 @@ fn create_agent_buffer_pooled(
 }
 
 fn initialize_agent_buffer(
-    buffer: &Buffer,
+    buffer: &wgpu::Buffer,
     agent_count: usize,
     physical_width: u32,
     physical_height: u32,
@@ -690,7 +664,7 @@ fn initialize_agent_buffer(
 }
 
 fn reset_trails(
-    trail_map_buffer: &Buffer,
+    trail_map_buffer: &wgpu::Buffer,
     queue: &Queue,
     physical_width: u32,
     physical_height: u32,
@@ -701,7 +675,7 @@ fn reset_trails(
 }
 
 fn reset_agents(
-    agent_buffer: &Buffer,
+    agent_buffer: &wgpu::Buffer,
     queue: &Queue,
     physical_width: u32,
     physical_height: u32,
@@ -733,7 +707,7 @@ fn reset_agents(
 
 fn update_settings(
     settings: &Settings,
-    sim_size_buffer: &Buffer,
+    sim_size_buffer: &wgpu::Buffer,
     queue: &Queue,
     physical_width: u32,
     physical_height: u32,

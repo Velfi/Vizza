@@ -1,11 +1,14 @@
 //! Presets for the simulation
 
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
-use dirs::home_dir;
+use std::path::{Path, PathBuf};
 
-use crate::settings::{GradientType, Settings};
+use serde::{Deserialize, Serialize};
+use toml;
+use tracing::{debug, error, info, warn};
+use super::settings::{GradientType, Settings};
+use dirs::home_dir;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preset {

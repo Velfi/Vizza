@@ -1,5 +1,5 @@
-use crate::render::shader_manager::ShaderManager;
-use crate::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::slime_mold::render::shader_manager::ShaderManager;
+use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use wgpu::{BindGroupLayout, ComputePipeline, Device, RenderPipeline};
 
 pub struct PipelineManager {
@@ -285,7 +285,7 @@ impl PipelineManager {
                 module: &shader_manager.quad_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8Unorm,
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],

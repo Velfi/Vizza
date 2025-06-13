@@ -37,15 +37,15 @@ pub struct Settings {
     pub agent_turn_rate: f32,
     /// The decay rate of the pheromone.
     ///
-    /// Defaults to 1.0.
+    /// Defaults to 1.0
     pub pheromone_decay_rate: f32,
     /// The rate at which agents deposit pheromones.
     ///
-    /// Defaults to 1.0.
+    /// Defaults to 1.0
     pub pheromone_deposition_rate: f32,
     /// The rate at which pheromone diffuses.
     ///
-    /// Defaults to 1.0.
+    /// Defaults to 1.0
     pub pheromone_diffusion_rate: f32,
     /// The type of gradient.
     ///

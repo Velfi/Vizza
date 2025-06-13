@@ -236,7 +236,7 @@ fn decay_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     let wrapped_idx = wrapped_y * sim_size.width + wrapped_x;
     
     // Apply decay rate (now 1.0 is normal value)
-    let decay_rate = sim_size.decay_rate * 0.001; // 1.0 = 0.1% decay per frame
+    let decay_rate = sim_size.decay_rate * 0.0001; // 1.0 = 0.1% decay per frame
     trail_map[wrapped_idx] = max(0.0, trail_map[wrapped_idx] - decay_rate);
 }
 
