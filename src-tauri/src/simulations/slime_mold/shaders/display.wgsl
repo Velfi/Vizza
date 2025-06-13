@@ -39,76 +39,40 @@ var<storage, read> lut_data: array<u32>;
 @group(0) @binding(4)
 var<storage, read> gradient_map: array<f32>;
 
-fn get_lut_color(intensity: f32) -> vec4<f32> {
-    // Clamp intensity to [0, 1]
-    let clamped_intensity = clamp(intensity, 0.0, 1.0);
-    
-    // Convert to index in LUT (0-255)
-    let index = u32(clamped_intensity * 255.0);
-    
-    // Get RGB values from LUT (each component is 256 bytes long)
-    let r = f32(lut_data[index]) / 255.0;
-    let g = f32(lut_data[index + 256u]) / 255.0;
-    let b = f32(lut_data[index + 512u]) / 255.0;
-    
-    return vec4<f32>(r, g, b, 1.0);
+// Helper to convert linear color to sRGB
+fn linear_to_srgb(color: vec3<f32>) -> vec3<f32> {
+    return pow(color, vec3<f32>(1.0 / 2.2));
 }
 
-@compute @workgroup_size(16, 16)
+// Get color from LUT
+fn get_lut_color(intensity: f32) -> vec3<f32> {
+    let idx = clamp(i32(intensity * 255.0), 0, 255);
+    let r = f32(lut_data[idx]) / 255.0;
+    let g = f32(lut_data[256 + idx]) / 255.0;
+    let b = f32(lut_data[512 + idx]) / 255.0;
+    return vec3<f32>(r, g, b);
+}
+
+@compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let texture_width = textureDimensions(display_tex).x;
-    let texture_height = textureDimensions(display_tex).y;
-    let sim_width = f32(sim_size.width);
-    let sim_height = f32(sim_size.height);
-    let tex_width = f32(texture_width);
-    let tex_height = f32(texture_height);
-
-    // Compute aspect ratios
-    let sim_aspect = sim_width / sim_height;
-    let tex_aspect = tex_width / tex_height;
-
-    // Compute scale and offsets to center the simulation
-    var scale: f32;
-    var offset_x: f32 = 0.0;
-    var offset_y: f32 = 0.0;
-    if (tex_aspect > sim_aspect) {
-        // Texture is wider than simulation: fit height
-        scale = tex_height / sim_height;
-        offset_x = (tex_width - sim_width * scale) * 0.5;
-    } else {
-        // Texture is taller than simulation: fit width
-        scale = tex_width / sim_width;
-        offset_y = (tex_height - sim_height * scale) * 0.5;
+    let tex_width = u32(textureDimensions(display_tex).x);
+    let tex_height = u32(textureDimensions(display_tex).y);
+    if (id.x >= tex_width || id.y >= tex_height) {
+        return;
     }
 
     // Map texture pixel to simulation coordinates
-    let fx = (f32(id.x) - offset_x) / scale;
-    let fy = (f32(id.y) - offset_y) / scale;
+    var sim_x = f32(id.x) * f32(sim_size.width) / f32(tex_width);
+    var sim_y = f32(id.y) * f32(sim_size.height) / f32(tex_height);
 
-    // Only draw if inside simulation bounds
-    if (fx >= 0.0 && fx < sim_width && fy >= 0.0 && fy < sim_height) {
-        let x = i32(fx);
-        let y = i32(fy);
-        let idx = y * i32(sim_size.width) + x;
-        
-        // Get trail intensity
-        let trail_intensity = clamp(trail_map[idx], 0.0, 1.0);
-        
-        // Get gradient intensity if enabled
-        var gradient_intensity: f32;
-        if (sim_size.gradient_enabled == 1u) {
-            gradient_intensity = clamp(gradient_map[idx], 0.0, 1.0) * 0.3;  // Reduce gradient visibility so trails still show
-        } else {
-            gradient_intensity = 0.0;
-        }
-        
-        // Combine trail and gradient intensities
-        let combined_intensity = clamp(trail_intensity + gradient_intensity, 0.0, 1.0);
-        
-        let color = get_lut_color(combined_intensity);
-        textureStore(display_tex, vec2<i32>(i32(id.x), i32(id.y)), color);
-    } else {
-        // Fill bars with black
-        textureStore(display_tex, vec2<i32>(i32(id.x), i32(id.y)), vec4<f32>(0.0, 0.0, 0.0, 1.0));
+    var color = vec3<f32>(0.0);
+    if (sim_x >= 0.0 && sim_x < f32(sim_size.width) && sim_y >= 0.0 && sim_y < f32(sim_size.height)) {
+        let idx = u32(sim_y) * sim_size.width + u32(sim_x);
+        let trail = trail_map[idx];
+        let grad = gradient_map[idx];
+        let intensity = clamp(trail + grad, 0.0, 1.0);
+        color = get_lut_color(intensity);
     }
+    let srgb_color = linear_to_srgb(color);
+    textureStore(display_tex, vec2<i32>(i32(id.x), i32(id.y)), vec4<f32>(srgb_color, 1.0));
 } 

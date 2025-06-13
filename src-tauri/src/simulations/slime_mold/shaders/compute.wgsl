@@ -134,12 +134,12 @@ const CELL_SIZE: f32 = 20.0;  // Size of each cell in the spatial grid
 // Shared memory for storing local agent positions
 var<workgroup> local_agents: array<vec4<f32>, 256>;
 
-@compute @workgroup_size(256)
+@compute @workgroup_size(16, 16, 1)
 fn update_agents(
     @builtin(global_invocation_id) id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>
 ) {
-    let agent_index = id.x;
+    let agent_index = id.x + id.y * 16u;
     // Remove the agent_count check since we'll handle this with dispatch workgroup size
     // if (agent_index >= u32(sim_size.agent_count)) {
     //     return;
@@ -220,38 +220,28 @@ fn update_agents(
 }
 
 // Add a new compute entry point for trail decay
-@compute @workgroup_size(256)
+@compute @workgroup_size(16, 16, 1)
 fn decay_trail(@builtin(global_invocation_id) id: vec3<u32>) {
-    let idx = id.x;
-    let total_size = sim_size.width * sim_size.height;
-    if (idx >= total_size) {
+    let x = id.x;
+    let y = id.y;
+    if (x >= sim_size.width || y >= sim_size.height) {
         return;
     }
-
-    // Toroidal wrapping for index
-    let x = idx % sim_size.width;
-    let y = idx / sim_size.width;
-    let wrapped_x = (x + sim_size.width) % sim_size.width;
-    let wrapped_y = (y + sim_size.height) % sim_size.height;
-    let wrapped_idx = wrapped_y * sim_size.width + wrapped_x;
-    
-    // Apply decay rate (now 1.0 is normal value)
-    let decay_rate = sim_size.decay_rate * 0.0001; // 1.0 = 0.1% decay per frame
-    trail_map[wrapped_idx] = max(0.0, trail_map[wrapped_idx] - decay_rate);
+    let idx = y * sim_size.width + x;
+    // Apply decay rate
+    let decay_rate = sim_size.decay_rate * 0.0001;
+    trail_map[idx] = max(0.0, trail_map[idx] - decay_rate);
 }
 
 // Add a new compute entry point for diffusion
-@compute @workgroup_size(256)
+@compute @workgroup_size(16, 16, 1)
 fn diffuse_trail(@builtin(global_invocation_id) id: vec3<u32>) {
-    let idx = id.x;
-    let total_size = sim_size.width * sim_size.height;
-    if (idx >= total_size) {
+    let x = id.x;
+    let y = id.y;
+    if (x >= sim_size.width || y >= sim_size.height) {
         return;
     }
-
-    let x = idx % sim_size.width;
-    let y = idx / sim_size.width;
-    
+    let idx = y * sim_size.width + x;
     // Get neighboring values with toroidal wrapping
     let x_prev = (x + sim_size.width - 1) % sim_size.width;
     let x_next = (x + 1) % sim_size.width;

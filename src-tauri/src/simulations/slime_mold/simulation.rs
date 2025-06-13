@@ -199,10 +199,11 @@ impl SlimeMoldSimulation {
         lut_data_combined.extend_from_slice(&lut_data.red);
         lut_data_combined.extend_from_slice(&lut_data.green);
         lut_data_combined.extend_from_slice(&lut_data.blue);
+        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
 
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_combined),
+            contents: bytemuck::cast_slice(&lut_data_u32),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
         let lut_buffer = Arc::new(lut_buffer);
@@ -403,8 +404,42 @@ impl SlimeMoldSimulation {
         // Run compute passes for simulation
         self.run_compute_passes(&mut encoder);
 
-        // Render to surface
-        self.render_to_surface(&mut encoder, surface_view);
+        // First render to display texture
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Display Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
+            let (workgroups_x, workgroups_y) = self.workgroup_config.workgroups_2d(
+                self.display_texture.width(),
+                self.display_texture.height(),
+            );
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        // Then render display texture to surface
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Slime Mold Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&self.pipeline_manager.render_pipeline);
+            render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Full-screen quad
+        }
 
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
@@ -420,8 +455,11 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let workgroups = self.workgroup_config.workgroups_1d(self.agent_count as u32);
-            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+            let workgroups = self.workgroup_config.workgroups_2d(
+                self.agent_count as u32,
+                1,
+            );
+            compute_pass.dispatch_workgroups(workgroups.0, workgroups.1, 1);
         }
 
         // Decay pass
@@ -432,10 +470,8 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.decay_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let (workgroups_x, workgroups_y) = self.workgroup_config.workgroups_2d(
-                self.display_texture.width(),
-                self.display_texture.height(),
-            );
+            let workgroups_x = (self.display_texture.width() + 15) / 16;
+            let workgroups_y = (self.display_texture.height() + 15) / 16;
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -447,49 +483,10 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.diffuse_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let (workgroups_x, workgroups_y) = self.workgroup_config.workgroups_2d(
-                self.display_texture.width(),
-                self.display_texture.height(),
-            );
+            let workgroups_x = (self.display_texture.width() + 15) / 16;
+            let workgroups_y = (self.display_texture.height() + 15) / 16;
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
-
-        // Display pass
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Display Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
-            compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
-            let (workgroups_x, workgroups_y) = self.workgroup_config.workgroups_2d(
-                self.display_texture.width(),
-                self.display_texture.height(),
-            );
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-        }
-    }
-
-    /// Render the simulation result to the surface
-    fn render_to_surface(&self, encoder: &mut wgpu::CommandEncoder, surface_view: &TextureView) {
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Slime Mold Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: surface_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        render_pass.set_pipeline(&self.pipeline_manager.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
-        render_pass.draw(0..6, 0..1); // Full-screen quad
     }
 
     /// Update simulation settings

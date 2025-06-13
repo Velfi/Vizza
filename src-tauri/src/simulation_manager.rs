@@ -41,6 +41,8 @@ impl SimulationManager {
                 let settings = Settings::default();
                 let lut_manager = LutManager::new();
                 let available_luts = lut_manager.get_available_luts();
+                let default_lut_name = "MATPLOTLIB_bone_r";
+                let current_lut_index = available_luts.iter().position(|name| name == default_lut_name).unwrap_or(0);
                 
                 let simulation = SlimeMoldSimulation::new(
                     device,
@@ -51,7 +53,7 @@ impl SimulationManager {
                     settings,
                     &lut_manager,
                     &available_luts,
-                    0, // current_lut_index
+                    current_lut_index, // current_lut_index
                     false, // lut_reversed
                 )?;
                 
