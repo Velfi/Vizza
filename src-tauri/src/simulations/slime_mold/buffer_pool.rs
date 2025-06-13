@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use wgpu::{Buffer, Device, BufferDescriptor, BufferUsages};
+use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};
 
 /// A pool of buffers organized by size and usage flags
 #[derive(Default)]
@@ -30,7 +30,7 @@ impl BufferPool {
         usage: BufferUsages,
     ) -> Buffer {
         let key = (size, usage.bits());
-        
+
         // Try to reuse an existing buffer
         if let Some(buffer_vec) = self.buffers.get_mut(&key) {
             if let Some(buffer) = buffer_vec.pop() {
@@ -42,7 +42,7 @@ impl BufferPool {
         // Create a new buffer if none available
         tracing::debug!("Creating new buffer: size={}, usage={:?}", size, usage);
         self.total_memory_bytes += size;
-        
+
         device.create_buffer(&BufferDescriptor {
             label,
             size,
@@ -54,15 +54,19 @@ impl BufferPool {
     /// Return a buffer to the pool for reuse
     pub fn return_buffer(&mut self, buffer: Buffer, size: u64, usage: BufferUsages) {
         let key = (size, usage.bits());
-        
-        let buffer_vec = self.buffers.entry(key).or_insert_with(Vec::new);
-        
+
+        let buffer_vec = self.buffers.entry(key).or_default();
+
         // Only keep up to max_buffers_per_key buffers
         if buffer_vec.len() < self.max_buffers_per_key {
             tracing::debug!("Returning buffer to pool: size={}, usage={:?}", size, usage);
             buffer_vec.push(buffer);
         } else {
-            tracing::debug!("Buffer pool full, dropping buffer: size={}, usage={:?}", size, usage);
+            tracing::debug!(
+                "Buffer pool full, dropping buffer: size={}, usage={:?}",
+                size,
+                usage
+            );
             // Buffer will be dropped automatically
             self.total_memory_bytes = self.total_memory_bytes.saturating_sub(size);
         }
@@ -70,33 +74,22 @@ impl BufferPool {
 
     /// Clear all buffers from the pool
     pub fn clear(&mut self) {
-        tracing::debug!("Clearing buffer pool, releasing {} bytes", self.total_memory_bytes);
+        tracing::debug!(
+            "Clearing buffer pool, releasing {} bytes",
+            self.total_memory_bytes
+        );
         self.buffers.clear();
         self.total_memory_bytes = 0;
     }
-
-    /// Get current memory usage statistics
-    pub fn memory_stats(&self) -> BufferPoolStats {
-        let total_buffers: usize = self.buffers.values().map(|v| v.len()).sum();
-        BufferPoolStats {
-            total_buffers,
-            total_memory_bytes: self.total_memory_bytes,
-            buffer_types: self.buffers.len(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BufferPoolStats {
-    pub total_buffers: usize,
-    pub total_memory_bytes: u64,
-    pub buffer_types: usize,
 }
 
 impl Drop for BufferPool {
     fn drop(&mut self) {
         if !self.buffers.is_empty() {
-            tracing::debug!("Dropping BufferPool with {} buffer types", self.buffers.len());
+            tracing::debug!(
+                "Dropping BufferPool with {} buffer types",
+                self.buffers.len()
+            );
         }
     }
-} 
+}

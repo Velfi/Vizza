@@ -109,30 +109,6 @@ pub enum GradientType {
     Checkerboard,
 }
 
-impl GradientType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            GradientType::Disabled => "Disabled",
-            GradientType::Linear => "Linear",
-            GradientType::Radial => "Radial",
-            GradientType::Ellipse => "Ellipse",
-            GradientType::Spiral => "Spiral",
-            GradientType::Checkerboard => "Checkerboard",
-        }
-    }
-
-    pub fn all() -> &'static [GradientType] {
-        &[
-            GradientType::Disabled,
-            GradientType::Linear,
-            GradientType::Radial,
-            GradientType::Ellipse,
-            GradientType::Spiral,
-            GradientType::Checkerboard,
-        ]
-    }
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {

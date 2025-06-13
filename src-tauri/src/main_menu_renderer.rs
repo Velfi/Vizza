@@ -1,9 +1,8 @@
 use std::sync::Arc;
-use wgpu::{Device, Queue, RenderPipeline, Buffer, SurfaceConfiguration};
+use wgpu::{Device, Queue, RenderPipeline, SurfaceConfiguration};
 
 pub struct MainMenuRenderer {
     render_pipeline: RenderPipeline,
-    vertex_buffer: Buffer,
 }
 
 impl MainMenuRenderer {
@@ -66,11 +65,13 @@ impl MainMenuRenderer {
         // Create render pipeline
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Main Menu Triangle Render Pipeline"),
-            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Main Menu Triangle Pipeline Layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            })),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Main Menu Triangle Pipeline Layout"),
+                    bind_group_layouts: &[],
+                    push_constant_ranges: &[],
+                }),
+            ),
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
@@ -106,18 +107,7 @@ impl MainMenuRenderer {
             cache: None,
         });
 
-        // Create empty vertex buffer (we generate vertices in the shader)
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Main Menu Triangle Vertex Buffer"),
-            size: 0,
-            usage: wgpu::BufferUsages::VERTEX,
-            mapped_at_creation: false,
-        });
-
-        Ok(Self {
-            render_pipeline,
-            vertex_buffer,
-        })
+        Ok(Self { render_pipeline })
     }
 
     pub fn render(

@@ -1,24 +1,12 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{State, AppHandle, Emitter};
+use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
-use winit::event_loop::ActiveEventLoop;
 
 use crate::simulations::slime_mold::{
-    SlimeMoldSimulation,
-    Settings,
-    LutManager,
-    PresetManager,
-    presets::init_preset_manager,
+    presets::init_preset_manager, LutManager, PresetManager, Settings, SlimeMoldSimulation,
 };
-
-#[derive(Debug, Clone)]
-pub enum SimulationType {
-    SlimeMold,
-    ParticleLife,
-    ReactionDiffusion,
-}
 
 pub struct SimulationManager {
     pub slime_mold_state: Option<SlimeMoldSimulation>,
@@ -45,7 +33,6 @@ impl SimulationManager {
         &mut self,
         simulation_type: String,
         device: &Arc<Device>,
-        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -55,11 +42,13 @@ impl SimulationManager {
                 let settings = Settings::default();
                 let available_luts = self.lut_manager.get_available_luts();
                 let default_lut_name = "MATPLOTLIB_bone_r";
-                let current_lut_index = available_luts.iter().position(|name| name == default_lut_name).unwrap_or(0);
-                
+                let current_lut_index = available_luts
+                    .iter()
+                    .position(|name| name == default_lut_name)
+                    .unwrap_or(0);
+
                 let simulation = SlimeMoldSimulation::new(
                     device,
-                    queue,
                     surface_config,
                     adapter_info,
                     100000, // agent_count
@@ -67,9 +56,9 @@ impl SimulationManager {
                     &self.lut_manager,
                     &available_luts,
                     current_lut_index, // current_lut_index
-                    false, // lut_reversed
+                    false,             // lut_reversed
                 )?;
-                
+
                 self.slime_mold_state = Some(simulation);
                 Ok(())
             }
@@ -98,10 +87,9 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-        adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
-            simulation.resize(device, queue, new_config, adapter_info)?;
+            simulation.resize(device, queue, new_config)?;
         }
         Ok(())
     }
@@ -136,10 +124,11 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
-        adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
-            simulation.update_agent_count(count, device, queue, surface_config, adapter_info).await?;
+            simulation
+                .update_agent_count(count, device, queue, surface_config)
+                .await?;
         }
         Ok(())
     }
@@ -183,16 +172,15 @@ impl SimulationManager {
         self.preset_manager.save_user_preset(preset_name, settings)
     }
 
-    pub fn delete_preset(
-        &mut self,
-        preset_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn delete_preset(&mut self, preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.preset_manager.delete_user_preset(preset_name)?;
         Ok(())
     }
 
     pub fn get_current_settings(&self) -> Option<Settings> {
-        self.slime_mold_state.as_ref().map(|sim| sim.settings.clone())
+        self.slime_mold_state
+            .as_ref()
+            .map(|sim| sim.settings.clone())
     }
 
     // LUT management methods
@@ -219,6 +207,12 @@ impl SimulationManager {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let available_luts = self.get_available_luts();
         if let Some(lut_name) = available_luts.get(lut_index) {
+            // Update the simulation's current LUT index before applying
+            if let Some(simulation) = &mut self.slime_mold_state {
+                simulation.current_lut_index = lut_index;
+                // Reset reversed state when changing LUT
+                simulation.lut_reversed = false;
+            }
             self.apply_lut(lut_name, queue)
         } else {
             Err(format!("LUT index {} out of range", lut_index).into())
@@ -232,17 +226,17 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.slime_mold_state {
             // Toggle the reversed flag
             simulation.lut_reversed = !simulation.lut_reversed;
-            
+
             // Get the current LUT and apply it (now with reversed flag)
             let available_luts = self.lut_manager.get_available_luts();
             if let Some(lut_name) = available_luts.get(simulation.current_lut_index) {
                 let mut lut_data = self.lut_manager.load_lut(lut_name)?;
-                
+
                 // Reverse the LUT data if the flag is set
                 if simulation.lut_reversed {
                     lut_data.reverse();
                 }
-                
+
                 // Update the GPU with the reversed LUT
                 simulation.update_lut(&lut_data, queue);
             }
@@ -265,19 +259,26 @@ impl SimulationManager {
         tokio::spawn(async move {
             let mut frame_count = 0u32;
             let mut last_fps_update = Instant::now();
-            
+
             while render_loop_running.load(Ordering::Relaxed) {
                 let frame_start = Instant::now();
-                
+
                 // Render frame (only if simulation is running)
                 {
                     let mut sim_manager = manager.lock().await;
                     let gpu_ctx = gpu_context.lock().await;
-                    
-                    if sim_manager.slime_mold_state.is_some() && sim_manager.render_loop_running.load(Ordering::Relaxed) {
+
+                    if sim_manager.slime_mold_state.is_some()
+                        && sim_manager.render_loop_running.load(Ordering::Relaxed)
+                    {
                         if let Ok(output) = gpu_ctx.get_current_texture() {
-                            let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                            if let Ok(_) = sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view) {
+                            let view = output
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default());
+                            if sim_manager
+                                .render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                                .is_ok()
+                            {
                                 output.present();
                             }
                         }
@@ -286,29 +287,30 @@ impl SimulationManager {
                         break;
                     }
                 }
-                
+
                 frame_count += 1;
-                
+
                 // Update FPS every second
                 if last_fps_update.elapsed() >= Duration::from_secs(1) {
                     let fps = (frame_count as f64 / last_fps_update.elapsed().as_secs_f64()) as u32;
-                    
+
                     // Emit FPS update to frontend
                     if let Err(e) = app_handle.emit("fps-update", fps) {
                         tracing::warn!("Failed to emit FPS update: {}", e);
                     }
-                    
+
                     frame_count = 0;
                     last_fps_update = Instant::now();
                 }
-                
+
                 // Handle FPS limiting
                 if fps_limit_enabled.load(Ordering::Relaxed) {
                     let target_fps = fps_limit.load(Ordering::Relaxed);
                     if target_fps > 0 {
-                        let target_frame_time = Duration::from_nanos(1_000_000_000 / target_fps as u64);
+                        let target_frame_time =
+                            Duration::from_nanos(1_000_000_000 / target_fps as u64);
                         let frame_time = frame_start.elapsed();
-                        
+
                         if frame_time < target_frame_time {
                             tokio::time::sleep(target_frame_time - frame_time).await;
                         }

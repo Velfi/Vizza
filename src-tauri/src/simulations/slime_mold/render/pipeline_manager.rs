@@ -7,11 +7,8 @@ pub struct PipelineManager {
     pub decay_pipeline: ComputePipeline,
     pub diffuse_pipeline: ComputePipeline,
     pub display_pipeline: ComputePipeline,
-    pub gradient_pipeline: ComputePipeline,
-    pub speed_update_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
     pub compute_bind_group_layout: BindGroupLayout,
-    pub gradient_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
     pub render_bind_group_layout: BindGroupLayout,
 }
@@ -60,33 +57,6 @@ impl PipelineManager {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        let gradient_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Gradient Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -235,37 +205,6 @@ impl PipelineManager {
             compilation_options: Default::default(),
         });
 
-        let gradient_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Gradient Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Gradient Pipeline Layout"),
-                    bind_group_layouts: &[&gradient_bind_group_layout],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &shader_manager.gradient_shader,
-            entry_point: Some("generate_gradient"),
-            cache: None,
-            compilation_options: Default::default(),
-        });
-
-        let speed_update_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Speed Update Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Speed Update Pipeline Layout"),
-                        bind_group_layouts: &[&compute_bind_group_layout],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &shader_manager.compute_shader,
-                entry_point: Some("update_agent_speeds"),
-                cache: None,
-                compilation_options: Default::default(),
-            });
-
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(
@@ -315,11 +254,8 @@ impl PipelineManager {
             decay_pipeline,
             diffuse_pipeline,
             display_pipeline,
-            gradient_pipeline,
-            speed_update_pipeline,
             render_pipeline,
             compute_bind_group_layout,
-            gradient_bind_group_layout,
             display_bind_group_layout,
             render_bind_group_layout,
         }

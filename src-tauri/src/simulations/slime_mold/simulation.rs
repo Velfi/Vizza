@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use wgpu::util::DeviceExt;
 use bytemuck::{Pod, Zeroable};
+use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
-use super::settings::Settings;
-use super::lut_manager::{LutManager, LutData};
-use super::buffer_pool::{BufferPool, BufferPoolStats};
-use super::workgroup_optimizer::WorkgroupConfig;
+use super::buffer_pool::BufferPool;
+use super::lut_manager::{LutData, LutManager};
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
+use super::settings::Settings;
+use super::workgroup_optimizer::WorkgroupConfig;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -48,7 +48,11 @@ impl SimSizeUniform {
             agent_sensor_distance: settings.agent_sensor_distance,
             diffusion_rate: settings.pheromone_diffusion_rate,
             pheromone_deposition_rate: settings.pheromone_deposition_rate,
-            gradient_enabled: if settings.gradient_type == super::settings::GradientType::Disabled { 0 } else { 1 },
+            gradient_enabled: if settings.gradient_type == super::settings::GradientType::Disabled {
+                0
+            } else {
+                1
+            },
             gradient_type: match settings.gradient_type {
                 super::settings::GradientType::Disabled => 0,
                 super::settings::GradientType::Linear => 1,
@@ -84,18 +88,18 @@ pub struct SlimeMoldSimulation {
     pub display_sampler: wgpu::Sampler,
     pub workgroup_config: WorkgroupConfig,
     pub buffer_pool: BufferPool,
-    
+
     // Simulation state
     pub settings: Settings,
     pub agent_count: usize,
     pub current_lut_index: usize,
     pub lut_reversed: bool,
-    
+
     // Buffer size tracking for pool management
     pub current_trail_map_size: u64,
     pub current_gradient_buffer_size: u64,
     pub current_agent_buffer_size: u64,
-    
+
     // Dimension tracking for resize scaling
     pub current_width: u32,
     pub current_height: u32,
@@ -105,7 +109,6 @@ impl SlimeMoldSimulation {
     /// Create a new slime mold simulation using Tauri's shared GPU resources
     pub fn new(
         device: &Arc<Device>,
-        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
         agent_count: usize,
@@ -117,7 +120,7 @@ impl SlimeMoldSimulation {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
-        
+
         // Create simulation-specific buffers
         let agent_buffer = create_agent_buffer(
             device,
@@ -141,8 +144,8 @@ impl SlimeMoldSimulation {
         {
             let mut view = trail_map_buffer.slice(..).get_mapped_range_mut();
             let view_slice = bytemuck::cast_slice_mut::<u8, f32>(&mut view);
-            for i in 0..trail_map_size {
-                view_slice[i] = rand::random::<f32>() * 0.1; // Small initial values
+            for cell in view_slice.iter_mut() {
+                *cell = rand::random::<f32>() * 0.1; // Small initial values
             }
         }
         trail_map_buffer.unmap();
@@ -233,7 +236,6 @@ impl SlimeMoldSimulation {
         let bind_group_manager = BindGroupManager::new(
             device,
             &pipeline_manager.compute_bind_group_layout,
-            &pipeline_manager.gradient_bind_group_layout,
             &pipeline_manager.display_bind_group_layout,
             &pipeline_manager.render_bind_group_layout,
             &agent_buffer,
@@ -279,7 +281,6 @@ impl SlimeMoldSimulation {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-        adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let physical_width = new_config.width;
         let physical_height = new_config.height;
@@ -297,12 +298,14 @@ impl SlimeMoldSimulation {
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
-            })
+            }),
         );
         self.buffer_pool.return_buffer(
             old_trail_map_buffer,
             self.current_trail_map_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         let old_gradient_buffer = std::mem::replace(
@@ -312,12 +315,14 @@ impl SlimeMoldSimulation {
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
-            })
+            }),
         );
         self.buffer_pool.return_buffer(
             old_gradient_buffer,
             self.current_gradient_buffer_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         let old_agent_buffer = std::mem::replace(
@@ -327,12 +332,14 @@ impl SlimeMoldSimulation {
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
-            })
+            }),
         );
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         // Get new buffers from pool (or create new if none available)
@@ -340,14 +347,18 @@ impl SlimeMoldSimulation {
             device,
             Some("Trail Map Buffer"),
             trail_map_size_bytes,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         self.gradient_buffer = self.buffer_pool.get_buffer(
             device,
             Some("Gradient Buffer"),
             trail_map_size_bytes,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         // For agent buffer, we need special handling to preserve and scale existing positions
@@ -358,7 +369,7 @@ impl SlimeMoldSimulation {
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
-            })
+            }),
         );
 
         // Create new agent buffer and scale existing positions
@@ -372,14 +383,15 @@ impl SlimeMoldSimulation {
             self.current_height,
             physical_width,
             physical_height,
-            &self.settings,
         );
 
         // Return old buffer to pool
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
 
         // Update current sizes and dimensions
@@ -441,10 +453,9 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
-            let (workgroups_x, workgroups_y) = self.workgroup_config.workgroups_2d(
-                self.display_texture.width(),
-                self.display_texture.height(),
-            );
+            let (workgroups_x, workgroups_y) = self
+                .workgroup_config
+                .workgroups_2d(self.display_texture.width(), self.display_texture.height());
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -484,10 +495,9 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let workgroups = self.workgroup_config.workgroups_2d(
-                self.agent_count as u32,
-                1,
-            );
+            let workgroups = self
+                .workgroup_config
+                .workgroups_2d(self.agent_count as u32, 1);
             compute_pass.dispatch_workgroups(workgroups.0, workgroups.1, 1);
         }
 
@@ -499,8 +509,8 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.decay_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let workgroups_x = (self.display_texture.width() + 15) / 16;
-            let workgroups_y = (self.display_texture.height() + 15) / 16;
+            let workgroups_x = self.display_texture.width().div_ceil(16);
+            let workgroups_y = self.display_texture.height().div_ceil(16);
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -512,8 +522,8 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.diffuse_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            let workgroups_x = (self.display_texture.width() + 15) / 16;
-            let workgroups_y = (self.display_texture.height() + 15) / 16;
+            let workgroups_x = self.display_texture.width().div_ceil(16);
+            let workgroups_y = self.display_texture.height().div_ceil(16);
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
     }
@@ -562,16 +572,6 @@ impl SlimeMoldSimulation {
         );
     }
 
-    /// Get buffer pool statistics for debugging
-    pub fn buffer_pool_stats(&self) -> BufferPoolStats {
-        self.buffer_pool.memory_stats()
-    }
-
-    /// Clear buffer pool (useful for freeing memory)
-    pub fn clear_buffer_pool(&mut self) {
-        self.buffer_pool.clear();
-    }
-
     /// Update a single setting by name
     pub fn update_setting(
         &mut self,
@@ -580,7 +580,7 @@ impl SlimeMoldSimulation {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use super::settings::GradientType;
-        
+
         match setting_name {
             "pheromone_decay_rate" => {
                 if let Some(v) = value.as_f64() {
@@ -679,7 +679,7 @@ impl SlimeMoldSimulation {
                 return Err(format!("Unknown setting: {}", setting_name).into());
             }
         }
-        
+
         // Update the GPU uniforms with the new settings
         update_settings(
             &self.settings,
@@ -688,7 +688,7 @@ impl SlimeMoldSimulation {
             self.display_texture.width(),
             self.display_texture.height(),
         );
-        
+
         Ok(())
     }
 
@@ -699,13 +699,12 @@ impl SlimeMoldSimulation {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
-        adapter_info: &wgpu::AdapterInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.agent_count = count as usize;
-        
+
         // Recreate the agent buffer with new count
         let agent_buffer_size_bytes = (self.agent_count * 4 * std::mem::size_of::<f32>()) as u64;
-        
+
         // Return old buffer to pool
         let old_agent_buffer = std::mem::replace(
             &mut self.agent_buffer,
@@ -714,18 +713,20 @@ impl SlimeMoldSimulation {
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
-            })
+            }),
         );
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         );
-        
+
         // Create new agent buffer with new count
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
-        
+
         self.agent_buffer = create_agent_buffer_pooled(
             &mut self.buffer_pool,
             device,
@@ -735,12 +736,12 @@ impl SlimeMoldSimulation {
             physical_height,
             &self.settings,
         );
-        
+
         self.current_agent_buffer_size = agent_buffer_size_bytes;
-        
+
         // Recreate bind groups with new agent buffer
         self.recreate_bind_groups(device);
-        
+
         Ok(())
     }
 
@@ -749,7 +750,6 @@ impl SlimeMoldSimulation {
         self.bind_group_manager = BindGroupManager::new(
             device,
             &self.pipeline_manager.compute_bind_group_layout,
-            &self.pipeline_manager.gradient_bind_group_layout,
             &self.pipeline_manager.display_bind_group_layout,
             &self.pipeline_manager.render_bind_group_layout,
             &self.agent_buffer,
@@ -782,11 +782,19 @@ fn create_agent_buffer(
     let agent_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Buffer"),
         size: (agent_count * 4 * std::mem::size_of::<f32>()) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: true,
     });
 
-    initialize_agent_buffer(&agent_buffer, agent_count, physical_width, physical_height, settings);
+    initialize_agent_buffer(
+        &agent_buffer,
+        agent_count,
+        physical_width,
+        physical_height,
+        settings,
+    );
     agent_buffer
 }
 
@@ -800,11 +808,12 @@ fn create_agent_buffer_pooled(
     settings: &Settings,
 ) -> wgpu::Buffer {
     let size = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
-    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
-    
+    let usage =
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+
     // Get buffer from pool
     let agent_buffer = buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage);
-    
+
     // Initialize with agent data
     let temp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Temp Agent Init Buffer"),
@@ -812,15 +821,21 @@ fn create_agent_buffer_pooled(
         usage: wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: true,
     });
-    
-    initialize_agent_buffer(&temp_buffer, agent_count, physical_width, physical_height, settings);
-    
+
+    initialize_agent_buffer(
+        &temp_buffer,
+        agent_count,
+        physical_width,
+        physical_height,
+        settings,
+    );
+
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Agent Buffer Init"),
     });
     encoder.copy_buffer_to_buffer(&temp_buffer, 0, &agent_buffer, 0, size);
     queue.submit(std::iter::once(encoder.finish()));
-    
+
     agent_buffer
 }
 
@@ -836,18 +851,18 @@ fn initialize_agent_buffer(
 
     for i in 0..agent_count {
         let base_idx = i * 4;
-        
+
         // Random position
         agent_data[base_idx] = rand::random::<f32>() * physical_width as f32;
         agent_data[base_idx + 1] = rand::random::<f32>() * physical_height as f32;
-        
+
         // Random angle
         agent_data[base_idx + 2] = rand::random::<f32>() * 2.0 * std::f32::consts::PI;
-        
+
         // Speed (average of min and max)
         agent_data[base_idx + 3] = (settings.agent_speed_min + settings.agent_speed_max) / 2.0;
     }
-    
+
     drop(buffer_slice);
     buffer.unmap();
 }
@@ -862,36 +877,41 @@ fn create_agent_buffer_with_scaling(
     old_height: u32,
     new_width: u32,
     new_height: u32,
-    settings: &Settings,
 ) -> wgpu::Buffer {
     let size = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
-    let usage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
-    
+    let usage =
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+
     // Get new buffer from pool
     let new_buffer = buffer_pool.get_buffer(device, Some("Scaled Agent Buffer"), size, usage);
-    
+
     // Calculate scaling factors
     let scale_x = new_width as f32 / old_width as f32;
     let scale_y = new_height as f32 / old_height as f32;
-    
+
     // Create staging buffer to read old data and write scaled data
     let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Scaling Staging Buffer"),
         size,
-        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::MAP_WRITE,
+        usage: wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::MAP_READ
+            | wgpu::BufferUsages::MAP_WRITE,
         mapped_at_creation: false,
     });
-    
+
     // Copy old buffer to staging for reading
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Agent Scaling Copy Old"),
     });
     encoder.copy_buffer_to_buffer(old_buffer, 0, &staging_buffer, 0, size);
     queue.submit(std::iter::once(encoder.finish()));
-    
+
     // Wait for copy to complete and map for reading
     let (sender, receiver) = std::sync::mpsc::channel();
-    staging_buffer.slice(..).map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+    staging_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
     receiver.recv().unwrap().unwrap();
 
@@ -899,7 +919,7 @@ fn create_agent_buffer_with_scaling(
     {
         let buffer_slice = staging_buffer.slice(..).get_mapped_range();
         let old_agent_data: &[f32] = bytemuck::cast_slice(&buffer_slice);
-        
+
         // Create new buffer for scaled data
         let new_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Agent Scaling New Staging Buffer"),
@@ -907,27 +927,31 @@ fn create_agent_buffer_with_scaling(
             usage: wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: true,
         });
-        
+
         let mut new_buffer_slice = new_staging_buffer.slice(..).get_mapped_range_mut();
         let new_agent_data: &mut [f32] = bytemuck::cast_slice_mut(&mut new_buffer_slice);
-        
+
         for i in 0..agent_count {
             let base_idx = i * 4;
-            
+
             // Scale X and Y positions, clamp to new boundaries
-            new_agent_data[base_idx] = (old_agent_data[base_idx] * scale_x).min(new_width as f32).max(0.0);
-            new_agent_data[base_idx + 1] = (old_agent_data[base_idx + 1] * scale_y).min(new_height as f32).max(0.0);
-            
+            new_agent_data[base_idx] = (old_agent_data[base_idx] * scale_x)
+                .min(new_width as f32)
+                .max(0.0);
+            new_agent_data[base_idx + 1] = (old_agent_data[base_idx + 1] * scale_y)
+                .min(new_height as f32)
+                .max(0.0);
+
             // Keep angle unchanged
             new_agent_data[base_idx + 2] = old_agent_data[base_idx + 2];
-            
-            // Keep speed unchanged  
+
+            // Keep speed unchanged
             new_agent_data[base_idx + 3] = old_agent_data[base_idx + 3];
         }
-        
+
         drop(new_buffer_slice);
         new_staging_buffer.unmap();
-        
+
         // Copy scaled data to final buffer
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Agent Scaling Copy New"),
@@ -935,9 +959,9 @@ fn create_agent_buffer_with_scaling(
         encoder.copy_buffer_to_buffer(&new_staging_buffer, 0, &new_buffer, 0, size);
         queue.submit(std::iter::once(encoder.finish()));
     }
-    
+
     staging_buffer.unmap();
-    
+
     new_buffer
 }
 
@@ -961,19 +985,19 @@ fn reset_agents(
     agent_count: usize,
 ) {
     let mut agent_data = Vec::with_capacity(agent_count * 4);
-    
+
     for _ in 0..agent_count {
         // Random position
         agent_data.push(rand::random::<f32>() * physical_width as f32);
         agent_data.push(rand::random::<f32>() * physical_height as f32);
-        
+
         // Random angle
         agent_data.push(rand::random::<f32>() * 2.0 * std::f32::consts::PI);
-        
+
         // Speed (average of min and max)
         agent_data.push((settings.agent_speed_min + settings.agent_speed_max) / 2.0);
     }
-    
+
     queue.write_buffer(agent_buffer, 0, bytemuck::cast_slice(&agent_data));
 }
 
@@ -990,5 +1014,9 @@ fn update_settings(
         settings.pheromone_decay_rate,
         settings,
     );
-    queue.write_buffer(sim_size_buffer, 0, bytemuck::cast_slice(&[sim_size_uniform]));
+    queue.write_buffer(
+        sim_size_buffer,
+        0,
+        bytemuck::cast_slice(&[sim_size_uniform]),
+    );
 }

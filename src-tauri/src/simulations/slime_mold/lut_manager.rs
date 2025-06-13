@@ -1,8 +1,9 @@
+use dirs::home_dir;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
-use dirs::home_dir;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LutData {
     pub name: String,
     pub red: Vec<u8>,
@@ -17,7 +18,7 @@ impl LutData {
         self.blue.reverse();
     }
 
-    pub fn from_raw_data(name: String, data: Vec<u8>) -> io::Result<Self> {
+    pub fn from_bytes(name: String, data: &[u8]) -> io::Result<Self> {
         if data.len() != 768 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -31,6 +32,14 @@ impl LutData {
             green: data[256..512].to_vec(),
             blue: data[512..768].to_vec(),
         })
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(768);
+        bytes.extend_from_slice(&self.red);
+        bytes.extend_from_slice(&self.green);
+        bytes.extend_from_slice(&self.blue);
+        bytes
     }
 }
 
@@ -178,12 +187,12 @@ impl LutManager {
 
     pub fn get_available_luts(&self) -> Vec<String> {
         let mut luts: Vec<String> = EMBEDDED_LUTS.keys().map(|&name| name.to_string()).collect();
-        
+
         // Add custom LUTs
         if let Ok(custom_luts) = self.get_custom_luts() {
             luts.extend(custom_luts);
         }
-        
+
         luts.sort();
         luts
     }
@@ -220,12 +229,12 @@ impl LutManager {
         let home_dir = home_dir().ok_or_else(|| {
             io::Error::new(io::ErrorKind::NotFound, "Could not find home directory")
         })?;
-        
+
         let lut_dir = home_dir.join("slime-mold").join("LUTs");
         Ok(lut_dir)
     }
 
-    pub fn save_custom_lut(&self, name: &str, data: &[u8]) -> io::Result<()> {
+    pub fn save_custom_lut(&self, name: &str, lut_data: &LutData) -> io::Result<()> {
         // Create LUTs directory if it doesn't exist
         let lut_dir = Self::get_lut_dir()?;
         if !lut_dir.exists() {
@@ -234,7 +243,7 @@ impl LutManager {
 
         // Save the LUT file
         let file_path = lut_dir.join(format!("{}.lut", name));
-        std::fs::write(file_path, data)?;
+        std::fs::write(file_path, lut_data.clone().into_bytes())?;
 
         Ok(())
     }
@@ -262,7 +271,7 @@ impl LutManager {
     pub fn load_custom_lut(&self, name: &str) -> io::Result<LutData> {
         let file_path = Self::get_lut_dir()?.join(format!("{}.lut", name));
         let data = std::fs::read(file_path)?;
-        LutData::from_raw_data(name.to_string(), data)
+        LutData::from_bytes(name.to_string(), &data)
     }
 }
 

@@ -2,15 +2,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::Arc;
-use tauri::{Manager, State, WebviewWindow, Emitter};
+use tauri::{Emitter, Manager, State, WebviewWindow};
 use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
 
+mod main_menu_renderer;
 mod simulation_manager;
 mod simulations;
-mod main_menu_renderer;
 
-use simulation_manager::SimulationManager;
 use main_menu_renderer::MainMenuRenderer;
+use simulation_manager::SimulationManager;
+
+use crate::simulations::slime_mold::lut_manager::LutData;
 
 /// Unified GPU context managed by Tauri with surface
 pub struct GpuContext {
@@ -24,7 +26,9 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    pub async fn new_with_surface(window: &WebviewWindow) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new_with_surface(
+        window: &WebviewWindow,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Create wgpu instance
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends: Backends::all(),
@@ -64,7 +68,7 @@ impl GpuContext {
         // Get window size and create surface config
         let window_size = window.inner_size()?;
         let surface_caps = surface.get_capabilities(&adapter);
-        
+
         // Choose appropriate surface format
         let surface_format = surface_caps
             .formats
@@ -86,8 +90,11 @@ impl GpuContext {
 
         // Configure surface
         surface.configure(&device, &surface_config);
-        
-        println!("Surface initialized successfully: {}x{}", surface_config.width, surface_config.height);
+
+        println!(
+            "Surface initialized successfully: {}x{}",
+            surface_config.width, surface_config.height
+        );
 
         // Create main menu renderer
         let device_arc = Arc::new(device);
@@ -105,21 +112,26 @@ impl GpuContext {
     }
 
     /// Update surface configuration for resize
-    pub async fn resize_surface(&self, width: u32, height: u32) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn resize_surface(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut config = self.surface_config.lock().await;
         config.width = width;
         config.height = height;
-        
+
         // Reconfigure surface
         self.surface.configure(&self.device, &config);
         println!("Surface resized to: {}x{}", width, height);
-        
+
         Ok(())
     }
 
     /// Get current surface texture for rendering
     pub fn get_current_texture(&self) -> Result<wgpu::SurfaceTexture, String> {
-        self.surface.get_current_texture()
+        self.surface
+            .get_current_texture()
             .map_err(|e| format!("Failed to get surface texture: {}", e))
     }
 }
@@ -133,38 +145,40 @@ async fn start_slime_mold_simulation(
     tracing::info!("start_slime_mold_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     // Get current surface configuration
     let surface_config = gpu_ctx.surface_config.lock().await.clone();
-    
-    match sim_manager.start_simulation(
-        "slime_mold".to_string(),
-        &gpu_ctx.device,
-        &gpu_ctx.queue,
-        &surface_config,
-        &gpu_ctx.adapter_info,
-    ).await {
+
+    match sim_manager
+        .start_simulation(
+            "slime_mold".to_string(),
+            &gpu_ctx.device,
+            &surface_config,
+            &gpu_ctx.adapter_info,
+        )
+        .await
+    {
         Ok(_) => {
             tracing::info!("Slime mold simulation started successfully");
-            
+
             // Start the backend render loop
             sim_manager.start_render_loop(
                 app.clone(),
                 gpu_context.inner().clone(),
                 manager.inner().clone(),
             );
-            
+
             // Emit event to notify frontend that simulation is initialized
             if let Err(e) = app.emit("simulation-initialized", ()) {
                 tracing::warn!("Failed to emit simulation-initialized event: {}", e);
             }
-            
+
             Ok("Slime mold simulation started successfully".to_string())
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to start simulation: {}", e);
             Err(format!("Failed to start simulation: {}", e))
-        },
+        }
     }
 }
 
@@ -172,10 +186,49 @@ async fn start_slime_mold_simulation(
 async fn stop_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
+    let sim_manager = manager.lock().await;
+    sim_manager.stop_render_loop();
+    Ok("Simulation paused".to_string())
+}
+
+#[tauri::command]
+async fn resume_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    tracing::info!("resume_simulation called");
+    let sim_manager = manager.lock().await;
+
+    // Only resume if simulation exists
+    if sim_manager.is_running() {
+        // Restart the render loop
+        sim_manager.start_render_loop(
+            app.clone(),
+            gpu_context.inner().clone(),
+            manager.inner().clone(),
+        );
+
+        // Emit event to notify frontend that simulation is resumed
+        if let Err(e) = app.emit("simulation-resumed", ()) {
+            tracing::warn!("Failed to emit simulation-resumed event: {}", e);
+        }
+
+        Ok("Simulation resumed successfully".to_string())
+    } else {
+        Err("No simulation to resume".to_string())
+    }
+}
+
+#[tauri::command]
+async fn destroy_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    tracing::info!("destroy_simulation called");
     let mut sim_manager = manager.lock().await;
     sim_manager.stop_render_loop();
     sim_manager.stop_simulation();
-    Ok("Simulation stopped".to_string())
+    Ok("Simulation destroyed".to_string())
 }
 
 #[tauri::command]
@@ -194,15 +247,20 @@ async fn render_frame(
     // debug!("render_frame called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     // Check if simulation is running
     if !sim_manager.is_running() {
         // Render triangle when no simulation is running
         match gpu_ctx.get_current_texture() {
             Ok(output) => {
-                let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                
-                match gpu_ctx.main_menu_renderer.render(&gpu_ctx.device, &gpu_ctx.queue, &view) {
+                let view = output
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+
+                match gpu_ctx
+                    .main_menu_renderer
+                    .render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                {
                     Ok(_) => {
                         output.present();
                         return Ok("Triangle rendered".to_string());
@@ -219,11 +277,13 @@ async fn render_frame(
             }
         }
     }
-    
+
     // Get surface texture
     match gpu_ctx.get_current_texture() {
         Ok(output) => {
-            let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let view = output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             match sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view) {
                 Ok(_) => {
                     // debug!("Frame rendered successfully");
@@ -252,21 +312,18 @@ async fn handle_window_resize(
 ) -> Result<(), String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     // Resize surface
-    gpu_ctx.resize_surface(width, height).await
+    gpu_ctx
+        .resize_surface(width, height)
+        .await
         .map_err(|e| format!("Failed to resize surface: {}", e))?;
-    
+
     // Get updated surface config
     let surface_config = gpu_ctx.surface_config.lock().await.clone();
-    
+
     // Notify simulation manager of resize
-    match sim_manager.handle_resize(
-        &gpu_ctx.device,
-        &gpu_ctx.queue,
-        &surface_config,
-        &gpu_ctx.adapter_info,
-    ) {
+    match sim_manager.handle_resize(&gpu_ctx.device, &gpu_ctx.queue, &surface_config) {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("Resize failed: {}", e)),
     }
@@ -290,10 +347,14 @@ async fn update_simulation_setting(
     setting_name: String,
     value: serde_json::Value,
 ) -> Result<String, String> {
-    tracing::info!("update_simulation_setting called: {} = {:?}", setting_name, value);
+    tracing::info!(
+        "update_simulation_setting called: {} = {:?}",
+        setting_name,
+        value
+    );
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.update_setting(&setting_name, value, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("Setting {} updated successfully", setting_name)),
         Err(e) => {
@@ -312,17 +373,14 @@ async fn update_agent_count(
     tracing::info!("update_agent_count called with count: {}", count);
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     // Get current surface configuration
     let surface_config = gpu_ctx.surface_config.lock().await.clone();
-    
-    match sim_manager.update_agent_count(
-        count,
-        &gpu_ctx.device,
-        &gpu_ctx.queue,
-        &surface_config,
-        &gpu_ctx.adapter_info,
-    ).await {
+
+    match sim_manager
+        .update_agent_count(count, &gpu_ctx.device, &gpu_ctx.queue, &surface_config)
+        .await
+    {
         Ok(_) => Ok(format!("Agent count updated to {}", count)),
         Err(e) => {
             tracing::error!("Failed to update agent count: {}", e);
@@ -348,7 +406,7 @@ async fn apply_preset(
     tracing::info!("apply_preset called: {}", preset_name);
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.apply_preset(&preset_name, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("Preset '{}' applied successfully", preset_name)),
         Err(e) => {
@@ -365,7 +423,7 @@ async fn save_preset(
 ) -> Result<String, String> {
     tracing::info!("save_preset called: {}", preset_name);
     let sim_manager = manager.lock().await;
-    
+
     if let Some(current_settings) = sim_manager.get_current_settings() {
         match sim_manager.save_preset(&preset_name, &current_settings) {
             Ok(_) => Ok(format!("Preset '{}' saved successfully", preset_name)),
@@ -386,7 +444,7 @@ async fn delete_preset(
 ) -> Result<String, String> {
     tracing::info!("delete_preset called: {}", preset_name);
     let mut sim_manager = manager.lock().await;
-    
+
     match sim_manager.delete_preset(&preset_name) {
         Ok(_) => Ok(format!("Preset '{}' deleted successfully", preset_name)),
         Err(e) => {
@@ -413,7 +471,7 @@ async fn apply_lut_by_index(
     tracing::info!("apply_lut_by_index called: {}", lut_index);
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.apply_lut_by_index(lut_index, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("LUT at index {} applied successfully", lut_index)),
         Err(e) => {
@@ -432,7 +490,7 @@ async fn apply_lut_by_name(
     tracing::info!("apply_lut_by_name called: {}", lut_name);
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.apply_lut(&lut_name, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("LUT '{}' applied successfully", lut_name)),
         Err(e) => {
@@ -450,7 +508,7 @@ async fn toggle_lut_reversed(
     tracing::info!("toggle_lut_reversed called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.reverse_current_lut(&gpu_ctx.queue) {
         Ok(_) => Ok("LUT reversed toggled successfully".to_string()),
         Err(e) => {
@@ -468,7 +526,7 @@ async fn get_current_settings(
     if let Some(settings) = sim_manager.get_current_settings() {
         match serde_json::to_value(&settings) {
             Ok(json_settings) => Ok(Some(json_settings)),
-            Err(e) => Err(format!("Failed to serialize settings: {}", e))
+            Err(e) => Err(format!("Failed to serialize settings: {}", e)),
         }
     } else {
         Ok(None)
@@ -494,7 +552,7 @@ async fn reset_trails(
     tracing::info!("reset_trails called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.reset_trails(&gpu_ctx.queue) {
         Ok(_) => Ok("Trails reset successfully".to_string()),
         Err(e) => {
@@ -512,7 +570,7 @@ async fn reset_agents(
     tracing::info!("reset_agents called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.reset_agents(&gpu_ctx.queue) {
         Ok(_) => Ok("Agents reset successfully".to_string()),
         Err(e) => {
@@ -530,19 +588,16 @@ async fn randomize_settings(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    // Get current settings and agent count
-    let mut settings = if let Some(current) = sim_manager.get_current_settings() {
-        current
-    } else {
-        crate::simulations::slime_mold::Settings::default()
-    };
+    // Get current settings
+    let mut settings = sim_manager.get_current_settings().unwrap_or_default();
 
     // Randomize settings (logic from app.rs)
     settings.pheromone_decay_rate = rand::random::<f32>() * 10.0;
     settings.pheromone_deposition_rate = rand::random::<f32>() * 100.0 / 100.0;
     settings.pheromone_diffusion_rate = rand::random::<f32>() * 100.0 / 100.0;
     settings.agent_speed_min = rand::random::<f32>() * 500.0;
-    settings.agent_speed_max = settings.agent_speed_min + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
+    settings.agent_speed_max =
+        settings.agent_speed_min + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
     settings.agent_turn_rate = (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0;
     settings.agent_jitter = rand::random::<f32>() * 5.0;
     settings.agent_sensor_angle = (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0;
@@ -558,8 +613,66 @@ async fn randomize_settings(
     settings.agent_possible_starting_headings = start..end;
 
     // Apply new settings
-    sim_manager.apply_preset_settings(settings, &gpu_ctx.queue).map_err(|e| e.to_string())?;
+    sim_manager
+        .apply_preset_settings(settings, &gpu_ctx.queue)
+        .map_err(|e| e.to_string())?;
     Ok("Settings randomized successfully".to_string())
+}
+
+#[tauri::command]
+async fn apply_custom_lut(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    lut_data: Vec<f32>,
+) -> Result<String, String> {
+    debug_assert_eq!(lut_data.len(), 768, "LUT data must contain 768 values");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(simulation) = &mut sim_manager.slime_mold_state {
+        // Convert f32 values to u8 bytes (0-255 range)
+        let byte_data: Vec<u8> = lut_data
+            .iter()
+            .map(|&f| (f.clamp(0.0, 255.0)) as u8)
+            .collect();
+
+        // Create LutData from the byte data
+        let lut_data = LutData::from_bytes("unnamed".to_string(), &byte_data)
+            .map_err(|e| format!("Failed to create LUT data: {}", e))?;
+
+        simulation.update_lut(&lut_data, &gpu_ctx.queue);
+        Ok("Custom LUT applied successfully".to_string())
+    } else {
+        Err("No simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+async fn save_custom_lut(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    name: String,
+    lut_data: Vec<f32>,
+) -> Result<String, String> {
+    debug_assert_eq!(lut_data.len(), 768, "LUT data must contain 768 values");
+    let sim_manager = manager.lock().await;
+
+    // Convert f32 values to u8 bytes (0-255 range)
+    let byte_data: Vec<u8> = lut_data
+        .iter()
+        .map(|&f| (f.clamp(0.0, 255.0)) as u8)
+        .collect();
+
+    // Create LutData from the byte data
+    let lut_data = LutData::from_bytes(name.clone(), &byte_data)
+        .map_err(|e| format!("Failed to create LUT data: {}", e))?;
+
+    match sim_manager.lut_manager.save_custom_lut(&name, &lut_data) {
+        Ok(_) => Ok(format!("Custom LUT '{}' saved successfully", name)),
+        Err(e) => {
+            tracing::error!("Failed to save custom LUT {}: {}", name, e);
+            Err(format!("Failed to save custom LUT {}: {}", name, e))
+        }
+    }
 }
 
 fn main() {
@@ -572,20 +685,26 @@ fn main() {
 
             // Get the main window
             let window = app.get_webview_window("main").unwrap();
-            window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(0, 0))).expect("Failed to set window position");
+            window
+                .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                    0, 0,
+                )))
+                .expect("Failed to set window position");
 
             // Set window size to active monitor dimensions
-            if let Ok(monitor) = window.current_monitor() {
-                if let Some(monitor) = monitor {
-                    let size = monitor.size();
-                    if let Err(e) = window.set_size(tauri::Size::Physical(*size)) {
-                        tracing::warn!("Failed to set window size to monitor dimensions: {}", e);
-                    } else {
-                        tracing::info!("Window sized to monitor dimensions: {}x{}", size.width, size.height);
-                        
-                        // Force a resize event to ensure GPU surface is properly configured
-                        // This will be handled by the frontend resize listener in App.svelte
-                    }
+            if let Ok(Some(monitor)) = window.current_monitor() {
+                let size = monitor.size();
+                if let Err(e) = window.set_size(tauri::Size::Physical(*size)) {
+                    tracing::warn!("Failed to set window size to monitor dimensions: {}", e);
+                } else {
+                    tracing::info!(
+                        "Window sized to monitor dimensions: {}x{}",
+                        size.width,
+                        size.height
+                    );
+
+                    // Force a resize event to ensure GPU surface is properly configured
+                    // This will be handled by the frontend resize listener in App.svelte
                 }
             }
 
@@ -601,7 +720,7 @@ fn main() {
                 }
                 Err(e) => {
                     tracing::error!("Failed to initialize GPU context: {}", e);
-                    return Err(e.into());
+                    return Err(e);
                 }
             }
 
@@ -610,6 +729,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_slime_mold_simulation,
             stop_simulation,
+            resume_simulation,
+            destroy_simulation,
             get_simulation_status,
             render_frame,
             handle_window_resize,
@@ -629,6 +750,8 @@ fn main() {
             reset_trails,
             reset_agents,
             randomize_settings,
+            apply_custom_lut,
+            save_custom_lut,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

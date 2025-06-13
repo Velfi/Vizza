@@ -3,10 +3,10 @@
 use std::fs;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
-use toml;
 use super::settings::{GradientType, Settings};
 use dirs::home_dir;
+use serde::{Deserialize, Serialize};
+use toml;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preset {
@@ -133,15 +133,6 @@ impl PresetManager {
         self.presets.retain(|p| p.name != name);
 
         Ok(())
-    }
-
-    /// Get list of user preset files (without built-in presets)
-    pub fn get_user_preset_names(&self) -> Vec<String> {
-        self.presets
-            .iter()
-            .filter(|p| !self.built_in_preset_names.contains(&p.name))
-            .map(|p| p.name.clone())
-            .collect()
     }
 }
 
