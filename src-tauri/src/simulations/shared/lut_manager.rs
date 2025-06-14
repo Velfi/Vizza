@@ -1,14 +1,13 @@
 use dirs::home_dir;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct LutData {
     pub name: String,
-    pub red: Vec<u8>,
-    pub green: Vec<u8>,
-    pub blue: Vec<u8>,
+    pub red: [u8; 256],
+    pub green: [u8; 256],
+    pub blue: [u8; 256],
 }
 
 impl LutData {
@@ -28,9 +27,9 @@ impl LutData {
 
         Ok(Self {
             name,
-            red: data[0..256].to_vec(),
-            green: data[256..512].to_vec(),
-            blue: data[512..768].to_vec(),
+            red: data[0..256].try_into().expect("invalid LUT data"),
+            green: data[256..512].try_into().expect("invalid LUT data"),
+            blue: data[512..768].try_into().expect("invalid LUT data"),
         })
     }
 
@@ -199,7 +198,7 @@ impl LutManager {
 
     pub fn load_lut(&self, name: &str) -> io::Result<LutData> {
         // Try to load from embedded LUTs first
-        if let Some(buffer) = EMBEDDED_LUTS.get(name) {
+        if let Some(&buffer) = EMBEDDED_LUTS.get(name) {
             // Each color component should be 256 bytes
             if buffer.len() != 768 {
                 // 256 * 3 (RGB)
@@ -209,16 +208,7 @@ impl LutManager {
                 ));
             }
 
-            let red = buffer[0..256].to_vec();
-            let green = buffer[256..512].to_vec();
-            let blue = buffer[512..768].to_vec();
-
-            return Ok(LutData {
-                name: name.to_string(),
-                red,
-                green,
-                blue,
-            });
+            return Ok(LutData::from_bytes(name.to_string(), buffer.as_slice()).unwrap());
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT
@@ -230,7 +220,7 @@ impl LutManager {
             io::Error::new(io::ErrorKind::NotFound, "Could not find home directory")
         })?;
 
-        let lut_dir = home_dir.join("slime-mold").join("LUTs");
+        let lut_dir = home_dir.join("sim-pix").join("LUTs");
         Ok(lut_dir)
     }
 
@@ -273,10 +263,15 @@ impl LutManager {
         let data = std::fs::read(file_path)?;
         LutData::from_bytes(name.to_string(), &data)
     }
+
+    pub fn get_default_lut(&self) -> LutData {
+        let lut_data = self.load_lut("MATPLOTLIB_bone_r").unwrap();
+        lut_data
+    }
 }
 
 impl Default for LutManager {
     fn default() -> Self {
         Self::new()
     }
-}
+} 

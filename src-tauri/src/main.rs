@@ -12,7 +12,7 @@ mod simulations;
 use main_menu_renderer::MainMenuRenderer;
 use simulation_manager::SimulationManager;
 
-use crate::simulations::slime_mold::lut_manager::LutData;
+use crate::simulations::shared::LutData;
 
 /// Unified GPU context managed by Tauri with surface
 pub struct GpuContext {
@@ -179,6 +179,53 @@ async fn start_slime_mold_simulation(
             }
 
             Ok("Slime mold simulation started successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to start simulation: {}", e);
+            Err(format!("Failed to start simulation: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn start_gray_scott_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    tracing::info!("start_gray_scott_simulation called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    // Get current surface configuration
+    let surface_config = gpu_ctx.surface_config.lock().await.clone();
+
+    match sim_manager
+        .start_simulation(
+            "gray_scott".to_string(),
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+            &surface_config,
+            &gpu_ctx.adapter_info,
+        )
+        .await
+    {
+        Ok(_) => {
+            tracing::info!("Gray-Scott simulation started successfully");
+
+            // Start the backend render loop
+            sim_manager.start_render_loop(
+                app.clone(),
+                gpu_context.inner().clone(),
+                manager.inner().clone(),
+            );
+
+            // Emit event to notify frontend that simulation is initialized
+            if let Err(e) = app.emit("simulation-initialized", ()) {
+                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
+            }
+
+            Ok("Gray-Scott simulation started successfully".to_string())
         }
         Err(e) => {
             tracing::error!("Failed to start simulation: {}", e);
@@ -594,6 +641,24 @@ async fn reset_agents(
 }
 
 #[tauri::command]
+async fn reset_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("reset_simulation called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.reset_simulation(&gpu_ctx.queue) {
+        Ok(_) => Ok("Simulation reset successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to reset simulation: {}", e);
+            Err(format!("Failed to reset simulation: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
 async fn randomize_settings(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
@@ -601,35 +666,13 @@ async fn randomize_settings(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    // Get current settings
-    let mut settings = sim_manager.get_current_settings().unwrap_or_default();
-
-    // Randomize settings (logic from app.rs)
-    settings.pheromone_decay_rate = rand::random::<f32>() * 10.0;
-    settings.pheromone_deposition_rate = rand::random::<f32>() * 100.0 / 100.0;
-    settings.pheromone_diffusion_rate = rand::random::<f32>() * 100.0 / 100.0;
-    settings.agent_speed_min = rand::random::<f32>() * 500.0;
-    settings.agent_speed_max =
-        settings.agent_speed_min + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
-    settings.agent_turn_rate = (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0;
-    settings.agent_jitter = rand::random::<f32>() * 5.0;
-    settings.agent_sensor_angle = (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0;
-    settings.agent_sensor_distance = rand::random::<f32>() * 500.0;
-    settings.gradient_type = crate::simulations::slime_mold::settings::GradientType::Disabled;
-    settings.gradient_strength = 0.5;
-    settings.gradient_center_x = 0.5;
-    settings.gradient_center_y = 0.5;
-    settings.gradient_size = 1.0;
-    settings.gradient_angle = 0.0;
-    let start = rand::random::<f32>() * 360.0;
-    let end = start + rand::random::<f32>() * (360.0 - start);
-    settings.agent_possible_starting_headings = start..end;
-
-    // Apply new settings
-    sim_manager
-        .apply_preset_settings(settings, &gpu_ctx.queue)
-        .map_err(|e| e.to_string())?;
-    Ok("Settings randomized successfully".to_string())
+    match sim_manager.randomize_settings(&gpu_ctx.queue) {
+        Ok(_) => Ok("Settings randomized successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to randomize settings: {}", e);
+            Err(format!("Failed to randomize settings: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -688,6 +731,194 @@ async fn save_custom_lut(
     }
 }
 
+#[tauri::command]
+async fn handle_mouse_interaction(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    x: f32,
+    y: f32,
+    is_seeding: bool,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.handle_mouse_interaction(x, y, is_seeding, &gpu_ctx.queue) {
+        Ok(_) => Ok("Mouse interaction handled successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to handle mouse interaction: {}", e);
+            Err(format!("Failed to handle mouse interaction: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn update_cursor_position(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    x: f32,
+    y: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_cursor_position(x, y, &gpu_ctx.queue) {
+        Ok(_) => Ok("Cursor position updated successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to update cursor position: {}", e);
+            Err(format!("Failed to update cursor position: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn update_cursor_position_screen(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    screen_x: f32,
+    screen_y: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_cursor_position_screen(screen_x, screen_y, &gpu_ctx.queue) {
+        Ok(_) => Ok("Cursor position updated successfully from screen coordinates".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to update cursor position from screen coordinates: {}", e);
+            Err(format!("Failed to update cursor position from screen coordinates: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn seed_random_noise(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.seed_random_noise(&gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => Ok("Random noise seeded successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to seed random noise: {}", e);
+            Err(format!("Failed to seed random noise: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn pan_camera(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    delta_x: f32,
+    delta_y: f32,
+) -> Result<String, String> {
+    tracing::debug!("Tauri pan_camera command received: delta=({:.2}, {:.2})", delta_x, delta_y);
+    let mut sim_manager = manager.lock().await;
+
+    match sim_manager.pan_camera(delta_x, delta_y) {
+        Ok(_) => {
+            tracing::debug!("Camera pan command executed successfully");
+            Ok("Camera panned successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to pan camera: {}", e);
+            Err(format!("Failed to pan camera: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn zoom_camera(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    delta: f32,
+) -> Result<String, String> {
+    tracing::debug!("Tauri zoom_camera command received: delta={:.2}", delta);
+    let mut sim_manager = manager.lock().await;
+
+    match sim_manager.zoom_camera(delta) {
+        Ok(_) => {
+            tracing::debug!("Camera zoom command executed successfully");
+            Ok("Camera zoomed successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to zoom camera: {}", e);
+            Err(format!("Failed to zoom camera: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn zoom_camera_to_cursor(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    delta: f32,
+    cursor_x: f32,
+    cursor_y: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+
+    match sim_manager.zoom_camera_to_cursor(delta, cursor_x, cursor_y) {
+        Ok(_) => Ok("Camera zoomed to cursor successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to zoom camera to cursor: {}", e);
+            Err(format!("Failed to zoom camera to cursor: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn reset_camera(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+
+    match sim_manager.reset_camera() {
+        Ok(_) => Ok("Camera reset successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to reset camera: {}", e);
+            Err(format!("Failed to reset camera: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn stop_camera_pan(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    tracing::trace!("Tauri stop_camera_pan command received");
+    let mut sim_manager = manager.lock().await;
+
+    match sim_manager.stop_camera_pan() {
+        Ok(_) => {
+            tracing::trace!("Camera pan stop command executed successfully");
+            Ok("Camera pan stopped successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to stop camera pan: {}", e);
+            Err(format!("Failed to stop camera pan: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_camera_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<serde_json::Value, String> {
+    let sim_manager = manager.lock().await;
+    if let Some(sim) = &sim_manager.gray_scott_state {
+        let cam = &sim.renderer.camera;
+        let state = serde_json::json!({
+            "position": cam.position,
+            "zoom": cam.zoom,
+            "viewport_width": cam.viewport_width,
+            "viewport_height": cam.viewport_height,
+            "aspect_ratio": cam.uniform_data().aspect_ratio
+        });
+        Ok(state)
+    } else {
+        Err("No Gray-Scott simulation running".to_string())
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     tauri::Builder::default()
@@ -741,6 +972,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             start_slime_mold_simulation,
+            start_gray_scott_simulation,
             stop_simulation,
             resume_simulation,
             destroy_simulation,
@@ -763,9 +995,20 @@ fn main() {
             set_fps_limit,
             reset_trails,
             reset_agents,
+            reset_simulation,
             randomize_settings,
             apply_custom_lut,
             save_custom_lut,
+            handle_mouse_interaction,
+            update_cursor_position,
+            update_cursor_position_screen,
+            seed_random_noise,
+            pan_camera,
+            zoom_camera,
+            zoom_camera_to_cursor,
+            reset_camera,
+            stop_camera_pan,
+            get_camera_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

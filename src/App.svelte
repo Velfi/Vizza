@@ -3,8 +3,9 @@
   import { invoke } from '@tauri-apps/api/core';
   import MainMenu from './lib/MainMenu.svelte';
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
+  import GrayScottMode from './lib/GrayScottMode.svelte';
 
-  type AppMode = 'menu' | 'slime-mold';
+  type AppMode = 'menu' | 'slime-mold' | 'gray-scott';
   let currentMode: AppMode = 'menu';
 
   function navigateToMode(mode: AppMode) {
@@ -54,6 +55,8 @@
     <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'slime-mold'}
     <SlimeMoldMode on:back={returnToMenu} />
+  {:else if currentMode === 'gray-scott'}
+    <GrayScottMode on:back={returnToMenu} />
   {/if}
 </main>
 

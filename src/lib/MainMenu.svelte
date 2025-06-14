@@ -56,6 +56,14 @@
       <p>Cellular automaton simulation</p>
     </button>
     
+    <button 
+      class="simulation-card" 
+      on:click={() => selectSimulation('gray-scott')}
+    >
+      <h3>Gray-Scott</h3>
+      <p>Reaction-diffusion simulation</p>
+    </button>
+    
     <div class="simulation-card disabled">
       <h3>Coming Soon</h3>
       <p>More simulations</p>

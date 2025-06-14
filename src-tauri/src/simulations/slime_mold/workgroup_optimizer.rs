@@ -233,11 +233,6 @@ impl WorkgroupConfig {
         (size, size)
     }
 
-    /// Calculate number of workgroups needed for 1D dispatch (agents)
-    pub fn workgroups_1d(&self, count: u32) -> u32 {
-        count.div_ceil(self.compute_1d).min(65535)
-    }
-
     /// Calculate number of workgroups needed for 2D dispatch  
     pub fn workgroups_2d(&self, width: u32, height: u32) -> (u32, u32) {
         let x_groups = width.div_ceil(self.compute_2d.0).min(65535);

@@ -4,10 +4,10 @@ use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::buffer_pool::BufferPool;
-use super::lut_manager::{LutData, LutManager};
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::shared::{LutData, LutManager};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]

@@ -5,7 +5,7 @@
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
-  "identifier": "com.tauri.alpha",
+  "identifier": "com.tauri.sim-pix",
   "bundle": {
     "active": false,
     "targets": "all",
@@ -25,9 +25,9 @@
         "label": "main",
         "fullscreen": false,
         "resizable": true,
-        "title": "alpha-desktop",
-        "width": 800,
-        "height": 600,
+        "title": "Sim Pix",
+        "width": 1600,
+        "height": 900,
         "decorations": true,
         "transparent": true
       }
