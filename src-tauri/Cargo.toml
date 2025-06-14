@@ -30,6 +30,9 @@ tokio = { version = "1.45.1", features = ["full", "macros"] }
 dirs = "6.0.0"
 rand = "0.9.1"
 pollster = "0.3"
+num_cpus = "1.17.0"
+rayon = "1.10.0"
+nalgebra = "0.33.2"
 
 
 [features]
