@@ -64,6 +64,14 @@
       <p>Reaction-diffusion simulation</p>
     </button>
     
+    <button 
+      class="simulation-card" 
+      on:click={() => selectSimulation('particle-life')}
+    >
+      <h3>Particle Life</h3>
+      <p>Particle simulation</p>
+    </button>
+
     <div class="simulation-card disabled">
       <h3>Coming Soon</h3>
       <p>More simulations</p>

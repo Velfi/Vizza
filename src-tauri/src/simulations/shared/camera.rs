@@ -570,4 +570,8 @@ impl Camera {
         self.position[1] = self.position[1].clamp(min_y, max_y);
         self.update_uniform();
     }
+    
+    pub(crate) fn get_view_projection_matrix(&self, aspect_ratio: f32) -> [f32; 16] {
+        Self::calculate_view_proj_matrix(self.position, self.zoom, aspect_ratio)
+    }
 }

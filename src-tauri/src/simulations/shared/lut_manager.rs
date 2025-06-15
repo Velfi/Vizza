@@ -268,6 +268,10 @@ impl LutManager {
         let lut_data = self.load_lut("MATPLOTLIB_bone_r").unwrap();
         lut_data
     }
+    
+    pub(crate) fn delete_user_preset(&self, _preset_name: &str) {
+        todo!()
+    }
 }
 
 impl Default for LutManager {

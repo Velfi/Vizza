@@ -235,6 +235,53 @@ async fn start_gray_scott_simulation(
 }
 
 #[tauri::command]
+async fn start_particle_life_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    tracing::info!("start_particle_life_simulation called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    // Get current surface configuration
+    let surface_config = gpu_ctx.surface_config.lock().await.clone();
+
+    match sim_manager
+        .start_simulation(
+            "particle_life".to_string(),
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+            &surface_config,
+            &gpu_ctx.adapter_info,
+        )
+        .await
+    {
+        Ok(_) => {
+            tracing::info!("Particle Life simulation started successfully");
+
+            // Start the backend render loop
+            sim_manager.start_render_loop(
+                app.clone(),
+                gpu_context.inner().clone(),
+                manager.inner().clone(),
+            );
+
+            // Emit event to notify frontend that simulation is initialized
+            if let Err(e) = app.emit("simulation-initialized", ()) {
+                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
+            }
+
+            Ok("Particle Life simulation started successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to start simulation: {}", e);
+            Err(format!("Failed to start simulation: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
 async fn stop_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
@@ -407,7 +454,7 @@ async fn update_simulation_setting(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.update_setting(&setting_name, value, &gpu_ctx.queue) {
+    match sim_manager.update_setting(&setting_name, value, &gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("Setting {} updated successfully", setting_name)),
         Err(e) => {
             tracing::error!("Failed to update setting {}: {}", setting_name, e);
@@ -919,6 +966,105 @@ async fn get_camera_state(
     }
 }
 
+#[tauri::command]
+async fn generate_matrix(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    generator: Option<String>,
+) -> Result<String, String> {
+    tracing::info!("generate_matrix called with generator: {:?}", generator);
+    let mut sim_manager = manager.lock().await;
+    
+    if let Some(simulation) = &mut sim_manager.particle_life_state {
+        // Set the generator if provided
+        if let Some(generator_name) = generator {
+            if let Err(e) = simulation.set_matrix_generator(&generator_name) {
+                tracing::error!("Failed to set matrix generator: {}", e);
+                return Err(format!("Failed to set matrix generator: {}", e));
+            }
+        }
+        
+        // Generate a new matrix using the selected generator
+        match simulation.generate_matrix_with_selected_generator() {
+            Ok(_) => Ok("Matrix generated successfully".to_string()),
+            Err(e) => {
+                tracing::error!("Failed to generate matrix: {}", e);
+                Err(format!("Failed to generate matrix: {}", e))
+            }
+        }
+    } else {
+        Err("No particle life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_matrix_values(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<Vec<f64>>, String> {
+    let sim_manager = manager.lock().await;
+    
+    if let Some(simulation) = &sim_manager.particle_life_state {
+        let matrix_size = simulation.physics_snapshot().type_count.len();
+        let mut matrix_values = vec![vec![0.0; matrix_size]; matrix_size];
+        
+        for i in 0..matrix_size {
+            for j in 0..matrix_size {
+                matrix_values[i][j] = simulation.physics().matrix.get(i, j);
+            }
+        }
+        
+        Ok(matrix_values)
+    } else {
+        Err("No particle life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+async fn zero_matrix(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    
+    // Check if we have a particle life simulation running
+    if let Some(simulation) = &mut sim_manager.particle_life_state {
+        match simulation.zero_matrix() {
+            Ok(_) => Ok("Matrix zeroed successfully".to_string()),
+            Err(e) => Err(format!("Failed to zero matrix: {}", e)),
+        }
+    } else {
+        Err("No particle life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+async fn toggle_particle_life_gui(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    
+    // Check if we have a particle life simulation running
+    if let Some(simulation) = &mut sim_manager.particle_life_state {
+        simulation.toggle_gui();
+        let visible = simulation.is_gui_visible();
+        Ok(format!("GUI {} successfully", if visible { "shown" } else { "hidden" }))
+    } else {
+        Err("No particle life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+async fn get_particle_life_gui_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<bool, String> {
+    let sim_manager = manager.lock().await;
+    
+    // Check if we have a particle life simulation running
+    if let Some(simulation) = &sim_manager.particle_life_state {
+        Ok(simulation.is_gui_visible())
+    } else {
+        Err("No particle life simulation running".to_string())
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     tauri::Builder::default()
@@ -973,6 +1119,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             start_slime_mold_simulation,
             start_gray_scott_simulation,
+            start_particle_life_simulation,
             stop_simulation,
             resume_simulation,
             destroy_simulation,
@@ -1009,6 +1156,11 @@ fn main() {
             reset_camera,
             stop_camera_pan,
             get_camera_state,
+            generate_matrix,
+            get_matrix_values,
+            zero_matrix,
+            toggle_particle_life_gui,
+            get_particle_life_gui_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

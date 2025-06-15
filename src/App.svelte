@@ -4,8 +4,9 @@
   import MainMenu from './lib/MainMenu.svelte';
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
   import GrayScottMode from './lib/GrayScottMode.svelte';
+  import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
 
-  type AppMode = 'menu' | 'slime-mold' | 'gray-scott';
+  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life';
   let currentMode: AppMode = 'menu';
 
   function navigateToMode(mode: AppMode) {
@@ -57,6 +58,8 @@
     <SlimeMoldMode on:back={returnToMenu} />
   {:else if currentMode === 'gray-scott'}
     <GrayScottMode on:back={returnToMenu} />
+  {:else if currentMode === 'particle-life'}
+    <ParticleLifeMode on:back={returnToMenu} />
   {/if}
 </main>
 
@@ -76,96 +79,5 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
-  }
-
-  .container {
-    margin: 0;
-    padding-top: 10vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: 0.75s;
-  }
-
-  .logo.vite:hover {
-    filter: drop-shadow(0 0 2em #747bff);
-  }
-
-  .logo.tauri:hover {
-    filter: drop-shadow(0 0 2em #24c8db);
-  }
-
-  .logo.typescript:hover {
-    filter: drop-shadow(0 0 2em #2d79c7);
-  }
-
-  .logo-button {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    margin: 0;
-  }
-
-  .row {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 1rem;
-    margin: 1rem 0;
-  }
-
-  h1 {
-    text-align: center;
-    margin-bottom: 2rem;
-  }
-
-  input {
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 1rem;
-  }
-
-  button {
-    padding: 0.5rem 1rem;
-    border: 1px solid #646cff;
-    border-radius: 4px;
-    background-color: #646cff;
-    color: white;
-    cursor: pointer;
-    font-size: 1rem;
-    transition: background-color 0.3s;
-  }
-
-  button:hover {
-    background-color: #535bf2;
-  }
-
-  .test-button {
-    margin-top: 1rem;
-    background-color: #ff6b35;
-    border-color: #ff6b35;
-  }
-
-  .test-button:hover {
-    background-color: #e85a2b;
-  }
-
-  #greet-msg {
-    margin-top: 1rem;
-    font-weight: bold;
-    color: #646cff;
-  }
-
-  p {
-    margin: 1rem 0;
   }
 </style> 
