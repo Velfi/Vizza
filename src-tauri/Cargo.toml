@@ -33,6 +33,8 @@ pollster = "0.3"
 num_cpus = "1.17.0"
 rayon = "1.10.0"
 nalgebra = "0.33.2"
+futures-intrusive = "0.5"
+futures = "0.3"
 
 
 [features]

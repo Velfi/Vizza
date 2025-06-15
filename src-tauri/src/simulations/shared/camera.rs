@@ -1,8 +1,8 @@
+use super::coordinates::{CoordinateTransform, NdcCoords, ScreenCoords, WorldCoords};
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
-use wgpu::{Device, Queue};
 use tracing;
-use super::coordinates::{ScreenCoords, WorldCoords, NdcCoords, CoordinateTransform};
+use wgpu::{Device, Queue};
 
 /// GPU-compatible camera uniform data
 #[repr(C)]
@@ -20,11 +20,11 @@ pub struct CameraUniform {
 
 impl CoordinateTransform for Camera {
     fn screen_to_world(&self, screen: ScreenCoords) -> WorldCoords {
-        self.screen_to_world_typed(screen)
+        self.screen_to_world(screen)
     }
 
     fn world_to_screen(&self, world: WorldCoords) -> ScreenCoords {
-        self.world_to_screen_typed(world)
+        self.world_to_screen(world)
     }
 
     fn screen_to_ndc(&self, screen: ScreenCoords) -> NdcCoords {
@@ -123,18 +123,42 @@ impl Camera {
 
         // Orthographic projection matrix
         let ortho = [
-            2.0 / (right - left), 0.0, 0.0, 0.0,
-            0.0, 2.0 / (top - bottom), 0.0, 0.0,
-            0.0, 0.0, -2.0 / (far - near), 0.0,
-            -(right + left) / (right - left), -(top + bottom) / (top - bottom), -(far + near) / (far - near), 1.0,
+            2.0 / (right - left),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0 / (top - bottom),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -2.0 / (far - near),
+            0.0,
+            -(right + left) / (right - left),
+            -(top + bottom) / (top - bottom),
+            -(far + near) / (far - near),
+            1.0,
         ];
 
         // Translation matrix for camera position
         let view = [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            -position[0], -position[1], 0.0, 1.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            -position[0],
+            -position[1],
+            0.0,
+            1.0,
         ];
 
         // Combine projection and view matrices (proj * view)
@@ -144,7 +168,7 @@ impl Camera {
     /// Multiply two 4x4 matrices
     fn multiply_matrices_4x4(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
         let mut result = [0.0; 16];
-        
+
         for i in 0..4 {
             for j in 0..4 {
                 for k in 0..4 {
@@ -152,39 +176,41 @@ impl Camera {
                 }
             }
         }
-        
+
         result
     }
 
     /// Update camera state (call this every frame for smooth movement)
     pub fn update(&mut self, delta_time: f32) -> bool {
         let mut changed = false;
-        
+
         // Calculate view bounds at current zoom level
         let aspect_ratio = self.viewport_width / self.viewport_height;
         let view_width = 2.0 / self.zoom;
         let view_height = 2.0 / (self.zoom * aspect_ratio);
-        
+
         // Calculate bounds that keep the view within simulation bounds
         let min_x = self.bounds[0] + view_width * 0.5;
         let max_x = self.bounds[2] - view_width * 0.5;
         let min_y = self.bounds[1] + view_height * 0.5;
         let max_y = self.bounds[3] - view_height * 0.5;
-        
+
         // Smooth velocity interpolation
         let lerp_factor = 1.0 - self.momentum_decay.powf(delta_time * 60.0); // 60fps reference
-        self.velocity[0] = self.velocity[0] + (self.target_velocity[0] - self.velocity[0]) * lerp_factor;
-        self.velocity[1] = self.velocity[1] + (self.target_velocity[1] - self.velocity[1]) * lerp_factor;
-        
+        self.velocity[0] =
+            self.velocity[0] + (self.target_velocity[0] - self.velocity[0]) * lerp_factor;
+        self.velocity[1] =
+            self.velocity[1] + (self.target_velocity[1] - self.velocity[1]) * lerp_factor;
+
         // Apply velocity to position
         if self.velocity[0].abs() > 0.001 || self.velocity[1].abs() > 0.001 {
             let new_x = self.position[0] + self.velocity[0] * delta_time;
             let new_y = self.position[1] + self.velocity[1] * delta_time;
-            
+
             // Clamp position to bounds
             self.position[0] = new_x.clamp(min_x, max_x);
             self.position[1] = new_y.clamp(min_y, max_y);
-            
+
             // Stop velocity if we hit bounds
             if self.position[0] == min_x || self.position[0] == max_x {
                 self.velocity[0] = 0.0;
@@ -194,7 +220,7 @@ impl Camera {
                 self.velocity[1] = 0.0;
                 self.target_velocity[1] = 0.0;
             }
-            
+
             changed = true;
             tracing::debug!(
                 "Camera position updated: pos=({:.2}, {:.2}), velocity=({:.2}, {:.2}), bounds=({:.2}, {:.2}, {:.2}, {:.2})",
@@ -202,13 +228,13 @@ impl Camera {
                 min_x, min_y, max_x, max_y
             );
         }
-        
+
         // Apply momentum decay when no input
         if self.target_velocity[0].abs() < 0.001 && self.target_velocity[1].abs() < 0.001 {
             self.velocity[0] *= self.momentum_decay.powf(delta_time * 60.0);
             self.velocity[1] *= self.momentum_decay.powf(delta_time * 60.0);
         }
-        
+
         // Stop very small movements
         if self.velocity[0].abs() < 0.001 {
             self.velocity[0] = 0.0;
@@ -216,11 +242,11 @@ impl Camera {
         if self.velocity[1].abs() < 0.001 {
             self.velocity[1] = 0.0;
         }
-        
+
         if changed {
             self.update_uniform();
         }
-        
+
         changed
     }
 
@@ -230,37 +256,37 @@ impl Camera {
         let aspect_ratio = self.viewport_width / self.viewport_height;
         let view_width = 2.0 / self.zoom;
         let view_height = 2.0 / (self.zoom * aspect_ratio);
-        
+
         // Calculate bounds that keep the view within simulation bounds
         // The bounds should be the simulation bounds minus half the view size
         let min_x = self.bounds[0] + view_width * 0.5;
         let max_x = self.bounds[2] - view_width * 0.5;
         let min_y = self.bounds[1] + view_height * 0.5;
         let max_y = self.bounds[3] - view_height * 0.5;
-        
+
         // Scale movement by zoom (more zoom = slower movement)
         let scale = 1.0 / self.zoom;
-        
+
         // Calculate target velocity, but don't exceed bounds
         let target_dx = delta_x * self.pan_speed * scale;
         let target_dy = delta_y * self.pan_speed * scale;
-        
+
         // Only set target velocity if we won't exceed bounds
         let new_x = self.position[0] + target_dx;
         let new_y = self.position[1] + target_dy;
-        
+
         if new_x >= min_x && new_x <= max_x {
             self.target_velocity[0] = target_dx;
         } else {
             self.target_velocity[0] = 0.0;
         }
-        
+
         if new_y >= min_y && new_y <= max_y {
             self.target_velocity[1] = target_dy;
         } else {
             self.target_velocity[1] = 0.0;
         }
-        
+
         tracing::debug!(
             "Camera pan: delta=({:.2}, {:.2}), target_velocity=({:.2}, {:.2}), zoom={:.2}, bounds=({:.2}, {:.2}, {:.2}, {:.2})",
             delta_x, delta_y, self.target_velocity[0], self.target_velocity[1], self.zoom,
@@ -275,7 +301,8 @@ impl Camera {
             self.target_velocity = [0.0, 0.0];
             tracing::debug!(
                 "Camera pan stopped: velocity=({:.2}, {:.2})",
-                self.velocity[0], self.velocity[1]
+                self.velocity[0],
+                self.velocity[1]
             );
         }
     }
@@ -285,7 +312,7 @@ impl Camera {
         let old_zoom = self.zoom;
         let new_zoom = self.zoom * (1.0 + delta * self.zoom_speed);
         let clamped_zoom = new_zoom.clamp(self.min_zoom, self.max_zoom);
-        
+
         // Only proceed if zoom actually changed
         if (clamped_zoom - old_zoom).abs() < 0.001 {
             return;
@@ -295,25 +322,25 @@ impl Camera {
         let aspect_ratio = self.viewport_width / self.viewport_height;
         let view_width = 2.0 / clamped_zoom;
         let view_height = 2.0 / (clamped_zoom * aspect_ratio);
-        
+
         // Calculate new position that keeps the view within bounds
         let min_x = self.bounds[0] + view_width * 0.5;
         let max_x = self.bounds[2] - view_width * 0.5;
         let min_y = self.bounds[1] + view_height * 0.5;
         let max_y = self.bounds[3] - view_height * 0.5;
-        
+
         // If the view would be too large for the bounds, don't zoom
         if min_x > max_x || min_y > max_y {
             return;
         }
-        
+
         // Apply the new zoom
         self.zoom = clamped_zoom;
-        
+
         // Clamp position to keep view within bounds
         self.position[0] = self.position[0].clamp(min_x, max_x);
         self.position[1] = self.position[1].clamp(min_y, max_y);
-        
+
         self.update_uniform();
     }
 
@@ -321,105 +348,70 @@ impl Camera {
     pub fn zoom_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
         // Store old zoom for calculation
         let old_zoom = self.zoom;
-        
+
         // Calculate new zoom level
         let new_zoom = self.zoom * (1.0 + delta * self.zoom_speed);
         let clamped_zoom = new_zoom.clamp(self.min_zoom, self.max_zoom);
-        
+
         // Only proceed if zoom actually changed
         if (clamped_zoom - old_zoom).abs() < 0.001 {
             return;
         }
-        
+
         // Get world position at cursor before zoom change
         let screen_coords = ScreenCoords::new(cursor_x, cursor_y);
-        let world_before = self.screen_to_world_typed(screen_coords);
-        
+        let world_before = self.screen_to_world(screen_coords);
+
         // Calculate view bounds at new zoom level
         let aspect_ratio = self.viewport_width / self.viewport_height;
         let view_width = 2.0 / clamped_zoom;
         let view_height = 2.0 / (clamped_zoom * aspect_ratio);
-        
+
         // Calculate new position that keeps the view within bounds
         let min_x = self.bounds[0] + view_width * 0.5;
         let max_x = self.bounds[2] - view_width * 0.5;
         let min_y = self.bounds[1] + view_height * 0.5;
         let max_y = self.bounds[3] - view_height * 0.5;
-        
+
         // If the view would be too large for the bounds, don't zoom
         if min_x > max_x || min_y > max_y {
             return;
         }
-        
+
         // Apply the new zoom
         self.zoom = clamped_zoom;
-        
+
         // Calculate the scale factor for the zoom change
         let scale = clamped_zoom / old_zoom;
-        
+
         // Calculate the offset from cursor to camera center in world space
         let dx = world_before.x - self.position[0];
         let dy = world_before.y - self.position[1];
-        
+
         // Scale the offset by the zoom change
         let new_dx = dx * scale;
         let new_dy = dy * scale;
-        
+
         // Calculate new camera position to keep cursor point fixed
         // When zooming in (scale > 1), we want to move camera towards cursor
         // When zooming out (scale < 1), we want to move camera away from cursor
         let new_x = world_before.x - new_dx;
         let new_y = world_before.y - new_dy;
-        
+
         // Clamp position to keep view within bounds
         self.position[0] = new_x.clamp(min_x, max_x);
         self.position[1] = new_y.clamp(min_y, max_y);
-        
+
         // Final update with corrected position
         self.update_uniform();
-        
+
         // Debug logging
         tracing::debug!(
             "Camera zoom to cursor: cursor=({:.2}, {:.2}), world_before=({:.4}, {:.4}), world_after=({:.4}, {:.4}), zoom={:.4}->{:.4}",
             cursor_x, cursor_y, world_before.x, world_before.y, 
-            self.screen_to_world_typed(screen_coords).x, self.screen_to_world_typed(screen_coords).y,
+            self.screen_to_world(screen_coords).x, self.screen_to_world(screen_coords).y,
             old_zoom, self.zoom
         );
-    }
-
-    /// Set absolute zoom level
-    pub fn set_zoom(&mut self, zoom: f32) {
-        let new_zoom = zoom.clamp(self.min_zoom, self.max_zoom);
-        
-        // Calculate view bounds at new zoom level
-        let aspect_ratio = self.viewport_width / self.viewport_height;
-        let view_width = 2.0 / new_zoom;
-        let view_height = 2.0 / (new_zoom * aspect_ratio);
-        
-        // Calculate new position that keeps the view within bounds
-        let min_x = self.bounds[0] + view_width * 0.5;
-        let max_x = self.bounds[2] - view_width * 0.5;
-        let min_y = self.bounds[1] + view_height * 0.5;
-        let max_y = self.bounds[3] - view_height * 0.5;
-        
-        // If the view would be too large for the bounds, don't change zoom
-        if min_x > max_x || min_y > max_y {
-            return;
-        }
-        
-        self.zoom = new_zoom;
-        
-        // Clamp position to keep view within bounds
-        self.position[0] = self.position[0].clamp(min_x, max_x);
-        self.position[1] = self.position[1].clamp(min_y, max_y);
-        
-        self.update_uniform();
-    }
-
-    /// Set absolute position
-    pub fn set_position(&mut self, x: f32, y: f32) {
-        self.position = [x, y];
-        self.update_uniform();
     }
 
     /// Reset camera to default position and zoom
@@ -442,7 +434,11 @@ impl Camera {
     fn update_uniform(&mut self) {
         let aspect_ratio = self.viewport_width / self.viewport_height;
         self.uniform_data = CameraUniform {
-            view_proj_matrix: Self::calculate_view_proj_matrix(self.position, self.zoom, aspect_ratio),
+            view_proj_matrix: Self::calculate_view_proj_matrix(
+                self.position,
+                self.zoom,
+                aspect_ratio,
+            ),
             position: self.position,
             zoom: self.zoom,
             aspect_ratio,
@@ -464,24 +460,14 @@ impl Camera {
         &self.uniform_data
     }
 
-    /// Convert screen coordinates to world coordinates
-    pub fn screen_to_world(&self, screen_x: f32, screen_y: f32) -> [f32; 2] {
-        self.screen_to_world_typed(ScreenCoords::new(screen_x, screen_y)).to_array()
-    }
-
-    /// Convert world coordinates to screen coordinates
-    pub fn world_to_screen(&self, world_x: f32, world_y: f32) -> [f32; 2] {
-        self.world_to_screen_typed(WorldCoords::new(world_x, world_y)).to_array()
-    }
-
     /// Typed version of screen_to_world conversion
-    pub fn screen_to_world_typed(&self, screen: ScreenCoords) -> WorldCoords {
+    pub fn screen_to_world(&self, screen: ScreenCoords) -> WorldCoords {
         let ndc = self.screen_to_ndc(screen);
         self.ndc_to_world(ndc)
     }
 
     /// Typed version of world_to_screen conversion
-    pub fn world_to_screen_typed(&self, world: WorldCoords) -> ScreenCoords {
+    pub fn world_to_screen(&self, world: WorldCoords) -> ScreenCoords {
         let ndc = self.world_to_ndc(world);
         self.ndc_to_screen(ndc)
     }
@@ -516,62 +502,5 @@ impl Camera {
         let ndc_x = (world.x - self.position[0]) * self.zoom;
         let ndc_y = (world.y - self.position[1]) * self.zoom * self.uniform_data.aspect_ratio;
         NdcCoords::new(ndc_x, ndc_y)
-    }
-
-    /// Get current zoom level
-    pub fn get_zoom(&self) -> f32 {
-        self.zoom
-    }
-
-    /// Get current position
-    pub fn get_position(&self) -> [f32; 2] {
-        self.position
-    }
-
-    /// Set simulation bounds
-    /// Test coordinate transformation round-trip for debugging
-    pub fn test_coordinate_transform(&self, test_name: &str) {
-        tracing::info!("=== Camera Coordinate Transform Test: {} ===", test_name);
-        tracing::info!("Camera state: pos=({:.4}, {:.4}), zoom={:.4}, aspect={:.4}, viewport=({:.1}, {:.1})", 
-            self.position[0], self.position[1], self.zoom, self.uniform_data.aspect_ratio,
-            self.viewport_width, self.viewport_height);
-        
-        // Test center of screen
-        let center_screen = ScreenCoords::new(self.viewport_width / 2.0, self.viewport_height / 2.0);
-        let center_world = self.screen_to_world_typed(center_screen);
-        let center_back = self.world_to_screen_typed(center_world);
-        
-        tracing::info!("Center test: screen=({:.1}, {:.1}) -> world=({:.4}, {:.4}) -> screen=({:.1}, {:.1})",
-            center_screen.x, center_screen.y, center_world.x, center_world.y, center_back.x, center_back.y);
-        
-        // Test corner
-        let corner_screen = ScreenCoords::new(0.0, 0.0);
-        let corner_world = self.screen_to_world_typed(corner_screen);
-        let corner_back = self.world_to_screen_typed(corner_world);
-        
-        tracing::info!("Corner test: screen=({:.1}, {:.1}) -> world=({:.4}, {:.4}) -> screen=({:.1}, {:.1})",
-            corner_screen.x, corner_screen.y, corner_world.x, corner_world.y, corner_back.x, corner_back.y);
-        
-        // Test world origin
-        let origin_world = WorldCoords::new(0.0, 0.0);
-        let origin_screen = self.world_to_screen_typed(origin_world);
-        let origin_back = self.screen_to_world_typed(origin_screen);
-        
-        tracing::info!("Origin test: world=({:.4}, {:.4}) -> screen=({:.1}, {:.1}) -> world=({:.4}, {:.4})",
-            origin_world.x, origin_world.y, origin_screen.x, origin_screen.y, origin_back.x, origin_back.y);
-        
-        tracing::info!("=== End Test ===");
-    }
-
-    pub fn set_bounds(&mut self, min_x: f32, min_y: f32, max_x: f32, max_y: f32) {
-        self.bounds = [min_x, min_y, max_x, max_y];
-        // Clamp current position to new bounds
-        self.position[0] = self.position[0].clamp(min_x, max_x);
-        self.position[1] = self.position[1].clamp(min_y, max_y);
-        self.update_uniform();
-    }
-    
-    pub(crate) fn get_view_projection_matrix(&self, aspect_ratio: f32) -> [f32; 16] {
-        Self::calculate_view_proj_matrix(self.position, self.zoom, aspect_ratio)
     }
 }

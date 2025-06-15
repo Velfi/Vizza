@@ -27,11 +27,14 @@ impl ScreenCoords {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub fn from_array(coords: [f32; 2]) -> Self {
-        Self { x: coords[0], y: coords[1] }
+        Self {
+            x: coords[0],
+            y: coords[1],
+        }
     }
-    
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -41,11 +44,14 @@ impl WorldCoords {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub fn from_array(coords: [f32; 2]) -> Self {
-        Self { x: coords[0], y: coords[1] }
+        Self {
+            x: coords[0],
+            y: coords[1],
+        }
     }
-    
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -55,11 +61,14 @@ impl NdcCoords {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub fn from_array(coords: [f32; 2]) -> Self {
-        Self { x: coords[0], y: coords[1] }
+        Self {
+            x: coords[0],
+            y: coords[1],
+        }
     }
-    
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
@@ -69,15 +78,18 @@ impl TextureCoords {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
-    
+
     pub fn from_array(coords: [f32; 2]) -> Self {
-        Self { x: coords[0], y: coords[1] }
+        Self {
+            x: coords[0],
+            y: coords[1],
+        }
     }
-    
+
     pub fn to_array(self) -> [f32; 2] {
         [self.x, self.y]
     }
-    
+
     /// Clamp texture coordinates to valid range [0.0, 1.0]
     pub fn clamp(self) -> Self {
         Self {
@@ -85,7 +97,7 @@ impl TextureCoords {
             y: self.y.clamp(0.0, 1.0),
         }
     }
-    
+
     /// Check if texture coordinates are within valid bounds
     pub fn is_valid(self) -> bool {
         self.x >= 0.0 && self.x <= 1.0 && self.y >= 0.0 && self.y <= 1.0

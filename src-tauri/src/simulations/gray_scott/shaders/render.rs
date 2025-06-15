@@ -1,1 +1,1 @@
-pub const RENDER_SHADER: &str = include_str!("render.wgsl"); 
+pub const RENDER_SHADER: &str = include_str!("render.wgsl");

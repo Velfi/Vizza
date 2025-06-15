@@ -118,4 +118,4 @@ impl Default for Settings {
             nutrient_pattern_reversed: false,
         }
     }
-} 
+}

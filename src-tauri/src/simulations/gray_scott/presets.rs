@@ -1,7 +1,7 @@
+use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use dirs::home_dir;
 use toml;
 
 use super::settings::Settings;
@@ -218,8 +218,7 @@ pub fn init_preset_manager() -> PresetManager {
 
     // Add default presets
     let all_presets = ModelPreset::all();
-    println!("Gray-Scott: Initializing {} presets", all_presets.len());
-    
+
     for preset_type in all_presets {
         let (feed_rate, kill_rate) = preset_type.get_rates();
         let settings = Settings {
@@ -233,7 +232,6 @@ pub fn init_preset_manager() -> PresetManager {
         };
 
         let preset_name = preset_type.name().to_string();
-        println!("Gray-Scott: Adding preset: {}", preset_name);
         preset_manager.add_preset(Preset::new(preset_name, settings));
     }
 
@@ -244,10 +242,6 @@ pub fn init_preset_manager() -> PresetManager {
     if let Err(e) = preset_manager.load_user_presets() {
         eprintln!("Warning: Could not load user presets: {}", e);
     }
-
-    let final_preset_count = preset_manager.get_preset_names().len();
-    println!("Gray-Scott: Final preset count: {}", final_preset_count);
-    println!("Gray-Scott: Available presets: {:?}", preset_manager.get_preset_names());
 
     preset_manager
 }

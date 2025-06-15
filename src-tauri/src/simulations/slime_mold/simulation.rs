@@ -501,16 +501,17 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            
+
             // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
             let workgroup_size = 16 * 16; // 256 threads per workgroup
             let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
-            
+
             // Calculate 2D dispatch grid
             let max_workgroups_per_dim = 65535;
             let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
-            let workgroups_y = (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
-            
+            let workgroups_y =
+                (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -575,12 +576,15 @@ impl SlimeMoldSimulation {
 
     /// Reset agents to random positions using GPU compute shader
     pub fn reset_agents(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        tracing::info!("Resetting {} agents using GPU compute shader", self.agent_count);
-        
+        tracing::info!(
+            "Resetting {} agents using GPU compute shader",
+            self.agent_count
+        );
+
         // Generate a new random seed for this reset
         let new_seed = rand::random::<u32>();
         self.settings.random_seed = new_seed;
-        
+
         // Update the settings buffer with the new seed
         update_settings(
             &self.settings,
@@ -589,7 +593,7 @@ impl SlimeMoldSimulation {
             self.display_texture.width(),
             self.display_texture.height(),
         );
-        
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Reset Agents Encoder"),
         });
@@ -601,16 +605,17 @@ impl SlimeMoldSimulation {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.reset_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
-            
+
             // Calculate workgroups for agents (using 2D dispatch to handle large counts)
             let workgroup_size = 64; // From shader workgroup_size
             let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
-            
+
             // GPU workgroup limit is 65535 per dimension, so use 2D dispatch if needed
             let max_workgroups_per_dim = 65535;
             let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
-            let workgroups_y = (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
-            
+            let workgroups_y =
+                (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
@@ -856,7 +861,6 @@ fn create_agent_buffer_pooled(
     buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage)
 }
 
-
 fn create_agent_buffer_with_scaling(
     buffer_pool: &mut BufferPool,
     device: &wgpu::Device,
@@ -965,7 +969,6 @@ fn reset_trails(
     let zero_data = vec![0u8; size];
     queue.write_buffer(trail_map_buffer, 0, &zero_data);
 }
-
 
 fn update_settings(
     settings: &Settings,

@@ -1,10 +1,10 @@
 use std::sync::Arc;
-use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use wgpu::util::DeviceExt;
+use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
-use crate::simulations::shared::lut_manager::LutManager;
 use crate::simulations::shared::camera::Camera;
+use crate::simulations::shared::lut_manager::LutManager;
 
 pub struct Renderer {
     device: Arc<Device>,
@@ -32,7 +32,10 @@ impl Renderer {
         let lut_manager = LutManager::new();
         let default_lut_name = "MATPLOTLIB_bone_r";
         let lut_data = lut_manager.load_lut(default_lut_name).unwrap_or_else(|_| {
-            println!("Warning: LUT '{}' not found, using default", default_lut_name);
+            println!(
+                "Warning: LUT '{}' not found, using default",
+                default_lut_name
+            );
             lut_manager.get_default_lut()
         });
 
@@ -45,50 +48,51 @@ impl Renderer {
         });
 
         // Create simulation data bind group layout
-        let bind_group_layout = _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Render Bind Group Layout"),
-            entries: &[
-                // Binding 0: Simulation data (UVPair array)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let bind_group_layout =
+            _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Render Bind Group Layout"),
+                entries: &[
+                    // Binding 0: Simulation data (UVPair array)
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Binding 1: LUT data
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Binding 1: LUT data
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Binding 2: Simulation parameters
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Binding 2: Simulation parameters
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
-        // Create camera bind group layout  
-        let camera_bind_group_layout = _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Camera Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        // Create camera bind group layout
+        let camera_bind_group_layout =
+            _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Camera Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
@@ -97,9 +101,8 @@ impl Renderer {
                         min_binding_size: None,
                     },
                     count: None,
-                },
-            ],
-        });
+                }],
+            });
 
         // Initialize camera
         let camera = Camera::new(_device, width as f32, height as f32)?;
@@ -176,8 +179,17 @@ impl Renderer {
         // LUT management is now handled by the simulation manager
     }
 
-    pub fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Arc<Queue>) {
-        let lut_data_u32: Vec<u32> = lut_data.clone().into_bytes().iter().map(|&x| x as u32).collect();
+    pub fn update_lut(
+        &mut self,
+        lut_data: &crate::simulations::shared::LutData,
+        queue: &Arc<Queue>,
+    ) {
+        let lut_data_u32: Vec<u32> = lut_data
+            .clone()
+            .into_bytes()
+            .iter()
+            .map(|&x| x as u32)
+            .collect();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
     }
 
@@ -210,12 +222,10 @@ impl Renderer {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &self.camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.camera.buffer().as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.camera.buffer().as_entire_binding(),
+            }],
         })
     }
 
@@ -227,13 +237,15 @@ impl Renderer {
     ) -> Result<(), wgpu::SurfaceError> {
         // Update camera data on GPU
         self.camera.upload_to_gpu(&self.queue);
-        
+
         let bind_group = self.create_bind_group(simulation_buffer, params_buffer);
         let camera_bind_group = self.create_camera_bind_group();
-        
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -269,10 +281,11 @@ impl Renderer {
         self.surface_config = new_config.clone();
         self.width = new_config.width;
         self.height = new_config.height;
-        
+
         // Update camera viewport
-        self.camera.resize(new_config.width as f32, new_config.height as f32);
-        
+        self.camera
+            .resize(new_config.width as f32, new_config.height as f32);
+
         Ok(())
     }
 
@@ -283,4 +296,4 @@ impl Renderer {
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
-} 
+}
