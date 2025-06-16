@@ -359,7 +359,7 @@ async fn render_frame(
 
                 match gpu_ctx
                     .main_menu_renderer
-                    .render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                    .render(&gpu_ctx.device, &gpu_ctx.queue, &view, sim_manager.get_time())
                 {
                     Ok(_) => {
                         output.present();
@@ -981,6 +981,7 @@ async fn get_camera_state(
 async fn generate_matrix(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     generator: Option<String>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
 ) -> Result<String, String> {
     tracing::info!("generate_matrix called with generator: {:?}", generator);
     let mut sim_manager = manager.lock().await;
@@ -994,8 +995,10 @@ async fn generate_matrix(
             }
         }
 
+        let gpu_ctx = gpu_context.lock().await;
+
         // Generate a new matrix using the selected generator
-        match simulation.generate_matrix_with_selected_generator() {
+        match simulation.generate_matrix_with_selected_generator(&gpu_ctx.device, &gpu_ctx.queue) {
             Ok(_) => Ok("Matrix generated successfully".to_string()),
             Err(e) => {
                 tracing::error!("Failed to generate matrix: {}", e);
@@ -1032,12 +1035,14 @@ async fn get_matrix_values(
 #[tauri::command]
 async fn zero_matrix(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
 
     // Check if we have a particle life simulation running
     if let Some(simulation) = &mut sim_manager.particle_life_state {
-        match simulation.zero_matrix() {
+        match simulation.zero_matrix(&gpu_ctx.device, &gpu_ctx.queue) {
             Ok(_) => Ok("Matrix zeroed successfully".to_string()),
             Err(e) => Err(format!("Failed to zero matrix: {}", e)),
         }
@@ -1265,6 +1270,25 @@ async fn get_particle_type_colors(
     }
 }
 
+#[tauri::command]
+async fn update_interaction_matrix(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    matrix: Vec<Vec<f32>>,
+) -> Result<String, String> {
+    tracing::info!("update_interaction_matrix called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_interaction_matrix(&matrix, &gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => Ok("Interaction matrix updated successfully".to_string()),
+        Err(e) => {
+            tracing::error!("Failed to update interaction matrix: {}", e);
+            Err(format!("Failed to update interaction matrix: {}", e))
+        }
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     tauri::Builder::default()
@@ -1369,6 +1393,7 @@ fn main() {
             handle_mouse_release,
             handle_mouse_move,
             get_particle_type_colors,
+            update_interaction_matrix,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,6 +7,7 @@
   export let step: number = 1;
   export let precision: number = 2;
   export let unit: string = '';
+  export let showButtons: boolean = true;
 
   const dispatch = createEventDispatcher();
 
@@ -111,14 +112,16 @@
 </script>
 
 <div class="number-drag-container">
-  <button 
-    class="step-button decrement"
-    on:click={decrement}
-    disabled={min !== undefined && value <= min}
-    title="Decrease value"
-  >
-    -
-  </button>
+  {#if showButtons}
+    <button 
+      class="step-button decrement"
+      on:click={decrement}
+      disabled={min !== undefined && value <= min}
+      title="Decrease value"
+    >
+      -
+    </button>
+  {/if}
   
   <div 
     class="number-drag-box"
@@ -148,14 +151,16 @@
     {/if}
   </div>
   
-  <button 
-    class="step-button increment"
-    on:click={increment}
-    disabled={max !== undefined && value >= max}
-    title="Increase value"
-  >
-    +
-  </button>
+  {#if showButtons}
+    <button 
+      class="step-button increment"
+      on:click={increment}
+      disabled={max !== undefined && value >= max}
+      title="Increase value"
+    >
+      +
+    </button>
+  {/if}
 </div>
 
 <style>

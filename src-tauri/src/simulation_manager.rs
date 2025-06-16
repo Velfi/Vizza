@@ -9,6 +9,7 @@ use crate::simulations::gray_scott::{
 };
 use crate::simulations::particle_life::{
     self, presets::init_preset_manager as init_particle_life_preset_manager, ParticleLifeModel,
+    physics::Matrix,
 };
 use crate::simulations::shared::{CoordinateTransform, LutManager, ScreenCoords};
 use crate::simulations::slime_mold::{
@@ -26,6 +27,7 @@ pub struct SimulationManager {
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
+    pub start_time: Instant,
 }
 
 impl SimulationManager {
@@ -41,7 +43,12 @@ impl SimulationManager {
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
+            start_time: Instant::now(),
         }
+    }
+
+    pub fn get_time(&self) -> f32 {
+        self.start_time.elapsed().as_secs_f32()
     }
 
     pub async fn start_simulation(
@@ -379,7 +386,6 @@ impl SimulationManager {
             simulation.update_setting(setting_name, value.clone(), queue)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            // Use the particle life simulation's comprehensive update_setting method
             simulation.update_setting(setting_name, value.clone(), device, queue)?;
         }
         Ok(())
@@ -880,5 +886,20 @@ impl SimulationManager {
             }
         }
         None
+    }
+
+    pub fn update_interaction_matrix(
+        &mut self,
+        matrix: &Vec<Vec<f32>>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(particle_life) = &mut self.particle_life_state {
+            let matrix = Matrix::from_vec(matrix.clone());
+            particle_life.update_matrix(&matrix, device, queue)?;
+            Ok(())
+        } else {
+            Err("Particle Life simulation not initialized".into())
+        }
     }
 }

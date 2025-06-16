@@ -88,7 +88,27 @@
   let showAboutWindow = false;
 
   // Mouse interaction state
-  let isSeeding = false;
+  let mouseButton: string | null = null;
+  let pressedKeys = new Set<string>();
+  let animationFrameId: number | null = null;
+
+  // Debounce helper
+  function debounce(fn, delay) {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => fn(...args), delay);
+    };
+  }
+
+  // Send the whole matrix to the backend
+  const sendWholeMatrix = debounce(async () => {
+    try {
+      await invoke('update_interaction_matrix', { matrix });
+    } catch (err) {
+      console.error('Failed to update whole matrix:', err);
+    }
+  }, 200);
 
   async function destroySimulation() {
     running = false;
@@ -328,28 +348,50 @@
 
   // Mouse interaction handlers
   function handleMouseDown(event: MouseEvent) {
-    isSeeding = true;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    invoke('update_cursor_position_screen', { x, y });
+    
+    // Determine which button was pressed
+    let buttonName = '';
+    if (event.button === 0) buttonName = 'left';
+    else if (event.button === 1) buttonName = 'middle';
+    else if (event.button === 2) buttonName = 'right';
+    
+    // Call the mouse press handler
+    invoke('handle_mouse_press', { x, y, button: buttonName });
   }
 
   function handleMouseMove(event: MouseEvent) {
-    if (isSeeding) {
-      const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      invoke('update_cursor_position_screen', { x, y });
-    }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    
+    // Always update mouse position for cursor tracking
+    invoke('handle_mouse_move', { x, y });
   }
 
-  function handleMouseUp() {
-    isSeeding = false;
+  function handleMouseUp(event: MouseEvent) {
+    // Determine which button was released
+    let buttonName = '';
+    if (event.button === 0) buttonName = 'left';
+    else if (event.button === 1) buttonName = 'middle';
+    else if (event.button === 2) buttonName = 'right';
+    
+    // Call the mouse release handler
+    invoke('handle_mouse_release', { button: buttonName });
   }
 
   function handleMouseLeave() {
-    isSeeding = false;
+    // Release all mouse buttons when leaving the area
+    invoke('handle_mouse_release', { button: 'left' });
+    invoke('handle_mouse_release', { button: 'right' });
+    invoke('handle_mouse_release', { button: 'middle' });
+  }
+
+  function handleContextMenu(event: MouseEvent) {
+    // Prevent context menu to allow right-click interaction
+    event.preventDefault();
   }
 
   function handleWheel(event: WheelEvent) {
@@ -357,14 +399,102 @@
     const delta = event.deltaY > 0 ? -0.1 : 0.1;
     invoke('zoom_camera_to_cursor', {
       delta,
-      cursor_x: event.clientX,
-      cursor_y: event.clientY
+      cursorX: event.clientX,
+      cursorY: event.clientY
     });
+  }
+
+  // Keyboard event handler
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === '/') {
+      event.preventDefault();
+      toggleBackendGui();
+    } else if (event.key === 'r' || event.key === 'R') {
+      event.preventDefault();
+      generateMatrix();
+    } else if (event.key === 'p' || event.key === 'P') {
+      event.preventDefault();
+      resetPositions();
+    } else if (event.key === 'c' || event.key === 'C') {
+      event.preventDefault();
+      resetTypes();
+    } else if (event.key === 'z' || event.key === 'Z') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        invoke('reset_camera', { fit_to_window: true });
+      } else {
+        invoke('reset_camera', { fit_to_window: false });
+      }
+    } else {
+      // Add movement keys to pressed set
+      const key = event.key.toLowerCase();
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        event.preventDefault();
+        pressedKeys.add(key);
+      }
+    }
+  }
+
+  // Add key up handler
+  function handleKeyup(event: KeyboardEvent) {
+    pressedKeys.delete(event.key.toLowerCase());
+  }
+
+  // Add camera update function
+  function updateCamera() {
+    if (!running) return;
+
+    const panAmount = 0.2;
+    let moved = false;
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+      deltaY += panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+      deltaY -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+      deltaX -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+      deltaX += panAmount;
+      moved = true;
+    }
+
+    // Apply combined movement if any keys are pressed
+    if (moved) {
+      invoke('pan_camera', { deltaX, deltaY });
+    } else if (pressedKeys.size === 0) {
+      // Stop camera movement when no keys are pressed
+      invoke('stop_camera_pan');
+    }
+
+    animationFrameId = requestAnimationFrame(updateCamera);
+  }
+
+  async function toggleBackendGui() {
+    try {
+      await invoke('toggle_particle_life_gui');
+      // Sync UI state with backend
+      const isVisible = await invoke<boolean>('get_particle_life_gui_state');
+      showUI = isVisible;
+    } catch (err) {
+      console.error('Failed to toggle backend GUI:', err);
+    }
   }
 
   // Initialize and start simulation
   onMount(async () => {
     loading = true;
+    
+    // Add keyboard event listeners
+    window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('keyup', handleKeyup);
     
     try {
       // Start the simulation
@@ -377,8 +507,15 @@
       await syncSettingsFromBackend();
       await syncMatrixFromBackend(); // Load initial matrix values
       
-      // Start render loop
+      // Sync UI state with backend
+      const isVisible = await invoke<boolean>('get_particle_life_gui_state');
+      showUI = isVisible;
+      
+      // Start render loop and camera update loop
       startRenderLoop();
+      if (animationFrameId === null) {
+        animationFrameId = requestAnimationFrame(updateCamera);
+      }
     } catch (e) {
       console.error('Failed to start particle life simulation:', e);
       running = false;
@@ -421,8 +558,51 @@
 
   // Cleanup
   onDestroy(async () => {
+    // Remove keyboard event listeners
+    window.removeEventListener('keydown', handleKeydown);
+    window.removeEventListener('keyup', handleKeyup);
+    
+    // Cancel animation frame
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    
     await destroySimulation();
   });
+
+  // Store the current LUT colors for each particle type
+  let particleTypeColors: string[] = [];
+
+  // Fetch the current LUT colors from the backend
+  async function fetchParticleTypeColors() {
+    try {
+      const colors: number[][] = await invoke('get_particle_type_colors');
+      particleTypeColors = colors.map(([r, g, b]) => `rgb(${r},${g},${b})`);
+    } catch (err) {
+      // fallback to rainbow if backend fails
+      const n = physicsSettings.matrix_size;
+      particleTypeColors = Array(n).fill(0).map((_, i) => {
+        const hue = (i / Math.max(1, n - 1)) * 360;
+        return `hsl(${hue}, 100%, 50%)`;
+      });
+    }
+  }
+
+  // Get the color for a given type index
+  function getParticleColor(index: number): string {
+    return particleTypeColors[index] || '#888';
+  }
+
+  // Refetch colors when LUT changes or matrix size changes
+  $: settings.lut_index, fetchParticleTypeColors();
+  $: settings.lut_reversed, fetchParticleTypeColors();
+  $: physicsSettings.matrix_size, fetchParticleTypeColors();
+
+  // Keep global CSS variable in sync for other uses if needed
+  $: {
+    document.documentElement.style.setProperty('--matrix-size', matrix.length.toString());
+  }
 </script>
 
 <div class="particle-life-container">
@@ -434,6 +614,7 @@
     on:mouseup={handleMouseUp}
     on:mouseleave={handleMouseLeave}
     on:wheel={handleWheel}
+    on:contextmenu={handleContextMenu}
     role="button"
     tabindex="0"
   ></div>
@@ -597,7 +778,7 @@
                 if (target) {
                   try {
                     await invoke('update_simulation_setting', { 
-                      settingName: 'force', 
+                      settingName: 'rmax', 
                       value: parseFloat(target.value)
                     });
                   } catch (err) {
@@ -622,7 +803,7 @@
                 if (target) {
                   try {
                     await invoke('update_simulation_setting', { 
-                      settingName: 'friction', 
+                      settingName: 'damping', 
                       value: parseFloat(target.value)
                     });
                   } catch (err) {
@@ -659,27 +840,33 @@
         <!-- 4. Matrix Editor -->
         <fieldset>
           <legend>Interaction Matrix</legend>
-          <div class="matrix-editor">
-            {#each matrix as row, i}
-              <div class="matrix-row">
-                {#each row as _, j}
-                  <div class="matrix-cell">
-                    <input 
-                      type="number" 
-                      bind:value={matrix[i][j]}
-                      min={-1}
-                      max={1}
-                      step={0.01}
-                      on:change={(e) => {
-                        const target = e.target as HTMLInputElement;
-                        if (target) {
-                          updateMatrixValue(i, j, parseFloat(target.value));
-                        }
-                      }}
-                    />
-                  </div>
-                {/each}
+          <div class="matrix-editor-grid" style="--matrix-size: {matrix.length}">
+            <!-- Top-left empty cell -->
+            <div class="matrix-corner"></div>
+            <!-- Top color bar -->
+            {#each Array(matrix.length) as _, j}
+              <div class="matrix-border-cell" style="background-color: {getParticleColor(j)}">
+                <span class="matrix-border-label">{j + 1}</span>
               </div>
+            {/each}
+            {#each Array(matrix.length) as _, i}
+              <!-- Left color bar -->
+              <div class="matrix-border-cell" style="background-color: {getParticleColor(i)}">
+                <span class="matrix-border-label">{i + 1}</span>
+              </div>
+              {#each Array(matrix.length) as _, j}
+                <div class="matrix-cell">
+                  <NumberDragBox 
+                    bind:value={matrix[i][j]}
+                    min={-1}
+                    max={1}
+                    step={0.01}
+                    precision={2}
+                    showButtons={false}
+                    on:change={() => sendWholeMatrix()}
+                  />
+                </div>
+              {/each}
             {/each}
           </div>
 
@@ -694,11 +881,15 @@
                 precision={0}
                 on:change={async (e) => {
                   try {
+                    let value = Number(e.detail);
+                    if (!Number.isInteger(value) || value < 2 || value > 8) {
+                      throw new Error('Matrix size must be an integer between 2 and 8');
+                    }
                     await invoke('update_simulation_setting', { 
                       settingName: 'matrix_size', 
-                      value: e.detail 
+                      value 
                     });
-                    matrix = Array(e.detail).fill(0).map(() => Array(e.detail).fill(0));
+                    matrix = Array(value).fill(0).map(() => Array(value).fill(0));
                     await syncMatrixFromBackend(); // Sync actual values from backend
                   } catch (err) {
                     console.error('Failed to update matrix size:', err);
@@ -740,7 +931,12 @@
             <select 
               id="positionSetter"
               bind:value={currentPositionSetter}
-              on:change={(e) => updatePositionSetter(e.target.value)}
+              on:change={(e) => {
+                const target = e.target as HTMLSelectElement;
+                if (target) {
+                  updatePositionSetter(target.value);
+                }
+              }}
             >
               {#each positionSetters as setter}
                 <option value={setter}>{setter}</option>
@@ -754,7 +950,12 @@
             <select 
               id="typeSetter"
               bind:value={currentTypeSetter}
-              on:change={(e) => updateTypeSetter(e.target.value)}
+              on:change={(e) => {
+                const target = e.target as HTMLSelectElement;
+                if (target) {
+                  updateTypeSetter(target.value);
+                }
+              }}
             >
               {#each typeSetters as setter}
                 <option value={setter}>{setter}</option>
@@ -777,13 +978,16 @@
               max={1}
               step={0.01}
               on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'particle_size', 
-                    value: e.target.value 
-                  });
-                } catch (err) {
-                  console.error('Failed to update particle size:', err);
+                const target = e.target as HTMLInputElement;
+                if (target) {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'particle_size', 
+                      value: target.value 
+                    });
+                  } catch (err) {
+                    console.error('Failed to update particle size:', err);
+                  }
                 }
               }}
             />
@@ -1133,38 +1337,83 @@
     100% { transform: rotate(360deg); }
   }
 
-  .matrix-editor {
+  .matrix-editor-grid {
     display: grid;
-    gap: 2px;
-    background: #333;
-    padding: 2px;
+    grid-template-columns: repeat(calc(var(--matrix-size) + 1), 56px);
+    grid-template-rows: repeat(calc(var(--matrix-size) + 1), 56px);
+    gap: 1px;
+    background-color: var(--border-color);
+    padding: 1px;
     border-radius: 4px;
-    margin-bottom: 1rem;
+    justify-content: start;
+    align-items: start;
+    width: fit-content;
+    margin: 0 auto;
   }
 
-  .matrix-row {
+  .matrix-corner {
+    grid-row: 1;
+    grid-column: 1;
+    width: 56px;
+    height: 56px;
+    background: transparent;
+  }
+
+  .matrix-border-cell {
+    aspect-ratio: 1;
+    width: 56px;
+    height: 56px;
     display: flex;
-    gap: 2px;
-  }
-
-  .matrix-cell {
-    background: #222;
-    padding: 2px;
-  }
-
-  .matrix-cell input {
-    width: 60px;
-    height: 30px;
-    text-align: center;
-    background: #333;
-    border: 1px solid #444;
-    color: #fff;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--bg-color);
     border-radius: 2px;
   }
 
+  .matrix-border-label {
+    color: white;
+    font-weight: bold;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+  }
+
+  .matrix-cell {
+    aspect-ratio: 1;
+    width: 56px;
+    height: 56px;
+    background-color: var(--bg-color);
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .matrix-cell :global(.number-drag-container) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .matrix-cell :global(.number-drag-box) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
   .matrix-controls {
+    margin-top: 1rem;
     display: flex;
     flex-direction: column;
+    gap: 1rem;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
     gap: 1rem;
   }
 
