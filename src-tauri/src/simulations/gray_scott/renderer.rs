@@ -244,12 +244,12 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
+                label: Some("Gray Scott Render Encoder"),
             });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("Gray Scott Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
@@ -274,8 +274,6 @@ impl Renderer {
 
     pub fn resize(
         &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.surface_config = new_config.clone();

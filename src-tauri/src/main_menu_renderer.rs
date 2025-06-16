@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use wgpu::{Device, Queue, RenderPipeline, SurfaceConfiguration, BindGroup, Buffer, BindGroupLayout};
+use wgpu::{Device, Queue, RenderPipeline, SurfaceConfiguration, BindGroup, Buffer};
 
 pub struct MainMenuRenderer {
     render_pipeline: RenderPipeline,

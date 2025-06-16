@@ -243,7 +243,7 @@
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === '/') {
       event.preventDefault();
-      showUI = !showUI;
+      toggleBackendGui();
     } else if (event.key === 'r' || event.key === 'R') {
       event.preventDefault();
       randomizeSimulation();
@@ -573,6 +573,17 @@
   // Proper Svelte reactive assignment for screenX and screenY
   $: if (camera.viewport_width && camera.viewport_height) {
     [screenX, screenY] = worldToScreen(cursorWorld[0], cursorWorld[1]);
+  }
+
+  async function toggleBackendGui() {
+    try {
+      await invoke('toggle_gui');
+      // Sync UI state with backend
+      const isVisible = await invoke<boolean>('get_gui_state');
+      showUI = isVisible;
+    } catch (err) {
+      console.error('Failed to toggle backend GUI:', err);
+    }
   }
 
   onMount(() => {

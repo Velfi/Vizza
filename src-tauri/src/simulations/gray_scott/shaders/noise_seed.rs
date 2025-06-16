@@ -117,12 +117,12 @@ impl NoiseSeedCompute {
 
         // Execute compute pass
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Noise Seed Encoder"),
+            label: Some("Gray Scott Noise Seed Encoder"),
         });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Noise Seed Pass"),
+                label: Some("Gray Scott Noise Seed Pass"),
                 timestamp_writes: None,
             });
 

@@ -72,9 +72,9 @@ impl SimSizeUniform {
     }
 }
 
-/// SlimeMoldSimulation manages simulation-specific GPU resources and logic
+/// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
-pub struct SlimeMoldSimulation {
+pub struct SlimeMoldModel {
     // Simulation-specific GPU resources
     pub bind_group_manager: BindGroupManager,
     pub pipeline_manager: PipelineManager,
@@ -103,9 +103,10 @@ pub struct SlimeMoldSimulation {
     // Dimension tracking for resize scaling
     pub current_width: u32,
     pub current_height: u32,
+    show_gui: bool,
 }
 
-impl SlimeMoldSimulation {
+impl SlimeMoldModel {
     /// Create a new slime mold simulation using Tauri's shared GPU resources
     pub fn new(
         device: &Arc<Device>,
@@ -273,6 +274,7 @@ impl SlimeMoldSimulation {
             current_agent_buffer_size: agent_count as u64,
             current_width: physical_width,
             current_height: physical_height,
+            show_gui: false,
         };
 
         // Initialize agents using GPU compute shader instead of CPU
@@ -454,7 +456,7 @@ impl SlimeMoldSimulation {
         // First render to display texture
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Display Pass"),
+                label: Some("Slime Mold Display Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
@@ -496,7 +498,7 @@ impl SlimeMoldSimulation {
         // Agent update pass
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Agent Update Pass"),
+                label: Some("Slime Mold Agent Update Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.compute_pipeline);
@@ -518,7 +520,7 @@ impl SlimeMoldSimulation {
         // Decay pass
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Decay Pass"),
+                label: Some("Slime Mold Decay Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.decay_pipeline);
@@ -531,7 +533,7 @@ impl SlimeMoldSimulation {
         // Diffusion pass
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Diffusion Pass"),
+                label: Some("Slime Mold Diffusion Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.diffuse_pipeline);
@@ -595,12 +597,12 @@ impl SlimeMoldSimulation {
         );
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Reset Agents Encoder"),
+            label: Some("Slime Mold Reset Agents Encoder"),
         });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Reset Agents Pass"),
+                label: Some("Slime Mold Reset Agents Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.reset_pipeline);
@@ -815,9 +817,18 @@ impl SlimeMoldSimulation {
             &self.lut_buffer,
         );
     }
+
+    pub(crate) fn toggle_gui(&mut self) -> bool {
+        self.show_gui = !self.show_gui;
+        self.show_gui
+    }
+
+    pub(crate) fn is_gui_visible(&self) -> bool {
+        self.show_gui
+    }
 }
 
-impl Drop for SlimeMoldSimulation {
+impl Drop for SlimeMoldModel {
     fn drop(&mut self) {
         // Clean up buffer pool
         self.buffer_pool.clear();

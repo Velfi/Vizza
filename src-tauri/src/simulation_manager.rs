@@ -11,13 +11,13 @@ use crate::simulations::particle_life::{
     self, presets::init_preset_manager as init_particle_life_preset_manager, ParticleLifeModel,
     physics::Matrix,
 };
-use crate::simulations::shared::{CoordinateTransform, LutManager, ScreenCoords};
+use crate::simulations::shared::LutManager;
 use crate::simulations::slime_mold::{
     self, presets::init_preset_manager as init_slime_mold_preset_manager,
 };
 
 pub struct SimulationManager {
-    pub slime_mold_state: Option<slime_mold::SlimeMoldSimulation>,
+    pub slime_mold_state: Option<slime_mold::SlimeMoldModel>,
     pub gray_scott_state: Option<GrayScottModel>,
     pub particle_life_state: Option<ParticleLifeModel>,
     pub slime_mold_preset_manager: slime_mold::presets::PresetManager,
@@ -70,7 +70,7 @@ impl SimulationManager {
                     .position(|name| name == default_lut_name)
                     .unwrap_or(0);
 
-                let simulation = slime_mold::SlimeMoldSimulation::new(
+                let simulation = slime_mold::SlimeMoldModel::new(
                     device,
                     queue,
                     surface_config,
@@ -122,16 +122,12 @@ impl SimulationManager {
                     .unwrap_or(0);
 
                 // GPU physics is now the only option
-                let mut simulation = ParticleLifeModel::new(device, queue, surface_config).await?;
+                let mut simulation = ParticleLifeModel::new(&self.lut_manager, device, queue, surface_config).await?;
                 simulation.current_lut_index = current_lut_index;
                 simulation.lut_reversed = false;
 
                 // Apply the default LUT
-                if let Some(lut_name) = available_luts.get(current_lut_index) {
-                    if let Ok(lut_data) = self.lut_manager.load_lut(lut_name) {
-                        simulation.update_settings(lut_data, queue)?;
-                    }
-                }
+                simulation.update_lut(&self.lut_manager.get_default_lut(), queue);
 
                 self.particle_life_state = Some(simulation);
                 Ok(())
@@ -159,7 +155,7 @@ impl SimulationManager {
             simulation.render_frame(device, queue, surface_view)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.render_frame(device, queue, surface_view)?;
+            simulation.render_frame(device, queue, surface_view, &self.lut_manager)?;
         }
         Ok(())
     }
@@ -174,7 +170,7 @@ impl SimulationManager {
             simulation.resize(device, queue, new_config)?;
         }
         if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.resize(device, queue, new_config)?;
+            simulation.resize(new_config)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
             simulation.handle_resize(new_config)?;
@@ -193,163 +189,7 @@ impl SimulationManager {
             simulation.handle_mouse_interaction(x, y, is_seeding, queue)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_mouse_interaction(x, y, is_seeding)?;
-        }
-        Ok(())
-    }
-
-    /// Handle mouse button press events for cursor interaction
-    pub fn handle_mouse_press(
-        &mut self,
-        x: f32,
-        y: f32,
-        button: crate::simulations::particle_life::MouseButton,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_mouse_press(x, y, button)?;
-        }
-        Ok(())
-    }
-
-    /// Handle mouse button release events for cursor interaction
-    pub fn handle_mouse_release(
-        &mut self,
-        button: crate::simulations::particle_life::MouseButton,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_mouse_release(button)?;
-        }
-        Ok(())
-    }
-
-    /// Handle mouse movement for updating cursor position
-    pub fn handle_mouse_move(&mut self, x: f32, y: f32) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_mouse_move(x, y)?;
-        }
-        Ok(())
-    }
-
-    pub fn update_cursor_position(
-        &mut self,
-        x: f32,
-        y: f32,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.update_cursor_position(x, y, queue)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.update_cursor_position(x, y)?;
-        }
-        Ok(())
-    }
-
-    pub fn update_cursor_position_screen(
-        &mut self,
-        screen_x: f32,
-        screen_y: f32,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            // Convert screen coordinates to world coordinates using the backend camera
-            let screen_coords = ScreenCoords::new(screen_x, screen_y);
-            let world_coords = simulation.renderer.camera.screen_to_world(screen_coords);
-
-            // Debug logging
-            tracing::debug!(
-                "Cursor transform: screen=({:.2}, {:.2}) -> world=({:.4}, {:.4}), camera_pos=({:.4}, {:.4}), zoom={:.4}, aspect={:.4}",
-                screen_x, screen_y, world_coords.x, world_coords.y,
-                simulation.renderer.camera.position[0], simulation.renderer.camera.position[1],
-                simulation.renderer.camera.zoom, simulation.renderer.camera.uniform_data().aspect_ratio
-            );
-
-            simulation.update_cursor_position(world_coords.x, world_coords.y, queue)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            // Convert screen coordinates to world coordinates using the backend camera
-            let screen_coords = ScreenCoords::new(screen_x, screen_y);
-            let world_coords = simulation.camera().screen_to_world(screen_coords);
-
-            // Debug logging
-            tracing::debug!(
-                "Cursor transform: screen=({:.2}, {:.2}) -> world=({:.4}, {:.4}), camera_pos=({:.4}, {:.4}), zoom={:.4}, aspect={:.4}",
-                screen_x, screen_y, world_coords.x, world_coords.y,
-                simulation.camera().position[0], simulation.camera().position[1],
-                simulation.camera().zoom, simulation.camera().uniform_data().aspect_ratio
-            );
-
-            simulation.update_cursor_position(world_coords.x, world_coords.y)?;
-        }
-        Ok(())
-    }
-
-    pub fn seed_random_noise(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.seed_random_noise(device, queue);
-        }
-        Ok(())
-    }
-
-    pub fn pan_camera(
-        &mut self,
-        delta_x: f32,
-        delta_y: f32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.pan_camera(delta_x, delta_y);
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.pan_camera(delta_x, delta_y);
-        }
-        Ok(())
-    }
-
-    pub fn zoom_camera(&mut self, delta: f32) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.zoom_camera(delta);
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.zoom_camera(delta);
-        }
-        Ok(())
-    }
-
-    pub fn zoom_camera_to_cursor(
-        &mut self,
-        delta: f32,
-        cursor_x: f32,
-        cursor_y: f32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
-        }
-        Ok(())
-    }
-
-    pub fn stop_camera_pan(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.stop_camera_pan();
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.stop_camera_pan();
-        }
-        Ok(())
-    }
-
-    pub fn reset_camera(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.reset_camera();
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.reset_camera();
+            simulation.handle_mouse_interaction(x, y)?;
         }
         Ok(())
     }
@@ -410,20 +250,20 @@ impl SimulationManager {
     pub fn get_available_presets(&self) -> Vec<String> {
         if self.slime_mold_state.is_some() {
             let presets = self.slime_mold_preset_manager.get_preset_names();
-            tracing::info!("Slime mold presets available: {:?}", presets);
+            tracing::trace!("Slime mold presets available: {:?}", presets);
             presets
         } else if self.gray_scott_state.is_some() {
             let presets = self.gray_scott_preset_manager.get_preset_names();
-            tracing::info!("Gray-Scott presets available: {:?}", presets);
+            tracing::trace!("Gray-Scott presets available: {:?}", presets);
             presets
         } else if self.particle_life_state.is_some() {
-            tracing::info!(
+            tracing::trace!(
                 "Particle Life presets available: {:?}",
                 self.lut_manager.get_available_luts()
             );
             self.lut_manager.get_available_luts()
         } else {
-            tracing::info!("No simulation active, returning empty presets");
+            tracing::warn!("No simulation active, returning empty presets");
             vec![]
         }
     }
@@ -452,28 +292,15 @@ impl SimulationManager {
             }
         } else if let Some(simulation) = &mut self.particle_life_state {
             tracing::info!("Trying to apply Particle Life preset: {}", preset_name);
-            if let Ok(preset) = self.lut_manager.load_lut(preset_name) {
-                tracing::info!("Found preset, applying settings: {:?}", preset);
-                simulation.update_settings(preset, queue);
+            if let Some(preset) = self.particle_life_preset_manager.get_preset(preset_name) {
+                simulation.update_settings(&preset.settings)?;
                 Ok(())
             } else {
-                tracing::error!("Particle Life preset '{}' not found", preset_name);
                 Err(format!("Particle Life preset '{}' not found", preset_name).into())
             }
         } else {
             Err("No active simulation to apply preset to".into())
         }
-    }
-
-    pub fn apply_preset_settings(
-        &mut self,
-        settings: slime_mold::settings::Settings,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.slime_mold_state {
-            simulation.update_settings(settings, queue);
-        }
-        Ok(())
     }
 
     pub fn save_preset(
@@ -539,6 +366,30 @@ impl SimulationManager {
             .map(|sim| sim.agent_count as u32)
     }
 
+    pub fn toggle_gui(&mut self) {
+        if let Some(simulation) = &mut self.slime_mold_state {
+            simulation.toggle_gui();
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.toggle_gui();
+        }
+        if let Some(simulation) = &mut self.particle_life_state {
+            simulation.toggle_gui();
+        }
+    }
+
+    pub fn is_gui_visible(&self) -> bool {
+        if let Some(simulation) = &self.slime_mold_state {
+            simulation.is_gui_visible()
+        } else if let Some(simulation) = &self.gray_scott_state {
+            simulation.is_gui_visible()
+        } else if let Some(simulation) = &self.particle_life_state {
+            simulation.is_gui_visible()
+        } else {
+            true // Default to showing GUI if no simulation is running
+        }
+    }
+
     // LUT management methods
     pub fn get_available_luts(&self) -> Vec<String> {
         self.lut_manager.get_available_luts()
@@ -555,7 +406,7 @@ impl SimulationManager {
         } else if let Some(simulation) = &mut self.gray_scott_state {
             simulation.update_lut(&lut_data, queue);
         } else if let Some(simulation) = &mut self.particle_life_state {
-            simulation.update_settings(lut_data, queue);
+            simulation.update_lut(&lut_data, queue);
         }
         Ok(())
     }
@@ -577,9 +428,9 @@ impl SimulationManager {
                 // Reset reversed state when changing LUT
                 simulation.lut_reversed = false;
             } else if let Some(simulation) = &mut self.particle_life_state {
-                simulation.set_current_lut_index(lut_index);
+                simulation.current_lut_index = lut_index;
                 // Unset reversed state when changing LUT
-                simulation.set_lut_reversed(false);
+                simulation.lut_reversed = false;
             }
             self.apply_lut(lut_name, queue)
         } else {
@@ -640,7 +491,7 @@ impl SimulationManager {
                 }
 
                 // Update the GPU with the reversed LUT
-                simulation.update_settings(lut_data, queue);
+                simulation.update_lut(&lut_data, queue);
             }
         }
         Ok(())
@@ -813,69 +664,11 @@ impl SimulationManager {
         Ok(())
     }
 
-    /// Reset particle positions using the currently selected position setter
-    pub fn reset_positions(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.reset_positions(device, queue)?;
-        }
-        Ok(())
-    }
-
-    /// Reset particle types using the currently selected type setter
-    pub fn reset_types(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.reset_types(device, queue)?;
-        }
-        Ok(())
-    }
-
-    /// Redistribute particles evenly among all available types
-    /// This is particularly useful when the matrix width (number of types) changes
-    pub fn redistribute_particle_types(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            let current_type_count = simulation.get_type_count();
-            tracing::info!(
-                "Redistributing particles evenly among {} types",
-                current_type_count
-            );
-
-            // Use the GPU physics method to fix/redistribute particle types
-            simulation.redistribute_particle_types(device, queue, current_type_count)?;
-        }
-        Ok(())
-    }
-
-    /// Set the particle count for the particle life simulation
-    pub fn set_particle_count(
-        &mut self,
-        count: usize,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.particle_life_state {
-            tracing::info!("Setting particle count to: {}", count);
-            simulation.set_particle_count(count, device, queue)?;
-        }
-        Ok(())
-    }
-
     /// Get the current LUT data for the active simulation
     pub fn get_current_lut_data(&self) -> Option<crate::simulations::shared::LutData> {
         if let Some(simulation) = &self.particle_life_state {
             let available_luts = self.lut_manager.get_available_luts();
-            if let Some(lut_name) = available_luts.get(simulation.current_lut_index) {
+            if let Some(lut_name) = available_luts.get(simulation.current_lut_index()) {
                 if let Ok(mut lut_data) = self.lut_manager.load_lut(lut_name) {
                     // Apply reversal if needed
                     if simulation.lut_reversed() {

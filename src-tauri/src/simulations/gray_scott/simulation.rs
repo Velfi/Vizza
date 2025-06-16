@@ -44,6 +44,7 @@ pub struct GrayScottModel {
     compute_pipeline: wgpu::ComputePipeline,
     noise_seed_compute: NoiseSeedCompute,
     last_frame_time: std::time::Instant,
+    show_gui: bool,
 }
 
 impl GrayScottModel {
@@ -255,6 +256,7 @@ impl GrayScottModel {
             compute_pipeline,
             noise_seed_compute,
             last_frame_time: std::time::Instant::now(),
+            show_gui: false,
         };
 
         // Apply initial LUT
@@ -297,12 +299,12 @@ impl GrayScottModel {
             self.renderer
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Compute Encoder"),
+                    label: Some("Gray Scott Compute Encoder"),
                 });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute Pass"),
+                label: Some("Gray Scott Compute Pass"),
                 timestamp_writes: None,
             });
 
@@ -324,11 +326,9 @@ impl GrayScottModel {
 
     pub fn resize(
         &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.renderer.resize(device, queue, new_config)?;
+        self.renderer.resize(new_config)?;
         Ok(())
     }
 
@@ -514,12 +514,12 @@ impl GrayScottModel {
 
         // Run compute pass
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Compute Encoder"),
+            label: Some("Gray Scott Compute Encoder"),
         });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Compute Pass"),
+                label: Some("Gray Scott Compute Pass"),
                 timestamp_writes: None,
             });
 
@@ -704,5 +704,13 @@ impl GrayScottModel {
     pub fn reset_camera(&mut self) {
         tracing::debug!("Gray-Scott simulation reset_camera called");
         self.renderer.camera.reset();
+    }
+    
+    pub(crate) fn toggle_gui(&mut self) {
+        self.show_gui = !self.show_gui;
+    }
+
+    pub(crate) fn is_gui_visible(&self) -> bool {
+        self.show_gui
     }
 }

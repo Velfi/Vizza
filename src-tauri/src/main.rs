@@ -13,7 +13,6 @@ use main_menu_renderer::MainMenuRenderer;
 use simulation_manager::SimulationManager;
 
 use crate::simulations::shared::LutData;
-use crate::simulations::particle_life::shaders::hsv_to_rgb;
 
 /// Unified GPU context managed by Tauri with surface
 pub struct GpuContext {
@@ -780,450 +779,6 @@ async fn save_custom_lut(
 }
 
 #[tauri::command]
-async fn handle_mouse_interaction(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    x: f32,
-    y: f32,
-    is_seeding: bool,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.handle_mouse_interaction(x, y, is_seeding, &gpu_ctx.queue) {
-        Ok(_) => Ok("Mouse interaction handled successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to handle mouse interaction: {}", e);
-            Err(format!("Failed to handle mouse interaction: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn update_cursor_position(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    x: f32,
-    y: f32,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.update_cursor_position(x, y, &gpu_ctx.queue) {
-        Ok(_) => Ok("Cursor position updated successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to update cursor position: {}", e);
-            Err(format!("Failed to update cursor position: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn update_cursor_position_screen(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    screen_x: f32,
-    screen_y: f32,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.update_cursor_position_screen(screen_x, screen_y, &gpu_ctx.queue) {
-        Ok(_) => Ok("Cursor position updated successfully from screen coordinates".to_string()),
-        Err(e) => {
-            tracing::error!(
-                "Failed to update cursor position from screen coordinates: {}",
-                e
-            );
-            Err(format!(
-                "Failed to update cursor position from screen coordinates: {}",
-                e
-            ))
-        }
-    }
-}
-
-#[tauri::command]
-async fn seed_random_noise(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.seed_random_noise(&gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok("Random noise seeded successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to seed random noise: {}", e);
-            Err(format!("Failed to seed random noise: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn pan_camera(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    delta_x: f32,
-    delta_y: f32,
-) -> Result<String, String> {
-    tracing::debug!(
-        "Tauri pan_camera command received: delta=({:.2}, {:.2})",
-        delta_x,
-        delta_y
-    );
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.pan_camera(delta_x, delta_y) {
-        Ok(_) => {
-            tracing::debug!("Camera pan command executed successfully");
-            Ok("Camera panned successfully".to_string())
-        }
-        Err(e) => {
-            tracing::error!("Failed to pan camera: {}", e);
-            Err(format!("Failed to pan camera: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn zoom_camera(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    delta: f32,
-) -> Result<String, String> {
-    tracing::debug!("Tauri zoom_camera command received: delta={:.2}", delta);
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.zoom_camera(delta) {
-        Ok(_) => {
-            tracing::debug!("Camera zoom command executed successfully");
-            Ok("Camera zoomed successfully".to_string())
-        }
-        Err(e) => {
-            tracing::error!("Failed to zoom camera: {}", e);
-            Err(format!("Failed to zoom camera: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn zoom_camera_to_cursor(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    delta: f32,
-    cursor_x: f32,
-    cursor_y: f32,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.zoom_camera_to_cursor(delta, cursor_x, cursor_y) {
-        Ok(_) => Ok("Camera zoomed to cursor successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to zoom camera to cursor: {}", e);
-            Err(format!("Failed to zoom camera to cursor: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn reset_camera(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.reset_camera() {
-        Ok(_) => Ok("Camera reset successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to reset camera: {}", e);
-            Err(format!("Failed to reset camera: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn stop_camera_pan(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<String, String> {
-    tracing::trace!("Tauri stop_camera_pan command received");
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.stop_camera_pan() {
-        Ok(_) => {
-            tracing::trace!("Camera pan stop command executed successfully");
-            Ok("Camera pan stopped successfully".to_string())
-        }
-        Err(e) => {
-            tracing::error!("Failed to stop camera pan: {}", e);
-            Err(format!("Failed to stop camera pan: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn get_camera_state(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<serde_json::Value, String> {
-    let sim_manager = manager.lock().await;
-    if let Some(sim) = &sim_manager.gray_scott_state {
-        let cam = &sim.renderer.camera;
-        let state = serde_json::json!({
-            "position": cam.position,
-            "zoom": cam.zoom,
-            "viewport_width": cam.viewport_width,
-            "viewport_height": cam.viewport_height,
-            "aspect_ratio": cam.uniform_data().aspect_ratio
-        });
-        Ok(state)
-    } else {
-        Err("No Gray-Scott simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn generate_matrix(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    generator: Option<String>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    tracing::info!("generate_matrix called with generator: {:?}", generator);
-    let mut sim_manager = manager.lock().await;
-
-    if let Some(simulation) = &mut sim_manager.particle_life_state {
-        // Set the generator if provided
-        if let Some(generator_name) = generator {
-            if let Err(e) = simulation.set_matrix_generator(&generator_name) {
-                tracing::error!("Failed to set matrix generator: {}", e);
-                return Err(format!("Failed to set matrix generator: {}", e));
-            }
-        }
-
-        let gpu_ctx = gpu_context.lock().await;
-
-        // Generate a new matrix using the selected generator
-        match simulation.generate_matrix_with_selected_generator(&gpu_ctx.device, &gpu_ctx.queue) {
-            Ok(_) => Ok("Matrix generated successfully".to_string()),
-            Err(e) => {
-                tracing::error!("Failed to generate matrix: {}", e);
-                Err(format!("Failed to generate matrix: {}", e))
-            }
-        }
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn get_matrix_values(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<Vec<Vec<f64>>, String> {
-    let sim_manager = manager.lock().await;
-
-    if let Some(simulation) = &sim_manager.particle_life_state {
-        let matrix_size = simulation.physics().matrix.size();
-        let mut matrix_values = vec![vec![0.0; matrix_size]; matrix_size];
-
-        for i in 0..matrix_size {
-            for j in 0..matrix_size {
-                matrix_values[i][j] = simulation.physics().matrix.get(i, j);
-            }
-        }
-
-        Ok(matrix_values)
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn zero_matrix(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    // Check if we have a particle life simulation running
-    if let Some(simulation) = &mut sim_manager.particle_life_state {
-        match simulation.zero_matrix(&gpu_ctx.device, &gpu_ctx.queue) {
-            Ok(_) => Ok("Matrix zeroed successfully".to_string()),
-            Err(e) => Err(format!("Failed to zero matrix: {}", e)),
-        }
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn toggle_particle_life_gui(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    // Check if we have a particle life simulation running
-    if let Some(simulation) = &mut sim_manager.particle_life_state {
-        simulation.toggle_gui();
-        let visible = simulation.is_gui_visible();
-        Ok(format!(
-            "GUI {} successfully",
-            if visible { "shown" } else { "hidden" }
-        ))
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn get_particle_life_gui_state(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<bool, String> {
-    let sim_manager = manager.lock().await;
-
-    // Check if we have a particle life simulation running
-    if let Some(simulation) = &sim_manager.particle_life_state {
-        Ok(simulation.is_gui_visible())
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn reset_positions(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    tracing::info!("reset_positions called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.reset_positions(&gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok("Particle positions reset successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to reset positions: {}", e);
-            Err(format!("Failed to reset positions: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn reset_types(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    tracing::info!("reset_types called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    if let Some(simulation) = &mut sim_manager.particle_life_state {
-        simulation
-            .reset_types(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to reset types: {}", e))?;
-        Ok("Types reset successfully".to_string())
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn redistribute_particle_types(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    tracing::info!("redistribute_particle_types called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.redistribute_particle_types(&gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok("Particle types redistributed evenly successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to redistribute particle types: {}", e);
-            Err(format!("Failed to redistribute particle types: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn set_particle_count(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    count: usize,
-) -> Result<String, String> {
-    tracing::info!("set_particle_count called with count: {}", count);
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.set_particle_count(count, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok(format!("Particle count set to {} successfully", count)),
-        Err(e) => {
-            tracing::error!("Failed to set particle count: {}", e);
-            Err(format!("Failed to set particle count: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn handle_mouse_press(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    x: f32,
-    y: f32,
-    button: String, // "left", "right", or "middle"
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    let mouse_button = match button.as_str() {
-        "left" => crate::simulations::particle_life::MouseButton::Left,
-        "right" => crate::simulations::particle_life::MouseButton::Right,
-        "middle" => crate::simulations::particle_life::MouseButton::Middle,
-        _ => return Err(format!("Unknown mouse button: {}", button)),
-    };
-
-    match sim_manager.handle_mouse_press(x, y, mouse_button) {
-        Ok(_) => Ok("Mouse press handled successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to handle mouse press: {}", e);
-            Err(format!("Failed to handle mouse press: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn handle_mouse_release(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    button: String, // "left", "right", or "middle"
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    let mouse_button = match button.as_str() {
-        "left" => crate::simulations::particle_life::MouseButton::Left,
-        "right" => crate::simulations::particle_life::MouseButton::Right,
-        "middle" => crate::simulations::particle_life::MouseButton::Middle,
-        _ => return Err(format!("Unknown mouse button: {}", button)),
-    };
-
-    match sim_manager.handle_mouse_release(mouse_button) {
-        Ok(_) => Ok("Mouse release handled successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to handle mouse release: {}", e);
-            Err(format!("Failed to handle mouse release: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn handle_mouse_move(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    x: f32,
-    y: f32,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-
-    match sim_manager.handle_mouse_move(x, y) {
-        Ok(_) => Ok("Mouse move handled successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to handle mouse move: {}", e);
-            Err(format!("Failed to handle mouse move: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
 async fn get_particle_type_colors(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<Vec<Vec<u8>>, String> {
@@ -1252,16 +807,7 @@ async fn get_particle_type_colors(
                 colors.push(vec![r, g, b]);
             }
         } else {
-            // Fallback to rainbow colors if no LUT data available
-            for i in 0..matrix_size {
-                let hue = (i as f32 / matrix_size.max(1) as f32) * 360.0;
-                let rgb = hsv_to_rgb(hue, 1.0, 1.0);
-                colors.push(vec![
-                    (rgb[0] * 255.0) as u8,
-                    (rgb[1] * 255.0) as u8,
-                    (rgb[2] * 255.0) as u8,
-                ]);
-            }
+            return Err("No LUT data available".to_string());
         }
 
         Ok(colors)
@@ -1287,6 +833,23 @@ async fn update_interaction_matrix(
             Err(format!("Failed to update interaction matrix: {}", e))
         }
     }
+}
+
+#[tauri::command]
+async fn toggle_gui(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    sim_manager.toggle_gui();
+    Ok("GUI toggled successfully".to_string())
+}
+
+#[tauri::command]
+async fn get_gui_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<bool, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.is_gui_visible())
 }
 
 fn main() {
@@ -1370,30 +933,10 @@ fn main() {
             randomize_settings,
             apply_custom_lut,
             save_custom_lut,
-            handle_mouse_interaction,
-            update_cursor_position,
-            update_cursor_position_screen,
-            seed_random_noise,
-            pan_camera,
-            zoom_camera,
-            zoom_camera_to_cursor,
-            reset_camera,
-            stop_camera_pan,
-            get_camera_state,
-            generate_matrix,
-            get_matrix_values,
-            zero_matrix,
-            toggle_particle_life_gui,
-            get_particle_life_gui_state,
-            reset_positions,
-            reset_types,
-            redistribute_particle_types,
-            set_particle_count,
-            handle_mouse_press,
-            handle_mouse_release,
-            handle_mouse_move,
             get_particle_type_colors,
             update_interaction_matrix,
+            toggle_gui,
+            get_gui_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

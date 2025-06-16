@@ -4,7 +4,6 @@ use std::io;
 
 #[derive(Debug, Clone)]
 pub struct LutData {
-    pub name: String,
     pub red: [u8; 256],
     pub green: [u8; 256],
     pub blue: [u8; 256],
@@ -17,7 +16,7 @@ impl LutData {
         self.blue.reverse();
     }
 
-    pub fn from_bytes(name: String, data: &[u8]) -> io::Result<Self> {
+    pub fn from_bytes(_name: String, data: &[u8]) -> io::Result<Self> {
         if data.len() != 768 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -26,7 +25,6 @@ impl LutData {
         }
 
         Ok(Self {
-            name,
             red: data[0..256].try_into().expect("invalid LUT data"),
             green: data[256..512].try_into().expect("invalid LUT data"),
             blue: data[512..768].try_into().expect("invalid LUT data"),
@@ -208,7 +206,7 @@ impl LutManager {
                 ));
             }
 
-            return Ok(LutData::from_bytes(name.to_string(), buffer.as_slice()).unwrap());
+            return Ok(LutData::from_bytes(name.to_string(), buffer.as_slice())?);
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT
@@ -267,10 +265,6 @@ impl LutManager {
     pub fn get_default_lut(&self) -> LutData {
         let lut_data = self.load_lut("MATPLOTLIB_bone_r").unwrap();
         lut_data
-    }
-
-    pub(crate) fn delete_user_preset(&self, _preset_name: &str) {
-        todo!()
     }
 }
 

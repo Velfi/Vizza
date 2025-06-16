@@ -479,9 +479,9 @@
 
   async function toggleBackendGui() {
     try {
-      await invoke('toggle_particle_life_gui');
+      await invoke('toggle_gui');
       // Sync UI state with backend
-      const isVisible = await invoke<boolean>('get_particle_life_gui_state');
+      const isVisible = await invoke<boolean>('get_gui_state');
       showUI = isVisible;
     } catch (err) {
       console.error('Failed to toggle backend GUI:', err);
@@ -508,7 +508,7 @@
       await syncMatrixFromBackend(); // Load initial matrix values
       
       // Sync UI state with backend
-      const isVisible = await invoke<boolean>('get_particle_life_gui_state');
+      const isVisible = await invoke<boolean>('get_gui_state');
       showUI = isVisible;
       
       // Start render loop and camera update loop

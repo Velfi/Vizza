@@ -5,4 +5,4 @@ pub mod settings;
 pub mod simulation;
 pub mod workgroup_optimizer;
 
-pub use simulation::SlimeMoldSimulation;
+pub use simulation::SlimeMoldModel;
