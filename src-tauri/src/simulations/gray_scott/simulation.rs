@@ -6,7 +6,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
-use crate::simulations::shared::WorldCoords;
+use crate::simulations::shared::coordinates::{TextureCoords, WorldCoords};
 use crate::simulations::shared::lut_handler::LutHandler;
 
 #[repr(C)]
@@ -291,75 +291,12 @@ impl GrayScottModel {
         self.renderer.update_settings(&self.settings, queue);
     }
 
-    pub fn render(&mut self, view: &TextureView) -> Result<(), wgpu::SurfaceError> {
-        // Run compute pass
-        let mut encoder =
-            self.renderer
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Gray Scott Compute Encoder"),
-                });
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Gray Scott Compute Pass"),
-                timestamp_writes: None,
-            });
-
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.bind_groups[self.current_buffer], &[]);
-            compute_pass.dispatch_workgroups((self.width + 7) / 8, (self.height + 7) / 8, 1);
-        }
-
-        self.renderer
-            .queue()
-            .submit(std::iter::once(encoder.finish()));
-        self.current_buffer = 1 - self.current_buffer;
-
-        // Render the current state - pass the output buffer (which contains the latest results)
-        let output_buffer = &self.uvs_buffers[self.current_buffer];
-        self.renderer
-            .render(view, output_buffer, &self.params_buffer)
-    }
-
     pub fn resize(
         &mut self,
         new_config: &SurfaceConfiguration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.renderer.resize(new_config)?;
         Ok(())
-    }
-
-    pub fn set_nutrient_pattern(&mut self, pattern: NutrientPattern, is_reversed: bool) {
-        self.settings.nutrient_pattern = pattern;
-        self.settings.nutrient_pattern_reversed = is_reversed;
-
-        let params = SimulationParams {
-            feed_rate: self.settings.feed_rate,
-            kill_rate: self.settings.kill_rate,
-            delta_u: self.settings.diffusion_rate_u,
-            delta_v: self.settings.diffusion_rate_v,
-            width: self.width,
-            height: self.height,
-            nutrient_pattern: self.settings.nutrient_pattern as u32,
-            is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-        };
-
-        self.renderer
-            .queue()
-            .write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
-    }
-
-    pub fn set_initial_state(&mut self, x: i32, y: i32, u: f32, v: f32) {
-        let index = (y * self.width as i32 + x) as usize;
-        let uvs = [UVPair { u, v }];
-        self.renderer.queue().write_buffer(
-            &self.uvs_buffers[self.current_buffer],
-            (index * std::mem::size_of::<UVPair>()) as u64,
-            bytemuck::cast_slice(&uvs),
-        );
     }
 
     pub fn reset(&mut self) {
@@ -572,14 +509,41 @@ impl GrayScottModel {
         is_seeding: bool,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // x and y are already world coordinates from the frontend
-        let world_coords = WorldCoords::new(x, y);
-
-        // Update cursor position first
-        self.update_cursor_position(world_coords.x, world_coords.y, queue)?;
+        // x and y are world coordinates from the frontend, but they need to be converted
+        // to the simulation's texture coordinate system [0,1] x [0,1]
+        
+        // Update cursor position first (pass through the world coordinates as-is for now)
+        self.update_cursor_position(x, y, queue)?;
 
         // Convert world coordinates to simulation texture coordinates
-        let texture_coords = world_coords.to_texture_coords();
+        // The camera's world space is centered around the camera position, but we need
+        // to map this to the simulation's [0,1] texture space
+        let world_coords = WorldCoords::new(x, y);
+        
+        // Convert to texture coordinates by mapping the camera's world space to [0,1]
+        // The camera's world space is centered around the camera position with zoom scaling
+        let camera = &self.renderer.camera;
+        
+        // Convert from camera's world space to texture space
+        // First, convert to NDC coordinates relative to camera
+        let ndc_x = (world_coords.x - camera.position[0]) * camera.zoom;
+        let ndc_y = (world_coords.y - camera.position[1]) * camera.zoom;
+        
+        // Convert NDC [-1,1] to texture coordinates [0,1]
+        let texture_x = (ndc_x + 1.0) * 0.5;
+        let texture_y = (ndc_y + 1.0) * 0.5; // Remove the Y-axis flip - it's already handled by the camera
+        
+        let texture_coords = TextureCoords::new(texture_x, texture_y);
+
+        // Debug output
+        tracing::debug!(
+            "Mouse interaction: world=({:.3}, {:.3}), camera_pos=({:.3}, {:.3}), zoom={:.3}, ndc=({:.3}, {:.3}), texture=({:.3}, {:.3})",
+            world_coords.x, world_coords.y,
+            camera.position[0], camera.position[1],
+            camera.zoom,
+            ndc_x, ndc_y,
+            texture_x, texture_y
+        );
 
         // Check if coordinates are within valid texture bounds
         if !texture_coords.is_valid() {
@@ -687,7 +651,7 @@ impl GrayScottModel {
 }
 
 impl LutHandler for GrayScottModel {
-    fn get_lut_name(&self) -> &str {
+    fn get_name_of_active_lut(&self) -> &str {
         &self.current_lut_name
     }
 
@@ -699,7 +663,8 @@ impl LutHandler for GrayScottModel {
         self.lut_reversed = reversed;
     }
 
-    fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, _device: &Device, queue: &Queue) {
+    fn set_active_lut(&mut self, lut_data: &crate::simulations::shared::LutData, name: String, _device: &Device, queue: &Queue) {
         self.renderer.update_lut(lut_data, queue);
+        self.current_lut_name = name;
     }
 }

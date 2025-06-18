@@ -31,7 +31,7 @@
       
       await invoke('handle_window_resize', { 
         width: physicalWidth, 
-        height: physicalHeight 
+        height: physicalHeight
       });
     } catch (e) {
       console.error('Failed to handle window resize:', e);

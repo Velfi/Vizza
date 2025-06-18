@@ -36,7 +36,7 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_name: 'Default',
+    lut_name: 'MATPLOTLIB_bone', // Match backend default
     lut_reversed: false
   };
 
@@ -100,45 +100,6 @@
       });
     } catch (e) {
       console.error('Failed to update gradient center Y:', e);
-    }
-  }
-
-  async function updateTurnRate(value: number) {
-    // Store as degrees in frontend, convert to radians for backend
-    settings.agent_turn_rate = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_turn_rate', 
-        value: (value * Math.PI) / 180 // Convert degrees to radians
-      });
-    } catch (e) {
-      console.error('Failed to update turn rate:', e);
-    }
-  }
-
-  async function updateSensorAngle(value: number) {
-    // Store as degrees in frontend, convert to radians for backend
-    settings.agent_sensor_angle = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_sensor_angle', 
-        value: (value * Math.PI) / 180 // Convert degrees to radians
-      });
-    } catch (e) {
-      console.error('Failed to update sensor angle:', e);
-    }
-  }
-
-  async function updateFpsLimit(value: number) {
-    settings.fps_limit = value;
-    try {
-      await invoke('set_fps_limit', { 
-        enabled: settings.fps_limit_enabled, 
-        limit: settings.fps_limit 
-      });
-      console.log(`FPS limit set to: ${value}`);
-    } catch (e) {
-      console.error('Failed to update FPS limit:', e);
     }
   }
 
@@ -227,32 +188,6 @@
       });
     } catch (err) {
       console.error('Failed to update max speed:', err);
-    }
-  }
-
-  async function handleAgentJitter(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.agent_jitter = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_jitter', 
-        value: settings.agent_jitter 
-      });
-    } catch (err) {
-      console.error('Failed to update agent jitter:', err);
-    }
-  }
-
-  async function handleAgentSensorDistance(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.agent_sensor_distance = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_sensor_distance', 
-        value: settings.agent_sensor_distance 
-      });
-    } catch (err) {
-      console.error('Failed to update sensor distance:', err);
     }
   }
 
@@ -402,7 +337,7 @@
     
     try {
       // Just pause the render loop, don't destroy simulation
-      await invoke('stop_simulation');
+      await invoke('pause_simulation');
       
       // Reset FPS
       currentFps = 0;
@@ -433,8 +368,6 @@
 
   async function returnToMenu() {
     await destroySimulation();
-    
-    
     dispatch('back');
   }
 
@@ -442,8 +375,10 @@
   async function loadAvailablePresets() {
     try {
       available_presets = await invoke('get_available_presets');
+      console.log('Available presets loaded:', available_presets);
       if (available_presets.length > 0 && !current_preset) {
         current_preset = available_presets[0];
+        console.log('Set initial preset to:', current_preset);
       }
     } catch (e) {
       console.error('Failed to load available presets:', e);
@@ -454,6 +389,7 @@
   async function loadAvailableLuts() {
     try {
       available_luts = await invoke('get_available_luts');
+      console.log('Available LUTs loaded:', available_luts.length);
     } catch (e) {
       console.error('Failed to load available LUTs:', e);
     }
@@ -462,7 +398,11 @@
   // Sync settings from backend to frontend
   async function syncSettingsFromBackend() {
     try {
-      const currentSettings = await invoke('get_current_settings');
+      const currentSettings = await invoke('get_current_settings') as any;
+      const currentState = await invoke('get_current_state') as { lut_name: string; lut_reversed: boolean } | null;
+      
+      console.log('Syncing settings from backend:', { currentSettings, currentState });
+      
       if (currentSettings) {
         // Handle gradient type conversion from enum to lowercase string
         if (currentSettings.gradient_type) {
@@ -486,6 +426,15 @@
         // Update computed values
         gradient_center_x_percent = settings.gradient_center_x * 100;
         gradient_center_y_percent = settings.gradient_center_y * 100;
+        
+        console.log('Settings synced from backend:', settings);
+      }
+      
+      if (currentState) {
+        // Update LUT-related settings from state
+        settings.lut_name = currentState.lut_name;
+        settings.lut_reversed = currentState.lut_reversed;
+        console.log('LUT state synced from backend:', { lut_name: settings.lut_name, lut_reversed: settings.lut_reversed });
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -499,7 +448,7 @@
       console.log('Backend returned agent count:', agentCount);
       if (agentCount !== null && agentCount !== undefined) {
         console.log('Updating currentAgentCount from', currentAgentCount, 'to', agentCount);
-        currentAgentCount = agentCount;
+        currentAgentCount = agentCount as number;
       }
     } catch (e) {
       console.error('Failed to sync agent count from backend:', e);
@@ -507,6 +456,7 @@
   }
 
   let simulationInitializedUnlisten: (() => void) | null = null;
+  let simulationResumedUnlisten: (() => void) | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
 
   // Keyboard event handler
@@ -554,20 +504,33 @@
       console.log('Simulation initialized, syncing settings and agent count...');
       await syncSettingsFromBackend();
       await syncAgentCountFromBackend();
+      
+      // Apply the initial preset after simulation is initialized
+      if (available_presets.length > 0 && current_preset) {
+        try {
+          await invoke('apply_preset', { presetName: current_preset });
+          await syncSettingsFromBackend(); // Sync UI with preset settings
+          console.log(`Applied initial preset: ${current_preset}`);
+        } catch (e) {
+          console.error('Failed to apply initial preset:', e);
+        }
+      }
+    });
+
+    // Listen for simulation resumed event
+    simulationResumedUnlisten = await listen('simulation-resumed', async () => {
+      console.log('Simulation resumed');
+      running = true;
+      currentFps = 0;
     });
 
     // Listen for FPS updates from backend
     fpsUpdateUnlisten = await listen('fps-update', (event) => {
       currentFps = event.payload as number;
-      
     });
     
     // Then start simulation
     startSimulation();
-    
-    return () => {
-      stopSimulation();
-    };
   });
 
   onDestroy(() => {
@@ -576,6 +539,9 @@
     
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
+    }
+    if (simulationResumedUnlisten) {
+      simulationResumedUnlisten();
     }
     if (fpsUpdateUnlisten) {
       fpsUpdateUnlisten();
@@ -588,6 +554,19 @@
       await invoke('apply_lut_by_name', { lutName: value });
     } catch (e) {
       console.error('Failed to update LUT name:', e);
+    }
+  }
+
+  // Helper function to update any simulation setting
+  async function updateSimulationSetting(settingName: string, value: any) {
+    try {
+      await invoke('update_simulation_setting', { 
+        settingName, 
+        value 
+      });
+      console.log(`Updated ${settingName} to ${value}`);
+    } catch (err) {
+      console.error(`Failed to update ${settingName}:`, err);
     }
   }
 </script>
@@ -719,10 +698,6 @@
                   type="text" 
                   id="newPresetName"
                   bind:value={new_preset_name}
-                  on:input={(e: Event) => {
-                    const value = (e.target as HTMLInputElement).value;
-                    setNewPresetName(value);
-                  }}
                 />
               </div>
               <div class="dialog-actions">
@@ -810,6 +785,8 @@
             precision={2}
             unit="%"
             on:change={async (e) => {
+              // The bind:value should have already updated the local state
+              // Now we just need to call the backend
               try {
                 await invoke('update_simulation_setting', { 
                   settingName: 'pheromone_decay_rate', 
@@ -1026,26 +1003,6 @@
         </div>
         {#if settings.gradient_type !== 'disabled'}
           <div class="control-group">
-            <label for="gradientStrength">Gradient Strength</label>
-            <NumberDragBox 
-              bind:value={settings.gradient_strength}
-              min={0}
-              max={100}
-              step={1}
-              precision={0}
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'gradient_strength', 
-                    value: e.detail 
-                  });
-                } catch (err) {
-                  console.error('Failed to update gradient strength:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="control-group">
             <label for="gradientCenterX">Center X (%)</label>
             <input 
               type="number" 
@@ -1054,6 +1011,10 @@
               max="100" 
               step="1" 
               bind:value={gradient_center_x_percent}
+              on:change={(e: Event) => {
+                const value = parseFloat((e.target as HTMLInputElement).value);
+                updateGradientCenterX(value);
+              }}
             />
           </div>
           <div class="control-group">
@@ -1065,6 +1026,10 @@
               max="100" 
               step="1" 
               bind:value={gradient_center_y_percent}
+              on:change={(e: Event) => {
+                const value = parseFloat((e.target as HTMLInputElement).value);
+                updateGradientCenterY(value);
+              }}
             />
           </div>
           <div class="control-group">
@@ -1261,6 +1226,7 @@
     border-radius: 4px;
     background: #f8f9fa;
     cursor: pointer;
+    height: 35px;
   }
 
   button:hover {

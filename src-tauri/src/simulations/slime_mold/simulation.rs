@@ -116,8 +116,6 @@ impl SlimeMoldModel {
         agent_count: usize,
         settings: Settings,
         lut_manager: &LutManager,
-        current_lut_name: String,
-        lut_reversed: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
@@ -197,7 +195,7 @@ impl SlimeMoldModel {
         let sim_size_buffer = Arc::new(sim_size_buffer);
 
         // Create LUT buffer
-        let lut_data = lut_manager.get(&current_lut_name)?;
+        let lut_data = lut_manager.get("MATPLOTLIB_bone")?;
 
         let mut lut_data_combined = Vec::with_capacity(768);
         lut_data_combined.extend_from_slice(&lut_data.red);
@@ -262,8 +260,8 @@ impl SlimeMoldModel {
             buffer_pool,
             settings,
             agent_count,
-            current_lut_name,
-            lut_reversed,
+            current_lut_name: "MATPLOTLIB_bone".to_string(),
+            lut_reversed: false,
             current_trail_map_size: trail_map_size as u64,
             current_gradient_buffer_size: trail_map_size as u64,
             current_agent_buffer_size: agent_count as u64,
@@ -328,23 +326,6 @@ impl SlimeMoldModel {
                 | wgpu::BufferUsages::COPY_DST,
         );
 
-        let old_agent_buffer = std::mem::replace(
-            &mut self.agent_buffer,
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Temp Agent Buffer"),
-                size: 1,
-                usage: wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            }),
-        );
-        self.buffer_pool.return_buffer(
-            old_agent_buffer,
-            self.current_agent_buffer_size,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-        );
-
         // Get new buffers from pool (or create new if none available)
         self.trail_map_buffer = self.buffer_pool.get_buffer(
             device,
@@ -365,6 +346,7 @@ impl SlimeMoldModel {
         );
 
         // For agent buffer, we need special handling to preserve and scale existing positions
+        // Store the old buffer before replacing it
         let old_agent_buffer = std::mem::replace(
             &mut self.agent_buffer,
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -388,7 +370,7 @@ impl SlimeMoldModel {
             physical_height,
         );
 
-        // Return old buffer to pool
+        // Return old buffer to pool after scaling is complete
         self.buffer_pool.return_buffer(
             old_agent_buffer,
             self.current_agent_buffer_size,
@@ -831,7 +813,7 @@ impl Drop for SlimeMoldModel {
 }
 
 impl LutHandler for SlimeMoldModel {
-    fn get_lut_name(&self) -> &str {
+    fn get_name_of_active_lut(&self) -> &str {
         &self.current_lut_name
     }
 
@@ -843,13 +825,14 @@ impl LutHandler for SlimeMoldModel {
         self.lut_reversed = reversed;
     }
 
-    fn update_lut(&mut self, lut_data: &LutData, device: &Device, queue: &Queue) {
+    fn set_active_lut(&mut self, lut_data: &LutData, name: String, _device: &Device, queue: &Queue) {
         let mut lut_data_combined = Vec::with_capacity(768);
         lut_data_combined.extend_from_slice(&lut_data.red);
         lut_data_combined.extend_from_slice(&lut_data.green);
         lut_data_combined.extend_from_slice(&lut_data.blue);
         let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
+        self.current_lut_name = name;
     }
 }
 

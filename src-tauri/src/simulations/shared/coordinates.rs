@@ -1,3 +1,6 @@
+// TODO fix usages of this so that it's not dead code
+#![allow(dead_code)]
+
 /// Strongly-typed coordinate system to prevent mixing different coordinate spaces
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScreenCoords {
@@ -116,22 +119,24 @@ pub trait CoordinateTransform {
 /// Utility functions for coordinate conversion
 impl WorldCoords {
     /// Convert world coordinates to texture coordinates (for simulation space mapping)
-    /// Assumes world space ranges from -1 to 1, maps to texture space 0 to 1
+    /// Assumes world space ranges from 0 to 1, maps to texture space 0 to 1
+    /// No Y-axis flip needed since camera conversion already handles coordinate system
     pub fn to_texture_coords(self) -> TextureCoords {
         TextureCoords {
-            x: (self.x + 1.0) * 0.5,
-            y: (-self.y + 1.0) * 0.5, // Flip Y axis: world Y increases upward, texture Y increases downward
+            x: self.x,
+            y: self.y, // No Y-axis flip needed
         }
     }
 }
 
 impl TextureCoords {
     /// Convert texture coordinates to world coordinates
-    /// Maps texture space 0 to 1 to world space -1 to 1
+    /// Maps texture space 0 to 1 to world space 0 to 1
+    /// No Y-axis flip needed since camera conversion already handles coordinate system
     pub fn to_world_coords(self) -> WorldCoords {
         WorldCoords {
-            x: self.x * 2.0 - 1.0,
-            y: -(self.y * 2.0 - 1.0), // Flip Y axis: texture Y increases downward, world Y increases upward
+            x: self.x,
+            y: self.y, // No Y-axis flip needed
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
+use nalgebra;
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
@@ -30,7 +31,7 @@ impl Renderer {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let settings = Settings::default();
         let lut_manager = LutManager::new();
-        let default_lut_name = "MATPLOTLIB_bone_r";
+        let default_lut_name = "MATPLOTLIB_bone";
         let lut_data = lut_manager.get(default_lut_name).unwrap_or_else(|_| {
             println!(
                 "Warning: LUT '{}' not found, using default",
@@ -104,9 +105,15 @@ impl Renderer {
                 }],
             });
 
-        // Initialize camera
-        let camera = Camera::new(_device, width as f32, height as f32)?;
-
+        // Initialize camera with appropriate settings for Gray Scott simulation
+        // Gray Scott operates in [0,1] UV space, so we want to view that area
+        // Use physical pixels for camera viewport (surface configuration dimensions)
+        let camera = Camera::new(
+            _device, 
+            width as f32, 
+            height as f32
+        )?;
+        
         // Create pipeline layout with both bind group layouts
         let pipeline_layout = _device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
@@ -261,7 +268,7 @@ impl Renderer {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_bind_group(1, &camera_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
+            render_pass.draw(0..6, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -276,7 +283,7 @@ impl Renderer {
         self.width = new_config.width;
         self.height = new_config.height;
 
-        // Update camera viewport
+        // Update camera viewport with physical pixels
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
 

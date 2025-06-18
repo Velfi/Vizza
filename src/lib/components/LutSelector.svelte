@@ -127,13 +127,17 @@
 
   async function updateGradientPreview() {
     try {
-      // Convert gradient stops to LUT format and send to backend
+      // Convert gradient stops to the format expected by the backend
+      // Send both colors and positions for proper interpolation
       const colors = gradientStops.map(stop => {
         const r = parseInt(stop.color.slice(1, 3), 16) / 255;
         const g = parseInt(stop.color.slice(3, 5), 16) / 255;
         const b = parseInt(stop.color.slice(5, 7), 16) / 255;
         return [r, g, b];
       });
+      
+      // For now, we'll use the simplified backend approach with evenly spaced stops
+      // The backend will interpolate between the provided colors
       await invoke('update_gradient_preview', { colors });
     } catch (e) {
       console.error('Failed to update gradient preview:', e);
@@ -143,14 +147,39 @@
   async function saveCustomLut() {
     if (!custom_lut_name.trim()) return;
     try {
+      // Convert gradient stops to LUT format (256 RGB values)
+      const lutData = [];
+      
+      for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        
+        // Find the two stops that bound this position
+        let leftStop = gradientStops[0];
+        let rightStop = gradientStops[gradientStops.length - 1];
+        
+        for (let j = 0; j < gradientStops.length - 1; j++) {
+          if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
+            leftStop = gradientStops[j];
+            rightStop = gradientStops[j + 1];
+            break;
+          }
+        }
+        
+        // Interpolate between the two colors
+        const interp_t = (t - leftStop.position) / (rightStop.position - leftStop.position);
+        const interpolatedColor = interpolateColor(leftStop.color, rightStop.color, interp_t);
+        
+        // Convert to RGB values (0-255 range)
+        const r = parseInt(interpolatedColor.slice(1, 3), 16);
+        const g = parseInt(interpolatedColor.slice(3, 5), 16);
+        const b = parseInt(interpolatedColor.slice(5, 7), 16);
+        
+        lutData.push(r, g, b);
+      }
+      
       await invoke('save_custom_lut', { 
         name: custom_lut_name,
-        colors: gradientStops.map(stop => {
-          const r = parseInt(stop.color.slice(1, 3), 16) / 255;
-          const g = parseInt(stop.color.slice(3, 5), 16) / 255;
-          const b = parseInt(stop.color.slice(5, 7), 16) / 255;
-          return [r, g, b];
-        })
+        lut_data: lutData
       });
       show_gradient_editor = false;
       custom_lut_name = '';
@@ -296,3 +325,314 @@
     </div>
   </div>
 {/if} 
+
+<style>
+  .lut-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .lut-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .control-btn {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #f8f9fa;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+  }
+
+  .control-btn:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+  }
+
+  .control-btn.reverse-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+  }
+
+  .control-btn.reverse-btn.reversed {
+    background: #646cff;
+    color: white;
+    border-color: #646cff;
+  }
+
+  .control-btn.gradient-btn {
+    font-size: 1.2rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .lut-select {
+    min-width: 200px;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: white;
+    font-size: 0.9rem;
+  }
+
+  /* Gradient Editor Dialog Styles */
+  .gradient-editor-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .gradient-editor-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    min-width: 500px;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+
+  .gradient-editor-content h3 {
+    margin: 0 0 1.5rem 0;
+    color: #333;
+    font-size: 1.5rem;
+  }
+
+  .text-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+  }
+
+  .text-input:focus {
+    outline: none;
+    border-color: #646cff;
+    box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
+  }
+
+  .gradient-preview-container {
+    margin: 1.5rem 0;
+  }
+
+  .gradient-preview {
+    height: 50px;
+    border: 2px solid #ccc;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .gradient-stops-container {
+    position: relative;
+    height: 40px;
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    cursor: crosshair;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .gradient-stops-container:hover {
+    border-color: #646cff;
+  }
+
+  .gradient-stop {
+    position: absolute;
+    top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border: 3px solid white;
+    border-radius: 50%;
+    cursor: grab;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+
+  .gradient-stop:hover {
+    transform: translateX(-50%) translateY(-50%) scale(1.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .gradient-stop.selected {
+    border-color: #646cff;
+    border-width: 4px;
+    box-shadow: 0 4px 16px rgba(100, 108, 255, 0.5);
+  }
+
+  .gradient-stop.dragging {
+    cursor: grabbing;
+    transform: translateX(-50%) translateY(-50%) scale(1.2);
+    z-index: 10;
+    transition: none;
+  }
+
+  .remove-stop {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 18px;
+    height: 18px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+  }
+
+  .remove-stop:hover {
+    background: #c82333;
+    transform: scale(1.1);
+  }
+
+  .stop-controls {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 6px;
+    margin: 1.5rem 0;
+    border: 1px solid #dee2e6;
+  }
+
+  .stop-controls h4 {
+    margin: 0 0 1rem 0;
+    color: #333;
+    font-size: 1.1rem;
+  }
+
+  .control-row {
+    display: flex;
+    gap: 1rem;
+    align-items: end;
+  }
+
+  .control-row .control-group {
+    flex: 1;
+  }
+
+  .control-group {
+    margin-bottom: 1rem;
+  }
+
+  .control-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #495057;
+  }
+
+  .color-input {
+    width: 100%;
+    height: 40px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .color-input:focus {
+    outline: none;
+    border-color: #646cff;
+    box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
+  }
+
+  .gradient-instructions {
+    background: #e3f2fd;
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1.5rem 0;
+    border-left: 4px solid #2196f3;
+  }
+
+  .gradient-instructions p {
+    margin: 0 0 0.75rem 0;
+    color: #1976d2;
+    font-weight: 600;
+  }
+
+  .gradient-instructions ul {
+    margin: 0;
+    padding-left: 1.5rem;
+  }
+
+  .gradient-instructions li {
+    margin: 0.3rem 0;
+    color: #333;
+    line-height: 1.4;
+  }
+
+  .dialog-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #dee2e6;
+  }
+
+  .primary-button {
+    background: #646cff;
+    color: white;
+    border: 1px solid #646cff;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .primary-button:hover:not(:disabled) {
+    background: #535bf2;
+    border-color: #535bf2;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(100, 108, 255, 0.3);
+  }
+
+  .primary-button:disabled {
+    background: #adb5bd;
+    border-color: #adb5bd;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .secondary-button {
+    background: #6c757d;
+    color: white;
+    border: 1px solid #6c757d;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .secondary-button:hover {
+    background: #5a6268;
+    border-color: #5a6268;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
+  }
+</style> 

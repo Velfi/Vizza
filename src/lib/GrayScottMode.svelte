@@ -100,7 +100,7 @@
 
   async function savePreset() {
     try {
-      await invoke('save_preset', { presetName: new_preset_name });
+      await invoke('save_preset', { preset_name: new_preset_name });
       show_save_preset_dialog = false;
       new_preset_name = '';
       // Refresh the available presets list
@@ -123,10 +123,8 @@
 
     try {
       await invoke('start_gray_scott_simulation');
-      loading = false;
-      running = true;
-      
-      // Backend now handles the render loop, we just track state
+      // Don't set running = true here - wait for simulation-initialized event
+      // The simulation-initialized event will set running = true when everything is ready
       currentFps = 0;
     } catch (e) {
       console.error('Failed to start simulation:', e);
@@ -153,7 +151,7 @@
     
     try {
       // Just pause the render loop, don't destroy simulation
-      await invoke('stop_simulation');
+      await invoke('pause_simulation');
       
       // Reset FPS
       currentFps = 0;
@@ -215,6 +213,8 @@
   async function syncSettingsFromBackend() {
     try {
       const currentSettings = await invoke('get_current_settings');
+      const currentState = await invoke('get_current_state') as { lut_name: string; lut_reversed: boolean } | null;
+      
       if (currentSettings) {
         // Update the settings object with current backend values
         settings = {
@@ -222,16 +222,27 @@
           ...currentSettings
         };
       }
+      
+      if (currentState) {
+        // Update LUT-related settings from state
+        settings.lut_name = currentState.lut_name;
+        settings.lut_reversed = currentState.lut_reversed;
+      }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
     }
   }
 
   let simulationInitializedUnlisten: (() => void) | null = null;
+  let simulationResumedUnlisten: (() => void) | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
 
   // Simple panning state
   let pressedKeys = new Set<string>();
+
+  // Mouse drag state
+  let isMouseDown = false;
+  let lastMouseButton = -1; // Track which button was pressed for drag consistency
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === '/') {
@@ -243,18 +254,19 @@
     } else if (event.key === 'n' || event.key === 'N') {
       event.preventDefault();
       seedRandomNoise();
-    } else if (running) {
-      // Only prevent default for camera control keys
+    } else {
+      // Allow camera controls even when simulation is paused
       const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
       if (cameraKeys.includes(event.key.toLowerCase())) {
         event.preventDefault();
+        pressedKeys.add(event.key.toLowerCase());
       }
-      pressedKeys.add(event.key.toLowerCase());
     }
   }
 
   function handleKeyup(event: KeyboardEvent) {
-    if (running) {
+    const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
       pressedKeys.delete(event.key.toLowerCase());
     }
   }
@@ -263,8 +275,7 @@
   let animationFrameId: number | null = null;
 
   function updateCamera() {
-    if (!running) return;
-
+    // Allow camera movement even when simulation is paused
     const panAmount = 0.1;
     let moved = false;
     let deltaX = 0;
@@ -295,12 +306,12 @@
 
     if (pressedKeys.has('q')) {
       console.log('Zooming out');
-      zoomCamera(-0.1);
+      zoomCamera(-0.2);
       moved = true;
     }
     if (pressedKeys.has('e')) {
       console.log('Zooming in');
-      zoomCamera(0.1);
+      zoomCamera(0.2);
       moved = true;
     }
     if (pressedKeys.has('c')) {
@@ -309,12 +320,7 @@
       moved = true;
     }
 
-    if (!moved && pressedKeys.size === 0) {
-      // Stop camera movement when no keys are pressed
-      console.log('Stopping camera movement');
-      invoke('stop_camera_pan');
-    }
-
+    // Always schedule the next frame to keep the loop running
     animationFrameId = requestAnimationFrame(updateCamera);
   }
 
@@ -340,9 +346,15 @@
   // Add a function to fetch the latest camera state from the backend
   async function fetchCameraState() {
     try {
-      const cam = await invoke('get_camera_state');
+      const cam = await invoke('get_camera_state') as {
+        position: number[];
+        zoom: number;
+        viewport_width: number;
+        viewport_height: number;
+        aspect_ratio: number;
+      };
       if (cam) {
-        camera_state = cam;
+        console.log('Camera state fetched:', cam);
       }
     } catch (e) {
       console.error('Failed to fetch camera state:', e);
@@ -370,12 +382,7 @@
 
   async function zoomCameraToCursor(delta: number, cursorX: number, cursorY: number) {
     try {
-      // Convert CSS pixels to device pixels for backend
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const deviceCursorX = cursorX * devicePixelRatio;
-      const deviceCursorY = cursorY * devicePixelRatio;
-      
-      await invoke('zoom_camera_to_cursor', { delta, cursorX: deviceCursorX, cursorY: deviceCursorY });
+      await invoke('zoom_camera_to_cursor', { delta, cursorX, cursorY });
       await fetchCameraState();
     } catch (e) {
       console.error('Failed to zoom camera to cursor:', e);
@@ -414,165 +421,122 @@
     }
   }
 
-  // Mouse interaction state
-  let mouseButton: number | null = null;
-
-  // Mouse event handlers
-  function handleMouseDown(event: MouseEvent) {
-    if (!running) return;
-    
-    mouseButton = event.button;
-    event.preventDefault();
-    
-    // Handle initial click
-    handleMouseInteraction(event);
-  }
-
-  function handleMouseMove(event: MouseEvent) {
-    // Convert to world coordinates using window coordinates (consistent with mouse overlay)
-    cursorWorld = screenToWorld(event.clientX, event.clientY);
-    // Send screen coordinates to backend/shader
-    sendCursorToBackend(event.clientX, event.clientY);
-    // Paint/erase while dragging
-    if (mouseButton !== null) {
-        handleMouseInteraction(event);
-    }
-  }
-
-  function handleMouseUp(event: MouseEvent) {
-    mouseButton = null;
-    event.preventDefault();
-  }
-
-  async function handleMouseInteraction(event: MouseEvent) {
-    // Convert to world coordinates using the same method as the frontend crosshair
-    // Use window dimensions since this is called from the mouse overlay
-    const worldCoords = screenToWorld(event.clientX, event.clientY);
-    
-    // Left mouse button = seeding (true), Right mouse button = erasing (false)
-    const isSeeding = mouseButton === 0;
-    
-    try {
-      await invoke('handle_mouse_interaction', {
-        x: worldCoords[0],
-        y: worldCoords[1],
-        isSeeding: isSeeding
-      });
-    } catch (err) {
-      console.error('Failed to handle mouse interaction:', err);
-    }
-  }
-
-  function handleContextMenu(event: MouseEvent) {
-    // Prevent right-click context menu
-    event.preventDefault();
-  }
-
-  function handleWheel(event: WheelEvent) {
-    if (!running) return;
-    
-    event.preventDefault();
-    
-    // Use window dimensions for cursor position
-    const cursorX = event.clientX;
-    const cursorY = event.clientY;
-    
-    // Update cursor position first to ensure it's accurate
-    cursorWorld = screenToWorld(cursorX, cursorY);
-    sendCursorToBackend(cursorX, cursorY);
-    
-    // Normalize wheel delta (make it smaller for smoother zoom)
-    const delta = -Math.sign(event.deltaY) * 0.05;
-    
-    // Always use fresh cursor coordinates
-    zoomCameraToCursor(delta, cursorX, cursorY);
-  }
-
-  let canvas: HTMLCanvasElement;
-  let cursorWorld = [0, 0];
-
-  function handleMouseLeave() {
-    // Hide crosshair when mouse leaves the canvas
-    cursorWorld = [-100, -100];
-    // Send offscreen coordinates to hide backend crosshair
-    sendCursorToBackend(-1000, -1000);
-    mouseButton = null; // Stop painting if mouse leaves canvas
-  }
-
-  // Initialize camera state with proper type
-  let camera_state: {
-    position: number[];
-    zoom: number;
-    viewport_width: number;
-    viewport_height: number;
-    aspect_ratio: number;
-  } = {
-    position: [0.5, 0.5, 0.0],
-    zoom: 2.0,
-    viewport_width: 800,
-    viewport_height: 600,
-    aspect_ratio: 1.0
-  };
-
-  // Utility: convert world coordinates to screen coordinates
-  function worldToScreen(worldX: number, worldY: number) {
-    const viewX = (worldX - camera_state.position[0]) * camera_state.zoom;
-    const viewY = (worldY - camera_state.position[1]) * camera_state.zoom * camera_state.aspect_ratio;
-    const deviceScreenX = (viewX + 1.0) * camera_state.viewport_width * 0.5;
-    const deviceScreenY = (-viewY + 1.0) * camera_state.viewport_height * 0.5;
-    
-    // Convert back to CSS pixels for display
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const screenX = deviceScreenX / devicePixelRatio;
-    const screenY = deviceScreenY / devicePixelRatio;
-    return [screenX, screenY];
-  }
-
-  // Utility: convert screen coordinates to world coordinates
-  // This must exactly match the backend camera's screen_to_world method
-  function screenToWorld(screenX: number, screenY: number) {
-    // Convert CSS pixels to device pixels to match backend expectations
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const deviceScreenX = screenX * devicePixelRatio;
-    const deviceScreenY = screenY * devicePixelRatio;
-    
-    // Apply exact same transformation as backend camera::screen_to_world
-    // Convert screen coordinates (0..viewport_size) to NDC (-1..1)
-    const ndc_x = (deviceScreenX / camera_state.viewport_width) * 2.0 - 1.0;
-    // Fix Y coordinate - screen Y increases downward, world Y increases upward  
-    const ndc_y = -((deviceScreenY / camera_state.viewport_height) * 2.0 - 1.0);
-    
-    // Apply inverse camera transform (exactly matching backend)
-    const world_x = (ndc_x / camera_state.zoom) + camera_state.position[0];
-    const world_y = (ndc_y / (camera_state.zoom * camera_state.aspect_ratio)) + camera_state.position[1];
-    
-    return [world_x, world_y];
-  }
-
   async function sendCursorToBackend(screenX: number, screenY: number) {
     try {
-      // Send screen coordinates (in device pixels) to backend
-      // Let backend do the world coordinate conversion using its camera
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const deviceScreenX = screenX * devicePixelRatio;
-      const deviceScreenY = screenY * devicePixelRatio;
-      
       await invoke('update_cursor_position_screen', { 
-        screenX: deviceScreenX, 
-        screenY: deviceScreenY 
+        screenX, 
+        screenY 
       });
     } catch (err) {
       console.error('Failed to update cursor position:', err);
     }
   }
 
-  let screenX = 0;
-  let screenY = 0;
+  // Unified mouse event handler
+  async function handleMouseEvent(event: MouseEvent | WheelEvent) {
+    const isWheelEvent = event instanceof WheelEvent;
+    const isMouseEvent = event instanceof MouseEvent;
+    
+    // Early return if simulation is not running (except for wheel events which can still zoom)
+    if (!running && !isWheelEvent) {
+      console.log('Mouse event ignored - simulation not running');
+      return;
+    }
+    
+    // Prevent default for all events
+    event.preventDefault();
+    
+    // Get cursor position
+    const cursorX = event.clientX;
+    const cursorY = event.clientY;
 
-  // Proper Svelte reactive assignment for screenX and screenY
-  $: if (camera_state.viewport_width && camera_state.viewport_height) {
-    [screenX, screenY] = worldToScreen(cursorWorld[0], cursorWorld[1]);
+    // Convert CSS pixels to physical pixels for backend (camera expects physical pixels)
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const physicalCursorX = cursorX * devicePixelRatio;
+    const physicalCursorY = cursorY * devicePixelRatio;
+
+    console.log(`Mouse event: ${event.type}, running: ${running}, cursor: (${cursorX}, ${cursorY}), physical: (${physicalCursorX}, ${physicalCursorY})`);
+
+    // Handle wheel events (zoom) - allow even when paused
+    if (isWheelEvent) {
+      const wheelEvent = event as WheelEvent;
+      
+      // Send cursor position to backend (use physical pixels)
+      await sendCursorToBackend(physicalCursorX, physicalCursorY);
+      
+      // Normalize wheel delta (make it smaller for smoother zooming)
+      const normalizedDelta = wheelEvent.deltaY * 0.01;
+      
+      // Zoom towards cursor position
+      await zoomCameraToCursor(normalizedDelta, physicalCursorX, physicalCursorY);
+    }
+    
+    // Handle mouse events
+    if (isMouseEvent) {
+      const mouseEvent = event as MouseEvent;
+      
+      // Send cursor position to backend (use physical pixels)
+      await sendCursorToBackend(physicalCursorX, physicalCursorY);
+      
+      // Handle mouse down (start of drag) - only when running
+      if (mouseEvent.type === 'mousedown' && running) {
+        isMouseDown = true;
+        lastMouseButton = mouseEvent.button;
+        
+        // Start seeding or erasing based on mouse button
+        const isSeeding = mouseEvent.button === 0; // Left click = seeding, right click = erasing
+        
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: physicalCursorX,
+            screenY: physicalCursorY,
+            isSeeding: isSeeding
+          });
+          console.log(`Mouse interaction: ${isSeeding ? 'seeding' : 'erasing'} at (${physicalCursorX}, ${physicalCursorY})`);
+        } catch (err) {
+          console.error('Failed to handle mouse interaction:', err);
+        }
+      }
+      
+      // Handle mouse move during drag - only when running
+      if (mouseEvent.type === 'mousemove' && isMouseDown && running) {
+        const isSeeding = lastMouseButton === 0; // Use the button that started the drag
+        
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: physicalCursorX,
+            screenY: physicalCursorY,
+            isSeeding: isSeeding
+          });
+        } catch (err) {
+          console.error('Failed to handle mouse drag interaction:', err);
+        }
+      }
+      
+      // Handle mouse up (end of drag) - always handle
+      if (mouseEvent.type === 'mouseup') {
+        console.log('Mouse up');
+        isMouseDown = false;
+        lastMouseButton = -1;
+      }
+      
+      // Handle mouse leave (end of drag if mouse leaves window) - always handle
+      if (mouseEvent.type === 'mouseleave') {
+        console.log('Mouse leave');
+        isMouseDown = false;
+        lastMouseButton = -1;
+      }
+      
+      // Handle context menu (right click) - always prevent
+      if (mouseEvent.type === 'contextmenu') {
+        console.log('Context menu prevented');
+        // Context menu is already prevented by preventDefault() above
+      }
+    }
   }
+
+  // Initialize camera state with proper type
+  // Note: camera_state is now fetched from backend when needed
 
   async function toggleBackendGui() {
     try {
@@ -587,13 +551,18 @@
 
   function updateLut(name: string) {
     settings.lut_name = name;
-    invoke('apply_lut', { lut_name: name });
+    invoke('apply_lut_by_name', { lutName: name });
   }
 
   onMount(() => {
     // Add keyboard event listeners
     window.addEventListener('keydown', handleKeydown);
     window.addEventListener('keyup', handleKeyup);
+    
+    // Start camera update loop immediately so camera controls work even when paused
+    if (animationFrameId === null) {
+      animationFrameId = requestAnimationFrame(updateCamera);
+    }
     
     // Listen for simulation initialization event
     listen('simulation-initialized', async () => {
@@ -606,18 +575,29 @@
       // Fetch initial camera state to get correct viewport dimensions
       await fetchCameraState();
       
-      // Start camera update loop when simulation is initialized
-      if (animationFrameId === null) {
-        animationFrameId = requestAnimationFrame(updateCamera);
-      }
-      
       // Initialize cursor position to center of screen so golden crosshair is visible
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
-      cursorWorld = screenToWorld(centerX, centerY);
-      sendCursorToBackend(centerX, centerY);
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCenterX = centerX * devicePixelRatio;
+      const physicalCenterY = centerY * devicePixelRatio;
+      sendCursorToBackend(physicalCenterX, physicalCenterY);
+      
+      // Now that simulation is fully initialized, set running to true
+      loading = false;
+      running = true;
+      console.log('Simulation is now running and ready for mouse interaction');
     }).then(unlisten => {
       simulationInitializedUnlisten = unlisten;
+    });
+
+    // Listen for simulation resumed event
+    listen('simulation-resumed', async () => {
+      console.log('Simulation resumed');
+      running = true;
+      currentFps = 0;
+    }).then(unlisten => {
+      simulationResumedUnlisten = unlisten;
     });
 
     // Listen for FPS updates from backend
@@ -649,6 +629,9 @@
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
     }
+    if (simulationResumedUnlisten) {
+      simulationResumedUnlisten();
+    }
     if (fpsUpdateUnlisten) {
       fpsUpdateUnlisten();
     }
@@ -659,12 +642,12 @@
   <!-- Mouse interaction overlay -->
   <div 
     class="mouse-overlay"
-    on:mousedown={handleMouseDown}
-    on:mousemove={handleMouseMove}
-    on:mouseup={handleMouseUp}
-    on:mouseleave={handleMouseLeave}
-    on:contextmenu={handleContextMenu}
-    on:wheel={handleWheel}
+    on:mousedown={handleMouseEvent}
+    on:mousemove={handleMouseEvent}
+    on:mouseup={handleMouseEvent}
+    on:mouseleave={handleMouseEvent}
+    on:contextmenu={handleMouseEvent}
+    on:wheel={handleMouseEvent}
     role="button"
     tabindex="0"
   ></div>
@@ -981,22 +964,6 @@
       </div>
     </div>
   {/if}
-
-  <div class="simulation-container">
-    <canvas
-      bind:this={canvas}
-      class="simulation-canvas"
-    />
-    <!-- Red crosshair overlay (SVG) -->
-    <svg class="crosshair-overlay" style="position:absolute;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:10">
-        {#if camera_state.viewport_width && camera_state.viewport_height}
-            <g>
-                <line x1={screenX - 10} y1={screenY} x2={screenX + 10} y2={screenY} stroke="red" stroke-width="2" />
-                <line x1={screenX} y1={screenY - 10} x2={screenX} y2={screenY + 10} stroke="red" stroke-width="2" />
-            </g>
-        {/if}
-    </svg>
-  </div>
 </div>
 
 <style>
@@ -1015,7 +982,6 @@
     right: 0;
     bottom: 0;
     z-index: 10;
-    cursor: crosshair;
     pointer-events: auto;
   }
 
@@ -1106,7 +1072,6 @@
     margin-bottom: 0.5rem;
   }
 
-  input[type="number"],
   select {
     width: 100%;
     padding: 0.5rem;
@@ -1118,15 +1083,13 @@
     margin-right: 0.5rem;
   }
 
-  .preset-controls,
-  .lut-controls {
+  .preset-controls {
     display: flex;
     gap: 0.5rem;
     align-items: center;
   }
 
-  .preset-controls select,
-  .lut-controls select {
+  .preset-controls select {
     flex: 1;
   }
 
@@ -1202,30 +1165,5 @@
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
-  }
-
-  .simulation-container {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .simulation-canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  .crosshair-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 1000;
   }
 </style> 

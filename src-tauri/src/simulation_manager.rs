@@ -8,7 +8,6 @@ use crate::simulations::shared::LutManager;
 use crate::simulations::gray_scott::{
     self, presets::init_preset_manager as init_gray_scott_preset_manager, GrayScottModel,
 };
-use crate::simulations::particle_life::{self, ParticleLifeModel};
 use crate::simulations::slime_mold::{
     self, presets::init_preset_manager as init_slime_mold_preset_manager,
 };
@@ -17,7 +16,6 @@ use crate::simulations::shared::lut_handler::LutHandler;
 pub struct SimulationManager {
     pub slime_mold_state: Option<slime_mold::SlimeMoldModel>,
     pub gray_scott_state: Option<GrayScottModel>,
-    pub particle_life_state: Option<ParticleLifeModel>,
     pub slime_mold_preset_manager: slime_mold::presets::PresetManager,
     pub gray_scott_preset_manager: gray_scott::presets::PresetManager,
     pub lut_manager: LutManager,
@@ -32,7 +30,6 @@ impl SimulationManager {
         Self {
             slime_mold_state: None,
             gray_scott_state: None,
-            particle_life_state: None,
             slime_mold_preset_manager: init_slime_mold_preset_manager(),
             gray_scott_preset_manager: init_gray_scott_preset_manager(),
             lut_manager: LutManager::new(),
@@ -59,8 +56,6 @@ impl SimulationManager {
             "slime_mold" => {
                 // Initialize slime mold simulation
                 let settings = slime_mold::settings::Settings::default();
-                let default_lut_name = "MATPLOTLIB_bone_r";
-
                 let simulation = slime_mold::SlimeMoldModel::new(
                     device,
                     queue,
@@ -69,8 +64,6 @@ impl SimulationManager {
                     10_000_000,
                     settings,
                     &self.lut_manager,
-                    default_lut_name.to_owned(),
-                    false,             // lut_reversed
                 )?;
 
                 self.slime_mold_state = Some(simulation);
@@ -96,24 +89,6 @@ impl SimulationManager {
                 self.gray_scott_state = Some(simulation);
                 Ok(())
             }
-            "particle_life" => {
-                // Initialize Particle Life simulation
-                let settings = particle_life::settings::Settings::default();
-                let default_lut_name = "MATPLOTLIB_inferno";
-
-                let simulation = ParticleLifeModel::new(
-                    device,
-                    queue,
-                    surface_config,
-                    settings,
-                    &self.lut_manager,
-                    default_lut_name.to_owned(),
-                    false, // lut_reversed
-                )?;
-
-                self.particle_life_state = Some(simulation);
-                Ok(())
-            }
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -121,7 +96,6 @@ impl SimulationManager {
     pub fn stop_simulation(&mut self) {
         self.slime_mold_state = None;
         self.gray_scott_state = None;
-        self.particle_life_state = None;
     }
 
     pub fn render(
@@ -135,9 +109,6 @@ impl SimulationManager {
         }
         if let Some(simulation) = &mut self.gray_scott_state {
             simulation.render_frame(device, queue, surface_view)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.render_frame(device, queue, surface_view);
         }
         Ok(())
     }
@@ -153,9 +124,6 @@ impl SimulationManager {
         }
         if let Some(simulation) = &mut self.gray_scott_state {
             simulation.resize(new_config)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.resize(device, new_config)?;
         }
         Ok(())
     }
@@ -176,7 +144,6 @@ impl SimulationManager {
     pub fn is_running(&self) -> bool {
         self.slime_mold_state.is_some()
             || self.gray_scott_state.is_some()
-            || self.particle_life_state.is_some()
     }
 
     pub fn get_status(&self) -> String {
@@ -184,8 +151,6 @@ impl SimulationManager {
             "Slime Mold Simulation Running".to_string()
         } else if self.gray_scott_state.is_some() {
             "Gray-Scott Simulation Running".to_string()
-        } else if self.particle_life_state.is_some() {
-            "Particle Life Simulation Running".to_string()
         } else {
             "No Simulation Running".to_string()
         }
@@ -195,7 +160,6 @@ impl SimulationManager {
         &mut self,
         setting_name: &str,
         value: serde_json::Value,
-        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
@@ -203,9 +167,6 @@ impl SimulationManager {
         }
         if let Some(simulation) = &mut self.gray_scott_state {
             simulation.update_setting(setting_name, value.clone(), queue)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.update_setting(setting_name, value.clone())?;
         }
         Ok(())
     }
@@ -236,7 +197,7 @@ impl SimulationManager {
             tracing::trace!("Gray-Scott presets available: {:?}", presets);
             presets
         } else {
-            tracing::warn!("No simulation active, returning empty presets");
+            // No active simulation, return empty list
             vec![]
         }
     }
@@ -309,6 +270,22 @@ impl SimulationManager {
         }
     }
 
+    pub fn get_current_state(&self) -> Option<serde_json::Value> {
+        if let Some(sim) = &self.slime_mold_state {
+            Some(serde_json::json!({
+                "lut_name": sim.get_name_of_active_lut(),
+                "lut_reversed": sim.is_lut_reversed()
+            }))
+        } else if let Some(sim) = &self.gray_scott_state {
+            Some(serde_json::json!({
+                "lut_name": sim.get_name_of_active_lut(),
+                "lut_reversed": sim.is_lut_reversed()
+            }))
+        } else {
+            None
+        }
+    }
+
     pub fn get_current_agent_count(&self) -> Option<u32> {
         self.slime_mold_state
             .as_ref()
@@ -322,17 +299,12 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.gray_scott_state {
             simulation.toggle_gui();
         }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.toggle_gui();
-        }
     }
 
     pub fn is_gui_visible(&self) -> bool {
         if let Some(simulation) = &self.slime_mold_state {
             simulation.is_gui_visible()
         } else if let Some(simulation) = &self.gray_scott_state {
-            simulation.is_gui_visible()
-        } else if let Some(simulation) = &self.particle_life_state {
             simulation.is_gui_visible()
         } else {
             true // Default to showing GUI if no simulation is running
@@ -351,13 +323,13 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         simulation.set_lut_reversed(!simulation.is_lut_reversed());
-        if let Ok(lut_data) = lut_manager.get(simulation.get_lut_name()) {
+        if let Ok(lut_data) = lut_manager.get(simulation.get_name_of_active_lut()) {
             let lut_data = if simulation.is_lut_reversed() {
                 lut_data.reversed()
             } else {
                 lut_data
             };
-            simulation.update_lut(&lut_data, device, queue);
+            simulation.set_active_lut(&lut_data, simulation.get_name_of_active_lut().to_string(), device, queue);
         }
         Ok(())
     }
@@ -375,7 +347,7 @@ impl SimulationManager {
         } else {
             lut_data
         };
-        simulation.update_lut(&lut_data, device, queue);
+        simulation.set_active_lut(&lut_data, lut_name.to_string(), device, queue);
         Ok(())
     }
 
@@ -389,8 +361,6 @@ impl SimulationManager {
             Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
         } else if let Some(simulation) = &mut self.gray_scott_state {
             Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
-        } else if let Some(simulation) = &mut self.particle_life_state {
-            Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
         }
         Ok(())
     }
@@ -403,8 +373,6 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.slime_mold_state {
             Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
         } else if let Some(simulation) = &mut self.gray_scott_state {
-            Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
-        } else if let Some(simulation) = &mut self.particle_life_state {
             Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
         }
         Ok(())
@@ -434,9 +402,7 @@ impl SimulationManager {
                     let mut sim_manager = manager.lock().await;
                     let gpu_ctx = gpu_context.lock().await;
 
-                    if sim_manager.slime_mold_state.is_some()
-                        || sim_manager.gray_scott_state.is_some()
-                        || sim_manager.particle_life_state.is_some()
+                    if sim_manager.is_running()
                     {
                         if let Ok(output) = gpu_ctx.get_current_texture() {
                             let view = output
@@ -536,15 +502,17 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.slime_mold_state {
             // Randomize slime mold settings
             let mut settings = simulation.settings.clone();
-            settings.pheromone_decay_rate = rand::random::<f32>() * 10.0;
-            settings.pheromone_deposition_rate = rand::random::<f32>() * 100.0 / 100.0;
-            settings.pheromone_diffusion_rate = rand::random::<f32>() * 100.0 / 100.0;
+            // Use typical values here to make the results of the random settings most visible.
+            settings.pheromone_decay_rate = 200.0;
+            settings.pheromone_deposition_rate = 100.0;
+            settings.pheromone_diffusion_rate = 100.0;
+
             settings.agent_speed_min = rand::random::<f32>() * 500.0;
             settings.agent_speed_max = settings.agent_speed_min
                 + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
             settings.agent_turn_rate =
                 (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0;
-            settings.agent_jitter = rand::random::<f32>() * 5.0;
+            settings.agent_jitter = rand::random::<f32>() * 2.0;
             settings.agent_sensor_angle =
                 (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0;
             settings.agent_sensor_distance = rand::random::<f32>() * 500.0;
@@ -572,17 +540,5 @@ impl SimulationManager {
             simulation.update_settings(settings, queue);
         }
         Ok(())
-    }
-
-    /// Get the current LUT data for the active simulation
-    pub fn get_current_lut_data(&self) -> Option<crate::simulations::shared::LutData> {
-        let name = if let Some(simulation) = &self.slime_mold_state {
-            simulation.current_lut_name.as_str()
-        } else if let Some(simulation) = &self.gray_scott_state {
-            simulation.current_lut_name.as_str()
-        } else {
-            todo!("Implement this")
-        };
-        self.lut_manager.get(name).ok()
     }
 }

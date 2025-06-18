@@ -8,7 +8,7 @@ struct VertexOutput {
 var<uniform> camera: CameraUniform;
 
 struct CameraUniform {
-    view_proj_matrix: mat4x4<f32>,
+    transform_matrix: mat4x4<f32>,
     position: vec2<f32>,
     zoom: f32,
     aspect_ratio: f32,
@@ -16,20 +16,34 @@ struct CameraUniform {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    var pos = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(3.0, -1.0),
-        vec2<f32>(-1.0, 3.0)
+    // Create a quad that covers the full screen area
+    // The camera transformation will handle aspect ratio and zoom
+    var pos = array<vec2<f32>, 6>(
+        // First triangle
+        vec2<f32>(-1.0, -1.0),  // Bottom-left
+        vec2<f32>(1.0, -1.0),   // Bottom-right  
+        vec2<f32>(-1.0, 1.0),   // Top-left
+        // Second triangle
+        vec2<f32>(1.0, -1.0),   // Bottom-right
+        vec2<f32>(1.0, 1.0),    // Top-right
+        vec2<f32>(-1.0, 1.0)    // Top-left
     );
 
-    var uv = array<vec2<f32>, 3>(
-        vec2<f32>(0.0, 1.0),
-        vec2<f32>(2.0, 1.0),
-        vec2<f32>(0.0, -1.0)
+    // UV coordinates that map to simulation grid [0,1] x [0,1]
+    var uv = array<vec2<f32>, 6>(
+        // First triangle
+        vec2<f32>(0.0, 0.0),  // Bottom-left
+        vec2<f32>(1.0, 0.0),  // Bottom-right
+        vec2<f32>(0.0, 1.0),  // Top-left
+        // Second triangle
+        vec2<f32>(1.0, 0.0),  // Bottom-right
+        vec2<f32>(1.0, 1.0),  // Top-right
+        vec2<f32>(0.0, 1.0)   // Top-left
     );
 
     let world_position = pos[vertex_index];
-    let clip_position = camera.view_proj_matrix * vec4<f32>(world_position, 0.0, 1.0);
+    // Apply camera transformation (handles aspect ratio, zoom, and pan)
+    let clip_position = camera.transform_matrix * vec4<f32>(world_position, 0.0, 1.0);
 
     var output: VertexOutput;
     output.position = clip_position;
@@ -74,49 +88,75 @@ fn get_lut_color(intensity: f32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
+// Helper function to safely sample simulation data with bounds checking
+fn sample_simulation_data(x: u32, y: u32) -> UVPair {
+    if (x >= simulation_params.width || y >= simulation_params.height) {
+        var result: UVPair;
+        result.u = 0.0;
+        result.v = 0.0;
+        return result;
+    }
+    let index = y * simulation_params.width + x;
+    return simulation_data[index];
+}
+
+// Bilinear interpolation function
+fn bilinear_interpolate(uv: vec2<f32>) -> UVPair {
+    // Convert UV coordinates to grid coordinates
+    let grid_x = uv.x * f32(simulation_params.width);
+    let grid_y = uv.y * f32(simulation_params.height);
+    
+    // Get the four surrounding grid cells
+    let x0 = u32(grid_x);
+    let y0 = u32(grid_y);
+    let x1 = min(x0 + 1u, simulation_params.width - 1u);
+    let y1 = min(y0 + 1u, simulation_params.height - 1u);
+    
+    // Calculate interpolation weights
+    let fx = fract(grid_x);
+    let fy = fract(grid_y);
+    
+    // Sample the four corners
+    let p00 = sample_simulation_data(x0, y0);
+    let p10 = sample_simulation_data(x1, y0);
+    let p01 = sample_simulation_data(x0, y1);
+    let p11 = sample_simulation_data(x1, y1);
+    
+    // Bilinear interpolation
+    let u_value = mix(
+        mix(p00.u, p10.u, fx),
+        mix(p01.u, p11.u, fx),
+        fy
+    );
+    
+    let v_value = mix(
+        mix(p00.v, p10.v, fx),
+        mix(p01.v, p11.v, fx),
+        fy
+    );
+    
+    var result: UVPair;
+    result.u = u_value;
+    result.v = v_value;
+    return result;
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Get simulation data
-    let x = u32(input.uv.x * f32(simulation_params.width));
-    let y = u32(input.uv.y * f32(simulation_params.height));
-    let index = y * simulation_params.width + x;
-    let uv = simulation_data[index];
+    // UV coordinates map to simulation grid [0,1] x [0,1]
+    let grid_x = input.uv.x;
+    let grid_y = input.uv.y;
     
-    // Get base color from LUT
+    // Use bilinear interpolation to get smooth sampling
+    let uv = bilinear_interpolate(vec2<f32>(grid_x, grid_y));
+    
+    // Get color from LUT using the u value (concentration of chemical A)
     var color = get_lut_color(uv.u);
     
-    // Draw cursor crosshair
-    let cursor_world_pos = vec2<f32>(simulation_params.cursor_x, simulation_params.cursor_y);
-    
-    // Transform cursor to NDC space
-    let cursor_ndc = vec2<f32>(
-        (cursor_world_pos.x - camera.position.x) * camera.zoom,
-        (cursor_world_pos.y - camera.position.y) * camera.zoom * camera.aspect_ratio
-    );
-    
-    // Get fragment position in NDC space
-    let fragment_ndc = vec2<f32>(
-        (input.world_pos.x - camera.position.x) * camera.zoom,
-        (input.world_pos.y - camera.position.y) * camera.zoom * camera.aspect_ratio
-    );
-    
-    // Draw crosshair
-    let crosshair_size = 0.02;  // Size of crosshair in NDC space
-    let line_width = 0.002;     // Width of crosshair lines in NDC space
-    
-    // Calculate distances in NDC space, accounting for aspect ratio
-    let dx = fragment_ndc.x - cursor_ndc.x;
-    let dy = (fragment_ndc.y - cursor_ndc.y) / camera.aspect_ratio;
-    
-    // Check if fragment is within crosshair bounds
-    let h_line = abs(dy) < line_width && abs(dx) < crosshair_size;
-    let v_line = abs(dx) < line_width && abs(dy) < crosshair_size;
-    
-    if (h_line || v_line) {
-        // Golden color
-        let cursor_color = vec3<f32>(1.0, 0.84, 0.0);
-        color = mix(color, cursor_color, 0.8);  // 0.8 is cursor opacity
-    }
+    // Apply some brightness adjustment based on v value (concentration of chemical B)
+    // This can help visualize the interaction between the two chemicals
+    let brightness = 0.5 + 0.5 * uv.v;
+    color = color * brightness;
     
     return vec4<f32>(color, 1.0);
 } 
