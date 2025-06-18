@@ -1,0 +1,68 @@
+name: Snapshot Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  snapshot-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+        # Install Mesa for software rendering
+        sudo apt-get install -y mesa-utils libgl1-mesa-dri libglx-mesa0 mesa-vulkan-drivers
+    
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Cache cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo index
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Cache cargo build
+      uses: actions/cache@v3
+      with:
+        path: src-tauri/target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Install cargo-insta
+      run: cargo install cargo-insta
+    
+    - name: Run snapshot tests
+      working-directory: src-tauri
+      env:
+        # Use software rendering for CI
+        WGPU_BACKEND: gl
+        LIBGL_ALWAYS_SOFTWARE: 1
+      run: |
+        cargo test --test snapshot_tests -- --test-threads=1
+    
+    - name: Upload snapshot artifacts on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: snapshot-failures
+        path: |
+          src-tauri/tests/snapshots/images/

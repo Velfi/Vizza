@@ -9,6 +9,9 @@ mod main_menu_renderer;
 mod simulation_manager;
 mod simulations;
 
+#[cfg(test)]
+mod snapshot_test_runner;
+
 use main_menu_renderer::MainMenuRenderer;
 use simulation_manager::SimulationManager;
 
