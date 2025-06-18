@@ -4,17 +4,15 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
+use crate::simulations::shared::LutManager;
 use crate::simulations::gray_scott::{
     self, presets::init_preset_manager as init_gray_scott_preset_manager, GrayScottModel,
 };
-use crate::simulations::particle_life::{
-    self, presets::init_preset_manager as init_particle_life_preset_manager, ParticleLifeModel,
-    physics::Matrix,
-};
-use crate::simulations::shared::LutManager;
+use crate::simulations::particle_life::{self, ParticleLifeModel};
 use crate::simulations::slime_mold::{
     self, presets::init_preset_manager as init_slime_mold_preset_manager,
 };
+use crate::simulations::shared::lut_handler::LutHandler;
 
 pub struct SimulationManager {
     pub slime_mold_state: Option<slime_mold::SlimeMoldModel>,
@@ -22,7 +20,6 @@ pub struct SimulationManager {
     pub particle_life_state: Option<ParticleLifeModel>,
     pub slime_mold_preset_manager: slime_mold::presets::PresetManager,
     pub gray_scott_preset_manager: gray_scott::presets::PresetManager,
-    pub particle_life_preset_manager: particle_life::presets::PresetManager,
     pub lut_manager: LutManager,
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
@@ -38,7 +35,6 @@ impl SimulationManager {
             particle_life_state: None,
             slime_mold_preset_manager: init_slime_mold_preset_manager(),
             gray_scott_preset_manager: init_gray_scott_preset_manager(),
-            particle_life_preset_manager: init_particle_life_preset_manager(),
             lut_manager: LutManager::new(),
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
@@ -63,12 +59,7 @@ impl SimulationManager {
             "slime_mold" => {
                 // Initialize slime mold simulation
                 let settings = slime_mold::settings::Settings::default();
-                let available_luts = self.lut_manager.get_available_luts();
                 let default_lut_name = "MATPLOTLIB_bone_r";
-                let current_lut_index = available_luts
-                    .iter()
-                    .position(|name| name == default_lut_name)
-                    .unwrap_or(0);
 
                 let simulation = slime_mold::SlimeMoldModel::new(
                     device,
@@ -78,8 +69,7 @@ impl SimulationManager {
                     10_000_000,
                     settings,
                     &self.lut_manager,
-                    &available_luts,
-                    current_lut_index, // current_lut_index
+                    default_lut_name.to_owned(),
                     false,             // lut_reversed
                 )?;
 
@@ -89,12 +79,7 @@ impl SimulationManager {
             "gray_scott" => {
                 // Initialize Gray-Scott simulation
                 let settings = crate::simulations::gray_scott::settings::Settings::default();
-                let available_luts = self.lut_manager.get_available_luts();
                 let default_lut_name = "MATPLOTLIB_prism";
-                let current_lut_index = available_luts
-                    .iter()
-                    .position(|name| name == default_lut_name)
-                    .unwrap_or(0);
 
                 let simulation = GrayScottModel::new(
                     device,
@@ -104,8 +89,7 @@ impl SimulationManager {
                     surface_config.height,
                     settings,
                     &self.lut_manager,
-                    &available_luts,
-                    current_lut_index,
+                    default_lut_name.to_owned(),
                     false, // lut_reversed
                 )?;
 
@@ -113,21 +97,19 @@ impl SimulationManager {
                 Ok(())
             }
             "particle_life" => {
-                // Initialize particle life simulation with GPU physics
-                let available_luts = self.lut_manager.get_available_luts();
-                let default_lut_name = "MATPLOTLIB_rainbow_r";
-                let current_lut_index = available_luts
-                    .iter()
-                    .position(|name| name == default_lut_name)
-                    .unwrap_or(0);
+                // Initialize Particle Life simulation
+                let settings = particle_life::settings::Settings::default();
+                let default_lut_name = "MATPLOTLIB_inferno";
 
-                // GPU physics is now the only option
-                let mut simulation = ParticleLifeModel::new(&self.lut_manager, device, queue, surface_config).await?;
-                simulation.current_lut_index = current_lut_index;
-                simulation.lut_reversed = false;
-
-                // Apply the default LUT
-                simulation.update_lut(&self.lut_manager.get_default_lut(), queue);
+                let simulation = ParticleLifeModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &self.lut_manager,
+                    default_lut_name.to_owned(),
+                    false, // lut_reversed
+                )?;
 
                 self.particle_life_state = Some(simulation);
                 Ok(())
@@ -155,7 +137,7 @@ impl SimulationManager {
             simulation.render_frame(device, queue, surface_view)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.render_frame(device, queue, surface_view, &self.lut_manager)?;
+            simulation.render_frame(device, queue, surface_view)?;
         }
         Ok(())
     }
@@ -173,7 +155,7 @@ impl SimulationManager {
             simulation.resize(new_config)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_resize(new_config)?;
+            simulation.resize(new_config)?;
         }
         Ok(())
     }
@@ -187,9 +169,6 @@ impl SimulationManager {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.gray_scott_state {
             simulation.handle_mouse_interaction(x, y, is_seeding, queue)?;
-        }
-        if let Some(simulation) = &mut self.particle_life_state {
-            simulation.handle_mouse_interaction(x, y)?;
         }
         Ok(())
     }
@@ -226,7 +205,7 @@ impl SimulationManager {
             simulation.update_setting(setting_name, value.clone(), queue)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.update_setting(setting_name, value.clone(), device, queue)?;
+            simulation.update_setting(setting_name, value.clone())?;
         }
         Ok(())
     }
@@ -256,12 +235,6 @@ impl SimulationManager {
             let presets = self.gray_scott_preset_manager.get_preset_names();
             tracing::trace!("Gray-Scott presets available: {:?}", presets);
             presets
-        } else if self.particle_life_state.is_some() {
-            tracing::trace!(
-                "Particle Life presets available: {:?}",
-                self.lut_manager.get_available_luts()
-            );
-            self.lut_manager.get_available_luts()
         } else {
             tracing::warn!("No simulation active, returning empty presets");
             vec![]
@@ -290,14 +263,6 @@ impl SimulationManager {
                 tracing::error!("Gray-Scott preset '{}' not found", preset_name);
                 Err(format!("Gray-Scott preset '{}' not found", preset_name).into())
             }
-        } else if let Some(simulation) = &mut self.particle_life_state {
-            tracing::info!("Trying to apply Particle Life preset: {}", preset_name);
-            if let Some(preset) = self.particle_life_preset_manager.get_preset(preset_name) {
-                simulation.update_settings(&preset.settings)?;
-                Ok(())
-            } else {
-                Err(format!("Particle Life preset '{}' not found", preset_name).into())
-            }
         } else {
             Err("No active simulation to apply preset to".into())
         }
@@ -318,11 +283,6 @@ impl SimulationManager {
                 serde_json::from_value(settings.clone())?;
             self.gray_scott_preset_manager
                 .save_user_preset(preset_name, &gray_scott_settings)
-        } else if self.particle_life_state.is_some() {
-            let gray_scott_settings: gray_scott::settings::Settings =
-                serde_json::from_value(settings.clone())?;
-            self.gray_scott_preset_manager
-                .save_user_preset(preset_name, &gray_scott_settings)
         } else {
             Err("No active simulation to save preset from".into())
         }
@@ -335,9 +295,6 @@ impl SimulationManager {
         } else if self.gray_scott_state.is_some() {
             self.gray_scott_preset_manager
                 .delete_user_preset(preset_name)?;
-        } else if self.particle_life_state.is_some() {
-            self.particle_life_preset_manager
-                .delete_user_preset(preset_name)?;
         }
         Ok(())
     }
@@ -347,14 +304,6 @@ impl SimulationManager {
             serde_json::to_value(&sim.settings).ok()
         } else if let Some(sim) = &self.gray_scott_state {
             serde_json::to_value(&sim.settings).ok()
-        } else if let Some(sim) = &self.particle_life_state {
-            // For particle life, we need to include LUT information alongside the basic settings
-            let mut settings_value = serde_json::to_value(&sim.settings()).ok()?;
-            if let Some(settings_obj) = settings_value.as_object_mut() {
-                settings_obj.insert("lut_index".to_string(), serde_json::Value::Number(sim.current_lut_index().into()));
-                settings_obj.insert("lut_reversed".to_string(), serde_json::Value::Bool(sim.lut_reversed()));
-            }
-            Some(settings_value)
         } else {
             None
         }
@@ -392,107 +341,71 @@ impl SimulationManager {
 
     // LUT management methods
     pub fn get_available_luts(&self) -> Vec<String> {
-        self.lut_manager.get_available_luts()
+        self.lut_manager.all_luts()
+    }
+
+    fn handle_lut_reversal<T: LutHandler>(
+        simulation: &mut T,
+        lut_manager: &LutManager,
+        device: &Device,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        simulation.set_lut_reversed(!simulation.is_lut_reversed());
+        if let Ok(lut_data) = lut_manager.get(simulation.get_lut_name()) {
+            let lut_data = if simulation.is_lut_reversed() {
+                lut_data.reversed()
+            } else {
+                lut_data
+            };
+            simulation.update_lut(&lut_data, device, queue);
+        }
+        Ok(())
+    }
+
+    fn handle_lut_application<T: LutHandler>(
+        simulation: &mut T,
+        lut_manager: &LutManager,
+        lut_name: &str,
+        device: &Device,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let lut_data = lut_manager.get(lut_name)?;
+        let lut_data = if simulation.is_lut_reversed() {
+            lut_data.reversed()
+        } else {
+            lut_data
+        };
+        simulation.update_lut(&lut_data, device, queue);
+        Ok(())
     }
 
     pub fn apply_lut(
         &mut self,
         lut_name: &str,
+        device: &Device,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let lut_data = self.lut_manager.load_lut(lut_name)?;
         if let Some(simulation) = &mut self.slime_mold_state {
-            simulation.update_lut(&lut_data, queue);
+            Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
         } else if let Some(simulation) = &mut self.gray_scott_state {
-            simulation.update_lut(&lut_data, queue);
+            Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
         } else if let Some(simulation) = &mut self.particle_life_state {
-            simulation.update_lut(&lut_data, queue);
+            Self::handle_lut_application(simulation, &self.lut_manager, lut_name, device, queue)?;
         }
         Ok(())
     }
 
-    pub fn apply_lut_by_index(
-        &mut self,
-        lut_index: usize,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let available_luts = self.get_available_luts();
-        if let Some(lut_name) = available_luts.get(lut_index) {
-            // Update the simulation's current LUT index before applying
-            if let Some(simulation) = &mut self.slime_mold_state {
-                simulation.current_lut_index = lut_index;
-                // Reset reversed state when changing LUT
-                simulation.lut_reversed = false;
-            } else if let Some(simulation) = &mut self.gray_scott_state {
-                simulation.current_lut_index = lut_index;
-                // Reset reversed state when changing LUT
-                simulation.lut_reversed = false;
-            } else if let Some(simulation) = &mut self.particle_life_state {
-                simulation.current_lut_index = lut_index;
-                // Unset reversed state when changing LUT
-                simulation.lut_reversed = false;
-            }
-            self.apply_lut(lut_name, queue)
-        } else {
-            Err(format!("LUT index {} out of range", lut_index).into())
-        }
-    }
-
     pub fn reverse_current_lut(
         &mut self,
+        device: &Device,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
-            // Toggle the reversed flag
-            simulation.lut_reversed = !simulation.lut_reversed;
-
-            // Get the current LUT and apply it (now with reversed flag)
-            let available_luts = self.lut_manager.get_available_luts();
-            if let Some(lut_name) = available_luts.get(simulation.current_lut_index) {
-                let mut lut_data = self.lut_manager.load_lut(lut_name)?;
-
-                // Reverse the LUT data if the flag is set
-                if simulation.lut_reversed {
-                    lut_data.reverse();
-                }
-
-                // Update the GPU with the reversed LUT
-                simulation.update_lut(&lut_data, queue);
-            }
+            Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
         } else if let Some(simulation) = &mut self.gray_scott_state {
-            // Toggle the reversed flag
-            simulation.lut_reversed = !simulation.lut_reversed;
-
-            // Get the current LUT and apply it (now with reversed flag)
-            let available_luts = self.lut_manager.get_available_luts();
-            if let Some(lut_name) = available_luts.get(simulation.current_lut_index) {
-                let mut lut_data = self.lut_manager.load_lut(lut_name)?;
-
-                // Reverse the LUT data if the flag is set
-                if simulation.lut_reversed {
-                    lut_data.reverse();
-                }
-
-                // Update the GPU with the reversed LUT
-                simulation.update_lut(&lut_data, queue);
-            }
+            Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
         } else if let Some(simulation) = &mut self.particle_life_state {
-            // Toggle the reversed flag
-            simulation.toggle_lut_reversed();
-
-            // Get the current LUT and apply it (now with reversed flag)
-            let available_luts = self.lut_manager.get_available_luts();
-            if let Some(lut_name) = available_luts.get(simulation.current_lut_index()) {
-                let mut lut_data = self.lut_manager.load_lut(lut_name)?;
-
-                // Reverse the LUT data if the flag is set
-                if simulation.lut_reversed() {
-                    lut_data.reverse();
-                }
-
-                // Update the GPU with the reversed LUT
-                simulation.update_lut(&lut_data, queue);
-            }
+            Self::handle_lut_reversal(simulation, &self.lut_manager, device, queue)?;
         }
         Ok(())
     }
@@ -657,42 +570,19 @@ impl SimulationManager {
             settings.timestep = 0.5 + rand::random::<f32>() * 2.0;
 
             simulation.update_settings(settings, queue);
-        } else if let Some(simulation) = &mut self.particle_life_state {
-            // Randomize particle life settings
-            simulation.randomize_settings();
         }
         Ok(())
     }
 
     /// Get the current LUT data for the active simulation
     pub fn get_current_lut_data(&self) -> Option<crate::simulations::shared::LutData> {
-        if let Some(simulation) = &self.particle_life_state {
-            let available_luts = self.lut_manager.get_available_luts();
-            if let Some(lut_name) = available_luts.get(simulation.current_lut_index()) {
-                if let Ok(mut lut_data) = self.lut_manager.load_lut(lut_name) {
-                    // Apply reversal if needed
-                    if simulation.lut_reversed() {
-                        lut_data.reverse();
-                    }
-                    return Some(lut_data);
-                }
-            }
-        }
-        None
-    }
-
-    pub fn update_interaction_matrix(
-        &mut self,
-        matrix: &Vec<Vec<f32>>,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(particle_life) = &mut self.particle_life_state {
-            let matrix = Matrix::from_vec(matrix.clone());
-            particle_life.update_matrix(&matrix, device, queue)?;
-            Ok(())
+        let name = if let Some(simulation) = &self.slime_mold_state {
+            simulation.current_lut_name.as_str()
+        } else if let Some(simulation) = &self.gray_scott_state {
+            simulation.current_lut_name.as_str()
         } else {
-            Err("Particle Life simulation not initialized".into())
-        }
+            todo!("Implement this")
+        };
+        self.lut_manager.get(name).ok()
     }
 }

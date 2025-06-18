@@ -7,7 +7,7 @@ use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
-use crate::simulations::shared::{LutData, LutManager};
+use crate::simulations::shared::{LutData, LutManager, LutHandler};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -92,8 +92,8 @@ pub struct SlimeMoldModel {
     // Simulation state
     pub settings: Settings,
     pub agent_count: usize,
-    pub current_lut_index: usize,
     pub lut_reversed: bool,
+    pub current_lut_name: String,
 
     // Buffer size tracking for pool management
     pub current_trail_map_size: u64,
@@ -116,8 +116,7 @@ impl SlimeMoldModel {
         agent_count: usize,
         settings: Settings,
         lut_manager: &LutManager,
-        available_luts: &[String],
-        current_lut_index: usize,
+        current_lut_name: String,
         lut_reversed: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let physical_width = surface_config.width;
@@ -198,11 +197,7 @@ impl SlimeMoldModel {
         let sim_size_buffer = Arc::new(sim_size_buffer);
 
         // Create LUT buffer
-        let lut_data = if current_lut_index < available_luts.len() {
-            lut_manager.load_lut(&available_luts[current_lut_index])?
-        } else {
-            return Err("Invalid LUT index".into());
-        };
+        let lut_data = lut_manager.get(&current_lut_name)?;
 
         let mut lut_data_combined = Vec::with_capacity(768);
         lut_data_combined.extend_from_slice(&lut_data.red);
@@ -267,7 +262,7 @@ impl SlimeMoldModel {
             buffer_pool,
             settings,
             agent_count,
-            current_lut_index,
+            current_lut_name,
             lut_reversed,
             current_trail_map_size: trail_map_size as u64,
             current_gradient_buffer_size: trail_map_size as u64,
@@ -557,7 +552,7 @@ impl SlimeMoldModel {
     }
 
     /// Update the LUT (color lookup table)
-    pub fn update_lut(&mut self, lut_data: &LutData, queue: &Arc<Queue>) {
+    pub fn update_lut(&mut self, lut_data: &LutData, queue: &Queue) {
         let mut lut_data_combined = Vec::with_capacity(768);
         lut_data_combined.extend_from_slice(&lut_data.red);
         lut_data_combined.extend_from_slice(&lut_data.green);
@@ -835,6 +830,29 @@ impl Drop for SlimeMoldModel {
     }
 }
 
+impl LutHandler for SlimeMoldModel {
+    fn get_lut_name(&self) -> &str {
+        &self.current_lut_name
+    }
+
+    fn is_lut_reversed(&self) -> bool {
+        self.lut_reversed
+    }
+
+    fn set_lut_reversed(&mut self, reversed: bool) {
+        self.lut_reversed = reversed;
+    }
+
+    fn update_lut(&mut self, lut_data: &LutData, device: &Device, queue: &Queue) {
+        let mut lut_data_combined = Vec::with_capacity(768);
+        lut_data_combined.extend_from_slice(&lut_data.red);
+        lut_data_combined.extend_from_slice(&lut_data.green);
+        lut_data_combined.extend_from_slice(&lut_data.blue);
+        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
+        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
+    }
+}
+
 // Helper functions (moved from gpu_state.rs)
 
 fn create_agent_buffer(
@@ -894,27 +912,32 @@ fn create_agent_buffer_with_scaling(
     let scale_x = new_width as f32 / old_width as f32;
     let scale_y = new_height as f32 / old_height as f32;
 
-    // Create staging buffer to read old data and write scaled data
-    let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Agent Scaling Staging Buffer"),
+    // Create read staging buffer
+    let read_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Agent Scaling Read Staging Buffer"),
         size,
-        usage: wgpu::BufferUsages::COPY_SRC
-            | wgpu::BufferUsages::COPY_DST
-            | wgpu::BufferUsages::MAP_READ
-            | wgpu::BufferUsages::MAP_WRITE,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
 
-    // Copy old buffer to staging for reading
+    // Create write staging buffer
+    let write_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Agent Scaling Write Staging Buffer"),
+        size,
+        usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+        mapped_at_creation: true,
+    });
+
+    // Copy old buffer to read staging
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("Agent Scaling Copy Old"),
     });
-    encoder.copy_buffer_to_buffer(old_buffer, 0, &staging_buffer, 0, size);
+    encoder.copy_buffer_to_buffer(old_buffer, 0, &read_staging_buffer, 0, size);
     queue.submit(std::iter::once(encoder.finish()));
 
     // Wait for copy to complete and map for reading
     let (sender, receiver) = std::sync::mpsc::channel();
-    staging_buffer
+    read_staging_buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
     device.poll(wgpu::Maintain::Wait);
@@ -922,19 +945,11 @@ fn create_agent_buffer_with_scaling(
 
     // Read old data and scale positions
     {
-        let buffer_slice = staging_buffer.slice(..).get_mapped_range();
+        let buffer_slice = read_staging_buffer.slice(..).get_mapped_range();
         let old_agent_data: &[f32] = bytemuck::cast_slice(&buffer_slice);
 
-        // Create new buffer for scaled data
-        let new_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Agent Scaling New Staging Buffer"),
-            size,
-            usage: wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: true,
-        });
-
-        let mut new_buffer_slice = new_staging_buffer.slice(..).get_mapped_range_mut();
-        let new_agent_data: &mut [f32] = bytemuck::cast_slice_mut(&mut new_buffer_slice);
+        let mut write_buffer_slice = write_staging_buffer.slice(..).get_mapped_range_mut();
+        let new_agent_data: &mut [f32] = bytemuck::cast_slice_mut(&mut write_buffer_slice);
 
         for i in 0..agent_count {
             let base_idx = i * 4;
@@ -954,18 +969,18 @@ fn create_agent_buffer_with_scaling(
             new_agent_data[base_idx + 3] = old_agent_data[base_idx + 3];
         }
 
-        drop(new_buffer_slice);
-        new_staging_buffer.unmap();
-
-        // Copy scaled data to final buffer
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Agent Scaling Copy New"),
-        });
-        encoder.copy_buffer_to_buffer(&new_staging_buffer, 0, &new_buffer, 0, size);
-        queue.submit(std::iter::once(encoder.finish()));
+        drop(write_buffer_slice);
+        write_staging_buffer.unmap();
     }
 
-    staging_buffer.unmap();
+    read_staging_buffer.unmap();
+
+    // Copy scaled data to final buffer
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Agent Scaling Copy New"),
+    });
+    encoder.copy_buffer_to_buffer(&write_staging_buffer, 0, &new_buffer, 0, size);
+    queue.submit(std::iter::once(encoder.finish()));
 
     new_buffer
 }

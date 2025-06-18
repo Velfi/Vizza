@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use wgpu::{Device, Queue, RenderPipeline, SurfaceConfiguration, BindGroup, Buffer};
+use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguration};
 
 pub struct MainMenuRenderer {
     render_pipeline: RenderPipeline,
@@ -62,19 +62,20 @@ impl MainMenuRenderer {
             mapped_at_creation: false,
         });
 
-        let time_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Time Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let time_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Time Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Time Bind Group"),
@@ -97,11 +98,12 @@ impl MainMenuRenderer {
         });
 
         // Create render pipeline
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Main Menu Pipeline Layout"),
-            bind_group_layouts: &[&time_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Main Menu Pipeline Layout"),
+                bind_group_layouts: &[&time_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Main Menu Render Pipeline"),

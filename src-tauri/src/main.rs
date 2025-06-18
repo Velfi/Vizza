@@ -258,7 +258,7 @@ async fn start_particle_life_simulation(
         .await
     {
         Ok(_) => {
-            tracing::info!("Particle Life simulation started successfully");
+            tracing::info!("Particle life simulation started successfully");
 
             // Start the backend render loop
             sim_manager.start_render_loop(
@@ -272,17 +272,17 @@ async fn start_particle_life_simulation(
                 tracing::warn!("Failed to emit simulation-initialized event: {}", e);
             }
 
-            Ok("Particle Life simulation started successfully".to_string())
+            Ok("Particle life simulation started successfully".to_string())
         }
         Err(e) => {
-            tracing::error!("Failed to start simulation: {}", e);
-            Err(format!("Failed to start simulation: {}", e))
+            tracing::error!("Failed to start particle life simulation: {}", e);
+            Err(format!("Failed to start particle life simulation: {}", e))
         }
     }
 }
 
 #[tauri::command]
-async fn stop_simulation(
+async fn pause_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
     let sim_manager = manager.lock().await;
@@ -296,7 +296,7 @@ async fn resume_simulation(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("resume_simulation called");
+    tracing::debug!("resume_simulation called");
     let sim_manager = manager.lock().await;
 
     // Only resume if simulation exists
@@ -323,7 +323,7 @@ async fn resume_simulation(
 async fn destroy_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
-    tracing::info!("destroy_simulation called");
+    tracing::debug!("destroy_simulation called");
     let mut sim_manager = manager.lock().await;
     sim_manager.stop_render_loop();
     sim_manager.stop_simulation();
@@ -342,8 +342,7 @@ async fn get_simulation_status(
 async fn render_frame(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-) -> Result<String, String> {
-    // debug!("render_frame called");
+) -> Result<(), String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -362,7 +361,7 @@ async fn render_frame(
                 {
                     Ok(_) => {
                         output.present();
-                        return Ok("Triangle rendered".to_string());
+                        return Ok(());
                     }
                     Err(e) => {
                         tracing::error!("Failed to render triangle: {}", e);
@@ -385,9 +384,8 @@ async fn render_frame(
                 .create_view(&wgpu::TextureViewDescriptor::default());
             match sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view) {
                 Ok(_) => {
-                    // debug!("Frame rendered successfully");
                     output.present();
-                    Ok("Frame rendered successfully".to_string())
+                    Ok(())
                 }
                 Err(e) => {
                     tracing::error!("Simulation render failed: {}", e);
@@ -436,30 +434,6 @@ async fn check_gpu_context_ready(
     match gpu_context.try_lock() {
         Ok(_) => Ok(true),
         Err(_) => Ok(false), // Still initializing or locked
-    }
-}
-
-#[tauri::command]
-async fn update_simulation_setting(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    setting_name: String,
-    value: serde_json::Value,
-) -> Result<String, String> {
-    tracing::info!(
-        "update_simulation_setting called: {} = {:?}",
-        setting_name,
-        value
-    );
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.update_setting(&setting_name, value, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok(format!("Setting {} updated successfully", setting_name)),
-        Err(e) => {
-            tracing::error!("Failed to update setting {}: {}", setting_name, e);
-            Err(format!("Failed to update setting {}: {}", setting_name, e))
-        }
     }
 }
 
@@ -554,33 +528,6 @@ async fn delete_preset(
 }
 
 #[tauri::command]
-async fn get_available_luts(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<Vec<String>, String> {
-    let sim_manager = manager.lock().await;
-    Ok(sim_manager.get_available_luts())
-}
-
-#[tauri::command]
-async fn apply_lut_by_index(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    lut_index: usize,
-) -> Result<String, String> {
-    tracing::info!("apply_lut_by_index called: {}", lut_index);
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.apply_lut_by_index(lut_index, &gpu_ctx.queue) {
-        Ok(_) => Ok(format!("LUT at index {} applied successfully", lut_index)),
-        Err(e) => {
-            tracing::error!("Failed to apply LUT at index {}: {}", lut_index, e);
-            Err(format!("Failed to apply LUT at index {}: {}", lut_index, e))
-        }
-    }
-}
-
-#[tauri::command]
 async fn apply_lut_by_name(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
@@ -590,7 +537,7 @@ async fn apply_lut_by_name(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.apply_lut(&lut_name, &gpu_ctx.queue) {
+    match sim_manager.apply_lut(&lut_name, &gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => Ok(format!("LUT '{}' applied successfully", lut_name)),
         Err(e) => {
             tracing::error!("Failed to apply LUT {}: {}", lut_name, e);
@@ -608,7 +555,7 @@ async fn toggle_lut_reversed(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.reverse_current_lut(&gpu_ctx.queue) {
+    match sim_manager.reverse_current_lut(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => Ok("LUT reversed toggled successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to toggle LUT reversed: {}", e);
@@ -769,68 +716,11 @@ async fn save_custom_lut(
     let lut_data = LutData::from_bytes(name.clone(), &byte_data)
         .map_err(|e| format!("Failed to create LUT data: {}", e))?;
 
-    match sim_manager.lut_manager.save_custom_lut(&name, &lut_data) {
+    match sim_manager.lut_manager.save_custom(&name, &lut_data) {
         Ok(_) => Ok(format!("Custom LUT '{}' saved successfully", name)),
         Err(e) => {
             tracing::error!("Failed to save custom LUT {}: {}", name, e);
             Err(format!("Failed to save custom LUT {}: {}", name, e))
-        }
-    }
-}
-
-#[tauri::command]
-async fn get_particle_type_colors(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<Vec<Vec<u8>>, String> {
-    let sim_manager = manager.lock().await;
-
-    if let Some(simulation) = &sim_manager.particle_life_state {
-        let matrix_size = simulation.physics().matrix.size();
-        let mut colors: Vec<Vec<u8>> = Vec::with_capacity(matrix_size);
-
-        // Get the current LUT data from the simulation manager
-        if let Some(lut_data) = sim_manager.get_current_lut_data() {
-            for i in 0..matrix_size {
-                // Map particle type to LUT index using same logic as shader
-                let lut_index_normalized = if matrix_size > 1 {
-                    i as f32 / (matrix_size - 1) as f32
-                } else {
-                    0.0
-                };
-                let lut_index = (lut_index_normalized * 255.0).clamp(0.0, 255.0) as usize;
-                
-                // Get RGB values from LUT
-                let r = lut_data.red[lut_index];
-                let g = lut_data.green[lut_index];
-                let b = lut_data.blue[lut_index];
-                
-                colors.push(vec![r, g, b]);
-            }
-        } else {
-            return Err("No LUT data available".to_string());
-        }
-
-        Ok(colors)
-    } else {
-        Err("No particle life simulation running".to_string())
-    }
-}
-
-#[tauri::command]
-async fn update_interaction_matrix(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
-    matrix: Vec<Vec<f32>>,
-) -> Result<String, String> {
-    tracing::info!("update_interaction_matrix called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    match sim_manager.update_interaction_matrix(&matrix, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => Ok("Interaction matrix updated successfully".to_string()),
-        Err(e) => {
-            tracing::error!("Failed to update interaction matrix: {}", e);
-            Err(format!("Failed to update interaction matrix: {}", e))
         }
     }
 }
@@ -850,6 +740,14 @@ async fn get_gui_state(
 ) -> Result<bool, String> {
     let sim_manager = manager.lock().await;
     Ok(sim_manager.is_gui_visible())
+}
+
+#[tauri::command]
+async fn get_available_luts(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<String>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_available_luts())
 }
 
 fn main() {
@@ -907,21 +805,18 @@ fn main() {
             start_slime_mold_simulation,
             start_gray_scott_simulation,
             start_particle_life_simulation,
-            stop_simulation,
+            pause_simulation,
             resume_simulation,
             destroy_simulation,
             get_simulation_status,
             render_frame,
             handle_window_resize,
             check_gpu_context_ready,
-            update_simulation_setting,
             update_agent_count,
             get_available_presets,
             apply_preset,
             save_preset,
             delete_preset,
-            get_available_luts,
-            apply_lut_by_index,
             apply_lut_by_name,
             toggle_lut_reversed,
             get_current_settings,
@@ -933,10 +828,21 @@ fn main() {
             randomize_settings,
             apply_custom_lut,
             save_custom_lut,
-            get_particle_type_colors,
-            update_interaction_matrix,
             toggle_gui,
             get_gui_state,
+            get_available_luts,
+            // Add particle life specific commands
+            crate::simulations::particle_life::commands::get_settings,
+            crate::simulations::particle_life::commands::update_settings,
+            crate::simulations::particle_life::commands::pan_camera,
+            crate::simulations::particle_life::commands::reset_camera,
+            crate::simulations::particle_life::commands::get_camera_state,
+            crate::simulations::particle_life::commands::get_particle_type_colors,
+            crate::simulations::particle_life::commands::update_simulation_setting,
+            crate::simulations::particle_life::commands::generate_matrix,
+            crate::simulations::particle_life::commands::reset_positions,
+            crate::simulations::particle_life::commands::reset_types,
+            crate::simulations::particle_life::commands::get_matrix_values,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

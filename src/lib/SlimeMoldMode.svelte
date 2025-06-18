@@ -4,6 +4,7 @@
   import { listen } from '@tauri-apps/api/event';
   import NumberDragBox from './NumberDragBox.svelte';
   import AgentCountInput from './AgentCountInput.svelte';
+  import LutSelector from './components/LutSelector.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -35,7 +36,7 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_index: 0,
+    lut_name: 'Default',
     lut_reversed: false
   };
 
@@ -49,9 +50,7 @@
 
   // Dialog state
   let show_save_preset_dialog = false;
-  let show_gradient_editor = false;
   let new_preset_name = '';
-  let custom_lut_name = '';
 
   // Helper function to convert agent count to millions
   const toMillions = (count: number) => count / 1_000_000;
@@ -153,15 +152,6 @@
       console.log(`FPS limiting ${value ? 'enabled' : 'disabled'}`);
     } catch (e) {
       console.error('Failed to update FPS limit enabled:', e);
-    }
-  }
-
-  async function updateLutIndex(value: number) {
-    settings.lut_index = value;
-    try {
-      await invoke('apply_lut_by_index', { lutIndex: value });
-    } catch (e) {
-      console.error('Failed to update LUT index:', e);
     }
   }
 
@@ -347,13 +337,11 @@
   }
 
   async function cycleLutBack() {
-    const newIndex = settings.lut_index > 0 ? settings.lut_index - 1 : available_luts.length - 1;
-    await updateLutIndex(newIndex);
+    await invoke('cycle_lut_back');
   }
 
   async function cycleLutForward() {
-    const newIndex = settings.lut_index < available_luts.length - 1 ? settings.lut_index + 1 : 0;
-    await updateLutIndex(newIndex);
+    await invoke('cycle_lut_forward');
   }
 
   async function savePreset() {
@@ -367,248 +355,6 @@
       console.error('Failed to save preset:', e);
     }
   }
-
-  // Gradient editor state
-  let gradientStops = [
-    { position: 0.0, color: '#0000ff' },
-    { position: 1.0, color: '#ffff00' }
-  ];
-  let selectedStopIndex = 0;
-  let isDragging = false;
-  let dragStartX = 0;
-  let dragStopIndex = -1;
-
-  async function showGradientEditor() {
-    // Store original state for cancel functionality
-    originalGradientStops = JSON.parse(JSON.stringify(gradientStops));
-    
-    // TODO: Initialize with current LUT if needed
-    // For now, start with default black to white gradient
-    
-    show_gradient_editor = true;
-    
-    // Immediately apply the default gradient to show the editable gradient in the simulation
-    updateLivePreview();
-  }
-
-  function handleStopMouseDown(event: MouseEvent, index: number) {
-    isDragging = true;
-    dragStopIndex = index;
-    selectedStopIndex = index;
-    dragStartX = event.clientX;
-    
-    // Prevent text selection while dragging
-    event.preventDefault();
-    
-    // Add global event listeners
-    document.addEventListener('mousemove', handleStopMouseMove);
-    document.addEventListener('mouseup', handleStopMouseUp);
-  }
-
-  function handleStopMouseMove(event: MouseEvent) {
-    if (!isDragging || dragStopIndex === -1) return;
-    
-    // Find the gradient container to calculate relative position
-    const container = document.querySelector('.gradient-stops-container');
-    if (!container) return;
-    
-    const rect = container.getBoundingClientRect();
-    const newPosition = (event.clientX - rect.left) / rect.width;
-    const clampedPosition = Math.max(0, Math.min(1, newPosition));
-    
-    // Update the position of the dragged stop
-    const stop = gradientStops[dragStopIndex];
-    stop.position = clampedPosition;
-    
-    // Re-sort and find the new index of the moved stop
-    gradientStops = gradientStops.sort((a, b) => a.position - b.position);
-    dragStopIndex = gradientStops.findIndex(s => s === stop);
-    selectedStopIndex = dragStopIndex;
-    
-    updateLivePreview();
-  }
-
-  function handleStopMouseUp() {
-    isDragging = false;
-    dragStopIndex = -1;
-    
-    // Remove global event listeners
-    document.removeEventListener('mousemove', handleStopMouseMove);
-    document.removeEventListener('mouseup', handleStopMouseUp);
-  }
-
-  function addGradientStop(position: number) {
-    // Find the two stops this position falls between to interpolate color
-    let leftStop = gradientStops[0];
-    let rightStop = gradientStops[gradientStops.length - 1];
-    
-    for (let i = 0; i < gradientStops.length - 1; i++) {
-      if (gradientStops[i].position <= position && gradientStops[i + 1].position >= position) {
-        leftStop = gradientStops[i];
-        rightStop = gradientStops[i + 1];
-        break;
-      }
-    }
-    
-    // Interpolate color between left and right stops
-    let ratio = 0.5; // Default to middle if positions are the same
-    if (rightStop.position !== leftStop.position) {
-      ratio = (position - leftStop.position) / (rightStop.position - leftStop.position);
-    }
-    
-    const leftRgb = hexToRgb(leftStop.color);
-    const rightRgb = hexToRgb(rightStop.color);
-    const interpolatedRgb = {
-      r: Math.round(leftRgb.r + (rightRgb.r - leftRgb.r) * ratio),
-      g: Math.round(leftRgb.g + (rightRgb.g - leftRgb.g) * ratio),
-      b: Math.round(leftRgb.b + (rightRgb.b - leftRgb.b) * ratio)
-    };
-    
-    const newStop = {
-      position: Math.max(0, Math.min(1, position)),
-      color: rgbToHex(interpolatedRgb.r, interpolatedRgb.g, interpolatedRgb.b)
-    };
-    
-    gradientStops = [...gradientStops, newStop].sort((a, b) => a.position - b.position);
-    selectedStopIndex = gradientStops.findIndex(stop => stop === newStop);
-    updateLivePreview();
-  }
-
-  function removeGradientStop(index: number) {
-    if (gradientStops.length <= 2) return; // Keep at least 2 stops
-    gradientStops = gradientStops.filter((_, i) => i !== index);
-    selectedStopIndex = Math.min(selectedStopIndex, gradientStops.length - 1);
-    updateLivePreview();
-  }
-
-  function updateStopPosition(index: number, position: number) {
-    const clampedPosition = Math.max(0, Math.min(1, position));
-    const stop = gradientStops[index];
-    stop.position = clampedPosition;
-    
-    // Re-sort and find the new index of the moved stop
-    gradientStops = gradientStops.sort((a, b) => a.position - b.position);
-    selectedStopIndex = gradientStops.findIndex(s => s === stop);
-    updateLivePreview();
-  }
-
-  function updateStopColor(index: number, color: string) {
-    gradientStops[index].color = color;
-    updateLivePreview();
-  }
-
-  let previewTimeout: NodeJS.Timeout | null = null;
-  
-  async function updateLivePreview() {
-    // Throttle preview updates to avoid too many backend calls
-    if (previewTimeout) {
-      clearTimeout(previewTimeout);
-    }
-    
-    previewTimeout = setTimeout(async () => {
-      const lutData = generateLutFromGradient(gradientStops);
-      try {
-        await invoke('apply_custom_lut', { lutData });
-      } catch (e) {
-        console.error('Failed to apply custom LUT preview:', e);
-      }
-    }, 100); // 100ms delay
-  }
-
-  function generateLutFromGradient(stops: Array<{position: number, color: string}>): number[] {
-    const lutSize = 256;
-    const redChannel = [];
-    const greenChannel = [];
-    const blueChannel = [];
-    
-    for (let i = 0; i < lutSize; i++) {
-      const position = i / (lutSize - 1);
-      
-      // Find the two stops this position falls between
-      let leftStop = stops[0];
-      let rightStop = stops[stops.length - 1];
-      
-      for (let j = 0; j < stops.length - 1; j++) {
-        if (stops[j].position <= position && stops[j + 1].position >= position) {
-          leftStop = stops[j];
-          rightStop = stops[j + 1];
-          break;
-        }
-      }
-      
-      // Interpolate between the two colors
-      const ratio = (position - leftStop.position) / (rightStop.position - leftStop.position);
-      const leftRgb = hexToRgb(leftStop.color);
-      const rightRgb = hexToRgb(rightStop.color);
-      
-      const r = Math.round(leftRgb.r + (rightRgb.r - leftRgb.r) * ratio);
-      const g = Math.round(leftRgb.g + (rightRgb.g - leftRgb.g) * ratio);
-      const b = Math.round(leftRgb.b + (rightRgb.b - leftRgb.b) * ratio);
-      
-      // Store in separate channels as expected by backend
-      redChannel.push(r);
-      greenChannel.push(g);
-      blueChannel.push(b);
-    }
-    
-    // Combine channels: [R0..R255, G0..G255, B0..B255]
-    return [...redChannel, ...greenChannel, ...blueChannel];
-  }
-
-  function hexToRgb(hex: string) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16)
-    } : { r: 0, g: 0, b: 0 };
-  }
-
-  function rgbToHex(r: number, g: number, b: number): string {
-    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-  }
-
-  async function saveCustomLut() {
-    if (!custom_lut_name.trim()) {
-      alert('Please enter a name for the custom LUT');
-      return;
-    }
-    
-    const lutData = generateLutFromGradient(gradientStops);
-    try {
-      await invoke('save_custom_lut', { 
-        name: custom_lut_name.trim(), 
-        lutData 
-      });
-      show_gradient_editor = false;
-      custom_lut_name = '';
-      
-      // Refresh the available LUTs list
-      await loadAvailableLuts();
-      console.log('Custom LUT saved successfully');
-    } catch (e) {
-      console.error('Failed to save custom LUT:', e);
-      alert('Failed to save custom LUT. Please try again.');
-    }
-  }
-
-  function setNewPresetName(value: string) {
-    new_preset_name = value;
-    dispatch('command', { type: 'SetNewPresetName', value: new_preset_name });
-  }
-
-  function setCustomLutName(value: string) {
-    custom_lut_name = value;
-    dispatch('command', { type: 'SetCustomLutName', value: custom_lut_name });
-  }
-
-  // Input values for gradient center
-  let gradientCenterXInput = gradient_center_x_percent;
-  let gradientCenterYInput = gradient_center_y_percent;
-
-  // Update handlers for gradient center (agent count updates are handled explicitly by AgentCountInput)
-  $: if (gradientCenterXInput !== undefined) updateGradientCenterX(gradientCenterXInput);
-  $: if (gradientCenterYInput !== undefined) updateGradientCenterY(gradientCenterYInput);
 
   let running = false;
   let loading = false;
@@ -738,8 +484,8 @@
         };
         
         // Update computed values
-        gradientCenterXInput = settings.gradient_center_x * 100;
-        gradientCenterYInput = settings.gradient_center_y * 100;
+        gradient_center_x_percent = settings.gradient_center_x * 100;
+        gradient_center_y_percent = settings.gradient_center_y * 100;
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -828,15 +574,6 @@
     // Remove keyboard event listener
     window.removeEventListener('keydown', handleKeydown);
     
-    // Clean up drag event listeners
-    document.removeEventListener('mousemove', handleStopMouseMove);
-    document.removeEventListener('mouseup', handleStopMouseUp);
-    
-    // Clear any pending preview timeout
-    if (previewTimeout) {
-      clearTimeout(previewTimeout);
-    }
-    
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
     }
@@ -844,6 +581,15 @@
       fpsUpdateUnlisten();
     }
   });
+
+  async function updateLutName(value: string) {
+    settings.lut_name = value;
+    try {
+      await invoke('apply_lut_by_name', { lutName: value });
+    } catch (e) {
+      console.error('Failed to update LUT name:', e);
+    }
+  }
 </script>
 
 <div class="slime-mold-container">
@@ -1001,165 +747,19 @@
         {/if}
       </fieldset>
 
-      <!-- 3. LUT Controls (Color Scheme) -->
+      <!-- Display Settings -->
       <fieldset>
-        <legend>Color Scheme</legend>
+        <legend>Display Settings</legend>
         <div class="control-group">
-          <label for="lutSelector">Current LUT</label>
-          <div class="lut-controls">
-            <button 
-              type="button"
-              on:click={cycleLutBack}
-            >
-              ◀
-            </button>
-            <select 
-              id="lutSelector"
-              bind:value={settings.lut_index}
-              on:change={(e: Event) => {
-                const value = parseInt((e.target as HTMLSelectElement).value);
-                updateLutIndex(value);
-              }}
-            >
-              {#each available_luts as lut, i}
-                <option value={i}>{lut}</option>
-              {/each}
-            </select>
-            <button 
-              type="button"
-              on:click={cycleLutForward}
-            >
-              ▶
-            </button>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="lutReversed">Reverse Colors</label>
-          <input 
-            type="checkbox" 
-            id="lutReversed"
-            bind:checked={settings.lut_reversed}
-            on:change={(e: Event) => {
-              const value = (e.target as HTMLInputElement).checked;
-              updateLutReversed(value);
-            }}
+          <label for="lutSelector">Color Scheme</label>
+          <LutSelector
+            {available_luts}
+            current_lut={settings.lut_name}
+            reversed={settings.lut_reversed}
+            on:select={({ detail }) => updateLutName(detail.name)}
+            on:reverse={({ detail }) => updateLutReversed(detail.reversed)}
           />
         </div>
-        <div class="control-group">
-          <button 
-            type="button"
-            on:click={showGradientEditor}
-          >
-            🎨 Create Custom LUT
-          </button>
-        </div>
-        {#if show_gradient_editor}
-          <div class="gradient-editor-dialog">
-            <div class="dialog-content gradient-editor-content">
-              <h3>Custom LUT Editor</h3>
-              
-              <!-- LUT Name Input -->
-              <div class="control-group">
-                <label for="customLutName">LUT Name</label>
-                <input 
-                  type="text" 
-                  id="customLutName"
-                  bind:value={custom_lut_name}
-                  placeholder="Enter LUT name..."
-                />
-              </div>
-
-              <!-- Gradient Preview -->
-              <div class="gradient-preview-container">
-                <div class="gradient-preview" 
-                     style="background: linear-gradient(to right, {gradientStops.map(stop => `${stop.color} ${stop.position * 100}%`).join(', ')})">
-                </div>
-                <div class="gradient-stops-container"
-                     on:click={(e) => {
-                       const rect = e.currentTarget.getBoundingClientRect();
-                       const position = (e.clientX - rect.left) / rect.width;
-                       addGradientStop(position);
-                     }}>
-                  {#each gradientStops as stop, index}
-                    <div class="gradient-stop" 
-                         class:selected={index === selectedStopIndex}
-                         class:dragging={isDragging && dragStopIndex === index}
-                         style="left: {stop.position * 100}%; background-color: {stop.color}"
-                         on:mousedown={(e) => handleStopMouseDown(e, index)}
-                         on:click|stopPropagation={() => selectedStopIndex = index}>
-                      {#if gradientStops.length > 2}
-                        <button class="remove-stop" 
-                                on:click|stopPropagation={() => removeGradientStop(index)}>×</button>
-                      {/if}
-                    </div>
-                  {/each}
-                </div>
-              </div>
-
-              <!-- Selected Stop Controls -->
-              {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
-                <div class="stop-controls">
-                  <h4>Color Stop {selectedStopIndex + 1}</h4>
-                  <div class="control-row">
-                    <div class="control-group">
-                      <label for="stopColor">Color</label>
-                      <input 
-                        type="color" 
-                        id="stopColor"
-                        value={gradientStops[selectedStopIndex].color}
-                        on:input={(e) => {
-                          const color = (e.target as HTMLInputElement).value;
-                          updateStopColor(selectedStopIndex, color);
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              {/if}
-
-              <!-- Instructions -->
-              <div class="gradient-instructions">
-                <p><strong>Instructions:</strong></p>
-                <ul>
-                  <li>Click on the gradient to add new color stops</li>
-                  <li>Click on a color stop to select it</li>
-                  <li>Use the controls below to adjust position and color</li>
-                  <li>Click × on a stop to remove it (minimum 2 stops required)</li>
-                  <li>Changes apply to the simulation in real-time</li>
-                </ul>
-              </div>
-
-              <!-- Dialog Actions -->
-              <div class="dialog-actions">
-                <button 
-                  type="button"
-                  class="primary-button"
-                  on:click={saveCustomLut}
-                  disabled={!custom_lut_name.trim()}
-                >
-                  💾 Save LUT
-                </button>
-                <button 
-                  type="button"
-                  on:click={async () => {
-                    // Restore the currently active LUT from the dropdown
-                    try {
-                      await invoke('apply_lut_by_index', { lutIndex: settings.lut_index });
-                    } catch (e) {
-                      console.error('Failed to restore original LUT:', e);
-                    }
-                    
-                    // Close the editor
-                    show_gradient_editor = false;
-                    custom_lut_name = '';
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        {/if}
       </fieldset>
 
       <!-- 4. Controls (Pause/Resume, Reset Trails, Reset Agents, Randomize) -->
@@ -1453,7 +1053,7 @@
               min="0" 
               max="100" 
               step="1" 
-              bind:value={gradientCenterXInput}
+              bind:value={gradient_center_x_percent}
             />
           </div>
           <div class="control-group">
@@ -1464,7 +1064,7 @@
               min="0" 
               max="100" 
               step="1" 
-              bind:value={gradientCenterYInput}
+              bind:value={gradient_center_y_percent}
             />
           </div>
           <div class="control-group">

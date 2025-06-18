@@ -1,5 +1,6 @@
 use super::coordinates::{CoordinateTransform, NdcCoords, ScreenCoords, WorldCoords};
 use bytemuck::{Pod, Zeroable};
+use nalgebra::{Matrix4, Vector3};
 use std::sync::Arc;
 use tracing;
 use wgpu::{Device, Queue};
@@ -41,11 +42,16 @@ impl CoordinateTransform for Camera {
 }
 
 /// Generic 2D camera system for GPU rendering
+/// Based on particle life camera with GPU buffer compatibility
 pub struct Camera {
-    /// Camera position in world space
-    pub position: [f32; 2],
-    /// Zoom level (1.0 = normal, >1.0 = zoomed in, <1.0 = zoomed out)
-    pub zoom: f32,
+    /// Camera position (using nalgebra for smooth math)
+    pub position: Vector3<f64>,
+    /// Camera size (zoom level - smaller = more zoomed in)
+    pub size: f64,
+    /// Target position for smooth movement
+    pub target_position: Vector3<f64>,
+    /// Target size for smooth zooming
+    pub target_size: f64,
     /// Viewport dimensions
     pub viewport_width: f32,
     pub viewport_height: f32,
@@ -53,15 +59,11 @@ pub struct Camera {
     pub pan_speed: f32,
     /// Zoom speed multiplier
     pub zoom_speed: f32,
-    /// Minimum and maximum zoom levels
-    pub min_zoom: f32,
-    pub max_zoom: f32,
-    /// Smooth panning state
-    velocity: [f32; 2],
-    target_velocity: [f32; 2],
-    momentum_decay: f32,
-    /// Simulation bounds (in world space)
-    bounds: [f32; 4], // [min_x, min_y, max_x, max_y]
+    /// Minimum and maximum size levels (inverse of zoom)
+    pub min_size: f64,
+    pub max_size: f64,
+    /// Smoothness factor for movement (lower = smoother)
+    pub smoothness: f64,
     /// GPU buffer for camera uniform data
     buffer: wgpu::Buffer,
     /// Cached uniform data
@@ -75,14 +77,14 @@ impl Camera {
         viewport_width: f32,
         viewport_height: f32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let position = [0.0, 0.0];
-        let zoom = 1.0;
+        let position = Vector3::new(0.0, 0.0, 0.0);
+        let size = 8.0; // Start with a good overview of the world
         let aspect_ratio = viewport_width / viewport_height;
 
         let uniform_data = CameraUniform {
-            view_proj_matrix: Self::calculate_view_proj_matrix(position, zoom, aspect_ratio),
-            position,
-            zoom,
+            view_proj_matrix: Self::calculate_view_proj_matrix(position, size, aspect_ratio),
+            position: [position.x as f32, position.y as f32],
+            zoom: 1.0 / size as f32,
             aspect_ratio,
         };
 
@@ -95,156 +97,65 @@ impl Camera {
 
         Ok(Self {
             position,
-            zoom,
+            size,
+            target_position: position,
+            target_size: size,
             viewport_width,
             viewport_height,
-            pan_speed: 10.0,
+            pan_speed: 0.2,
             zoom_speed: 0.1,
-            min_zoom: 0.1,
-            max_zoom: 10.0,
-            velocity: [0.0, 0.0],
-            target_velocity: [0.0, 0.0],
-            momentum_decay: 0.95,
-            bounds: [-1.0, -1.0, 1.0, 1.0],
+            min_size: 0.01, // Very zoomed in
+            max_size: 20.0, // Very zoomed out
+            smoothness: 0.1,
             buffer,
             uniform_data,
         })
     }
 
-    /// Calculate the view-projection matrix for 2D rendering
-    fn calculate_view_proj_matrix(position: [f32; 2], zoom: f32, aspect_ratio: f32) -> [f32; 16] {
-        // Create orthographic projection matrix
-        let left = -1.0 / zoom;
-        let right = 1.0 / zoom;
-        let bottom = -1.0 / (zoom * aspect_ratio);
-        let top = 1.0 / (zoom * aspect_ratio);
-        let near = -1.0;
-        let far = 1.0;
+    /// Calculate the view-projection matrix using nalgebra
+    fn calculate_view_proj_matrix(
+        position: Vector3<f64>,
+        size: f64,
+        aspect_ratio: f32,
+    ) -> [f32; 16] {
+        let left = (position.x - size * 0.5) as f32;
+        let right = (position.x + size * 0.5) as f32;
+        let bottom = (position.y + size * 0.5 / aspect_ratio as f64) as f32;
+        let top = (position.y - size * 0.5 / aspect_ratio as f64) as f32;
 
-        // Orthographic projection matrix
-        let ortho = [
-            2.0 / (right - left),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            2.0 / (top - bottom),
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            -2.0 / (far - near),
-            0.0,
-            -(right + left) / (right - left),
-            -(top + bottom) / (top - bottom),
-            -(far + near) / (far - near),
-            1.0,
-        ];
+        let matrix = Matrix4::new_orthographic(left, right, bottom, top, -1.0, 1.0);
 
-        // Translation matrix for camera position
-        let view = [
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            -position[0],
-            -position[1],
-            0.0,
-            1.0,
-        ];
-
-        // Combine projection and view matrices (proj * view)
-        Self::multiply_matrices_4x4(&ortho, &view)
-    }
-
-    /// Multiply two 4x4 matrices
-    fn multiply_matrices_4x4(a: &[f32; 16], b: &[f32; 16]) -> [f32; 16] {
-        let mut result = [0.0; 16];
-
-        for i in 0..4 {
-            for j in 0..4 {
-                for k in 0..4 {
-                    result[i * 4 + j] += a[i * 4 + k] * b[k * 4 + j];
-                }
-            }
-        }
-
-        result
+        // Convert nalgebra matrix to array format expected by wgpu
+        [
+            matrix.m11, matrix.m21, matrix.m31, matrix.m41, matrix.m12, matrix.m22, matrix.m32,
+            matrix.m42, matrix.m13, matrix.m23, matrix.m33, matrix.m43, matrix.m14, matrix.m24,
+            matrix.m34, matrix.m44,
+        ]
     }
 
     /// Update camera state (call this every frame for smooth movement)
     pub fn update(&mut self, delta_time: f32) -> bool {
-        let mut changed = false;
+        let old_position = self.position;
+        let old_size = self.size;
 
-        // Calculate view bounds at current zoom level
-        let aspect_ratio = self.viewport_width / self.viewport_height;
-        let view_width = 2.0 / self.zoom;
-        let view_height = 2.0 / (self.zoom * aspect_ratio);
+        // Smooth interpolation towards targets
+        self.position = self.position.lerp(&self.target_position, self.smoothness);
+        self.size = self.size + (self.target_size - self.size) * self.smoothness;
 
-        // Calculate bounds that keep the view within simulation bounds
-        let min_x = self.bounds[0] + view_width * 0.5;
-        let max_x = self.bounds[2] - view_width * 0.5;
-        let min_y = self.bounds[1] + view_height * 0.5;
-        let max_y = self.bounds[3] - view_height * 0.5;
+        // Check if camera actually moved
+        let position_delta = (self.position - old_position).magnitude();
+        let size_delta = (self.size - old_size).abs();
 
-        // Smooth velocity interpolation
-        let lerp_factor = 1.0 - self.momentum_decay.powf(delta_time * 60.0); // 60fps reference
-        self.velocity[0] =
-            self.velocity[0] + (self.target_velocity[0] - self.velocity[0]) * lerp_factor;
-        self.velocity[1] =
-            self.velocity[1] + (self.target_velocity[1] - self.velocity[1]) * lerp_factor;
-
-        // Apply velocity to position
-        if self.velocity[0].abs() > 0.001 || self.velocity[1].abs() > 0.001 {
-            let new_x = self.position[0] + self.velocity[0] * delta_time;
-            let new_y = self.position[1] + self.velocity[1] * delta_time;
-
-            // Clamp position to bounds
-            self.position[0] = new_x.clamp(min_x, max_x);
-            self.position[1] = new_y.clamp(min_y, max_y);
-
-            // Stop velocity if we hit bounds
-            if self.position[0] == min_x || self.position[0] == max_x {
-                self.velocity[0] = 0.0;
-                self.target_velocity[0] = 0.0;
-            }
-            if self.position[1] == min_y || self.position[1] == max_y {
-                self.velocity[1] = 0.0;
-                self.target_velocity[1] = 0.0;
-            }
-
-            changed = true;
-            tracing::debug!(
-                "Camera position updated: pos=({:.2}, {:.2}), velocity=({:.2}, {:.2}), bounds=({:.2}, {:.2}, {:.2}, {:.2})",
-                self.position[0], self.position[1], self.velocity[0], self.velocity[1],
-                min_x, min_y, max_x, max_y
-            );
-        }
-
-        // Apply momentum decay when no input
-        if self.target_velocity[0].abs() < 0.001 && self.target_velocity[1].abs() < 0.001 {
-            self.velocity[0] *= self.momentum_decay.powf(delta_time * 60.0);
-            self.velocity[1] *= self.momentum_decay.powf(delta_time * 60.0);
-        }
-
-        // Stop very small movements
-        if self.velocity[0].abs() < 0.001 {
-            self.velocity[0] = 0.0;
-        }
-        if self.velocity[1].abs() < 0.001 {
-            self.velocity[1] = 0.0;
-        }
+        let changed = position_delta > 0.001 || size_delta > 0.001;
 
         if changed {
             self.update_uniform();
+            tracing::debug!(
+                "Camera updated: pos=({:.2}, {:.2}), size={:.2}",
+                self.position.x,
+                self.position.y,
+                self.size
+            );
         }
 
         changed
@@ -252,175 +163,107 @@ impl Camera {
 
     /// Update camera position (panning) with smooth movement
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
-        // Calculate view bounds at current zoom level
-        let aspect_ratio = self.viewport_width / self.viewport_height;
-        let view_width = 2.0 / self.zoom;
-        let view_height = 2.0 / (self.zoom * aspect_ratio);
+        // Scale movement by current size (zoom level)
+        let new_x =
+            self.target_position.x + delta_x as f64 * self.pan_speed as f64 * self.target_size;
+        let new_y =
+            self.target_position.y + delta_y as f64 * self.pan_speed as f64 * self.target_size;
 
-        // Calculate bounds that keep the view within simulation bounds
-        // The bounds should be the simulation bounds minus half the view size
-        let min_x = self.bounds[0] + view_width * 0.5;
-        let max_x = self.bounds[2] - view_width * 0.5;
-        let min_y = self.bounds[1] + view_height * 0.5;
-        let max_y = self.bounds[3] - view_height * 0.5;
-
-        // Scale movement by zoom (more zoom = slower movement)
-        let scale = 1.0 / self.zoom;
-
-        // Calculate target velocity, but don't exceed bounds
-        let target_dx = delta_x * self.pan_speed * scale;
-        let target_dy = delta_y * self.pan_speed * scale;
-
-        // Only set target velocity if we won't exceed bounds
-        let new_x = self.position[0] + target_dx;
-        let new_y = self.position[1] + target_dy;
-
-        if new_x >= min_x && new_x <= max_x {
-            self.target_velocity[0] = target_dx;
-        } else {
-            self.target_velocity[0] = 0.0;
-        }
-
-        if new_y >= min_y && new_y <= max_y {
-            self.target_velocity[1] = target_dy;
-        } else {
-            self.target_velocity[1] = 0.0;
-        }
+        self.apply_position_bounds(new_x, new_y);
 
         tracing::debug!(
-            "Camera pan: delta=({:.2}, {:.2}), target_velocity=({:.2}, {:.2}), zoom={:.2}, bounds=({:.2}, {:.2}, {:.2}, {:.2})",
-            delta_x, delta_y, self.target_velocity[0], self.target_velocity[1], self.zoom,
-            min_x, min_y, max_x, max_y
+            "Camera pan: delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2}), size={:.2}",
+            delta_x,
+            delta_y,
+            self.target_position.x,
+            self.target_position.y,
+            self.target_size
         );
     }
 
-    /// Stop camera movement (call when input stops)
-    pub fn stop_pan(&mut self) {
-        // Only log and update if we're actually moving
-        if self.target_velocity[0].abs() > 0.001 || self.target_velocity[1].abs() > 0.001 {
-            self.target_velocity = [0.0, 0.0];
+    /// Update zoom level
+    pub fn zoom(&mut self, delta: f32) {
+        let zoom_factor = 1.0 + delta * self.zoom_speed;
+        let new_size = self.target_size * zoom_factor as f64;
+        let clamped_size = new_size.clamp(self.min_size, self.max_size);
+
+        if (clamped_size - self.target_size).abs() > 0.001 {
+            self.target_size = clamped_size;
+            // Re-apply position bounds in case zoom changed what's valid
+            self.apply_position_bounds(self.target_position.x, self.target_position.y);
+
             tracing::debug!(
-                "Camera pan stopped: velocity=({:.2}, {:.2})",
-                self.velocity[0],
-                self.velocity[1]
+                "Camera zoom: delta={:.2}, new_size={:.2}",
+                delta,
+                clamped_size
             );
         }
     }
 
-    /// Update zoom level (center-based zoom for keyboard)
-    pub fn zoom(&mut self, delta: f32) {
-        let old_zoom = self.zoom;
-        let new_zoom = self.zoom * (1.0 + delta * self.zoom_speed);
-        let clamped_zoom = new_zoom.clamp(self.min_zoom, self.max_zoom);
-
-        // Only proceed if zoom actually changed
-        if (clamped_zoom - old_zoom).abs() < 0.001 {
-            return;
-        }
-
-        // Calculate view bounds at new zoom level
-        let aspect_ratio = self.viewport_width / self.viewport_height;
-        let view_width = 2.0 / clamped_zoom;
-        let view_height = 2.0 / (clamped_zoom * aspect_ratio);
-
-        // Calculate new position that keeps the view within bounds
-        let min_x = self.bounds[0] + view_width * 0.5;
-        let max_x = self.bounds[2] - view_width * 0.5;
-        let min_y = self.bounds[1] + view_height * 0.5;
-        let max_y = self.bounds[3] - view_height * 0.5;
-
-        // If the view would be too large for the bounds, don't zoom
-        if min_x > max_x || min_y > max_y {
-            return;
-        }
-
-        // Apply the new zoom
-        self.zoom = clamped_zoom;
-
-        // Clamp position to keep view within bounds
-        self.position[0] = self.position[0].clamp(min_x, max_x);
-        self.position[1] = self.position[1].clamp(min_y, max_y);
-
-        self.update_uniform();
-    }
-
     /// Zoom towards a specific screen position (for mouse wheel)
     pub fn zoom_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        // Store old zoom for calculation
-        let old_zoom = self.zoom;
+        let old_size = self.target_size;
 
-        // Calculate new zoom level
-        let new_zoom = self.zoom * (1.0 + delta * self.zoom_speed);
-        let clamped_zoom = new_zoom.clamp(self.min_zoom, self.max_zoom);
+        // Calculate zoom factor and new size
+        let zoom_factor = 1.0 + delta * self.zoom_speed;
+        let new_size = self.target_size * zoom_factor as f64;
+        let clamped_size = new_size.clamp(self.min_size, self.max_size);
 
-        // Only proceed if zoom actually changed
-        if (clamped_zoom - old_zoom).abs() < 0.001 {
+        if (clamped_size - old_size).abs() < 0.001 {
             return;
         }
 
-        // Get world position at cursor before zoom change
-        let screen_coords = ScreenCoords::new(cursor_x, cursor_y);
-        let world_before = self.screen_to_world(screen_coords);
-
-        // Calculate view bounds at new zoom level
+        // Convert cursor position to normalized coordinates
         let aspect_ratio = self.viewport_width / self.viewport_height;
-        let view_width = 2.0 / clamped_zoom;
-        let view_height = 2.0 / (clamped_zoom * aspect_ratio);
+        let mouse_x_norm = (cursor_x / self.viewport_width) - 0.5;
+        let mouse_y_norm = (cursor_y / self.viewport_height) - 0.5;
 
-        // Calculate new position that keeps the view within bounds
-        let min_x = self.bounds[0] + view_width * 0.5;
-        let max_x = self.bounds[2] - view_width * 0.5;
-        let min_y = self.bounds[1] + view_height * 0.5;
-        let max_y = self.bounds[3] - view_height * 0.5;
+        // Calculate size difference and adjust position to zoom towards cursor
+        let size_diff = clamped_size - old_size;
+        let new_x = self.target_position.x - mouse_x_norm as f64 * size_diff;
+        let new_y = self.target_position.y - mouse_y_norm as f64 * size_diff / aspect_ratio as f64;
 
-        // If the view would be too large for the bounds, don't zoom
-        if min_x > max_x || min_y > max_y {
-            return;
-        }
+        self.target_size = clamped_size;
+        self.apply_position_bounds(new_x, new_y);
 
-        // Apply the new zoom
-        self.zoom = clamped_zoom;
-
-        // Calculate the scale factor for the zoom change
-        let scale = clamped_zoom / old_zoom;
-
-        // Calculate the offset from cursor to camera center in world space
-        let dx = world_before.x - self.position[0];
-        let dy = world_before.y - self.position[1];
-
-        // Scale the offset by the zoom change
-        let new_dx = dx * scale;
-        let new_dy = dy * scale;
-
-        // Calculate new camera position to keep cursor point fixed
-        // When zooming in (scale > 1), we want to move camera towards cursor
-        // When zooming out (scale < 1), we want to move camera away from cursor
-        let new_x = world_before.x - new_dx;
-        let new_y = world_before.y - new_dy;
-
-        // Clamp position to keep view within bounds
-        self.position[0] = new_x.clamp(min_x, max_x);
-        self.position[1] = new_y.clamp(min_y, max_y);
-
-        // Final update with corrected position
-        self.update_uniform();
-
-        // Debug logging
         tracing::debug!(
-            "Camera zoom to cursor: cursor=({:.2}, {:.2}), world_before=({:.4}, {:.4}), world_after=({:.4}, {:.4}), zoom={:.4}->{:.4}",
-            cursor_x, cursor_y, world_before.x, world_before.y, 
-            self.screen_to_world(screen_coords).x, self.screen_to_world(screen_coords).y,
-            old_zoom, self.zoom
+            "Camera zoom to cursor: cursor=({:.2}, {:.2}), size={:.2}->{:.2}",
+            cursor_x,
+            cursor_y,
+            old_size,
+            clamped_size
         );
+    }
+
+    /// Apply position bounds (particle life camera logic)
+    fn apply_position_bounds(&mut self, new_x: f64, new_y: f64) {
+        // World bounds are -2.0 to 2.0 (particle life world)
+        let world_min = -2.0;
+        let world_max = 2.0;
+        let world_size = world_max - world_min; // = 4.0
+
+        // Camera should never be more than half the world width from the simulation
+        let max_distance = world_size * 0.5; // = 2.0
+
+        // Calculate the maximum allowed camera bounds
+        let min_camera_x = world_min - max_distance; // = -4.0
+        let max_camera_x = world_max + max_distance; // = 4.0
+        let min_camera_y = world_min - max_distance; // = -4.0
+        let max_camera_y = world_max + max_distance; // = 4.0
+
+        // Clamp camera position to strict bounds
+        self.target_position.x = new_x.clamp(min_camera_x, max_camera_x);
+        self.target_position.y = new_y.clamp(min_camera_y, max_camera_y);
     }
 
     /// Reset camera to default position and zoom
     pub fn reset(&mut self) {
-        self.position = [0.0, 0.0];
-        self.zoom = 1.0;
-        self.velocity = [0.0, 0.0];
-        self.target_velocity = [0.0, 0.0];
+        self.target_position = Vector3::new(0.0, 0.0, 0.0);
+        self.target_size = 8.0;
+        self.position = self.target_position;
+        self.size = self.target_size;
         self.update_uniform();
+        tracing::debug!("Camera reset to default position and size");
     }
 
     /// Update viewport dimensions (call when window is resized)
@@ -436,11 +279,11 @@ impl Camera {
         self.uniform_data = CameraUniform {
             view_proj_matrix: Self::calculate_view_proj_matrix(
                 self.position,
-                self.zoom,
+                self.size,
                 aspect_ratio,
             ),
-            position: self.position,
-            zoom: self.zoom,
+            position: [self.position.x as f32, self.position.y as f32],
+            zoom: 1.0 / self.size as f32,
             aspect_ratio,
         };
     }
@@ -492,15 +335,32 @@ impl Camera {
 
     /// Convert NDC to world coordinates
     pub fn ndc_to_world(&self, ndc: NdcCoords) -> WorldCoords {
-        let world_x = (ndc.x / self.zoom) + self.position[0];
-        let world_y = (ndc.y / (self.zoom * self.uniform_data.aspect_ratio)) + self.position[1];
-        WorldCoords::new(world_x, world_y)
+        let aspect_ratio = self.viewport_width / self.viewport_height;
+        let world_x = (ndc.x as f64 * self.size * 0.5) + self.position.x;
+        let world_y = (ndc.y as f64 * self.size * 0.5 / aspect_ratio as f64) + self.position.y;
+        WorldCoords::new(world_x as f32, world_y as f32)
     }
 
     /// Convert world coordinates to NDC
     pub fn world_to_ndc(&self, world: WorldCoords) -> NdcCoords {
-        let ndc_x = (world.x - self.position[0]) * self.zoom;
-        let ndc_y = (world.y - self.position[1]) * self.zoom * self.uniform_data.aspect_ratio;
+        let aspect_ratio = self.viewport_width / self.viewport_height;
+        let ndc_x = ((world.x as f64 - self.position.x) / (self.size * 0.5)) as f32;
+        let ndc_y =
+            ((world.y as f64 - self.position.y) / (self.size * 0.5 / aspect_ratio as f64)) as f32;
         NdcCoords::new(ndc_x, ndc_y)
+    }
+
+    /// Get view projection matrix (particle life compatibility)
+    pub fn get_view_projection_matrix(&self, aspect_ratio: f32) -> Matrix4<f32> {
+        let left = (self.position.x - self.size * 0.5) as f32;
+        let right = (self.position.x + self.size * 0.5) as f32;
+        let bottom = (self.position.y + self.size * 0.5 / aspect_ratio as f64) as f32;
+        let top = (self.position.y - self.size * 0.5 / aspect_ratio as f64) as f32;
+
+        Matrix4::new_orthographic(left, right, bottom, top, -1.0, 1.0)
+    }
+
+    pub fn reset_fit_to_window(&mut self, width: f32, height: f32) {
+        todo!()
     }
 }

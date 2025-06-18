@@ -3,11 +3,26 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import NumberDragBox from './NumberDragBox.svelte';
+  import LutSelector from './components/LutSelector.svelte';
 
   const dispatch = createEventDispatcher();
 
+  interface Settings {
+    feed_rate: number;
+    kill_rate: number;
+    diffusion_rate_u: number;
+    diffusion_rate_v: number;
+    timestep: number;
+    nutrient_pattern: string;
+    nutrient_pattern_reversed: boolean;
+    fps_limit: number;
+    fps_limit_enabled: boolean;
+    lut_name: string;
+    lut_reversed: boolean;
+  }
+
   // Simulation state
-  let settings = {
+  let settings: Settings = {
     // Reaction-Diffusion Settings
     feed_rate: 0.055,
     kill_rate: 0.062,
@@ -22,7 +37,7 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_index: 0,
+    lut_name: '',
     lut_reversed: false
   };
 
@@ -46,15 +61,6 @@
       console.log(`FPS limiting ${value ? 'enabled' : 'disabled'}`);
     } catch (e) {
       console.error('Failed to update FPS limit enabled:', e);
-    }
-  }
-
-  async function updateLutIndex(value: number) {
-    settings.lut_index = value;
-    try {
-      await invoke('apply_lut_by_index', { lutIndex: value });
-    } catch (e) {
-      console.error('Failed to update LUT index:', e);
     }
   }
 
@@ -90,16 +96,6 @@
     const newIndex = currentIndex < available_presets.length - 1 ? currentIndex + 1 : 0;
     const newPreset = available_presets[newIndex];
     await updatePreset(newPreset);
-  }
-
-  async function cycleLutBack() {
-    const newIndex = settings.lut_index > 0 ? settings.lut_index - 1 : available_luts.length - 1;
-    await updateLutIndex(newIndex);
-  }
-
-  async function cycleLutForward() {
-    const newIndex = settings.lut_index < available_luts.length - 1 ? settings.lut_index + 1 : 0;
-    await updateLutIndex(newIndex);
   }
 
   async function savePreset() {
@@ -235,9 +231,6 @@
   let fpsUpdateUnlisten: (() => void) | null = null;
 
   // Simple panning state
-  let activePanKeys = new Set();
-
-  // Add key state tracking
   let pressedKeys = new Set<string>();
 
   function handleKeydown(event: KeyboardEvent) {
@@ -349,7 +342,7 @@
     try {
       const cam = await invoke('get_camera_state');
       if (cam) {
-        camera = cam;
+        camera_state = cam;
       }
     } catch (e) {
       console.error('Failed to fetch camera state:', e);
@@ -506,21 +499,27 @@
     mouseButton = null; // Stop painting if mouse leaves canvas
   }
 
-  // Camera state (sync with backend)
-  let camera = {
-    position: [0, 0],
-    zoom: 1,
-    viewport_width: 1,
-    viewport_height: 1,
-    aspect_ratio: 1,
+  // Initialize camera state with proper type
+  let camera_state: {
+    position: number[];
+    zoom: number;
+    viewport_width: number;
+    viewport_height: number;
+    aspect_ratio: number;
+  } = {
+    position: [0.5, 0.5, 0.0],
+    zoom: 2.0,
+    viewport_width: 800,
+    viewport_height: 600,
+    aspect_ratio: 1.0
   };
 
   // Utility: convert world coordinates to screen coordinates
   function worldToScreen(worldX: number, worldY: number) {
-    const viewX = (worldX - camera.position[0]) * camera.zoom;
-    const viewY = (worldY - camera.position[1]) * camera.zoom * camera.aspect_ratio;
-    const deviceScreenX = (viewX + 1.0) * camera.viewport_width * 0.5;
-    const deviceScreenY = (-viewY + 1.0) * camera.viewport_height * 0.5;
+    const viewX = (worldX - camera_state.position[0]) * camera_state.zoom;
+    const viewY = (worldY - camera_state.position[1]) * camera_state.zoom * camera_state.aspect_ratio;
+    const deviceScreenX = (viewX + 1.0) * camera_state.viewport_width * 0.5;
+    const deviceScreenY = (-viewY + 1.0) * camera_state.viewport_height * 0.5;
     
     // Convert back to CSS pixels for display
     const devicePixelRatio = window.devicePixelRatio || 1;
@@ -539,13 +538,13 @@
     
     // Apply exact same transformation as backend camera::screen_to_world
     // Convert screen coordinates (0..viewport_size) to NDC (-1..1)
-    const ndc_x = (deviceScreenX / camera.viewport_width) * 2.0 - 1.0;
+    const ndc_x = (deviceScreenX / camera_state.viewport_width) * 2.0 - 1.0;
     // Fix Y coordinate - screen Y increases downward, world Y increases upward  
-    const ndc_y = -((deviceScreenY / camera.viewport_height) * 2.0 - 1.0);
+    const ndc_y = -((deviceScreenY / camera_state.viewport_height) * 2.0 - 1.0);
     
     // Apply inverse camera transform (exactly matching backend)
-    const world_x = (ndc_x / camera.zoom) + camera.position[0];
-    const world_y = (ndc_y / (camera.zoom * camera.aspect_ratio)) + camera.position[1];
+    const world_x = (ndc_x / camera_state.zoom) + camera_state.position[0];
+    const world_y = (ndc_y / (camera_state.zoom * camera_state.aspect_ratio)) + camera_state.position[1];
     
     return [world_x, world_y];
   }
@@ -571,7 +570,7 @@
   let screenY = 0;
 
   // Proper Svelte reactive assignment for screenX and screenY
-  $: if (camera.viewport_width && camera.viewport_height) {
+  $: if (camera_state.viewport_width && camera_state.viewport_height) {
     [screenX, screenY] = worldToScreen(cursorWorld[0], cursorWorld[1]);
   }
 
@@ -584,6 +583,11 @@
     } catch (err) {
       console.error('Failed to toggle backend GUI:', err);
     }
+  }
+
+  function updateLut(name: string) {
+    settings.lut_name = name;
+    invoke('apply_lut', { lut_name: name });
   }
 
   onMount(() => {
@@ -771,26 +775,12 @@
       <fieldset>
         <legend>Color Map</legend>
         <div class="control-group">
-          <div class="lut-controls">
-            <button type="button" on:click={cycleLutBack}>◀</button>
-            <select 
-              bind:value={settings.lut_index}
-              on:change={(e: Event) => updateLutIndex(parseInt((e.target as HTMLSelectElement).value))}
-            >
-              {#each available_luts as lut, i}
-                <option value={i}>{lut}</option>
-              {/each}
-            </select>
-            <button type="button" on:click={cycleLutForward}>▶</button>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="lutReversed">Reverse Colors</label>
-          <input 
-            type="checkbox" 
-            id="lutReversed"
-            bind:checked={settings.lut_reversed}
-            on:change={(e) => updateLutReversed(e.target.checked)}
+          <LutSelector
+            {available_luts}
+            current_lut={settings.lut_name}
+            reversed={settings.lut_reversed}
+            on:select={({ detail }) => updateLut(detail.name)}
+            on:reverse={({ detail }) => updateLutReversed(detail.reversed)}
           />
         </div>
       </fieldset>
@@ -999,7 +989,7 @@
     />
     <!-- Red crosshair overlay (SVG) -->
     <svg class="crosshair-overlay" style="position:absolute;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:10">
-        {#if camera.viewport_width && camera.viewport_height}
+        {#if camera_state.viewport_width && camera_state.viewport_height}
             <g>
                 <line x1={screenX - 10} y1={screenY} x2={screenX + 10} y2={screenY} stroke="red" stroke-width="2" />
                 <line x1={screenX} y1={screenY - 10} x2={screenX} y2={screenY + 10} stroke="red" stroke-width="2" />

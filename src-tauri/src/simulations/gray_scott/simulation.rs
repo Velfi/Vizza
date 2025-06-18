@@ -7,6 +7,7 @@ use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
 use crate::simulations::shared::WorldCoords;
+use crate::simulations::shared::lut_handler::LutHandler;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -35,7 +36,6 @@ pub struct GrayScottModel {
     pub settings: Settings,
     pub width: u32,
     pub height: u32,
-    pub current_lut_index: usize,
     pub lut_reversed: bool,
     uvs_buffers: [wgpu::Buffer; 2], // Double buffering
     current_buffer: usize,
@@ -45,6 +45,7 @@ pub struct GrayScottModel {
     noise_seed_compute: NoiseSeedCompute,
     last_frame_time: std::time::Instant,
     show_gui: bool,
+    pub current_lut_name: String,
 }
 
 impl GrayScottModel {
@@ -56,8 +57,7 @@ impl GrayScottModel {
         height: u32,
         settings: Settings,
         lut_manager: &crate::simulations::shared::LutManager,
-        available_luts: &[String],
-        current_lut_index: usize,
+        current_lut_name: String,
         lut_reversed: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let vec_capacity = (width * height) as usize;
@@ -247,7 +247,7 @@ impl GrayScottModel {
             settings,
             width,
             height,
-            current_lut_index,
+            current_lut_name,
             lut_reversed,
             uvs_buffers,
             current_buffer: 0,
@@ -260,13 +260,11 @@ impl GrayScottModel {
         };
 
         // Apply initial LUT
-        if let Some(lut_name) = available_luts.get(current_lut_index) {
-            if let Ok(mut lut_data) = lut_manager.load_lut(lut_name) {
-                if lut_reversed {
-                    lut_data.reverse();
-                }
-                simulation.renderer.update_lut(&lut_data, queue);
+        if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
+            if lut_reversed {
+                lut_data.reverse();
             }
+            simulation.renderer.update_lut(&lut_data, queue);
         }
 
         Ok(simulation)
@@ -539,14 +537,6 @@ impl GrayScottModel {
             .render(surface_view, output_buffer, &self.params_buffer)
     }
 
-    pub fn update_lut(
-        &mut self,
-        lut_data: &crate::simulations::shared::LutData,
-        queue: &Arc<Queue>,
-    ) {
-        self.renderer.update_lut(lut_data, queue);
-    }
-
     pub fn update_cursor_position(
         &mut self,
         x: f32,
@@ -670,39 +660,20 @@ impl GrayScottModel {
     }
 
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        tracing::debug!(
-            "Gray-Scott simulation pan_camera called: delta=({:.2}, {:.2})",
-            delta_x,
-            delta_y
-        );
         self.renderer.camera.pan(delta_x, delta_y);
     }
 
     pub fn zoom_camera(&mut self, delta: f32) {
-        tracing::debug!(
-            "Gray-Scott simulation zoom_camera called: delta={:.2}",
-            delta
-        );
         self.renderer.camera.zoom(delta);
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        tracing::debug!(
-            "Gray-Scott simulation zoom_camera_to_cursor called: delta={:.2}, cursor=({:.2}, {:.2})",
-            delta, cursor_x, cursor_y
-        );
         self.renderer
             .camera
             .zoom_to_cursor(delta, cursor_x, cursor_y);
     }
 
-    pub fn stop_camera_pan(&mut self) -> Result<(), String> {
-        self.renderer.camera.stop_pan();
-        Ok(())
-    }
-
     pub fn reset_camera(&mut self) {
-        tracing::debug!("Gray-Scott simulation reset_camera called");
         self.renderer.camera.reset();
     }
     
@@ -712,5 +683,23 @@ impl GrayScottModel {
 
     pub(crate) fn is_gui_visible(&self) -> bool {
         self.show_gui
+    }
+}
+
+impl LutHandler for GrayScottModel {
+    fn get_lut_name(&self) -> &str {
+        &self.current_lut_name
+    }
+
+    fn is_lut_reversed(&self) -> bool {
+        self.lut_reversed
+    }
+
+    fn set_lut_reversed(&mut self, reversed: bool) {
+        self.lut_reversed = reversed;
+    }
+
+    fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, _device: &Device, queue: &Queue) {
+        self.renderer.update_lut(lut_data, queue);
     }
 }

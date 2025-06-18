@@ -4,7 +4,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
-use crate::simulations::shared::lut_manager::LutManager;
+use crate::simulations::shared::lut::LutManager;
 
 pub struct Renderer {
     device: Arc<Device>,
@@ -31,12 +31,12 @@ impl Renderer {
         let settings = Settings::default();
         let lut_manager = LutManager::new();
         let default_lut_name = "MATPLOTLIB_bone_r";
-        let lut_data = lut_manager.load_lut(default_lut_name).unwrap_or_else(|_| {
+        let lut_data = lut_manager.get(default_lut_name).unwrap_or_else(|_| {
             println!(
                 "Warning: LUT '{}' not found, using default",
                 default_lut_name
             );
-            lut_manager.get_default_lut()
+            lut_manager.get_default()
         });
 
         // Create LUT buffer (convert u8 to u32 for shader compatibility)
@@ -179,11 +179,7 @@ impl Renderer {
         // LUT management is now handled by the simulation manager
     }
 
-    pub fn update_lut(
-        &mut self,
-        lut_data: &crate::simulations::shared::LutData,
-        queue: &Arc<Queue>,
-    ) {
+    pub fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Queue) {
         let lut_data_u32: Vec<u32> = lut_data
             .clone()
             .into_bytes()
