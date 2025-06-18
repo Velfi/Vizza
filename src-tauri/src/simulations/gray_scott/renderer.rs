@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use nalgebra;
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
@@ -31,20 +30,11 @@ impl Renderer {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let settings = Settings::default();
         let lut_manager = LutManager::new();
-        let default_lut_name = "MATPLOTLIB_bone";
-        let lut_data = lut_manager.get(default_lut_name).unwrap_or_else(|_| {
-            println!(
-                "Warning: LUT '{}' not found, using default",
-                default_lut_name
-            );
-            lut_manager.get_default()
-        });
 
         // Create LUT buffer (convert u8 to u32 for shader compatibility)
-        let lut_data_u32: Vec<u32> = lut_data.into_bytes().iter().map(|&x| x as u32).collect();
         let lut_buffer = _device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_u32),
+            contents: bytemuck::cast_slice(&lut_manager.get_default().into_bytes()),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 

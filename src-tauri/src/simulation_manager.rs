@@ -197,9 +197,20 @@ impl SimulationManager {
             tracing::trace!("Gray-Scott presets available: {:?}", presets);
             presets
         } else {
-            // No active simulation, return empty list
-            vec![]
+            // No active simulation, but we can still return slime mold presets as default
+            // since this is the SlimeMoldMode component
+            let presets = self.slime_mold_preset_manager.get_preset_names();
+            tracing::trace!("No active simulation, returning slime mold presets: {:?}", presets);
+            presets
         }
+    }
+
+    pub fn get_slime_mold_presets(&self) -> Vec<String> {
+        self.slime_mold_preset_manager.get_preset_names()
+    }
+
+    pub fn get_gray_scott_presets(&self) -> Vec<String> {
+        self.gray_scott_preset_manager.get_preset_names()
     }
 
     pub fn apply_preset(
@@ -500,45 +511,63 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.slime_mold_state {
-            // Randomize slime mold settings
-            let mut settings = simulation.settings.clone();
-            // Use typical values here to make the results of the random settings most visible.
-            settings.pheromone_decay_rate = 200.0;
-            settings.pheromone_deposition_rate = 100.0;
-            settings.pheromone_diffusion_rate = 100.0;
-
-            settings.agent_speed_min = rand::random::<f32>() * 500.0;
-            settings.agent_speed_max = settings.agent_speed_min
-                + rand::random::<f32>() * (500.0 - settings.agent_speed_min);
-            settings.agent_turn_rate =
-                (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0;
-            settings.agent_jitter = rand::random::<f32>() * 2.0;
-            settings.agent_sensor_angle =
-                (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0;
-            settings.agent_sensor_distance = rand::random::<f32>() * 500.0;
-            settings.gradient_type =
-                crate::simulations::slime_mold::settings::GradientType::Disabled;
-            settings.gradient_strength = 0.5;
-            settings.gradient_center_x = 0.5;
-            settings.gradient_center_y = 0.5;
-            settings.gradient_size = 1.0;
-            settings.gradient_angle = 0.0;
-            let start = rand::random::<f32>() * 360.0;
-            let end = start + rand::random::<f32>() * (360.0 - start);
-            settings.agent_possible_starting_headings = start..end;
-
-            simulation.update_settings(settings, queue);
-        } else if let Some(simulation) = &mut self.gray_scott_state {
-            // Randomize Gray-Scott settings
-            let mut settings = simulation.settings.clone();
-            settings.feed_rate = rand::random::<f32>() * 0.1;
-            settings.kill_rate = rand::random::<f32>() * 0.1;
-            settings.diffusion_rate_u = rand::random::<f32>() * 0.5;
-            settings.diffusion_rate_v = rand::random::<f32>() * 0.3;
-            settings.timestep = 0.5 + rand::random::<f32>() * 2.0;
-
-            simulation.update_settings(settings, queue);
+            simulation.update_setting("random_seed", serde_json::Value::Number(rand::random::<u32>().into()), queue)?;
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.update_setting("random_seed", serde_json::Value::Number(rand::random::<u32>().into()), queue)?;
         }
         Ok(())
     }
+
+    // Camera control methods
+    pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        tracing::debug!("SimulationManager pan_camera: delta=({:.2}, {:.2})", delta_x, delta_y);
+        if let Some(simulation) = &mut self.slime_mold_state {
+            simulation.pan_camera(delta_x, delta_y);
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.pan_camera(delta_x, delta_y);
+        }
+    }
+
+    pub fn zoom_camera(&mut self, delta: f32) {
+        tracing::debug!("SimulationManager zoom_camera: delta={:.2}", delta);
+        if let Some(simulation) = &mut self.slime_mold_state {
+            simulation.zoom_camera(delta);
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.zoom_camera(delta);
+        }
+    }
+
+    pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        tracing::debug!("SimulationManager zoom_camera_to_cursor: delta={:.2}, cursor=({:.2}, {:.2})", delta, cursor_x, cursor_y);
+        if let Some(simulation) = &mut self.slime_mold_state {
+            simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+        }
+    }
+
+    pub fn reset_camera(&mut self) {
+        tracing::debug!("SimulationManager reset_camera");
+        if let Some(simulation) = &mut self.slime_mold_state {
+            simulation.reset_camera();
+        }
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.reset_camera();
+        }
+    }
+
+    pub fn get_camera_state(&self) -> Option<serde_json::Value> {
+        if let Some(simulation) = &self.slime_mold_state {
+            Some(simulation.camera.get_state())
+        } else if let Some(simulation) = &self.gray_scott_state {
+            Some(simulation.renderer.camera.get_state())
+        } else {
+            None
+        }
+    }
 }
+

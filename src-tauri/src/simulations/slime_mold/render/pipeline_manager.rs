@@ -12,10 +12,11 @@ pub struct PipelineManager {
     pub compute_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
     pub render_bind_group_layout: BindGroupLayout,
+    pub camera_bind_group_layout: BindGroupLayout,
 }
 
 impl PipelineManager {
-    pub fn new(device: &Device, workgroup_config: &WorkgroupConfig) -> Self {
+    pub fn new(device: &Device, workgroup_config: &WorkgroupConfig, surface_format: wgpu::TextureFormat) -> Self {
         // Initialize shader manager with workgroup config
         let shader_manager = ShaderManager::new(device, workgroup_config);
 
@@ -146,6 +147,21 @@ impl PipelineManager {
                 ],
             });
 
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Camera Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(
@@ -226,7 +242,7 @@ impl PipelineManager {
             layout: Some(
                 &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[&render_bind_group_layout],
+                    bind_group_layouts: &[&render_bind_group_layout, &camera_bind_group_layout],
                     push_constant_ranges: &[],
                 }),
             ),
@@ -240,7 +256,7 @@ impl PipelineManager {
                 module: &shader_manager.quad_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -275,6 +291,7 @@ impl PipelineManager {
             compute_bind_group_layout,
             display_bind_group_layout,
             render_bind_group_layout,
+            camera_bind_group_layout,
         }
     }
 }

@@ -37,7 +37,7 @@
     fps_limit: 60,
     fps_limit_enabled: false,
     lut_name: 'MATPLOTLIB_bone', // Match backend default
-    lut_reversed: false
+    lut_reversed: true
   };
 
   // Agent count tracked separately (not part of preset settings)
@@ -51,6 +51,10 @@
   // Dialog state
   let show_save_preset_dialog = false;
   let new_preset_name = '';
+
+  // Camera control state
+  let pressedKeys = new Set<string>();
+  let animationFrameId: number | null = null;
 
   // Helper function to convert agent count to millions
   const toMillions = (count: number) => count / 1_000_000;
@@ -125,72 +129,6 @@
     }
   }
 
-  // Helper functions for direct input event handlers
-  async function handlePheromoneDecayRate(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.pheromone_decay_rate = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'pheromone_decay_rate', 
-        value: settings.pheromone_decay_rate 
-      });
-    } catch (err) {
-      console.error('Failed to update pheromone decay rate:', err);
-    }
-  }
-
-  async function handlePheromoneDepositionRate(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.pheromone_deposition_rate = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'pheromone_deposition_rate', 
-        value: settings.pheromone_deposition_rate 
-      });
-    } catch (err) {
-      console.error('Failed to update pheromone deposition rate:', err);
-    }
-  }
-
-  async function handlePheromoneDiffusionRate(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.pheromone_diffusion_rate = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'pheromone_diffusion_rate', 
-        value: settings.pheromone_diffusion_rate 
-      });
-    } catch (err) {
-      console.error('Failed to update pheromone diffusion rate:', err);
-    }
-  }
-
-  async function handleAgentSpeedMin(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.agent_speed_min = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_speed_min', 
-        value: settings.agent_speed_min 
-      });
-    } catch (err) {
-      console.error('Failed to update min speed:', err);
-    }
-  }
-
-  async function handleAgentSpeedMax(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.agent_speed_max = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'agent_speed_max', 
-        value: settings.agent_speed_max 
-      });
-    } catch (err) {
-      console.error('Failed to update max speed:', err);
-    }
-  }
-
   async function handleGradientType(e: Event) {
     const value = (e.target as HTMLSelectElement).value;
     settings.gradient_type = value;
@@ -201,45 +139,6 @@
       });
     } catch (err) {
       console.error('Failed to update gradient type:', err);
-    }
-  }
-
-  async function handleGradientStrength(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.gradient_strength = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'gradient_strength', 
-        value: settings.gradient_strength 
-      });
-    } catch (err) {
-      console.error('Failed to update gradient strength:', err);
-    }
-  }
-
-  async function handleGradientSize(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.gradient_size = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'gradient_size', 
-        value: settings.gradient_size 
-      });
-    } catch (err) {
-      console.error('Failed to update gradient size:', err);
-    }
-  }
-
-  async function handleGradientAngle(e: Event) {
-    const value = parseFloat((e.target as HTMLInputElement).value);
-    settings.gradient_angle = value;
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'gradient_angle', 
-        value: settings.gradient_angle 
-      });
-    } catch (err) {
-      console.error('Failed to update gradient angle:', err);
     }
   }
 
@@ -269,14 +168,6 @@
     const newIndex = currentIndex < available_presets.length - 1 ? currentIndex + 1 : 0;
     const newPreset = available_presets[newIndex];
     await updatePreset(newPreset);
-  }
-
-  async function cycleLutBack() {
-    await invoke('cycle_lut_back');
-  }
-
-  async function cycleLutForward() {
-    await invoke('cycle_lut_forward');
   }
 
   async function savePreset() {
@@ -374,7 +265,7 @@
   // Load available presets from backend
   async function loadAvailablePresets() {
     try {
-      available_presets = await invoke('get_available_presets');
+      available_presets = await invoke('get_slime_mold_presets');
       console.log('Available presets loaded:', available_presets);
       if (available_presets.length > 0 && !current_preset) {
         current_preset = available_presets[0];
@@ -467,6 +358,20 @@
     } else if (event.key === 'r' || event.key === 'R') {
       event.preventDefault();
       randomizeSimulation();
+    } else {
+      // Camera controls
+      const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+      if (cameraKeys.includes(event.key.toLowerCase())) {
+        event.preventDefault();
+        pressedKeys.add(event.key.toLowerCase());
+      }
+    }
+  }
+
+  function handleKeyup(event: KeyboardEvent) {
+    const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
+      pressedKeys.delete(event.key.toLowerCase());
     }
   }
 
@@ -491,6 +396,135 @@
     }
   }
 
+  // Camera control functions
+  async function panCamera(deltaX: number, deltaY: number) {
+    try {
+      await invoke('pan_camera', { deltaX, deltaY });
+    } catch (e) {
+      console.error('Failed to pan camera:', e);
+    }
+  }
+
+  async function zoomCamera(delta: number) {
+    try {
+      await invoke('zoom_camera', { delta });
+    } catch (e) {
+      console.error('Failed to zoom camera:', e);
+    }
+  }
+
+  async function zoomCameraToCursor(delta: number, cursorX: number, cursorY: number) {
+    try {
+      await invoke('zoom_camera_to_cursor', { delta, cursorX, cursorY });
+    } catch (e) {
+      console.error('Failed to zoom camera to cursor:', e);
+    }
+  }
+
+  async function resetCamera() {
+    try {
+      await invoke('reset_camera');
+    } catch (e) {
+      console.error('Failed to reset camera:', e);
+    }
+  }
+
+  // Camera update loop for smooth movement
+  function updateCamera() {
+    const panAmount = 0.1;
+    let moved = false;
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+      deltaY += panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+      deltaY -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+      deltaX -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+      deltaX += panAmount;
+      moved = true;
+    }
+
+    if (moved) {
+      panCamera(deltaX, deltaY);
+    }
+
+    if (pressedKeys.has('q')) {
+      zoomCamera(-0.2);
+    }
+    if (pressedKeys.has('e')) {
+      zoomCamera(0.2);
+    }
+    if (pressedKeys.has('c')) {
+      resetCamera();
+    }
+
+    animationFrameId = requestAnimationFrame(updateCamera);
+  }
+
+  // Mouse event handler for camera controls and UI interaction
+  async function handleMouseEvent(event: MouseEvent | WheelEvent) {
+    const isWheelEvent = event instanceof WheelEvent;
+    const isMouseEvent = event instanceof MouseEvent;
+    
+    // Prevent default for all events
+    event.preventDefault();
+    
+    // Get cursor position
+    const cursorX = event.clientX;
+    const cursorY = event.clientY;
+    
+    // Convert CSS pixels to physical pixels for backend
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const physicalCursorX = cursorX * devicePixelRatio;
+    const physicalCursorY = cursorY * devicePixelRatio;
+    
+    // Handle wheel events (zoom) - allow even when paused
+    if (isWheelEvent) {
+      const wheelEvent = event as WheelEvent;
+      
+      // Normalize wheel delta for smoother zooming
+      const normalizedDelta = wheelEvent.deltaY * 0.01;
+      
+      // Zoom towards cursor position
+      await zoomCameraToCursor(normalizedDelta, physicalCursorX, physicalCursorY);
+    }
+    
+    // Handle mouse events (currently just for camera, could be extended for slime mold interaction)
+    if (isMouseEvent) {
+      const mouseEvent = event as MouseEvent;
+      
+      // Handle mouse down (start of drag) - could be used for slime mold interaction
+      if (mouseEvent.type === 'mousedown') {
+        // Future: Add slime mold interaction here if needed
+        console.log('Mouse down at:', cursorX, cursorY);
+      }
+      
+      // Handle mouse up (end of drag) - always handle
+      if (mouseEvent.type === 'mouseup') {
+        console.log('Mouse up');
+      }
+      
+      // Handle mouse leave (end of drag if mouse leaves window) - always handle
+      if (mouseEvent.type === 'mouseleave') {
+        console.log('Mouse leave');
+      }
+      
+      // Handle context menu (right click) - always prevent
+      if (mouseEvent.type === 'contextmenu') {
+        console.log('Context menu prevented');
+      }
+    }
+  }
+
   onMount(async () => {
     // Load presets and LUTs first
     await loadAvailablePresets();
@@ -498,6 +532,10 @@
     
     // Add keyboard event listener
     window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('keyup', handleKeyup);
+    
+    // Start camera update loop
+    animationFrameId = requestAnimationFrame(updateCamera);
     
     // Listen for simulation initialization event
     simulationInitializedUnlisten = await listen('simulation-initialized', async () => {
@@ -536,6 +574,13 @@
   onDestroy(() => {
     // Remove keyboard event listener
     window.removeEventListener('keydown', handleKeydown);
+    window.removeEventListener('keyup', handleKeyup);
+    
+    // Cancel animation frame
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
     
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
@@ -556,22 +601,22 @@
       console.error('Failed to update LUT name:', e);
     }
   }
-
-  // Helper function to update any simulation setting
-  async function updateSimulationSetting(settingName: string, value: any) {
-    try {
-      await invoke('update_simulation_setting', { 
-        settingName, 
-        value 
-      });
-      console.log(`Updated ${settingName} to ${value}`);
-    } catch (err) {
-      console.error(`Failed to update ${settingName}:`, err);
-    }
-  }
 </script>
 
 <div class="slime-mold-container">
+  <!-- Mouse interaction overlay -->
+  <div 
+    class="mouse-overlay"
+    on:mousedown={handleMouseEvent}
+    on:mousemove={handleMouseEvent}
+    on:mouseup={handleMouseEvent}
+    on:mouseleave={handleMouseEvent}
+    on:contextmenu={handleMouseEvent}
+    on:wheel={handleMouseEvent}
+    role="button"
+    tabindex="0"
+  ></div>
+
   <!-- Loading Screen -->
   {#if loading}
     <div class="loading-overlay">
@@ -734,6 +779,17 @@
             on:select={({ detail }) => updateLutName(detail.name)}
             on:reverse={({ detail }) => updateLutReversed(detail.reversed)}
           />
+        </div>
+      </fieldset>
+
+      <!-- Camera Controls -->
+      <fieldset>
+        <legend>Camera Controls</legend>
+        <div class="control-group">
+          <span>📹 WASD/Arrows: Pan | Q/E or Mouse wheel: Zoom | C: Reset camera</span>
+        </div>
+        <div class="control-group">
+          <button type="button" on:click={resetCamera}>Reset Camera</button>
         </div>
       </fieldset>
 
@@ -1086,6 +1142,7 @@
     flex-direction: column;
     height: 100vh;
     background: transparent;
+    position: relative;
   }
 
   .controls {
@@ -1096,6 +1153,8 @@
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    z-index: 20;
   }
 
   .back-button {
@@ -1139,7 +1198,8 @@
     max-width: 800px;
     margin: 0 auto;
     background: rgba(0, 0, 0, 1.0);
-
+    position: relative;
+    z-index: 20;
   }
 
   fieldset {
@@ -1175,15 +1235,13 @@
     margin-right: 0.5rem;
   }
 
-  .preset-controls,
-  .lut-controls {
+  .preset-controls {
     display: flex;
     gap: 0.5rem;
     align-items: center;
   }
 
-  .preset-controls select,
-  .lut-controls select {
+  .preset-controls select {
     flex: 1;
   }
 
@@ -1193,8 +1251,7 @@
     margin-top: 1rem;
   }
 
-  .save-preset-dialog,
-  .gradient-editor-dialog {
+  .save-preset-dialog {
     position: fixed;
     top: 0;
     left: 0;
@@ -1283,146 +1340,13 @@
     100% { transform: rotate(360deg); }
   }
 
-  /* Gradient Editor Styles */
-  .gradient-editor-content {
-    min-width: 500px;
-    max-width: 600px;
-    color: black;
-  }
-
-  .gradient-preview-container {
-    margin: 1rem 0;
-    position: relative;
-  }
-
-  .gradient-preview {
-    height: 40px;
-    border: 2px solid #ccc;
-    border-radius: 4px;
-    margin-bottom: 10px;
-  }
-
-  .gradient-stops-container {
-    position: relative;
-    height: 30px;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .gradient-stop {
+  .mouse-overlay {
     position: absolute;
-    top: 50%;
-    transform: translateX(-50%) translateY(-50%);
-    width: 20px;
-    height: 20px;
-    border: 2px solid white;
-    border-radius: 50%;
-    cursor: grab;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    transition: all 0.2s ease;
-    user-select: none;
-  }
-
-  .gradient-stop:hover {
-    transform: translateX(-50%) translateY(-50%) scale(1.1);
-  }
-
-  .gradient-stop.selected {
-    border-color: #646cff;
-    border-width: 3px;
-    box-shadow: 0 2px 8px rgba(100, 108, 255, 0.4);
-  }
-
-  .gradient-stop.dragging {
-    cursor: grabbing;
-    transform: translateX(-50%) translateY(-50%) scale(1.2);
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     z-index: 10;
-    transition: none;
-  }
-
-  .remove-stop {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 16px;
-    height: 16px;
-    background: #ff4444;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    font-size: 10px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .remove-stop:hover {
-    background: #ff6666;
-  }
-
-  .stop-controls {
-    background: #f8f9fa;
-    padding: 1rem;
-    border-radius: 4px;
-    margin: 1rem 0;
-  }
-
-  .stop-controls h4 {
-    margin: 0 0 0.5rem 0;
-    color: #333;
-  }
-
-  .control-row {
-    display: flex;
-    gap: 1rem;
-    align-items: end;
-  }
-
-  .control-row .control-group {
-    flex: 1;
-  }
-
-  .gradient-instructions {
-    background: #e3f2fd;
-    padding: 1rem;
-    border-radius: 4px;
-    margin: 1rem 0;
-    font-size: 0.9rem;
-  }
-
-  .gradient-instructions p {
-    margin: 0 0 0.5rem 0;
-    color: #1976d2;
-  }
-
-  .gradient-instructions ul {
-    margin: 0;
-    padding-left: 1.2rem;
-  }
-
-  .gradient-instructions li {
-    margin: 0.2rem 0;
-    color: #333;
-  }
-
-  .primary-button {
-    background: #646cff;
-    color: white;
-    border: 1px solid #646cff;
-  }
-
-  .primary-button:hover:not(:disabled) {
-    background: #535bf2;
-    border-color: #535bf2;
-  }
-
-  .primary-button:disabled {
-    background: #ccc;
-    border-color: #ccc;
-    cursor: not-allowed;
+    pointer-events: auto;
   }
 </style>

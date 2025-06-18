@@ -7,7 +7,7 @@ use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
-use crate::simulations::shared::{LutData, LutManager, LutHandler};
+use crate::simulations::shared::{LutData, LutManager, LutHandler, camera::Camera};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -104,6 +104,9 @@ pub struct SlimeMoldModel {
     pub current_width: u32,
     pub current_height: u32,
     show_gui: bool,
+
+    // Camera for viewport control
+    pub camera: Camera,
 }
 
 impl SlimeMoldModel {
@@ -216,8 +219,8 @@ impl SlimeMoldModel {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 
@@ -225,7 +228,10 @@ impl SlimeMoldModel {
         let workgroup_config = WorkgroupConfig::new(device, adapter_info);
 
         // Create pipeline manager
-        let pipeline_manager = PipelineManager::new(device, &workgroup_config);
+        let pipeline_manager = PipelineManager::new(device, &workgroup_config, surface_config.format);
+
+        // Create camera
+        let camera = Camera::new(device, physical_width as f32, physical_height as f32)?;
 
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
@@ -233,6 +239,7 @@ impl SlimeMoldModel {
             &pipeline_manager.compute_bind_group_layout,
             &pipeline_manager.display_bind_group_layout,
             &pipeline_manager.render_bind_group_layout,
+            &pipeline_manager.camera_bind_group_layout,
             &agent_buffer,
             &trail_map_buffer,
             &gradient_buffer,
@@ -240,6 +247,7 @@ impl SlimeMoldModel {
             &display_view,
             &display_sampler,
             &lut_buffer,
+            camera.buffer(),
         );
 
         // Create buffer pool
@@ -261,13 +269,14 @@ impl SlimeMoldModel {
             settings,
             agent_count,
             current_lut_name: "MATPLOTLIB_bone".to_string(),
-            lut_reversed: false,
+            lut_reversed: true,
             current_trail_map_size: trail_map_size as u64,
             current_gradient_buffer_size: trail_map_size as u64,
             current_agent_buffer_size: agent_count as u64,
             current_width: physical_width,
             current_height: physical_height,
             show_gui: false,
+            camera,
         };
 
         // Initialize agents using GPU compute shader instead of CPU
@@ -413,6 +422,9 @@ impl SlimeMoldModel {
         // Update bind groups with new buffers and texture view
         self.recreate_bind_groups(device);
 
+        // Resize camera
+        self.camera.resize(physical_width as f32, physical_height as f32);
+
         Ok(())
     }
 
@@ -423,6 +435,10 @@ impl SlimeMoldModel {
         queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Update camera for smooth movement
+        self.camera.update(0.016); // Assume 60 FPS for now
+        self.camera.upload_to_gpu(queue);
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Render Encoder"),
         });
@@ -463,6 +479,7 @@ impl SlimeMoldModel {
 
             render_pass.set_pipeline(&self.pipeline_manager.render_pipeline);
             render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..1); // Full-screen quad
         }
 
@@ -785,6 +802,7 @@ impl SlimeMoldModel {
             &self.pipeline_manager.compute_bind_group_layout,
             &self.pipeline_manager.display_bind_group_layout,
             &self.pipeline_manager.render_bind_group_layout,
+            &self.pipeline_manager.camera_bind_group_layout,
             &self.agent_buffer,
             &self.trail_map_buffer,
             &self.gradient_buffer,
@@ -792,6 +810,7 @@ impl SlimeMoldModel {
             &self.display_view,
             &self.display_sampler,
             &self.lut_buffer,
+            self.camera.buffer(),
         );
     }
 
@@ -802,6 +821,27 @@ impl SlimeMoldModel {
 
     pub(crate) fn is_gui_visible(&self) -> bool {
         self.show_gui
+    }
+
+    // Camera control methods
+    pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        tracing::debug!("Slime mold pan_camera called: delta=({:.2}, {:.2})", delta_x, delta_y);
+        self.camera.pan(delta_x, delta_y);
+    }
+
+    pub fn zoom_camera(&mut self, delta: f32) {
+        tracing::debug!("Slime mold zoom_camera called: delta={:.2}", delta);
+        self.camera.zoom(delta);
+    }
+
+    pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        tracing::debug!("Slime mold zoom_camera_to_cursor called: delta={:.2}, cursor=({:.2}, {:.2})", delta, cursor_x, cursor_y);
+        self.camera.zoom_to_cursor(delta, cursor_x, cursor_y);
+    }
+
+    pub fn reset_camera(&mut self) {
+        tracing::debug!("Slime mold reset_camera called");
+        self.camera.reset();
     }
 }
 

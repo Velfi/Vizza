@@ -424,6 +424,22 @@ async fn get_available_presets(
 }
 
 #[tauri::command]
+async fn get_slime_mold_presets(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<String>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_slime_mold_presets())
+}
+
+#[tauri::command]
+async fn get_gray_scott_presets(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<String>, String> {
+    let sim_manager = manager.lock().await;
+    Ok(sim_manager.get_gray_scott_presets())
+}
+
+#[tauri::command]
 async fn apply_preset(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
@@ -858,24 +874,20 @@ async fn pan_camera(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
 
-    if let Some(simulation) = &mut sim_manager.gray_scott_state {
-        simulation.pan_camera(delta_x, delta_y);
-        
-        // Render a frame to show the camera change immediately
-        let gpu_ctx = gpu_context.lock().await;
-        if let Ok(output) = gpu_ctx.get_current_texture() {
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
-                output.present();
-            }
+    sim_manager.pan_camera(delta_x, delta_y);
+    
+    // Render a frame to show the camera change immediately
+    let gpu_ctx = gpu_context.lock().await;
+    if let Ok(output) = gpu_ctx.get_current_texture() {
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
+            output.present();
         }
-        
-        Ok("Camera panned successfully".to_string())
-    } else {
-        Err("No Gray-Scott simulation running".to_string())
     }
+    
+    Ok("Camera panned successfully".to_string())
 }
 
 #[tauri::command]
@@ -886,24 +898,20 @@ async fn zoom_camera(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
 
-    if let Some(simulation) = &mut sim_manager.gray_scott_state {
-        simulation.zoom_camera(delta);
-        
-        // Render a frame to show the camera change immediately
-        let gpu_ctx = gpu_context.lock().await;
-        if let Ok(output) = gpu_ctx.get_current_texture() {
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
-                output.present();
-            }
+    sim_manager.zoom_camera(delta);
+    
+    // Render a frame to show the camera change immediately
+    let gpu_ctx = gpu_context.lock().await;
+    if let Ok(output) = gpu_ctx.get_current_texture() {
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
+            output.present();
         }
-        
-        Ok("Camera zoomed successfully".to_string())
-    } else {
-        Err("No Gray-Scott simulation running".to_string())
     }
+    
+    Ok("Camera zoomed successfully".to_string())
 }
 
 #[tauri::command]
@@ -916,24 +924,20 @@ async fn zoom_camera_to_cursor(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
 
-    if let Some(simulation) = &mut sim_manager.gray_scott_state {
-        simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
-        
-        // Render a frame to show the camera change immediately
-        let gpu_ctx = gpu_context.lock().await;
-        if let Ok(output) = gpu_ctx.get_current_texture() {
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
-                output.present();
-            }
+    sim_manager.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+    
+    // Render a frame to show the camera change immediately
+    let gpu_ctx = gpu_context.lock().await;
+    if let Ok(output) = gpu_ctx.get_current_texture() {
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
+            output.present();
         }
-        
-        Ok("Camera zoomed to cursor successfully".to_string())
-    } else {
-        Err("No Gray-Scott simulation running".to_string())
     }
+    
+    Ok("Camera zoomed to cursor successfully".to_string())
 }
 
 #[tauri::command]
@@ -943,24 +947,20 @@ async fn reset_camera(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
 
-    if let Some(simulation) = &mut sim_manager.gray_scott_state {
-        simulation.reset_camera();
-        
-        // Render a frame to show the camera change immediately
-        let gpu_ctx = gpu_context.lock().await;
-        if let Ok(output) = gpu_ctx.get_current_texture() {
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
-                output.present();
-            }
+    sim_manager.reset_camera();
+    
+    // Render a frame to show the camera change immediately
+    let gpu_ctx = gpu_context.lock().await;
+    if let Ok(output) = gpu_ctx.get_current_texture() {
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        if sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view).is_ok() {
+            output.present();
         }
-        
-        Ok("Camera reset successfully".to_string())
-    } else {
-        Err("No Gray-Scott simulation running".to_string())
     }
+    
+    Ok("Camera reset successfully".to_string())
 }
 
 #[tauri::command]
@@ -969,12 +969,10 @@ async fn get_camera_state(
 ) -> Result<serde_json::Value, String> {
     let sim_manager = manager.lock().await;
 
-    if let Some(simulation) = &sim_manager.gray_scott_state {
-        let camera_state = simulation.renderer.camera.get_state();
-        serde_json::to_value(camera_state)
-            .map_err(|e| format!("Failed to serialize camera state: {}", e))
+    if let Some(camera_state) = sim_manager.get_camera_state() {
+        Ok(camera_state)
     } else {
-        Err("No Gray-Scott simulation running".to_string())
+        Err("No simulation running".to_string())
     }
 }
 
@@ -1143,6 +1141,8 @@ fn main() {
             // TODO this are specific to slime mold and should be in a submodule
             update_agent_count,
             get_available_presets,
+            get_slime_mold_presets,
+            get_gray_scott_presets,
             apply_preset,
             save_preset,
             delete_preset,

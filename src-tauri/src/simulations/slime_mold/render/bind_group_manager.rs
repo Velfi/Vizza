@@ -6,6 +6,7 @@ pub struct BindGroupManager {
     pub compute_bind_group: BindGroup,
     pub display_bind_group: BindGroup,
     pub render_bind_group: BindGroup,
+    pub camera_bind_group: BindGroup,
 }
 
 impl BindGroupManager {
@@ -15,6 +16,7 @@ impl BindGroupManager {
         compute_bind_group_layout: &BindGroupLayout,
         display_bind_group_layout: &BindGroupLayout,
         render_bind_group_layout: &BindGroupLayout,
+        camera_bind_group_layout: &BindGroupLayout,
         agent_buffer: &Buffer,
         trail_map_buffer: &Buffer,
         gradient_buffer: &Buffer,
@@ -22,6 +24,7 @@ impl BindGroupManager {
         display_view: &TextureView,
         display_sampler: &wgpu::Sampler,
         lut_buffer: &Buffer,
+        camera_buffer: &Buffer,
     ) -> Self {
         Self {
             compute_bind_group: Self::create_compute_bind_group(
@@ -46,6 +49,11 @@ impl BindGroupManager {
                 render_bind_group_layout,
                 display_view,
                 display_sampler,
+            ),
+            camera_bind_group: Self::create_camera_bind_group(
+                device,
+                camera_bind_group_layout,
+                camera_buffer,
             ),
         }
     }
@@ -136,6 +144,23 @@ impl BindGroupManager {
                 BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(display_sampler),
+                },
+            ],
+        })
+    }
+
+    fn create_camera_bind_group(
+        device: &Device,
+        layout: &BindGroupLayout,
+        buffer: &Buffer,
+    ) -> BindGroup {
+        device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
                 },
             ],
         })
