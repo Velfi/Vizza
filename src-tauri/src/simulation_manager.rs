@@ -137,7 +137,7 @@ impl SimulationManager {
             simulation.render_frame(device, queue, surface_view)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.render_frame(device, queue, surface_view)?;
+            simulation.render_frame(device, queue, surface_view);
         }
         Ok(())
     }
@@ -155,7 +155,7 @@ impl SimulationManager {
             simulation.resize(new_config)?;
         }
         if let Some(simulation) = &mut self.particle_life_state {
-            simulation.resize(new_config)?;
+            simulation.resize(device, new_config)?;
         }
         Ok(())
     }
