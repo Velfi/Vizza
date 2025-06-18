@@ -585,4 +585,77 @@ impl SimulationManager {
         };
         self.lut_manager.get(name).ok()
     }
+
+    // Camera control methods
+    pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.renderer.camera.pan(delta_x, delta_y);
+        }
+        // TODO: Add camera support for other simulations
+    }
+
+    pub fn zoom_camera(&mut self, delta: f32) {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.renderer.camera.zoom(delta);
+        }
+        // TODO: Add camera support for other simulations
+    }
+
+    pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.renderer.camera.zoom_to_cursor(delta, cursor_x, cursor_y);
+        }
+        // TODO: Add camera support for other simulations
+    }
+
+    pub fn reset_camera(&mut self) {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.renderer.camera.reset();
+        }
+        // TODO: Add camera support for other simulations
+    }
+
+    pub fn stop_camera_pan(&mut self) {
+        // Camera doesn't have a stop_pan method, movement is controlled by not calling pan
+        // This is a no-op for now
+    }
+
+    pub fn get_camera_state(&self) -> Option<serde_json::Value> {
+        if let Some(simulation) = &self.gray_scott_state {
+            let camera = &simulation.renderer.camera;
+            Some(serde_json::json!({
+                "position": [camera.position.x, camera.position.y],
+                "zoom": 1.0 / camera.size,
+                "size": camera.size
+            }))
+        } else {
+            None
+        }
+    }
+
+    // Gray-Scott specific methods
+    pub fn seed_random_noise(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.seed_random_noise(device, queue);
+            Ok(())
+        } else {
+            Err("No Gray-Scott simulation running".into())
+        }
+    }
+
+    pub fn update_cursor_position(
+        &mut self,
+        x: f32,
+        y: f32,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.gray_scott_state {
+            simulation.update_cursor_position(x, y, queue)?;
+        }
+        Ok(())
+    }
 }

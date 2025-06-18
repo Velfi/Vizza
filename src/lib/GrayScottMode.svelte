@@ -549,21 +549,18 @@
     return [world_x, world_y];
   }
 
-  async function sendCursorToBackend(screenX: number, screenY: number) {
+  async function updateCursorPosition(x: number, y: number) {
     try {
-      // Send screen coordinates (in device pixels) to backend
-      // Let backend do the world coordinate conversion using its camera
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const deviceScreenX = screenX * devicePixelRatio;
-      const deviceScreenY = screenY * devicePixelRatio;
-      
-      await invoke('update_cursor_position_screen', { 
-        screenX: deviceScreenX, 
-        screenY: deviceScreenY 
-      });
+      await invoke('update_cursor_position', { x, y });
     } catch (err) {
       console.error('Failed to update cursor position:', err);
     }
+  }
+
+  async function sendCursorToBackend(x: number, y: number) {
+    // Convert screen coordinates to world coordinates
+    const worldCoords = screenToWorld(x, y);
+    await updateCursorPosition(worldCoords[0], worldCoords[1]);
   }
 
   let screenX = 0;
