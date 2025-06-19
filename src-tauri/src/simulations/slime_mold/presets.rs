@@ -244,7 +244,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_turn_rate: 4.9691095,
             pheromone_decay_rate: 100.0,
             pheromone_deposition_rate: 43.590575,
-            pheromone_diffusion_rate: 47.481441,
+            pheromone_diffusion_rate: 47.481_44,
             gradient_type: GradientType::Disabled,
             gradient_strength: 0.5,
             gradient_center_x: 0.5,
@@ -310,7 +310,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_turn_rate: 0.733_131_2,
             pheromone_decay_rate: 100.0,
             pheromone_deposition_rate: 27.726316,
-            pheromone_diffusion_rate: 66.059273,
+            pheromone_diffusion_rate: 66.059_27,
             ..Settings::default()
         },
     ));

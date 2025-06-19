@@ -7,7 +7,7 @@ use serde_json;
 
 /// GPU-compatible camera uniform data
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
 pub struct CameraUniform {
     /// Simple 2D transformation matrix (4x4 matrix stored as 16 floats)
     pub transform_matrix: [f32; 16],
@@ -42,6 +42,7 @@ impl CoordinateTransform for Camera {
 }
 
 /// Simple 2D camera system for GPU rendering
+#[derive(Debug)]
 pub struct Camera {
     /// Camera position in world space
     pub position: [f32; 2],
@@ -68,7 +69,7 @@ impl Camera {
         let aspect_ratio = viewport_width / viewport_height;
 
         let uniform_data = CameraUniform {
-            transform_matrix: Self::create_simple_transform_matrix(position, zoom, aspect_ratio),
+            transform_matrix: Self::create_simple_transform_matrix(position, zoom),
             position,
             zoom,
             aspect_ratio,
@@ -92,7 +93,7 @@ impl Camera {
     }
 
     /// Create a simple 2D transformation matrix
-    fn create_simple_transform_matrix(position: [f32; 2], zoom: f32, aspect_ratio: f32) -> [f32; 16] {
+    fn create_simple_transform_matrix(position: [f32; 2], zoom: f32) -> [f32; 16] {
         // Create a simple orthographic projection matrix
         // This maps [0,1] x [0,1] world space to [-1,1] x [-1,1] clip space
         // Remove aspect ratio correction to fill the entire window
@@ -220,7 +221,7 @@ impl Camera {
     fn update_uniform(&mut self) {
         let aspect_ratio = self.viewport_width / self.viewport_height;
         self.uniform_data = CameraUniform {
-            transform_matrix: Self::create_simple_transform_matrix(self.position, self.zoom, aspect_ratio),
+            transform_matrix: Self::create_simple_transform_matrix(self.position, self.zoom),
             position: self.position,
             zoom: self.zoom,
             aspect_ratio,

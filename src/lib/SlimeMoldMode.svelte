@@ -2,8 +2,8 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import NumberDragBox from './NumberDragBox.svelte';
-  import AgentCountInput from './AgentCountInput.svelte';
+  import NumberDragBox from './components/NumberDragBox.svelte';
+  import AgentCountInput from './components/AgentCountInput.svelte';
   import LutSelector from './components/LutSelector.svelte';
 
   const dispatch = createEventDispatcher();
@@ -36,7 +36,7 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_name: 'MATPLOTLIB_bone', // Match backend default
+    lut_name: 'MATPLOTLIB_bone',
     lut_reversed: true
   };
 

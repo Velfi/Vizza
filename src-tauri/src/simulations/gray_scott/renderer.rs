@@ -6,6 +6,7 @@ use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
 use crate::simulations::shared::lut::LutManager;
 
+#[derive(Debug)]
 pub struct Renderer {
     device: Arc<Device>,
     queue: Arc<Queue>,

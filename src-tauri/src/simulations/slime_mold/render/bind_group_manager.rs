@@ -2,6 +2,7 @@ use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, Device, TextureView,
 };
 
+#[derive(Debug)]
 pub struct BindGroupManager {
     pub compute_bind_group: BindGroup,
     pub display_bind_group: BindGroup,

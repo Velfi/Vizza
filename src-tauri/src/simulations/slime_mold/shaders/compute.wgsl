@@ -273,9 +273,16 @@ fn diffuse_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     trail_map[y * sim_size.width + x] = new_value;
 }
 
-@compute @workgroup_size(256)
+@compute @workgroup_size(16, 16, 1)
 fn update_agent_speeds(@builtin(global_invocation_id) id: vec3<u32>) {
-    let agent_index = id.x;
+    // Calculate linear agent index from 2D global invocation
+    let agents_per_row = 65535u * 16u; // Max workgroups per row * threads per workgroup row
+    let agent_index = id.x + id.y * agents_per_row;
+    
+    // Bounds check - exit if this thread doesn't correspond to a valid agent
+    if (agent_index >= arrayLength(&agents)) {
+        return;
+    }
     
     // Get current agent data
     let agent = agents[agent_index];

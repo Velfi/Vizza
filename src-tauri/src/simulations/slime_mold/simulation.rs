@@ -72,6 +72,7 @@ impl SimSizeUniform {
     }
 }
 
+#[derive(Debug)]
 /// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
 pub struct SlimeMoldModel {
@@ -282,7 +283,7 @@ impl SlimeMoldModel {
         }
 
         // Initialize agents using GPU compute shader instead of CPU
-        simulation.reset_agents(device, queue);
+        simulation.reset_agents(device, queue)?;
 
         Ok(simulation)
     }
@@ -501,14 +502,13 @@ impl SlimeMoldModel {
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
 
             // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
-            let workgroup_size = 16 * 16; // 256 threads per workgroup
-            let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
+            let workgroup_size = self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
+            let total_workgroups = (self.agent_count as u32).div_ceil(workgroup_size);
 
             // Calculate 2D dispatch grid
             let max_workgroups_per_dim = 65535;
             let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
-            let workgroups_y =
-                (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+            let workgroups_y = total_workgroups.div_ceil(max_workgroups_per_dim);
 
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
@@ -569,52 +569,100 @@ impl SlimeMoldModel {
     }
 
     /// Reset agents to random positions using GPU compute shader
-    pub fn reset_agents(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        tracing::info!(
-            "Resetting {} agents using GPU compute shader",
-            self.agent_count
-        );
-
-        // Generate a new random seed for this reset
-        let new_seed = rand::random::<u32>();
-        self.settings.random_seed = new_seed;
-
-        // Update the settings buffer with the new seed
-        update_settings(
+    pub fn reset_agents(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Update the random seed to ensure different randomization
+        self.settings.random_seed = rand::random::<u32>();
+        
+        // Update the sim size buffer with the new random seed
+        let sim_size = SimSizeUniform::new(
+            self.current_width,
+            self.current_height,
+            self.settings.pheromone_decay_rate,
             &self.settings,
-            &self.sim_size_buffer,
-            queue,
-            self.display_texture.width(),
-            self.display_texture.height(),
         );
+        queue.write_buffer(&self.sim_size_buffer, 0, bytemuck::cast_slice(&[sim_size]));
 
+        // Dispatch the reset agents compute shader
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Slime Mold Reset Agents Encoder"),
+            label: Some("Reset Agents Encoder"),
         });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Slime Mold Reset Agents Pass"),
+                label: Some("Reset Agents Pass"),
                 timestamp_writes: None,
             });
+
             compute_pass.set_pipeline(&self.pipeline_manager.reset_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
 
-            // Calculate workgroups for agents (using 2D dispatch to handle large counts)
-            let workgroup_size = 64; // From shader workgroup_size
-            let total_workgroups = (self.agent_count as u32 + workgroup_size - 1) / workgroup_size;
+            // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
+            let workgroup_size = 64; // From shader workgroup_size(64, 1, 1)
+            let total_workgroups = (self.agent_count as u32).div_ceil(workgroup_size);
 
-            // GPU workgroup limit is 65535 per dimension, so use 2D dispatch if needed
+            // Calculate 2D dispatch grid
             let max_workgroups_per_dim = 65535;
             let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
-            let workgroups_y =
-                (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+            let workgroups_y = total_workgroups.div_ceil(max_workgroups_per_dim);
 
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
-        tracing::info!("GPU agent reset dispatch completed with seed: {}", new_seed);
+        Ok(())
+    }
+
+    pub fn seed_random_noise(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // For slime mold, seeding noise means resetting agents to random positions
+        // and clearing the trail map
+        self.reset_trails(queue);
+        self.reset_agents(device, queue)?;
+        Ok(())
+    }
+
+    /// Update agent speeds to new random values within the current min/max range
+    pub fn update_agent_speeds(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
+        tracing::info!(
+            "Updating {} agent speeds to range [{}, {}]",
+            self.agent_count,
+            self.settings.agent_speed_min,
+            self.settings.agent_speed_max
+        );
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Slime Mold Update Agent Speeds Encoder"),
+        });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Slime Mold Update Agent Speeds Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.update_speeds_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
+
+            // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
+            let workgroup_size = self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
+            let total_workgroups = (self.agent_count as u32).div_ceil(workgroup_size);
+
+            // Calculate 2D dispatch grid
+            let max_workgroups_per_dim = 65535;
+            let workgroups_x = total_workgroups.min(max_workgroups_per_dim);
+            let workgroups_y = total_workgroups.div_ceil(max_workgroups_per_dim);
+
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        tracing::info!("GPU agent speeds update dispatch completed");
     }
 
     /// Update a single setting by name
@@ -622,6 +670,7 @@ impl SlimeMoldModel {
         &mut self,
         setting_name: &str,
         value: serde_json::Value,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use super::settings::GradientType;
@@ -655,11 +704,15 @@ impl SlimeMoldModel {
             "agent_speed_min" => {
                 if let Some(v) = value.as_f64() {
                     self.settings.agent_speed_min = v as f32;
+                    // Update all agent speeds to new range
+                    self.update_agent_speeds(device, queue);
                 }
             }
             "agent_speed_max" => {
                 if let Some(v) = value.as_f64() {
                     self.settings.agent_speed_max = v as f32;
+                    // Update all agent speeds to new range
+                    self.update_agent_speeds(device, queue);
                 }
             }
             "agent_turn_rate" => {
@@ -793,7 +846,7 @@ impl SlimeMoldModel {
         self.recreate_bind_groups(device);
 
         // Initialize agents using GPU compute shader
-        self.reset_agents(device, queue);
+        self.reset_agents(device, queue)?;
 
         Ok(())
     }
@@ -868,10 +921,161 @@ impl LutHandler for SlimeMoldModel {
         self.lut_reversed = reversed;
     }
 
-    fn set_active_lut(&mut self, lut_data: &LutData, name: String, _device: &Device, queue: &Queue) {
-        let lut_data_u32 = lut_data.to_u32_buffer();
+    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue) {
+        let lut_data_to_apply = if self.lut_reversed {
+            lut_data.reversed()
+        } else {
+            lut_data.clone()
+        };
+        
+        let lut_data_u32 = lut_data_to_apply.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
-        self.current_lut_name = name;
+        self.current_lut_name = lut_data.name.clone();
+    }
+}
+
+impl crate::simulations::traits::Simulation for SlimeMoldModel {
+    fn render_frame(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.render_frame(device, queue, surface_view)
+    }
+
+    fn resize(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        new_config: &SurfaceConfiguration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.resize(device, queue, new_config)
+    }
+
+    fn update_setting(
+        &mut self,
+        setting_name: &str,
+        value: serde_json::Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_setting(setting_name, value, device, queue)
+    }
+
+    fn get_settings(&self) -> serde_json::Value {
+        serde_json::to_value(&self.settings).unwrap_or_else(|_| serde_json::json!({}))
+    }
+
+    fn get_state(&self) -> serde_json::Value {
+        serde_json::json!({
+            "agent_count": self.agent_count,
+            "current_width": self.current_width,
+            "current_height": self.current_height,
+            "lut_reversed": self.lut_reversed,
+            "current_lut_name": self.current_lut_name,
+            "show_gui": self.show_gui,
+            "camera": {
+                "position": self.camera.position,
+                "zoom": self.camera.zoom
+            }
+        })
+    }
+
+    fn handle_mouse_interaction(
+        &mut self,
+        _world_x: f32,
+        _world_y: f32,
+        _is_seeding: bool,
+        _queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Slime mold doesn't currently support mouse interaction
+        // This could be implemented in the future for seeding agents
+        Ok(())
+    }
+
+    fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        self.pan_camera(delta_x, delta_y);
+    }
+
+    fn zoom_camera(&mut self, delta: f32) {
+        self.zoom_camera(delta);
+    }
+
+    fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        self.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+    }
+
+    fn reset_camera(&mut self) {
+        self.reset_camera();
+    }
+
+    fn get_camera_state(&self) -> serde_json::Value {
+        serde_json::json!({
+            "position": self.camera.position,
+            "zoom": self.camera.zoom
+        })
+    }
+
+    fn save_preset(&self, _preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // This would need to be implemented with the preset manager
+        // For now, we'll return an error indicating it needs to be implemented
+        Err("Preset saving not yet implemented for SlimeMoldModel".into())
+    }
+
+    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        // This would need to be implemented with the preset manager
+        // For now, we'll return an error indicating it needs to be implemented
+        Err("Preset loading not yet implemented for SlimeMoldModel".into())
+    }
+
+    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        self.reset_trails(queue);
+        // Note: reset_agents requires a device, but we don't have one in this context
+        // This is a limitation of the current trait design
+        // In practice, this would be called from a context where we have access to the device
+        Ok(())
+    }
+
+    fn get_simulation_type(&self) -> &str {
+        "slime_mold"
+    }
+
+    fn is_running(&self) -> bool {
+        true // SlimeMoldModel is always considered running when instantiated
+    }
+
+    fn get_agent_count(&self) -> Option<u32> {
+        Some(self.agent_count as u32)
+    }
+
+    async fn update_agent_count(
+        &mut self,
+        count: u32,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_config: &SurfaceConfiguration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_agent_count(count, device, queue, surface_config).await
+    }
+
+    fn toggle_gui(&mut self) -> bool {
+        self.toggle_gui()
+    }
+
+    fn is_gui_visible(&self) -> bool {
+        self.is_gui_visible()
+    }
+
+    fn randomize_settings(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Randomize the settings
+        self.settings.randomize();
+        self.update_settings(self.settings.clone(), queue);
+        Ok(())
     }
 }
 

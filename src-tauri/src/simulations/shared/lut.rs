@@ -292,7 +292,7 @@ impl LutManager {
                 ));
             }
 
-            return Ok(LutData::from_bytes(name.to_string(), buffer.as_slice())?);
+            return LutData::from_bytes(name.to_string(), buffer.as_slice());
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT

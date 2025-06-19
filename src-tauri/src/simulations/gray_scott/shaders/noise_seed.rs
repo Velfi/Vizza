@@ -11,6 +11,7 @@ pub struct NoiseParams {
     pub noise_strength: f32,
 }
 
+#[derive(Debug)]
 pub struct NoiseSeedCompute {
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -130,8 +131,8 @@ impl NoiseSeedCompute {
             compute_pass.set_bind_group(0, &bind_group, &[]);
 
             // Dispatch with 8x8 workgroup size
-            let workgroups_x = (width + 7) / 8;
-            let workgroups_y = (height + 7) / 8;
+            let workgroups_x = width.div_ceil(8);
+            let workgroups_y = height.div_ceil(8);
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 

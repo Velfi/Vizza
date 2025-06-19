@@ -6,7 +6,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
-use crate::simulations::shared::coordinates::{TextureCoords, WorldCoords};
+use crate::simulations::shared::coordinates::TextureCoords;
 use crate::simulations::shared::lut_handler::LutHandler;
 
 #[repr(C)]
@@ -31,6 +31,7 @@ struct UVPair {
     v: f32,
 }
 
+#[derive(Debug)]
 pub struct GrayScottModel {
     pub renderer: Renderer,
     pub settings: Settings,
@@ -59,9 +60,7 @@ impl GrayScottModel {
         lut_manager: &crate::simulations::shared::LutManager,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let vec_capacity = (width * height) as usize;
-        let mut uvs: Vec<UVPair> = std::iter::repeat(UVPair { u: 1.0, v: 0.0 })
-            .take(vec_capacity)
-            .collect();
+        let mut uvs: Vec<UVPair> = std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
 
         // Add some initial perturbations to start the reaction-diffusion process
         let center_x = width as i32 / 2;
@@ -299,9 +298,7 @@ impl GrayScottModel {
 
     pub fn reset(&mut self) {
         let vec_capacity = (self.width * self.height) as usize;
-        let uvs: Vec<UVPair> = std::iter::repeat(UVPair { u: 1.0, v: 0.0 })
-            .take(vec_capacity)
-            .collect();
+        let uvs: Vec<UVPair> = std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
 
         for buffer in &self.uvs_buffers {
             self.renderer
@@ -310,13 +307,13 @@ impl GrayScottModel {
         }
     }
 
-    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
+    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
         // Generate a random seed for this noise generation
         let seed = rand::random::<u32>();
 
         // Use GPU-based noise seeding for both buffers
         for buffer in &self.uvs_buffers {
-            if let Err(e) = self.noise_seed_compute.seed_noise(
+            self.noise_seed_compute.seed_noise(
                 device,
                 queue,
                 buffer,
@@ -324,16 +321,17 @@ impl GrayScottModel {
                 self.height,
                 seed,
                 1.0, // Full noise strength
-            ) {
-                tracing::error!("Failed to seed noise on GPU: {}", e);
-            }
+            )?;
         }
+        
+        Ok(())
     }
 
     pub(crate) fn update_setting(
         &mut self,
         setting_name: &str,
         value: serde_json::Value,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match setting_name {
@@ -458,7 +456,7 @@ impl GrayScottModel {
 
             compute_pass.set_pipeline(&self.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_groups[self.current_buffer], &[]);
-            compute_pass.dispatch_workgroups((self.width + 7) / 8, (self.height + 7) / 8, 1);
+            compute_pass.dispatch_workgroups(self.width.div_ceil(8), self.height.div_ceil(8), 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -502,44 +500,20 @@ impl GrayScottModel {
 
     pub fn handle_mouse_interaction(
         &mut self,
-        x: f32,
-        y: f32,
+        texture_x: f32,
+        texture_y: f32,
         is_seeding: bool,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // x and y are world coordinates from the frontend, but they need to be converted
-        // to the simulation's texture coordinate system [0,1] x [0,1]
-        
-        // Update cursor position first (pass through the world coordinates as-is for now)
-        self.update_cursor_position(x, y, queue)?;
+        // texture_x and texture_y are in [0,1] range
+        // Update cursor position (for UI feedback, etc.)
+        self.update_cursor_position(texture_x, texture_y, queue)?;
 
-        // Convert world coordinates to simulation texture coordinates
-        // The camera's world space is centered around the camera position, but we need
-        // to map this to the simulation's [0,1] texture space
-        let world_coords = WorldCoords::new(x, y);
-        
-        // Convert to texture coordinates by mapping the camera's world space to [0,1]
-        // The camera's world space is centered around the camera position with zoom scaling
-        let camera = &self.renderer.camera;
-        
-        // Convert from camera's world space to texture space
-        // First, convert to NDC coordinates relative to camera
-        let ndc_x = (world_coords.x - camera.position[0]) * camera.zoom;
-        let ndc_y = (world_coords.y - camera.position[1]) * camera.zoom;
-        
-        // Convert NDC [-1,1] to texture coordinates [0,1]
-        let texture_x = (ndc_x + 1.0) * 0.5;
-        let texture_y = (ndc_y + 1.0) * 0.5; // Remove the Y-axis flip - it's already handled by the camera
-        
         let texture_coords = TextureCoords::new(texture_x, texture_y);
 
         // Debug output
         tracing::debug!(
-            "Mouse interaction: world=({:.3}, {:.3}), camera_pos=({:.3}, {:.3}), zoom={:.3}, ndc=({:.3}, {:.3}), texture=({:.3}, {:.3})",
-            world_coords.x, world_coords.y,
-            camera.position[0], camera.position[1],
-            camera.zoom,
-            ndc_x, ndc_y,
+            "Mouse interaction: texture=({:.3}, {:.3})",
             texture_x, texture_y
         );
 
@@ -639,8 +613,9 @@ impl GrayScottModel {
         self.renderer.camera.reset();
     }
     
-    pub(crate) fn toggle_gui(&mut self) {
+    pub(crate) fn toggle_gui(&mut self) -> bool {
         self.show_gui = !self.show_gui;
+        self.show_gui
     }
 
     pub(crate) fn is_gui_visible(&self) -> bool {
@@ -661,8 +636,156 @@ impl LutHandler for GrayScottModel {
         self.lut_reversed = reversed;
     }
 
-    fn set_active_lut(&mut self, lut_data: &crate::simulations::shared::LutData, name: String, _device: &Device, queue: &Queue) {
-        self.renderer.update_lut(lut_data, queue);
-        self.current_lut_name = name;
+    fn set_active_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Queue) {
+        let lut_data_to_apply = if self.lut_reversed {
+            lut_data.reversed()
+        } else {
+            lut_data.clone()
+        };
+        
+        self.renderer.update_lut(&lut_data_to_apply, queue);
+        self.current_lut_name = lut_data.name.clone();
+    }
+}
+
+impl crate::simulations::traits::Simulation for GrayScottModel {
+    fn render_frame(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.render_frame(device, queue, surface_view).map_err(|e| e.into())
+    }
+
+    fn resize(
+        &mut self,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+        new_config: &SurfaceConfiguration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.resize(new_config)
+    }
+
+    fn update_setting(
+        &mut self,
+        setting_name: &str,
+        value: serde_json::Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.update_setting(setting_name, value, device, queue)
+    }
+
+    fn get_settings(&self) -> serde_json::Value {
+        serde_json::to_value(&self.settings).unwrap_or_else(|_| serde_json::json!({}))
+    }
+
+    fn get_state(&self) -> serde_json::Value {
+        serde_json::json!({
+            "width": self.width,
+            "height": self.height,
+            "lut_reversed": self.lut_reversed,
+            "current_lut_name": self.current_lut_name,
+            "show_gui": self.show_gui,
+            "camera": {
+                "position": self.renderer.camera.position,
+                "zoom": self.renderer.camera.zoom
+            }
+        })
+    }
+
+    fn handle_mouse_interaction(
+        &mut self,
+        world_x: f32,
+        world_y: f32,
+        is_seeding: bool,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Convert world coordinates to texture coordinates
+        let texture_x = (world_x + 1.0) * 0.5;
+        let texture_y = (world_y + 1.0) * 0.5;
+        self.handle_mouse_interaction(texture_x, texture_y, is_seeding, queue)
+    }
+
+    fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        self.pan_camera(delta_x, delta_y);
+    }
+
+    fn zoom_camera(&mut self, delta: f32) {
+        self.zoom_camera(delta);
+    }
+
+    fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        self.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+    }
+
+    fn reset_camera(&mut self) {
+        self.reset_camera();
+    }
+
+    fn get_camera_state(&self) -> serde_json::Value {
+        serde_json::json!({
+            "position": self.renderer.camera.position,
+            "zoom": self.renderer.camera.zoom
+        })
+    }
+
+    fn save_preset(&self, _preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // This would need to be implemented with the preset manager
+        // For now, we'll return an error indicating it needs to be implemented
+        Err("Preset saving not yet implemented for GrayScottModel".into())
+    }
+
+    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        // This would need to be implemented with the preset manager
+        // For now, we'll return an error indicating it needs to be implemented
+        Err("Preset loading not yet implemented for GrayScottModel".into())
+    }
+
+    fn reset_runtime_state(&mut self, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        self.reset();
+        Ok(())
+    }
+
+    fn get_simulation_type(&self) -> &str {
+        "gray_scott"
+    }
+
+    fn is_running(&self) -> bool {
+        true // GrayScottModel is always considered running when instantiated
+    }
+
+    fn get_agent_count(&self) -> Option<u32> {
+        None // Gray-Scott doesn't have agents
+    }
+
+    async fn update_agent_count(
+        &mut self,
+        _count: u32,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+        _surface_config: &SurfaceConfiguration,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Gray-Scott simulation does not support agent count updates".into())
+    }
+
+    fn toggle_gui(&mut self) -> bool {
+        self.toggle_gui()
+    }
+
+    fn is_gui_visible(&self) -> bool {
+        self.is_gui_visible()
+    }
+
+    fn randomize_settings(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Randomize the settings
+        self.settings.randomize();
+        self.update_settings(self.settings.clone(), queue);
+        Ok(())
     }
 }

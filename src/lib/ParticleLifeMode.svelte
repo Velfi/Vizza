@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import NumberDragBox from './NumberDragBox.svelte';
+  import NumberDragBox from './components/NumberDragBox.svelte';
   import LutSelector from './components/LutSelector.svelte';
 
   const dispatch = createEventDispatcher();

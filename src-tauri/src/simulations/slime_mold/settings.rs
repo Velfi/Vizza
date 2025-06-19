@@ -138,3 +138,39 @@ impl Default for Settings {
         }
     }
 }
+
+impl Settings {
+    /// Randomize all settings within reasonable bounds
+    pub fn randomize(&mut self) {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        
+        self.agent_speed_min = rand::random::<f32>() * 500.0;
+        self.agent_speed_max =
+            self.agent_speed_min + rand::random::<f32>() * (500.0 - self.agent_speed_min);
+        self.agent_turn_rate = (rand::random::<f32>() * 360.0) * std::f32::consts::PI / 180.0; // Convert degrees to radians
+        self.agent_jitter = rand::random::<f32>();
+        self.agent_sensor_angle = (rand::random::<f32>() * 180.0) * std::f32::consts::PI / 180.0; // Convert degrees to radians
+        self.agent_sensor_distance = rand::random::<f32>() * 500.0;
+        self.pheromone_decay_rate = 100.0;
+        self.pheromone_deposition_rate = 100.0;
+        self.pheromone_diffusion_rate = 100.0;
+        
+        // Don't randomize gradient settings
+        self.gradient_type = GradientType::Disabled;
+        self.gradient_strength = 0.5;
+        self.gradient_center_x = 0.5;
+        self.gradient_center_y = 0.5;
+        self.gradient_size = 1.0;
+        self.gradient_angle = 0.0;
+
+        // Randomize starting direction range
+        let start = rand::random::<f32>() * 360.0;
+        let end = start + rand::random::<f32>() * (360.0 - start);
+        self.agent_possible_starting_headings = start..end;
+
+        self.diffusion_frequency = 1;
+        self.decay_frequency = 1;
+        self.random_seed = rng.random();
+    }
+}

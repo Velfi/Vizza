@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};
 
 /// A pool of buffers organized by size and usage flags
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct BufferPool {
     // Map from (size, usage_flags) to a vector of available buffers
     buffers: HashMap<(u64, u32), Vec<Buffer>>,

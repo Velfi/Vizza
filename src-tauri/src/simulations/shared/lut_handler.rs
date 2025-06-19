@@ -1,4 +1,4 @@
-use wgpu::{Device, Queue};
+use wgpu::Queue;
 
 use crate::simulations::shared::LutData;
 
@@ -14,5 +14,5 @@ pub trait LutHandler {
     fn set_lut_reversed(&mut self, reversed: bool);
 
     /// Set the active LUT with new data and name
-    fn set_active_lut(&mut self, lut_data: &LutData, name: String, device: &Device, queue: &Queue);
+    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue);
 } 
