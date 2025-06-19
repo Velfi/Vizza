@@ -2,6 +2,8 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
 
+  import logo from '../assets/Logo.png';
+
   const dispatch = createEventDispatcher();
   let renderLoopId: number | null = null;
 
@@ -44,7 +46,8 @@
 </script>
 
 <div class="menu-container">
-  <h1>Sim-Pix</h1>
+  <img class="logo" src={logo} alt="Vizzy" />
+  <h1>Vizzy</h1>
   <p>Select a simulation:</p>
   
   <div class="simulation-grid">
@@ -86,9 +89,13 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    padding: 2rem;
     text-align: center;
     background: rgba(0, 0, 0, 0.5);
+  }
+
+  .logo {
+    width: 400px;
+    height: 400px;
   }
 
   h1 {
