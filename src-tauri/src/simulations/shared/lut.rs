@@ -1,6 +1,10 @@
 use dirs::home_dir;
 use std::collections::HashMap;
 use std::io;
+use std::sync::Arc;
+use wgpu::Queue;
+
+use crate::simulations::traits::SimulationType;
 
 #[derive(Debug, Clone)]
 pub struct LutData {
@@ -195,6 +199,7 @@ lazy_static::lazy_static! {
         "MATPLOTLIB_gist_gray.lut",
         "MATPLOTLIB_gist_heat.lut",
         "MATPLOTLIB_gist_ncar.lut",
+        "MATPLOTLIB_gist_rainbow.lut",
         "MATPLOTLIB_gist_stern.lut",
         "MATPLOTLIB_gist_yarg.lut",
         "MATPLOTLIB_gist_yerg.lut",
@@ -229,6 +234,7 @@ lazy_static::lazy_static! {
         "MATPLOTLIB_PuOr.lut",
         "MATPLOTLIB_PuRd.lut",
         "MATPLOTLIB_Purples.lut",
+        "MATPLOTLIB_rainbow.lut",
         "MATPLOTLIB_RdBu.lut",
         "MATPLOTLIB_RdGy.lut",
         "MATPLOTLIB_RdPu.lut",
@@ -250,8 +256,14 @@ lazy_static::lazy_static! {
         "MATPLOTLIB_turbo.lut",
         "MATPLOTLIB_twilight_shifted.lut",
         "MATPLOTLIB_twilight.lut",
+        "MATPLOTLIB_vanimo.lut",
         "MATPLOTLIB_viridis.lut",
         "MATPLOTLIB_winter.lut",
+        "MATPLOTLIB_Wistia.lut",
+        "MATPLOTLIB_YlGn.lut",
+        "MATPLOTLIB_YlGnBu.lut",
+        "MATPLOTLIB_YlOrBr.lut",
+        "MATPLOTLIB_YlOrRd.lut",
         "ZELDA_Glass.lut",
         "ZELDA_Monochrome.lut",
         "ZELDA_Rainbow.lut",
@@ -356,6 +368,103 @@ impl LutManager {
 }
 
 impl Default for LutManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Trait for handling LUT operations in simulations
+pub trait LutHandler {
+    /// Get the name of the currently active LUT
+    fn get_name_of_active_lut(&self) -> &str;
+
+    /// Check if the LUT is currently reversed
+    fn is_lut_reversed(&self) -> bool;
+
+    /// Set whether the LUT should be reversed
+    fn set_lut_reversed(&mut self, reversed: bool);
+
+    /// Set the active LUT with new data and name
+    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue);
+}
+
+/// Unified LUT manager for simulation operations
+pub struct SimulationLutManager;
+
+impl SimulationLutManager {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn get_available_luts(&self, lut_manager: &LutManager) -> Vec<String> {
+        lut_manager.all_luts()
+    }
+
+    pub fn apply_lut(
+        &self,
+        simulation: &mut SimulationType,
+        lut_manager: &LutManager,
+        lut_name: &str,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match simulation {
+            SimulationType::SlimeMold(simulation) => {
+                Self::handle_lut_application(simulation, lut_manager, lut_name, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                Self::handle_lut_application(simulation, lut_manager, lut_name, queue)
+            }
+        }
+    }
+
+    pub fn reverse_current_lut(
+        &self,
+        simulation: &mut SimulationType,
+        lut_manager: &LutManager,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        match simulation {
+            SimulationType::SlimeMold(simulation) => {
+                Self::handle_lut_reversal(simulation, lut_manager, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                Self::handle_lut_reversal(simulation, lut_manager, queue)
+            }
+        }
+    }
+
+    fn handle_lut_reversal<T: LutHandler>(
+        simulation: &mut T,
+        lut_manager: &LutManager,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let current_lut_name = simulation.get_name_of_active_lut();
+        let is_reversed = simulation.is_lut_reversed();
+        let new_reversed = !is_reversed;
+
+        if let Ok(lut_data) = lut_manager.get(&current_lut_name) {
+            simulation.set_lut_reversed(new_reversed);
+            simulation.set_active_lut(&lut_data, queue);
+        }
+
+        Ok(())
+    }
+
+    fn handle_lut_application<T: LutHandler>(
+        simulation: &mut T,
+        lut_manager: &LutManager,
+        lut_name: &str,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(lut_data) = lut_manager.get(lut_name) {
+            simulation.set_active_lut(&lut_data, queue);
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for SimulationLutManager {
     fn default() -> Self {
         Self::new()
     }

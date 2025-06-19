@@ -22,9 +22,27 @@
   let isDragging = false;
   let dragStopIndex = -1;
 
+  // Reactive statements to handle prop changes
+  $: if (available_luts.length > 0 && !current_lut) {
+    // Try to find a good default LUT
+    const defaultLuts = ['viridis', 'plasma', 'inferno', 'magma', 'turbo'];
+    for (const lut of defaultLuts) {
+      if (available_luts.includes(lut)) {
+        current_lut = lut;
+        break;
+      }
+    }
+    // If no default found, use the first available
+    if (!current_lut && available_luts.length > 0) {
+      current_lut = available_luts[0];
+    }
+  }
+
   function handleSelect(event: Event) {
     const select = event.target as HTMLSelectElement;
-    dispatch('select', { name: select.value });
+    const selectedName = select.value;
+    current_lut = selectedName; // Update local state
+    dispatch('select', { name: selectedName });
   }
 
   async function handleReverse() {
@@ -33,15 +51,21 @@
   }
 
   function cycleLutForward() {
+    if (available_luts.length === 0) return;
     const currentIndex = available_luts.indexOf(current_lut);
     const nextIndex = (currentIndex + 1) % available_luts.length;
-    dispatch('select', { name: available_luts[nextIndex] });
+    const nextLut = available_luts[nextIndex];
+    current_lut = nextLut; // Update local state
+    dispatch('select', { name: nextLut });
   }
 
   function cycleLutBack() {
+    if (available_luts.length === 0) return;
     const currentIndex = available_luts.indexOf(current_lut);
     const prevIndex = (currentIndex - 1 + available_luts.length) % available_luts.length;
-    dispatch('select', { name: available_luts[prevIndex] });
+    const prevLut = available_luts[prevIndex];
+    current_lut = prevLut; // Update local state
+    dispatch('select', { name: prevLut });
   }
 
   // Gradient editor functions
@@ -102,16 +126,32 @@
 
   function handleStopMouseDown(event: MouseEvent, index: number) {
     event.preventDefault();
+    event.stopPropagation();
     isDragging = true;
     dragStopIndex = index;
     selectedStopIndex = index;
 
+    // Store the container element reference for consistent position calculation
+    const container = (event.currentTarget as HTMLElement).parentElement as HTMLElement;
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      const rect = (e.target as HTMLElement).getBoundingClientRect();
+      
+      // Use the stored container reference and recalculate rect if needed
+      const rect = container.getBoundingClientRect();
       const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      
+      // Update the stop position
       gradientStops[dragStopIndex].position = position;
+      
+      // Re-sort stops by position and update the array to trigger reactivity
       gradientStops = [...gradientStops].sort((a, b) => a.position - b.position);
+      
+      // Update the drag index to match the new position
+      dragStopIndex = gradientStops.findIndex(stop => 
+        Math.abs(stop.position - position) < 0.001
+      );
+      
       updateGradientPreview();
     };
 
@@ -219,7 +259,7 @@
 </div>
 
 {#if show_gradient_editor}
-  <div class="gradient-editor-dialog">
+  <div class="gradient-editor-dialog" on:click|self={() => show_gradient_editor = false}>
     <div class="dialog-content gradient-editor-content">
       <h3>Custom LUT Editor</h3>
       
@@ -386,7 +426,6 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -444,6 +483,10 @@
     border-radius: 6px;
     cursor: crosshair;
     box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
   }
 
   .gradient-stops-container:hover {

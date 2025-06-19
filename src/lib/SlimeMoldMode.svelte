@@ -120,10 +120,10 @@
     }
   }
 
-  async function updateLutReversed(value: boolean) {
-    settings.lut_reversed = value;
+  async function updateLutReversed() {
     try {
       await invoke('toggle_lut_reversed');
+      await syncSettingsFromBackend(); // Sync UI with backend
     } catch (e) {
       console.error('Failed to toggle LUT reversed:', e);
     }
@@ -594,9 +594,9 @@
   });
 
   async function updateLutName(value: string) {
-    settings.lut_name = value;
     try {
       await invoke('apply_lut_by_name', { lutName: value });
+      await syncSettingsFromBackend(); // Sync UI with backend state
     } catch (e) {
       console.error('Failed to update LUT name:', e);
     }
@@ -777,7 +777,7 @@
             current_lut={settings.lut_name}
             reversed={settings.lut_reversed}
             on:select={({ detail }) => updateLutName(detail.name)}
-            on:reverse={({ detail }) => updateLutReversed(detail.reversed)}
+            on:reverse={() => updateLutReversed()}
           />
         </div>
       </fieldset>

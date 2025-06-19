@@ -7,7 +7,7 @@ use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
 use crate::simulations::shared::coordinates::TextureCoords;
-use crate::simulations::shared::lut_handler::LutHandler;
+use crate::simulations::shared::LutHandler;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]

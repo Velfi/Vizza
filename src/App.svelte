@@ -18,6 +18,10 @@
   }
 
   // Handle window resize events
+  let resizeTimeout: number | null = null;
+  let lastResizeTime = 0;
+  const resizeDebounceDelay = 500; // 100ms debounce
+
   async function handleResize() {
     try {
       // Convert logical pixels to physical pixels using device pixel ratio
@@ -38,15 +42,36 @@
     }
   }
 
+  function debouncedResize() {
+    const now = Date.now();
+    
+    // Clear existing timeout
+    if (resizeTimeout) {
+      clearTimeout(resizeTimeout);
+    }
+    
+    // Debounce rapid resize events
+    if (now - lastResizeTime < resizeDebounceDelay) {
+      resizeTimeout = setTimeout(() => {
+        handleResize();
+        lastResizeTime = Date.now();
+      }, resizeDebounceDelay);
+    } else {
+      // If enough time has passed, handle immediately
+      handleResize();
+      lastResizeTime = now;
+    }
+  }
+
   onMount(() => {
     // Listen for resize events
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', debouncedResize);
     
     // Send initial size
-    handleResize();
+    debouncedResize();
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', debouncedResize);
     };
   });
 </script>

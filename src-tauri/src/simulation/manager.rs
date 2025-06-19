@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
-use crate::simulations::shared::{coordinates::ScreenCoords, lut_handler::LutHandler};
+use crate::simulations::shared::{coordinates::ScreenCoords, LutHandler, LutManager, SimulationLutManager};
 use crate::simulations::traits::{Simulation, SimulationType};
 use crate::simulation::preset_manager::SimulationPresetManager;
 use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
@@ -13,7 +13,8 @@ use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayS
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
     pub preset_manager: SimulationPresetManager,
-    pub lut_manager: crate::simulations::shared::LutManager,
+    pub lut_manager: LutManager,
+    pub simulation_lut_manager: SimulationLutManager,
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
@@ -25,7 +26,8 @@ impl SimulationManager {
         Self {
             current_simulation: None,
             preset_manager: SimulationPresetManager::new(),
-            lut_manager: crate::simulations::shared::LutManager::new(),
+            lut_manager: LutManager::new(),
+            simulation_lut_manager: SimulationLutManager::new(),
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
@@ -303,29 +305,7 @@ impl SimulationManager {
 
     // LUT management methods
     pub fn get_available_luts(&self) -> Vec<String> {
-        self.lut_manager.all_luts()
-    }
-
-    fn handle_lut_reversal<T: LutHandler>(
-        _simulation: &mut T,
-        _lut_manager: &crate::simulations::shared::LutManager,
-        _queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Note: get_active_lut_name is not available in LutHandler trait
-        // This would need to be implemented differently or the trait extended
-        Ok(())
-    }
-
-    fn handle_lut_application<T: LutHandler>(
-        simulation: &mut T,
-        lut_manager: &crate::simulations::shared::LutManager,
-        lut_name: &str,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(lut_data) = lut_manager.get(lut_name) {
-            simulation.set_active_lut(&lut_data, queue);
-        }
-        Ok(())
+        self.simulation_lut_manager.get_available_luts(&self.lut_manager)
     }
 
     pub fn apply_lut(
@@ -334,14 +314,7 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    Self::handle_lut_application(simulation, &self.lut_manager, lut_name, queue)?;
-                }
-                SimulationType::GrayScott(simulation) => {
-                    Self::handle_lut_application(simulation, &self.lut_manager, lut_name, queue)?;
-                }
-            }
+            self.simulation_lut_manager.apply_lut(simulation, &self.lut_manager, lut_name, queue)?;
         }
         Ok(())
     }
@@ -351,14 +324,7 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    Self::handle_lut_reversal(simulation, &self.lut_manager, queue)?;
-                }
-                SimulationType::GrayScott(simulation) => {
-                    Self::handle_lut_reversal(simulation, &self.lut_manager, queue)?;
-                }
-            }
+            self.simulation_lut_manager.reverse_current_lut(simulation, &self.lut_manager, queue)?;
         }
         Ok(())
     }

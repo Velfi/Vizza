@@ -424,10 +424,16 @@
     }
   }
 
-  function handleSelectChange(event: Event) {
-    const target = event.target as HTMLSelectElement;
-    if (target?.value !== undefined) {
-      settings.lut_name = target.value;
+  function handleSelectChange(event: CustomEvent) {
+    if (event.detail?.name) {
+      settings.lut_name = event.detail.name;
+      sendSettings();
+    }
+  }
+
+  function handleReverseChange(event: CustomEvent) {
+    if (event.detail?.reversed !== undefined) {
+      settings.lut_reversed = event.detail.reversed;
       sendSettings();
     }
   }
@@ -500,7 +506,7 @@
               current_lut={settings.lut_name}
               reversed={settings.lut_reversed}
               on:select={handleSelectChange}
-              on:reverse={handleCheckboxChange}
+              on:reverse={handleReverseChange}
             />
           </div>
         </fieldset>

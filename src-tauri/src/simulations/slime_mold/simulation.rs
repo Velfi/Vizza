@@ -75,7 +75,8 @@ impl SimSizeUniform {
 #[derive(Debug)]
 /// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
-pub struct SlimeMoldModel {
+pub struct 
+SlimeMoldModel {
     // Simulation-specific GPU resources
     pub bind_group_manager: BindGroupManager,
     pub pipeline_manager: PipelineManager,
@@ -108,6 +109,10 @@ pub struct SlimeMoldModel {
 
     // Camera for viewport control
     pub camera: Camera,
+
+    // Resize debouncing
+    pub last_resize_time: std::time::Instant,
+    pub resize_debounce_threshold: std::time::Duration,
 }
 
 impl SlimeMoldModel {
@@ -294,6 +299,8 @@ impl SlimeMoldModel {
             current_height: effective_height,
             show_gui: false,
             camera,
+            last_resize_time: std::time::Instant::now(),
+            resize_debounce_threshold: std::time::Duration::from_millis(500),
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -338,12 +345,45 @@ impl SlimeMoldModel {
             (physical_width, physical_height)
         };
 
+        // Early return if dimensions haven't changed significantly
+        let width_diff = effective_width.abs_diff(self.current_width);
+        let height_diff = effective_height.abs_diff(self.current_height);
+        let total_pixel_change = width_diff * self.current_height + height_diff * self.current_width;
+        
+        // If change is less than 1% of total pixels, skip resize
+        let total_pixels = self.current_width * self.current_height;
+        if total_pixel_change < total_pixels / 100 {
+            return Ok(());
+        }
+
+        // Debounce rapid resize events
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last_resize_time) < self.resize_debounce_threshold {
+            // Update the last resize time but don't actually resize
+            self.last_resize_time = now;
+            return Ok(());
+        }
+        self.last_resize_time = now;
+
+        tracing::info!(
+            "Resizing slime mold from {}x{} to {}x{}",
+            self.current_width, self.current_height, effective_width, effective_height
+        );
+
         // Calculate new buffer sizes
         let trail_map_size = (effective_width * effective_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
         let agent_buffer_size_bytes = (self.agent_count * 4 * std::mem::size_of::<f32>()) as u64;
 
-        // Return old buffers to pool before creating new ones
+        // Validate buffer sizes to prevent overruns
+        if trail_map_size_bytes > max_storage_buffer_size {
+            return Err(format!(
+                "New trail map buffer size {} bytes exceeds GPU limit {} bytes",
+                trail_map_size_bytes, max_storage_buffer_size
+            ).into());
+        }
+
+        // Store old buffers for scaling
         let old_trail_map_buffer = std::mem::replace(
             &mut self.trail_map_buffer,
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -352,13 +392,6 @@ impl SlimeMoldModel {
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             }),
-        );
-        self.buffer_pool.return_buffer(
-            old_trail_map_buffer,
-            self.current_trail_map_size,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
         );
 
         let old_gradient_buffer = std::mem::replace(
@@ -369,13 +402,6 @@ impl SlimeMoldModel {
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             }),
-        );
-        self.buffer_pool.return_buffer(
-            old_gradient_buffer,
-            self.current_gradient_buffer_size,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
         );
 
         // Get new buffers from pool (or create new if none available)
@@ -397,6 +423,59 @@ impl SlimeMoldModel {
                 | wgpu::BufferUsages::COPY_DST,
         );
 
+        // Scale trail map data from old dimensions to new dimensions
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            scale_trail_map_data(
+                device,
+                queue,
+                &old_trail_map_buffer,
+                &self.trail_map_buffer,
+                self.current_width,
+                self.current_height,
+                effective_width,
+                effective_height,
+            );
+        })) {
+            tracing::error!("Failed to scale trail map data: {:?}", e);
+            // If scaling fails, just reset the trail map
+            reset_trails(&self.trail_map_buffer, queue, effective_width, effective_height);
+        }
+
+        // Scale gradient data from old dimensions to new dimensions
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            scale_trail_map_data(
+                device,
+                queue,
+                &old_gradient_buffer,
+                &self.gradient_buffer,
+                self.current_width,
+                self.current_height,
+                effective_width,
+                effective_height,
+            );
+        })) {
+            tracing::error!("Failed to scale gradient data: {:?}", e);
+            // If scaling fails, just reset the gradient
+            reset_trails(&self.gradient_buffer, queue, effective_width, effective_height);
+        }
+
+        // Return old buffers to pool after scaling is complete
+        self.buffer_pool.return_buffer(
+            old_trail_map_buffer,
+            self.current_trail_map_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        );
+
+        self.buffer_pool.return_buffer(
+            old_gradient_buffer,
+            self.current_gradient_buffer_size,
+            wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+        );
+
         // For agent buffer, we need special handling to preserve and scale existing positions
         // Store the old buffer before replacing it
         let old_agent_buffer = std::mem::replace(
@@ -410,17 +489,33 @@ impl SlimeMoldModel {
         );
 
         // Create new agent buffer and scale existing positions
-        self.agent_buffer = create_agent_buffer_with_scaling(
-            &mut self.buffer_pool,
-            device,
-            queue,
-            &old_agent_buffer,
-            self.agent_count,
-            self.current_width,
-            self.current_height,
-            effective_width,
-            effective_height,
-        );
+        if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.agent_buffer = create_agent_buffer_with_scaling(
+                &mut self.buffer_pool,
+                device,
+                queue,
+                &old_agent_buffer,
+                self.agent_count,
+                self.current_width,
+                self.current_height,
+                effective_width,
+                effective_height,
+            );
+        })) {
+            tracing::error!("Failed to scale agent buffer: {:?}", e);
+            // If scaling fails, create a new agent buffer and reset agents
+            self.agent_buffer = create_agent_buffer(
+                device,
+                self.agent_count,
+                effective_width,
+                effective_height,
+                &self.settings,
+            );
+            // Reset agents to new positions
+            if let Err(e) = self.reset_agents(device, queue) {
+                tracing::error!("Failed to reset agents after resize: {}", e);
+            }
+        }
 
         // Return old buffer to pool after scaling is complete
         self.buffer_pool.return_buffer(
@@ -437,6 +532,19 @@ impl SlimeMoldModel {
         self.current_agent_buffer_size = agent_buffer_size_bytes;
         self.current_width = effective_width;
         self.current_height = effective_height;
+
+        // Update sim_size_buffer with new dimensions
+        let sim_size_uniform = SimSizeUniform::new(
+            effective_width,
+            effective_height,
+            self.settings.pheromone_decay_rate,
+            &self.settings,
+        );
+        queue.write_buffer(
+            &self.sim_size_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_size_uniform]),
+        );
 
         // Recreate display texture with new dimensions
         let max_texture_dimension = device.limits().max_texture_dimension_2d;
@@ -468,6 +576,7 @@ impl SlimeMoldModel {
         // Resize camera
         self.camera.resize(effective_width as f32, effective_height as f32);
 
+        tracing::info!("Slime mold resize completed successfully");
         Ok(())
     }
 
@@ -1184,7 +1293,7 @@ fn create_agent_buffer_with_scaling(
     let scale_x = new_width as f32 / old_width as f32;
     let scale_y = new_height as f32 / old_height as f32;
 
-    // Create read staging buffer
+    // Use separate staging buffers to avoid usage conflicts
     let read_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Scaling Read Staging Buffer"),
         size,
@@ -1192,7 +1301,6 @@ fn create_agent_buffer_with_scaling(
         mapped_at_creation: false,
     });
 
-    // Create write staging buffer
     let write_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Scaling Write Staging Buffer"),
         size,
@@ -1286,4 +1394,177 @@ fn update_settings(
         0,
         bytemuck::cast_slice(&[sim_size_uniform]),
     );
+}
+
+fn scale_trail_map_data(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    old_buffer: &wgpu::Buffer,
+    new_buffer: &wgpu::Buffer,
+    old_width: u32,
+    old_height: u32,
+    new_width: u32,
+    new_height: u32,
+) {
+    let old_size = (old_width * old_height) as usize * std::mem::size_of::<f32>();
+    let new_size = (new_width * new_height) as usize * std::mem::size_of::<f32>();
+
+    // For small size changes, use a more efficient approach
+    if new_size <= old_size * 2 && old_size <= new_size * 2 {
+        // Use separate staging buffers to avoid usage conflicts
+        let read_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Trail Map Scaling Read Staging Buffer"),
+            size: old_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let write_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Trail Map Scaling Write Staging Buffer"),
+            size: new_size as u64,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+            mapped_at_creation: true,
+        });
+
+        // Copy old buffer to read staging
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Trail Map Scaling Copy Old"),
+        });
+        encoder.copy_buffer_to_buffer(old_buffer, 0, &read_staging_buffer, 0, old_size as u64);
+        queue.submit(std::iter::once(encoder.finish()));
+
+        // Wait for copy to complete and map for reading
+        let (sender, receiver) = std::sync::mpsc::channel();
+        read_staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        receiver.recv().unwrap().unwrap();
+
+        // Read old data and scale to new dimensions
+        {
+            let buffer_slice = read_staging_buffer.slice(..).get_mapped_range();
+            let old_trail_data: &[f32] = bytemuck::cast_slice(&buffer_slice);
+
+            let mut write_buffer_slice = write_staging_buffer.slice(..).get_mapped_range_mut();
+            let new_trail_data: &mut [f32] = bytemuck::cast_slice_mut(&mut write_buffer_slice);
+
+            // Initialize new buffer with zeros
+            for i in 0..new_trail_data.len() {
+                new_trail_data[i] = 0.0;
+            }
+
+            // Scale old data to new dimensions using nearest neighbor sampling
+            for new_y in 0..new_height {
+                for new_x in 0..new_width {
+                    // Map new coordinates to old coordinates
+                    let old_x = (new_x as f32 * old_width as f32 / new_width as f32) as u32;
+                    let old_y = (new_y as f32 * old_height as f32 / new_height as f32) as u32;
+                    
+                    // Clamp to old dimensions
+                    let old_x = old_x.min(old_width - 1);
+                    let old_y = old_y.min(old_height - 1);
+                    
+                    // Copy value from old position to new position
+                    let old_idx = (old_y * old_width + old_x) as usize;
+                    let new_idx = (new_y * new_width + new_x) as usize;
+                    
+                    if old_idx < old_trail_data.len() && new_idx < new_trail_data.len() {
+                        new_trail_data[new_idx] = old_trail_data[old_idx];
+                    }
+                }
+            }
+
+            drop(write_buffer_slice);
+            write_staging_buffer.unmap();
+        }
+
+        read_staging_buffer.unmap();
+
+        // Copy scaled data to final buffer
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Trail Map Scaling Copy New"),
+        });
+        encoder.copy_buffer_to_buffer(&write_staging_buffer, 0, new_buffer, 0, new_size as u64);
+        queue.submit(std::iter::once(encoder.finish()));
+    } else {
+        // For large size changes, use separate buffers to avoid memory issues
+        // Create read staging buffer for old data
+        let read_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Trail Map Scaling Read Staging Buffer"),
+            size: old_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        // Create write staging buffer for new data
+        let write_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Trail Map Scaling Write Staging Buffer"),
+            size: new_size as u64,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::MAP_WRITE,
+            mapped_at_creation: true,
+        });
+
+        // Copy old buffer to read staging
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Trail Map Scaling Copy Old"),
+        });
+        encoder.copy_buffer_to_buffer(old_buffer, 0, &read_staging_buffer, 0, old_size as u64);
+        queue.submit(std::iter::once(encoder.finish()));
+
+        // Wait for copy to complete and map for reading
+        let (sender, receiver) = std::sync::mpsc::channel();
+        read_staging_buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        receiver.recv().unwrap().unwrap();
+
+        // Read old data and scale to new dimensions
+        {
+            let buffer_slice = read_staging_buffer.slice(..).get_mapped_range();
+            let old_trail_data: &[f32] = bytemuck::cast_slice(&buffer_slice);
+
+            let mut write_buffer_slice = write_staging_buffer.slice(..).get_mapped_range_mut();
+            let new_trail_data: &mut [f32] = bytemuck::cast_slice_mut(&mut write_buffer_slice);
+
+            // Initialize new buffer with zeros
+            for i in 0..new_trail_data.len() {
+                new_trail_data[i] = 0.0;
+            }
+
+            // Scale old data to new dimensions using nearest neighbor sampling
+            for new_y in 0..new_height {
+                for new_x in 0..new_width {
+                    // Map new coordinates to old coordinates
+                    let old_x = (new_x as f32 * old_width as f32 / new_width as f32) as u32;
+                    let old_y = (new_y as f32 * old_height as f32 / new_height as f32) as u32;
+                    
+                    // Clamp to old dimensions
+                    let old_x = old_x.min(old_width - 1);
+                    let old_y = old_y.min(old_height - 1);
+                    
+                    // Copy value from old position to new position
+                    let old_idx = (old_y * old_width + old_x) as usize;
+                    let new_idx = (new_y * new_width + new_x) as usize;
+                    
+                    if old_idx < old_trail_data.len() && new_idx < new_trail_data.len() {
+                        new_trail_data[new_idx] = old_trail_data[old_idx];
+                    }
+                }
+            }
+
+            drop(write_buffer_slice);
+            write_staging_buffer.unmap();
+        }
+
+        read_staging_buffer.unmap();
+
+        // Copy scaled data to final buffer
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Trail Map Scaling Copy New"),
+        });
+        encoder.copy_buffer_to_buffer(&write_staging_buffer, 0, new_buffer, 0, new_size as u64);
+        queue.submit(std::iter::once(encoder.finish()));
+    }
 }
