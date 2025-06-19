@@ -82,6 +82,11 @@ pub trait Simulation {
     /// This should load settings and reset any runtime state to default values.
     fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>>;
 
+    /// Update the simulation settings directly
+    /// 
+    /// This should apply new settings to the simulation without resetting runtime state.
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>>;
+
     /// Reset the simulation's runtime state
     /// 
     /// This should reset runtime state (like agent positions, trail maps) but preserve settings.
@@ -282,6 +287,13 @@ impl Simulation for SimulationType {
         match self {
             SimulationType::SlimeMold(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::GrayScott(simulation) => simulation.load_preset(preset_name, queue),
+        }
+    }
+
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
+            SimulationType::SlimeMold(simulation) => simulation.apply_settings(settings, queue),
+            SimulationType::GrayScott(simulation) => simulation.apply_settings(settings, queue),
         }
     }
 

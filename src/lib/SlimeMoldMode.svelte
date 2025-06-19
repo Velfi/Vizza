@@ -265,7 +265,7 @@
   // Load available presets from backend
   async function loadAvailablePresets() {
     try {
-      available_presets = await invoke('get_slime_mold_presets');
+      available_presets = await invoke('get_presets_for_simulation_type', { simulationType: 'slime_mold' });
       console.log('Available presets loaded:', available_presets);
       if (available_presets.length > 0 && !current_preset) {
         current_preset = available_presets[0];

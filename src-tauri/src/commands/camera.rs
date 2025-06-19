@@ -1,7 +1,6 @@
+use crate::simulation::SimulationManager;
 use std::sync::Arc;
 use tauri::State;
-
-use crate::simulation_manager::SimulationManager;
 
 #[tauri::command]
 pub async fn pan_camera(

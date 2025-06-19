@@ -1,7 +1,6 @@
+use crate::simulation::SimulationManager;
 use std::sync::Arc;
 use tauri::State;
-
-use crate::simulation_manager::SimulationManager;
 
 #[tauri::command]
 pub async fn handle_mouse_interaction(
@@ -62,5 +61,17 @@ pub async fn seed_random_noise(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    todo!()
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.seed_random_noise(&gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("Random noise seeded successfully");
+            Ok("Random noise seeded successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to seed random noise: {}", e);
+            Err(format!("Failed to seed random noise: {}", e))
+        }
+    }
 } 

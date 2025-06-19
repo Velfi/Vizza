@@ -90,7 +90,7 @@ impl RenderLoopManager {
                     let current_fps = frame_count as f32 / fps_elapsed.as_secs_f32();
                     
                     // Emit FPS to frontend
-                    if let Err(e) = app_handle.emit_all("fps-update", current_fps) {
+                    if let Err(e) = app_handle.emit("fps-update", current_fps) {
                         tracing::error!("Failed to emit FPS update: {}", e);
                     }
 

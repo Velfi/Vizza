@@ -1,7 +1,7 @@
+use crate::simulation::SimulationManager;
 use std::sync::Arc;
 use tauri::State;
 
-use crate::simulation_manager::SimulationManager;
 use crate::simulations::shared::LutData;
 use crate::simulations::traits::SimulationType;
 

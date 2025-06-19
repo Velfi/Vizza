@@ -1,7 +1,6 @@
+use crate::simulation::SimulationManager;
 use std::sync::Arc;
 use tauri::State;
-
-use crate::simulation_manager::SimulationManager;
 
 #[tauri::command]
 pub async fn get_available_presets(
@@ -12,19 +11,12 @@ pub async fn get_available_presets(
 }
 
 #[tauri::command]
-pub async fn get_slime_mold_presets(
+pub async fn get_presets_for_simulation_type(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    simulation_type: String,
 ) -> Result<Vec<String>, String> {
     let sim_manager = manager.lock().await;
-    Ok(sim_manager.get_slime_mold_presets())
-}
-
-#[tauri::command]
-pub async fn get_gray_scott_presets(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-) -> Result<Vec<String>, String> {
-    let sim_manager = manager.lock().await;
-    Ok(sim_manager.get_gray_scott_presets())
+    Ok(sim_manager.get_presets_for_simulation_type(&simulation_type))
 }
 
 #[tauri::command]

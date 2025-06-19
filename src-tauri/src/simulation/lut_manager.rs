@@ -59,7 +59,7 @@ impl SimulationLutManager {
         lut_manager: &LutManager,
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let current_lut_name = simulation.get_active_lut_name();
+        let current_lut_name = simulation.get_name_of_active_lut();
         let is_reversed = simulation.is_lut_reversed();
         let new_reversed = !is_reversed;
 

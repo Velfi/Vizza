@@ -188,7 +188,7 @@
   // Load available presets from backend
   async function loadAvailablePresets() {
     try {
-      available_presets = await invoke('get_available_presets');
+      available_presets = await invoke('get_presets_for_simulation_type', { simulationType: 'gray_scott' });
       if (available_presets.length > 0 && !current_preset) {
         current_preset = available_presets.includes('Undulating') ? 'Undulating' : available_presets[0];
         // Apply the initial preset to the simulation

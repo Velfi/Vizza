@@ -1,25 +1,18 @@
-use std::sync::atomic::{AtomicBool, AtomicU32};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
-use crate::simulations::gray_scott::{
-    self, presets::init_preset_manager as init_gray_scott_preset_manager,
-};
-use crate::simulations::slime_mold::{
-    self, presets::init_preset_manager as init_slime_mold_preset_manager,
-};
-use crate::simulations::shared::coordinates::ScreenCoords;
+use crate::simulations::shared::{coordinates::ScreenCoords, lut_handler::LutHandler};
 use crate::simulations::traits::{Simulation, SimulationType};
-
-use super::preset_manager::PresetManager;
-use super::lut_manager::LutManager as SimulationLutManager;
-use super::render_loop::RenderLoopManager;
+use crate::simulation::preset_manager::SimulationPresetManager;
+use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
+use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
 
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
-    pub slime_mold_preset_manager: slime_mold::presets::PresetManager,
-    pub gray_scott_preset_manager: gray_scott::presets::PresetManager,
+    pub preset_manager: SimulationPresetManager,
     pub lut_manager: crate::simulations::shared::LutManager,
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
@@ -31,8 +24,7 @@ impl SimulationManager {
     pub fn new() -> Self {
         Self {
             current_simulation: None,
-            slime_mold_preset_manager: init_slime_mold_preset_manager(),
-            gray_scott_preset_manager: init_gray_scott_preset_manager(),
+            preset_manager: SimulationPresetManager::new(),
             lut_manager: crate::simulations::shared::LutManager::new(),
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
@@ -43,6 +35,16 @@ impl SimulationManager {
 
     pub fn get_time(&self) -> f32 {
         self.start_time.elapsed().as_secs_f32()
+    }
+
+    /// Get immutable reference to current simulation
+    pub fn simulation(&self) -> Option<&SimulationType> {
+        self.current_simulation.as_ref()
+    }
+
+    /// Get mutable reference to current simulation
+    pub fn simulation_mut(&mut self) -> Option<&mut SimulationType> {
+        self.current_simulation.as_mut()
     }
 
     pub async fn start_simulation(
@@ -56,8 +58,8 @@ impl SimulationManager {
         match simulation_type.as_str() {
             "slime_mold" => {
                 // Initialize slime mold simulation
-                let settings = slime_mold::settings::Settings::default();
-                let simulation = slime_mold::SlimeMoldModel::new(
+                let settings = SlimeMoldSettings::default();
+                let simulation = SlimeMoldModel::new(
                     device,
                     queue,
                     surface_config,
@@ -72,9 +74,9 @@ impl SimulationManager {
             }
             "gray_scott" => {
                 // Initialize Gray-Scott simulation
-                let settings = crate::simulations::gray_scott::settings::Settings::default();
+                let settings = GrayScottSettings::default();
 
-                let simulation = crate::simulations::gray_scott::GrayScottModel::new(
+                let simulation = GrayScottModel::new(
                     device,
                     queue,
                     surface_config,
@@ -102,10 +104,7 @@ impl SimulationManager {
         surface_view: &wgpu::TextureView,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.render_frame(device, queue, surface_view)?,
-                SimulationType::GrayScott(simulation) => simulation.render_frame(device, queue, surface_view)?,
-            }
+            simulation.render_frame(device, queue, surface_view)?;
         }
         Ok(())
     }
@@ -117,10 +116,7 @@ impl SimulationManager {
         new_config: &SurfaceConfiguration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.resize(device, queue, new_config)?,
-                SimulationType::GrayScott(simulation) => simulation.resize(new_config)?,
-            }
+            simulation.resize(device, queue, new_config)?;
         }
         Ok(())
     }
@@ -133,12 +129,8 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::GrayScott(simulation) => simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)?,
-                _ => (),
-            }
+            simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)?;
         }
-        // TODO: Add slime mold mouse interaction if needed
         Ok(())
     }
 
@@ -190,10 +182,7 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.update_setting(setting_name, value.clone(), device, queue)?,
-                SimulationType::GrayScott(simulation) => simulation.update_setting(setting_name, value.clone(), device, queue)?,
-            }
+            simulation.update_setting(setting_name, value.clone(), device, queue)?;
         }
         Ok(())
     }
@@ -206,22 +195,74 @@ impl SimulationManager {
         surface_config: &SurfaceConfiguration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation
-                    .update_agent_count(count, device, queue, surface_config)
-                    .await?,
-                _ => (),
+            simulation.update_agent_count(count, device, queue, surface_config).await?;
+        }
+        Ok(())
+    }
+
+    // Preset management methods
+    pub fn get_available_presets(&self) -> Vec<String> {
+        if let Some(simulation) = &self.current_simulation {
+            let presets = self.preset_manager.get_available_presets(simulation);
+            tracing::info!("Available presets for simulation: {:?}", presets);
+            presets
+        } else {
+            tracing::warn!("No simulation running, returning empty preset list");
+            vec![]
+        }
+    }
+
+    pub fn get_presets_for_simulation_type(&self, simulation_type: &str) -> Vec<String> {
+        match simulation_type {
+            "slime_mold" => {
+                let presets = self.preset_manager.slime_mold_preset_manager().get_preset_names();
+                tracing::info!("Slime mold presets: {:?}", presets);
+                presets
             }
+            "gray_scott" => {
+                let presets = self.preset_manager.gray_scott_preset_manager().get_preset_names();
+                tracing::info!("Gray-Scott presets: {:?}", presets);
+                presets
+            }
+            _ => {
+                tracing::warn!("Unknown simulation type: {}", simulation_type);
+                vec![]
+            }
+        }
+    }
+
+    pub fn apply_preset(
+        &mut self,
+        preset_name: &str,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.current_simulation {
+            self.preset_manager.apply_preset(simulation, preset_name, queue)?;
+        }
+        Ok(())
+    }
+
+    pub fn save_preset(
+        &self,
+        preset_name: &str,
+        settings: &serde_json::Value,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &self.current_simulation {
+            self.preset_manager.save_preset(simulation, preset_name, settings)?;
+        }
+        Ok(())
+    }
+
+    pub fn delete_preset(&mut self, preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &self.current_simulation {
+            self.preset_manager.delete_preset(simulation, preset_name)?;
         }
         Ok(())
     }
 
     pub fn get_current_settings(&self) -> Option<serde_json::Value> {
         if let Some(simulation) = &self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => Some(simulation.get_settings()),
-                SimulationType::GrayScott(simulation) => Some(simulation.get_settings()),
-            }
+            Some(simulation.get_settings())
         } else {
             None
         }
@@ -229,10 +270,7 @@ impl SimulationManager {
 
     pub fn get_current_state(&self) -> Option<serde_json::Value> {
         if let Some(simulation) = &self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => Some(simulation.get_state()),
-                SimulationType::GrayScott(simulation) => Some(simulation.get_state()),
-            }
+            Some(simulation.get_state())
         } else {
             None
         }
@@ -241,7 +279,7 @@ impl SimulationManager {
     pub fn get_current_agent_count(&self) -> Option<u32> {
         if let Some(simulation) = &self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => Some(simulation.get_agent_count()),
+                SimulationType::SlimeMold(simulation) => simulation.get_agent_count(),
                 SimulationType::GrayScott(_) => None, // Gray-Scott doesn't have agents
             }
         } else {
@@ -251,22 +289,194 @@ impl SimulationManager {
 
     pub fn toggle_gui(&mut self) {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => {simulation.toggle_gui();},
-                SimulationType::GrayScott(simulation) => {simulation.toggle_gui();},
-            }
+            simulation.toggle_gui();
         }
     }
 
     pub fn is_gui_visible(&self) -> bool {
         if let Some(simulation) = &self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.is_gui_visible(),
-                SimulationType::GrayScott(simulation) => simulation.is_gui_visible(),
-            }
+            simulation.is_gui_visible()
         } else {
             false
         }
+    }
+
+    // LUT management methods
+    pub fn get_available_luts(&self) -> Vec<String> {
+        self.lut_manager.all_luts()
+    }
+
+    fn handle_lut_reversal<T: LutHandler>(
+        _simulation: &mut T,
+        _lut_manager: &crate::simulations::shared::LutManager,
+        _queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Note: get_active_lut_name is not available in LutHandler trait
+        // This would need to be implemented differently or the trait extended
+        Ok(())
+    }
+
+    fn handle_lut_application<T: LutHandler>(
+        simulation: &mut T,
+        lut_manager: &crate::simulations::shared::LutManager,
+        lut_name: &str,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(lut_data) = lut_manager.get(lut_name) {
+            simulation.set_active_lut(&lut_data, queue);
+        }
+        Ok(())
+    }
+
+    pub fn apply_lut(
+        &mut self,
+        lut_name: &str,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    Self::handle_lut_application(simulation, &self.lut_manager, lut_name, queue)?;
+                }
+                SimulationType::GrayScott(simulation) => {
+                    Self::handle_lut_application(simulation, &self.lut_manager, lut_name, queue)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn reverse_current_lut(
+        &mut self,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    Self::handle_lut_reversal(simulation, &self.lut_manager, queue)?;
+                }
+                SimulationType::GrayScott(simulation) => {
+                    Self::handle_lut_reversal(simulation, &self.lut_manager, queue)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // Render loop management
+    pub fn start_render_loop(
+        &self,
+        app_handle: AppHandle,
+        gpu_context: Arc<tokio::sync::Mutex<crate::GpuContext>>,
+        manager: Arc<tokio::sync::Mutex<SimulationManager>>,
+    ) {
+        let render_loop_running = self.render_loop_running.clone();
+        let fps_limit_enabled = self.fps_limit_enabled.clone();
+        let fps_limit = self.fps_limit.clone();
+
+        render_loop_running.store(true, Ordering::Relaxed);
+
+        tokio::spawn(async move {
+            let mut frame_count = 0u32;
+            let mut last_fps_update = Instant::now();
+
+            while render_loop_running.load(Ordering::Relaxed) {
+                let frame_start = Instant::now();
+
+                // Render frame (only if simulation is running)
+                {
+                    let mut sim_manager = manager.lock().await;
+                    let gpu_ctx = gpu_context.lock().await;
+
+                    if sim_manager.is_running() {
+                        if let Ok(output) = gpu_ctx.get_current_texture() {
+                            let view = output
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default());
+                            if sim_manager
+                                .render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                                .is_ok()
+                            {
+                                output.present();
+                            }
+                        }
+                    } else {
+                        // Stop the render loop if simulation is no longer running
+                        break;
+                    }
+                }
+
+                frame_count += 1;
+
+                // Update FPS every second
+                if last_fps_update.elapsed() >= Duration::from_secs(1) {
+                    let fps = (frame_count as f64 / last_fps_update.elapsed().as_secs_f64()) as u32;
+
+                    // Emit FPS update to frontend
+                    if let Err(e) = app_handle.emit("fps-update", fps) {
+                        tracing::warn!("Failed to emit FPS update: {}", e);
+                    }
+
+                    frame_count = 0;
+                    last_fps_update = Instant::now();
+                }
+
+                // Handle FPS limiting
+                if fps_limit_enabled.load(Ordering::Relaxed) {
+                    let target_fps = fps_limit.load(Ordering::Relaxed);
+                    if target_fps > 0 {
+                        let target_frame_time =
+                            Duration::from_nanos(1_000_000_000 / target_fps as u64);
+                        let frame_time = frame_start.elapsed();
+
+                        if frame_time < target_frame_time {
+                            tokio::time::sleep(target_frame_time - frame_time).await;
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn stop_render_loop(&self) {
+        self.render_loop_running.store(false, Ordering::Relaxed);
+    }
+
+    pub fn set_fps_limit(&self, enabled: bool, limit: u32) {
+        self.fps_limit_enabled.store(enabled, Ordering::Relaxed);
+        self.fps_limit.store(limit, Ordering::Relaxed);
+    }
+
+    // Reset methods
+    pub fn reset_trails(&mut self, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(SimulationType::SlimeMold(simulation)) = &mut self.current_simulation {
+            simulation.reset_trails(queue);
+        }
+        Ok(())
+    }
+
+    pub fn reset_agents(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(SimulationType::SlimeMold(simulation)) = &mut self.current_simulation {
+            simulation.reset_agents(device, queue)?;
+        }
+        Ok(())
+    }
+
+    pub fn reset_simulation(
+        &mut self,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::GrayScott(simulation) => simulation.reset(),
+                SimulationType::SlimeMold(simulation) => simulation.reset_trails(queue),
+            }
+        }
+        Ok(())
     }
 
     pub fn randomize_settings(
@@ -275,74 +485,77 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(simulation) = &mut self.current_simulation {
+            simulation.randomize_settings(device, queue)?;
+        }
+        Ok(())
+    }
+
+    // Note: seed_random_noise is not in the Simulation trait, so we'll implement it per simulation type
+    pub fn seed_random_noise(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.randomize_settings(device, queue)?,
-                SimulationType::GrayScott(simulation) => simulation.randomize_settings(device, queue)?,
+                SimulationType::SlimeMold(simulation) => simulation.seed_random_noise(device, queue)?,
+                SimulationType::GrayScott(simulation) => simulation.seed_random_noise(device, queue)?,
             }
         }
         Ok(())
     }
 
+    // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
+        tracing::debug!("SimulationManager pan_camera: delta=({:.2}, {:.2})", delta_x, delta_y);
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
-                SimulationType::GrayScott(simulation) => simulation.pan_camera(delta_x, delta_y),
-            }
+            simulation.pan_camera(delta_x, delta_y);
         }
     }
 
     pub fn zoom_camera(&mut self, delta: f32) {
+        tracing::debug!("SimulationManager zoom_camera: delta={:.2}", delta);
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
-                SimulationType::GrayScott(simulation) => simulation.zoom_camera(delta),
-            }
+            simulation.zoom_camera(delta);
         }
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
+        tracing::debug!("SimulationManager zoom_camera_to_cursor: delta={:.2}, cursor=({:.2}, {:.2})", delta, cursor_x, cursor_y);
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-                SimulationType::GrayScott(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-            }
+            simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
         }
     }
 
     pub fn reset_camera(&mut self) {
+        tracing::debug!("SimulationManager reset_camera");
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
-                SimulationType::GrayScott(simulation) => simulation.reset_camera(),
-            }
+            simulation.reset_camera();
         }
     }
 
     pub fn get_camera_state(&self) -> Option<serde_json::Value> {
         if let Some(simulation) = &self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => Some(simulation.get_camera_state()),
-                SimulationType::GrayScott(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::SlimeMold(simulation) => Some(simulation.camera.get_state()),
+                SimulationType::GrayScott(simulation) => Some(simulation.renderer.camera.get_state()),
             }
         } else {
             None
         }
     }
 
+    /// Convert screen coordinates to world coordinates using the active camera
     pub fn screen_to_world(&self, screen_x: f32, screen_y: f32) -> Option<(f32, f32)> {
+        let screen = ScreenCoords::new(screen_x, screen_y);
         if let Some(simulation) = &self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
-                    let camera = &simulation.camera;
-                    let screen = ScreenCoords::new(screen_x, screen_y);
-                    let world = camera.screen_to_world(screen);
+                    let world = simulation.camera.screen_to_world(screen);
                     Some((world.x, world.y))
                 }
                 SimulationType::GrayScott(simulation) => {
-                    let camera = &simulation.renderer.camera;
-                    let screen = ScreenCoords::new(screen_x, screen_y);
-                    let world = camera.screen_to_world(screen);
+                    let world = simulation.renderer.camera.screen_to_world(screen);
                     Some((world.x, world.y))
                 }
             }

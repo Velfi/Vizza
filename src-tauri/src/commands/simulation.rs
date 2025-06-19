@@ -1,7 +1,6 @@
+use crate::simulation::SimulationManager;
 use std::sync::Arc;
 use tauri::{Emitter, State};
-
-use crate::simulation_manager::SimulationManager;
 
 #[tauri::command]
 pub async fn start_slime_mold_simulation(

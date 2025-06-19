@@ -726,9 +726,15 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
 
     fn get_camera_state(&self) -> serde_json::Value {
         serde_json::json!({
-            "position": self.renderer.camera.position,
+            "position": [self.renderer.camera.position[0], self.renderer.camera.position[1]],
             "zoom": self.renderer.camera.zoom
         })
+    }
+
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        let new_settings: Settings = serde_json::from_value(settings)?;
+        self.update_settings(new_settings, queue);
+        Ok(())
     }
 
     fn save_preset(&self, _preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {

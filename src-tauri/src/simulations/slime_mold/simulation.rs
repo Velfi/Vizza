@@ -124,19 +124,39 @@ impl SlimeMoldModel {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
 
+        // Check if the trail map buffer size would exceed GPU limits
+        let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
+        let trail_map_size = (physical_width * physical_height) as usize;
+        let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
+        
+        // If buffer would be too large, scale down the resolution
+        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size {
+            let scale_factor = (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
+            let new_width = (physical_width as f64 * scale_factor * 0.95) as u32; // 95% to be safe
+            let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
+            tracing::warn!(
+                "Trail map buffer size {} bytes exceeds GPU limit {} bytes. Scaling down from {}x{} to {}x{}",
+                trail_map_size_bytes, max_storage_buffer_size, physical_width, physical_height, new_width, new_height
+            );
+            (new_width, new_height)
+        } else {
+            (physical_width, physical_height)
+        };
+
         // Create simulation-specific buffers
         let agent_buffer = create_agent_buffer(
             device,
             agent_count,
-            physical_width,
-            physical_height,
+            effective_width,
+            effective_height,
             &settings,
         );
 
-        let trail_map_size = (physical_width * physical_height) as usize;
+        let trail_map_size = (effective_width * effective_height) as usize;
+        let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
         let trail_map_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Trail Map Buffer"),
-            size: (trail_map_size * std::mem::size_of::<f32>()) as u64,
+            size: trail_map_size_bytes,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -155,7 +175,7 @@ impl SlimeMoldModel {
 
         let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Gradient Buffer"),
-            size: (trail_map_size * std::mem::size_of::<f32>()) as u64,
+            size: trail_map_size_bytes,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -164,8 +184,8 @@ impl SlimeMoldModel {
 
         // Create display texture
         let max_texture_dimension = device.limits().max_texture_dimension_2d;
-        let texture_width = physical_width.min(max_texture_dimension);
-        let texture_height = physical_height.min(max_texture_dimension);
+        let texture_width = effective_width.min(max_texture_dimension);
+        let texture_height = effective_height.min(max_texture_dimension);
         let display_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Display Texture"),
             size: wgpu::Extent3d {
@@ -186,8 +206,8 @@ impl SlimeMoldModel {
 
         // Create uniform buffer
         let sim_size_uniform = SimSizeUniform::new(
-            physical_width,
-            physical_height,
+            effective_width,
+            effective_height,
             settings.pheromone_decay_rate,
             &settings,
         );
@@ -227,7 +247,7 @@ impl SlimeMoldModel {
         let pipeline_manager = PipelineManager::new(device, &workgroup_config, surface_config.format);
 
         // Create camera
-        let camera = Camera::new(device, physical_width as f32, physical_height as f32)?;
+        let camera = Camera::new(device, effective_width as f32, effective_height as f32)?;
 
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
@@ -249,6 +269,7 @@ impl SlimeMoldModel {
         // Create buffer pool
         let buffer_pool = BufferPool::new();
 
+        let agent_buffer_size_bytes = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
         let mut simulation = Self {
             bind_group_manager,
             pipeline_manager,
@@ -266,11 +287,11 @@ impl SlimeMoldModel {
             agent_count,
             current_lut_name: "MATPLOTLIB_cubehelix".to_string(),
             lut_reversed: true,
-            current_trail_map_size: trail_map_size as u64,
-            current_gradient_buffer_size: trail_map_size as u64,
-            current_agent_buffer_size: agent_count as u64,
-            current_width: physical_width,
-            current_height: physical_height,
+            current_trail_map_size: trail_map_size_bytes,
+            current_gradient_buffer_size: trail_map_size_bytes,
+            current_agent_buffer_size: agent_buffer_size_bytes,
+            current_width: effective_width,
+            current_height: effective_height,
             show_gui: false,
             camera,
         };
@@ -298,8 +319,27 @@ impl SlimeMoldModel {
         let physical_width = new_config.width;
         let physical_height = new_config.height;
 
-        // Calculate new buffer sizes
+        // Check if the trail map buffer size would exceed GPU limits
+        let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
         let trail_map_size = (physical_width * physical_height) as usize;
+        let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
+        
+        // If buffer would be too large, scale down the resolution
+        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size {
+            let scale_factor = (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
+            let new_width = (physical_width as f64 * scale_factor * 0.95) as u32; // 95% to be safe
+            let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
+            tracing::warn!(
+                "Trail map buffer size {} bytes exceeds GPU limit {} bytes. Scaling down from {}x{} to {}x{}",
+                trail_map_size_bytes, max_storage_buffer_size, physical_width, physical_height, new_width, new_height
+            );
+            (new_width, new_height)
+        } else {
+            (physical_width, physical_height)
+        };
+
+        // Calculate new buffer sizes
+        let trail_map_size = (effective_width * effective_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
         let agent_buffer_size_bytes = (self.agent_count * 4 * std::mem::size_of::<f32>()) as u64;
 
@@ -378,8 +418,8 @@ impl SlimeMoldModel {
             self.agent_count,
             self.current_width,
             self.current_height,
-            physical_width,
-            physical_height,
+            effective_width,
+            effective_height,
         );
 
         // Return old buffer to pool after scaling is complete
@@ -395,13 +435,13 @@ impl SlimeMoldModel {
         self.current_trail_map_size = trail_map_size_bytes;
         self.current_gradient_buffer_size = trail_map_size_bytes;
         self.current_agent_buffer_size = agent_buffer_size_bytes;
-        self.current_width = physical_width;
-        self.current_height = physical_height;
+        self.current_width = effective_width;
+        self.current_height = effective_height;
 
         // Recreate display texture with new dimensions
         let max_texture_dimension = device.limits().max_texture_dimension_2d;
-        let texture_width = physical_width.min(max_texture_dimension);
-        let texture_height = physical_height.min(max_texture_dimension);
+        let texture_width = effective_width.min(max_texture_dimension);
+        let texture_height = effective_height.min(max_texture_dimension);
         self.display_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Display Texture"),
             size: wgpu::Extent3d {
@@ -426,7 +466,7 @@ impl SlimeMoldModel {
         self.recreate_bind_groups(device);
 
         // Resize camera
-        self.camera.resize(physical_width as f32, physical_height as f32);
+        self.camera.resize(effective_width as f32, effective_height as f32);
 
         Ok(())
     }
@@ -1012,7 +1052,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn get_camera_state(&self) -> serde_json::Value {
         serde_json::json!({
-            "position": self.camera.position,
+            "position": [self.camera.position[0], self.camera.position[1]],
             "zoom": self.camera.zoom
         })
     }
@@ -1075,6 +1115,12 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
+        Ok(())
+    }
+
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+        let new_settings: Settings = serde_json::from_value(settings)?;
+        self.update_settings(new_settings, queue);
         Ok(())
     }
 }

@@ -7,11 +7,11 @@ use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
 
 mod commands;
 mod main_menu_renderer;
-mod simulation_manager;
+mod simulation;
 mod simulations;
 
 use main_menu_renderer::MainMenuRenderer;
-use simulation_manager::SimulationManager;
+use simulation::SimulationManager;
 
 /// Unified GPU context managed by Tauri with surface
 pub struct GpuContext {
@@ -175,8 +175,7 @@ fn main() {
             
             // Preset commands
             commands::get_available_presets,
-            commands::get_slime_mold_presets,
-            commands::get_gray_scott_presets,
+            commands::get_presets_for_simulation_type,
             commands::apply_preset,
             commands::save_preset,
             commands::delete_preset,
