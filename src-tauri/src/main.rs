@@ -53,8 +53,8 @@ impl GpuContext {
 
         // Request device and queue with increased buffer size limit
         let limits = wgpu::Limits {
-            max_buffer_size: 2_147_483_648, // 2 gigabytes
-            max_storage_buffer_binding_size: 2_147_483_648, // 2 gigabyte binding size
+            max_buffer_size: 2_147_483_647, // 2 gigabytes - 1 byte
+            max_storage_buffer_binding_size: 2_147_483_647, // 2 gigabyte binding size - 1 byte
             ..Default::default()
         };
 

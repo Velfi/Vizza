@@ -3,6 +3,36 @@
 version = 4
 
 [[package]]
+name = "Vizzy"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "dirs",
+ "futures",
+ "futures-intrusive",
+ "lazy_static",
+ "nalgebra",
+ "num_cpus",
+ "pollster",
+ "pretty_env_logger",
+ "rand 0.9.1",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "ab_glyph"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4281,36 +4311,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9203b8055f63a2a00e2f593bb0510367fe707d7ff1e5c872de2f537b339e5410"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "sim_pix"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "dirs",
- "futures",
- "futures-intrusive",
- "lazy_static",
- "nalgebra",
- "num_cpus",
- "pollster",
- "pretty_env_logger",
- "rand 0.9.1",
- "rayon",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "thiserror 1.0.69",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
- "wgpu",
- "winit",
 ]
 
 [[package]]

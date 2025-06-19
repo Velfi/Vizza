@@ -1,10 +1,10 @@
 [package]
-name = "sim_pix"
+name = "Vizzy"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"
-repository = "https://github.com/Velfi/sim_pix"
+repository = "https://github.com/Velfi/vizzy"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
