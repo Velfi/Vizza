@@ -931,6 +931,7 @@
                   settingName: 'agent_speed_min', 
                   value: e.detail 
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update min speed:', err);
               }
@@ -951,6 +952,7 @@
                   settingName: 'agent_speed_max', 
                   value: e.detail 
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update max speed:', err);
               }
@@ -972,6 +974,7 @@
                   settingName: 'agent_turn_rate', 
                   value: (e.detail * Math.PI) / 180 // Convert degrees to radians
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update turn rate:', err);
               }
@@ -992,6 +995,7 @@
                   settingName: 'agent_jitter', 
                   value: e.detail 
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update agent jitter:', err);
               }
@@ -1013,6 +1017,7 @@
                   settingName: 'agent_sensor_angle', 
                   value: (e.detail * Math.PI) / 180 // Convert degrees to radians
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update sensor angle:', err);
               }
@@ -1033,6 +1038,7 @@
                   settingName: 'agent_sensor_distance', 
                   value: e.detail 
                 });
+                await syncSettingsFromBackend();
               } catch (err) {
                 console.error('Failed to update sensor distance:', err);
               }

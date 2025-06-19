@@ -76,6 +76,20 @@ impl LutData {
 
         colors
     }
+
+    /// Get the size in bytes when converted to u32 for GPU buffer
+    pub fn u32_buffer_size(&self) -> usize {
+        768 * std::mem::size_of::<u32>() // 768 u32 values = 3072 bytes
+    }
+
+    /// Convert to u32 buffer for GPU usage
+    pub fn to_u32_buffer(&self) -> Vec<u32> {
+        let mut lut_data_combined = Vec::with_capacity(768);
+        lut_data_combined.extend_from_slice(&self.red);
+        lut_data_combined.extend_from_slice(&self.green);
+        lut_data_combined.extend_from_slice(&self.blue);
+        lut_data_combined.iter().map(|&x| x as u32).collect()
+    }
 }
 
 macro_rules! include_luts {
@@ -344,5 +358,29 @@ impl LutManager {
 impl Default for LutManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lut_buffer_sizes() {
+        let lut_data = LutData {
+            name: "test".to_string(),
+            red: [0; 256],
+            green: [0; 256],
+            blue: [0; 256],
+        };
+
+        // Test u8 buffer size (original format)
+        let u8_buffer = lut_data.clone().into_bytes();
+        assert_eq!(u8_buffer.len(), 768); // 256 * 3 = 768 bytes
+
+        // Test u32 buffer size (GPU format)
+        let u32_buffer = lut_data.to_u32_buffer();
+        assert_eq!(u32_buffer.len(), 768); // 768 u32 values
+        assert_eq!(lut_data.u32_buffer_size(), 3072); // 768 * 4 = 3072 bytes
     }
 }

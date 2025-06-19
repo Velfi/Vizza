@@ -72,7 +72,6 @@ impl SimulationManager {
             "gray_scott" => {
                 // Initialize Gray-Scott simulation
                 let settings = crate::simulations::gray_scott::settings::Settings::default();
-                let default_lut_name = "MATPLOTLIB_prism";
 
                 let simulation = GrayScottModel::new(
                     device,
@@ -82,8 +81,6 @@ impl SimulationManager {
                     surface_config.height,
                     settings,
                     &self.lut_manager,
-                    default_lut_name.to_owned(),
-                    false, // lut_reversed
                 )?;
 
                 self.gray_scott_state = Some(simulation);

@@ -57,8 +57,6 @@ impl GrayScottModel {
         height: u32,
         settings: Settings,
         lut_manager: &crate::simulations::shared::LutManager,
-        current_lut_name: String,
-        lut_reversed: bool,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let vec_capacity = (width * height) as usize;
         let mut uvs: Vec<UVPair> = std::iter::repeat(UVPair { u: 1.0, v: 0.0 })
@@ -247,8 +245,8 @@ impl GrayScottModel {
             settings,
             width,
             height,
-            current_lut_name,
-            lut_reversed,
+            current_lut_name: "MATPLOTLIB_prism".to_string(),
+            lut_reversed: false,
             uvs_buffers,
             current_buffer: 0,
             params_buffer,
@@ -261,7 +259,7 @@ impl GrayScottModel {
 
         // Apply initial LUT
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
-            if lut_reversed {
+            if simulation.lut_reversed {
                 lut_data.reverse();
             }
             simulation.renderer.update_lut(&lut_data, queue);

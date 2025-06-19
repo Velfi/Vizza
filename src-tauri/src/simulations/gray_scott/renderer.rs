@@ -32,9 +32,11 @@ impl Renderer {
         let lut_manager = LutManager::new();
 
         // Create LUT buffer (convert u8 to u32 for shader compatibility)
+        let lut_data = lut_manager.get_default();
+        let lut_data_u32 = lut_data.to_u32_buffer();
         let lut_buffer = _device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_manager.get_default().into_bytes()),
+            contents: bytemuck::cast_slice(&lut_data_u32),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -177,12 +179,7 @@ impl Renderer {
     }
 
     pub fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Queue) {
-        let lut_data_u32: Vec<u32> = lut_data
-            .clone()
-            .into_bytes()
-            .iter()
-            .map(|&x| x as u32)
-            .collect();
+        let lut_data_u32 = lut_data.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
     }
 

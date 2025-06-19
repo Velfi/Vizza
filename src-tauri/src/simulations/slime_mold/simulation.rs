@@ -198,13 +198,8 @@ impl SlimeMoldModel {
         let sim_size_buffer = Arc::new(sim_size_buffer);
 
         // Create LUT buffer
-        let lut_data = lut_manager.get("MATPLOTLIB_bone")?;
-
-        let mut lut_data_combined = Vec::with_capacity(768);
-        lut_data_combined.extend_from_slice(&lut_data.red);
-        lut_data_combined.extend_from_slice(&lut_data.green);
-        lut_data_combined.extend_from_slice(&lut_data.blue);
-        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
+        let lut_data = lut_manager.get("MATPLOTLIB_cubehelix")?;
+        let lut_data_u32 = lut_data.to_u32_buffer();
 
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
@@ -268,7 +263,7 @@ impl SlimeMoldModel {
             buffer_pool,
             settings,
             agent_count,
-            current_lut_name: "MATPLOTLIB_bone".to_string(),
+            current_lut_name: "MATPLOTLIB_cubehelix".to_string(),
             lut_reversed: true,
             current_trail_map_size: trail_map_size as u64,
             current_gradient_buffer_size: trail_map_size as u64,
@@ -278,6 +273,13 @@ impl SlimeMoldModel {
             show_gui: false,
             camera,
         };
+
+        if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
+            if simulation.lut_reversed {
+                lut_data.reverse();
+            }
+            simulation.update_lut(&lut_data, queue);
+        }
 
         // Initialize agents using GPU compute shader instead of CPU
         simulation.reset_agents(device, queue);
@@ -552,11 +554,7 @@ impl SlimeMoldModel {
 
     /// Update the LUT (color lookup table)
     pub fn update_lut(&mut self, lut_data: &LutData, queue: &Queue) {
-        let mut lut_data_combined = Vec::with_capacity(768);
-        lut_data_combined.extend_from_slice(&lut_data.red);
-        lut_data_combined.extend_from_slice(&lut_data.green);
-        lut_data_combined.extend_from_slice(&lut_data.blue);
-        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
+        let lut_data_u32 = lut_data.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
     }
 
@@ -722,6 +720,11 @@ impl SlimeMoldModel {
                     self.settings.gradient_angle = v as f32;
                 }
             }
+            "random_seed" => {
+                if let Some(v) = value.as_u64() {
+                    self.settings.random_seed = v as u32;
+                }
+            }
             _ => {
                 return Err(format!("Unknown setting: {}", setting_name).into());
             }
@@ -866,11 +869,7 @@ impl LutHandler for SlimeMoldModel {
     }
 
     fn set_active_lut(&mut self, lut_data: &LutData, name: String, _device: &Device, queue: &Queue) {
-        let mut lut_data_combined = Vec::with_capacity(768);
-        lut_data_combined.extend_from_slice(&lut_data.red);
-        lut_data_combined.extend_from_slice(&lut_data.green);
-        lut_data_combined.extend_from_slice(&lut_data.blue);
-        let lut_data_u32: Vec<u32> = lut_data_combined.iter().map(|&x| x as u32).collect();
+        let lut_data_u32 = lut_data.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
         self.current_lut_name = name;
     }

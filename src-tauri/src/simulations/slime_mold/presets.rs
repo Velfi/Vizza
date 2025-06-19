@@ -194,6 +194,7 @@ pub fn init_preset_manager() -> PresetManager {
             agent_sensor_angle: 0.3,
             agent_speed_min: 50.0,
             agent_speed_max: 150.0,
+            pheromone_decay_rate: 100.0,
             ..Settings::default()
         },
     ));
