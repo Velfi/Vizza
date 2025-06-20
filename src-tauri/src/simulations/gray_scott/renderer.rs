@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
+use crate::error::SimulationResult;
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
-use crate::simulations::shared::lut::LutManager;
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -23,19 +23,19 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         width: u32,
         height: u32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+        lut_manager: &crate::simulations::shared::LutManager,
+    ) -> SimulationResult<Self> {
         let settings = Settings::default();
-        let lut_manager = LutManager::new();
 
         // Create LUT buffer (convert u8 to u32 for shader compatibility)
         let lut_data = lut_manager.get_default();
         let lut_data_u32 = lut_data.to_u32_buffer();
-        let lut_buffer = _device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
             contents: bytemuck::cast_slice(&lut_data_u32),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -43,7 +43,7 @@ impl Renderer {
 
         // Create simulation data bind group layout
         let bind_group_layout =
-            _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Render Bind Group Layout"),
                 entries: &[
                     // Binding 0: Simulation data (UVPair array)
@@ -84,7 +84,7 @@ impl Renderer {
 
         // Create camera bind group layout
         let camera_bind_group_layout =
-            _device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -102,26 +102,26 @@ impl Renderer {
         // Gray Scott operates in [0,1] UV space, so we want to view that area
         // Use physical pixels for camera viewport (surface configuration dimensions)
         let camera = Camera::new(
-            _device, 
+            device, 
             width as f32, 
             height as f32
         )?;
         
         // Create pipeline layout with both bind group layouts
-        let pipeline_layout = _device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout, &camera_bind_group_layout],
             push_constant_ranges: &[],
         });
 
         // Create shader
-        let shader = _device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Render Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
         });
 
         // Create render pipeline
-        let render_pipeline = _device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -160,8 +160,8 @@ impl Renderer {
         });
 
         Ok(Self {
-            device: Arc::clone(_device),
-            queue: Arc::clone(_queue),
+            device: Arc::clone(device),
+            queue: Arc::clone(queue),
             surface_config: surface_config.clone(),
             width,
             height,
@@ -266,7 +266,7 @@ impl Renderer {
     pub fn resize(
         &mut self,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.surface_config = new_config.clone();
         self.width = new_config.width;
         self.height = new_config.height;

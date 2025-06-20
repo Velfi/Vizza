@@ -72,7 +72,7 @@
       on:click={() => selectSimulation('particle-life')}
     >
       <h3>Particle Life</h3>
-      <p>Particle simulation</p>
+      <p>Multi-species particle simulation</p>
     </button>
 
     <div class="simulation-card disabled">
@@ -128,6 +128,8 @@
     color: inherit;
     font-family: inherit;
     text-align: center;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 
   .simulation-card:hover:not(.disabled) {

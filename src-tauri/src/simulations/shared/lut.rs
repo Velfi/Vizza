@@ -1,10 +1,9 @@
 use dirs::home_dir;
+use rand::Rng;
 use std::collections::HashMap;
 use std::io;
-use std::sync::Arc;
 use wgpu::Queue;
-
-use crate::simulations::traits::SimulationType;
+use crate::error::{LutError, LutResult};
 
 #[derive(Debug, Clone)]
 pub struct LutData {
@@ -79,11 +78,6 @@ impl LutData {
         }
 
         colors
-    }
-
-    /// Get the size in bytes when converted to u32 for GPU buffer
-    pub fn u32_buffer_size(&self) -> usize {
-        768 * std::mem::size_of::<u32>() // 768 u32 values = 3072 bytes
     }
 
     /// Convert to u32 buffer for GPU usage
@@ -292,57 +286,52 @@ impl LutManager {
         luts
     }
 
-    pub fn get(&self, name: &str) -> io::Result<LutData> {
+    pub fn get(&self, name: &str) -> LutResult<LutData> {
         // Try to load from embedded LUTs first
         if let Some(&buffer) = EMBEDDED_LUTS.get(name) {
             // Each color component should be 256 bytes
             if buffer.len() != 768 {
                 // 256 * 3 (RGB)
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Invalid LUT file size",
-                ));
+                return Err(LutError::DataError(format!("Invalid LUT file size for {}", name)));
             }
 
-            return LutData::from_bytes(name.to_string(), buffer.as_slice());
+            return LutData::from_bytes(name.to_string(), buffer.as_slice()).map_err(|e| LutError::DataError(e.to_string()));
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT
         self.get_custom(name)
     }
 
-    fn lut_dir() -> io::Result<std::path::PathBuf> {
-        let home_dir = home_dir().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, "Could not find home directory")
-        })?;
+    fn lut_dir() -> LutResult<std::path::PathBuf> {
+        let home_dir = home_dir().ok_or_else(|| LutError::DataError("Could not find home directory".to_string()))?;
 
         let lut_dir = home_dir.join("sim-pix").join("LUTs");
         Ok(lut_dir)
     }
 
-    pub fn save_custom(&self, name: &str, lut_data: &LutData) -> io::Result<()> {
+    pub fn save_custom(&self, name: &str, lut_data: &LutData) -> LutResult<()> {
         // Create LUTs directory if it doesn't exist
         let lut_dir = Self::lut_dir()?;
         if !lut_dir.exists() {
-            std::fs::create_dir_all(&lut_dir)?;
+            std::fs::create_dir_all(&lut_dir).map_err(|e| LutError::DataError(e.to_string()))?;
         }
 
         // Save the LUT file
         let file_path = lut_dir.join(format!("{}.lut", name));
-        std::fs::write(file_path, lut_data.clone().into_bytes())?;
+        std::fs::write(file_path, lut_data.clone().into_bytes()).map_err(|e| LutError::DataError(e.to_string()))?;
 
         Ok(())
     }
 
-    pub fn all_custom_luts(&self) -> io::Result<Vec<String>> {
+    pub fn all_custom_luts(&self) -> LutResult<Vec<String>> {
         let lut_dir = Self::lut_dir()?;
         if !lut_dir.exists() {
             return Ok(Vec::new());
         }
 
         let mut custom_luts = Vec::new();
-        for entry in std::fs::read_dir(lut_dir)? {
-            let entry = entry?;
+        for entry in std::fs::read_dir(lut_dir).map_err(|e| LutError::DataError(e.to_string()))? {
+            let entry = entry.map_err(|e| LutError::DataError(e.to_string()))?;
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("lut") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
@@ -354,16 +343,23 @@ impl LutManager {
         Ok(custom_luts)
     }
 
-    pub fn get_custom(&self, name: &str) -> io::Result<LutData> {
+    pub fn get_custom(&self, name: &str) -> LutResult<LutData> {
         let file_path = Self::lut_dir()?.join(format!("{}.lut", name));
-        let data = std::fs::read(file_path)?;
-        LutData::from_bytes(name.to_string(), &data)
+        let data = std::fs::read(file_path).map_err(|e| LutError::DataError(e.to_string()))?;
+        LutData::from_bytes(name.to_string(), &data).map_err(|e| LutError::DataError(e.to_string()))
     }
 
     pub fn get_default(&self) -> LutData {
         let mut lut_data = self.get("MATPLOTLIB_bone").unwrap();
         lut_data.reverse();
         lut_data
+    }
+    
+    pub(crate) fn get_random_lut(&self) -> LutResult<LutData> {
+        let mut lut_names = EMBEDDED_LUTS.keys();
+        let random_index = rand::rng().random_range(0..lut_names.len());
+        let lut_name = lut_names.nth(random_index).expect("LUTs exist");
+        self.get(lut_name)
     }
 }
 
@@ -399,69 +395,6 @@ impl SimulationLutManager {
     pub fn get_available_luts(&self, lut_manager: &LutManager) -> Vec<String> {
         lut_manager.all_luts()
     }
-
-    pub fn apply_lut(
-        &self,
-        simulation: &mut SimulationType,
-        lut_manager: &LutManager,
-        lut_name: &str,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match simulation {
-            SimulationType::SlimeMold(simulation) => {
-                Self::handle_lut_application(simulation, lut_manager, lut_name, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                Self::handle_lut_application(simulation, lut_manager, lut_name, queue)
-            }
-        }
-    }
-
-    pub fn reverse_current_lut(
-        &self,
-        simulation: &mut SimulationType,
-        lut_manager: &LutManager,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        match simulation {
-            SimulationType::SlimeMold(simulation) => {
-                Self::handle_lut_reversal(simulation, lut_manager, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                Self::handle_lut_reversal(simulation, lut_manager, queue)
-            }
-        }
-    }
-
-    fn handle_lut_reversal<T: LutHandler>(
-        simulation: &mut T,
-        lut_manager: &LutManager,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let current_lut_name = simulation.get_name_of_active_lut();
-        let is_reversed = simulation.is_lut_reversed();
-        let new_reversed = !is_reversed;
-
-        if let Ok(lut_data) = lut_manager.get(&current_lut_name) {
-            simulation.set_lut_reversed(new_reversed);
-            simulation.set_active_lut(&lut_data, queue);
-        }
-
-        Ok(())
-    }
-
-    fn handle_lut_application<T: LutHandler>(
-        simulation: &mut T,
-        lut_manager: &LutManager,
-        lut_name: &str,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(lut_data) = lut_manager.get(lut_name) {
-            simulation.set_active_lut(&lut_data, queue);
-        }
-
-        Ok(())
-    }
 }
 
 impl Default for SimulationLutManager {
@@ -490,6 +423,5 @@ mod tests {
         // Test u32 buffer size (GPU format)
         let u32_buffer = lut_data.to_u32_buffer();
         assert_eq!(u32_buffer.len(), 768); // 768 u32 values
-        assert_eq!(lut_data.u32_buffer_size(), 3072); // 768 * 4 = 3072 bytes
     }
 }

@@ -2,6 +2,8 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
+use serde_json::Value;
+use crate::error::{SimulationError, SimulationResult};
 
 use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
@@ -125,7 +127,7 @@ impl SlimeMoldModel {
         agent_count: usize,
         settings: Settings,
         lut_manager: &LutManager,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> SimulationResult<Self> {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
 
@@ -322,7 +324,7 @@ impl SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         let physical_width = new_config.width;
         let physical_height = new_config.height;
 
@@ -586,7 +588,7 @@ impl SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Update camera for smooth movement
         self.camera.update(0.016); // Assume 60 FPS for now
         self.camera.upload_to_gpu(queue);
@@ -722,7 +724,7 @@ impl SlimeMoldModel {
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Update the random seed to ensure different randomization
         self.settings.random_seed = rand::random::<u32>();
         
@@ -762,18 +764,6 @@ impl SlimeMoldModel {
         }
 
         queue.submit(std::iter::once(encoder.finish()));
-        Ok(())
-    }
-
-    pub fn seed_random_noise(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // For slime mold, seeding noise means resetting agents to random positions
-        // and clearing the trail map
-        self.reset_trails(queue);
-        self.reset_agents(device, queue)?;
         Ok(())
     }
 
@@ -818,10 +808,10 @@ impl SlimeMoldModel {
     pub fn update_setting(
         &mut self,
         setting_name: &str,
-        value: serde_json::Value,
+        value: Value,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         use super::settings::GradientType;
 
         match setting_name {
@@ -951,7 +941,7 @@ impl SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.agent_count = count as usize;
 
         // Recreate the agent buffer with new count
@@ -1028,6 +1018,10 @@ impl SlimeMoldModel {
         self.show_gui
     }
 
+    pub fn get_agent_count(&self) -> Option<u32> {
+        Some(self.agent_count as u32)
+    }
+
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
         tracing::debug!("Slime mold pan_camera called: delta=({:.2}, {:.2})", delta_x, delta_y);
@@ -1089,7 +1083,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.render_frame(device, queue, surface_view)
     }
 
@@ -1098,17 +1092,17 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.resize(device, queue, new_config)
     }
 
     fn update_setting(
         &mut self,
         setting_name: &str,
-        value: serde_json::Value,
+        value: Value,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.update_setting(setting_name, value, device, queue)
     }
 
@@ -1133,11 +1127,11 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn handle_mouse_interaction(
         &mut self,
-        _world_x: f32,
-        _world_y: f32,
-        _is_seeding: bool,
-        _queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+        world_x: f32,
+        world_y: f32,
+        is_seeding: bool,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         // Slime mold doesn't currently support mouse interaction
         // This could be implemented in the future for seeding agents
         Ok(())
@@ -1166,46 +1160,24 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         })
     }
 
-    fn save_preset(&self, _preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn save_preset(&self, _preset_name: &str) -> SimulationResult<()> {
         // This would need to be implemented with the preset manager
         // For now, we'll return an error indicating it needs to be implemented
         Err("Preset saving not yet implemented for SlimeMoldModel".into())
     }
 
-    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> SimulationResult<()> {
         // This would need to be implemented with the preset manager
         // For now, we'll return an error indicating it needs to be implemented
         Err("Preset loading not yet implemented for SlimeMoldModel".into())
     }
 
-    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
         self.reset_trails(queue);
         // Note: reset_agents requires a device, but we don't have one in this context
         // This is a limitation of the current trait design
         // In practice, this would be called from a context where we have access to the device
         Ok(())
-    }
-
-    fn get_simulation_type(&self) -> &str {
-        "slime_mold"
-    }
-
-    fn is_running(&self) -> bool {
-        true // SlimeMoldModel is always considered running when instantiated
-    }
-
-    fn get_agent_count(&self) -> Option<u32> {
-        Some(self.agent_count as u32)
-    }
-
-    async fn update_agent_count(
-        &mut self,
-        count: u32,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        surface_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.update_agent_count(count, device, queue, surface_config).await
     }
 
     fn toggle_gui(&mut self) -> bool {
@@ -1218,17 +1190,17 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn randomize_settings(
         &mut self,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
         Ok(())
     }
 
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
-        let new_settings: Settings = serde_json::from_value(settings)?;
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()> {
+        let new_settings: Settings = serde_json::from_value(settings).map_err(|e| SimulationError::InvalidSetting { setting_name: "settings".to_string(), message: e.to_string() })?;
         self.update_settings(new_settings, queue);
         Ok(())
     }

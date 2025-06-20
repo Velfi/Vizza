@@ -4,13 +4,15 @@
 use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
 use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
+use crate::error::{AppError, AppResult, GpuError};
+use crate::simulations::traits::SimulationType;
+use crate::simulations::shared::LutManager;
 
 mod commands;
-mod main_menu_renderer;
+mod error;
 mod simulation;
 mod simulations;
 
-use main_menu_renderer::MainMenuRenderer;
 use simulation::SimulationManager;
 
 /// Unified GPU context managed by Tauri with surface
@@ -21,13 +23,13 @@ pub struct GpuContext {
     pub adapter_info: wgpu::AdapterInfo,
     pub surface: Surface<'static>,
     pub surface_config: Arc<tokio::sync::Mutex<SurfaceConfiguration>>,
-    pub main_menu_renderer: MainMenuRenderer,
+    pub main_menu: SimulationType,
 }
 
 impl GpuContext {
     pub async fn new_with_surface(
         window: &WebviewWindow,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> AppResult<Self> {
         // Create wgpu instance
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends: Backends::all(),
@@ -35,7 +37,7 @@ impl GpuContext {
         });
 
         // Create surface from window (this must happen on main thread)
-        let surface = instance.create_surface(window.clone())?;
+        let surface = instance.create_surface(window.clone()).map_err(|e| AppError::Gpu(GpuError::SurfaceCreationFailed(e.to_string())))?;
 
         // Request adapter with surface
         let adapter = instance
@@ -45,7 +47,7 @@ impl GpuContext {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or("Failed to find an appropriate adapter")?;
+            .ok_or(AppError::Gpu(GpuError::AdapterNotFound))?;
 
         // Get adapter info
         let adapter_info = adapter.get_info();
@@ -68,10 +70,10 @@ impl GpuContext {
                 },
                 None,
             )
-            .await?;
+            .await.map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
 
         // Get window size and create surface config
-        let window_size = window.inner_size()?;
+        let window_size = window.inner_size().map_err(|e| AppError::Window(e.to_string()))?;
         let surface_caps = surface.get_capabilities(&adapter);
 
         // Choose appropriate surface format
@@ -101,18 +103,31 @@ impl GpuContext {
             surface_config.width, surface_config.height
         );
 
-        // Create main menu renderer
+        // Create main menu background simulation
         let device_arc = Arc::new(device);
-        let main_menu_renderer = MainMenuRenderer::new(&device_arc, &surface_config)?;
+        let queue_arc = Arc::new(queue);
+        
+        // Create LUT manager
+        let lut_manager = LutManager::new();
+        
+        // Create main menu background simulation
+        let main_menu = SimulationType::new(
+            "main_menu",
+            &device_arc,
+            &queue_arc,
+            &surface_config,
+            &adapter_info,
+            &lut_manager,
+        ).await.map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
 
         Ok(Self {
             device: device_arc,
-            queue: Arc::new(queue),
+            queue: queue_arc,
             instance,
             adapter_info,
             surface,
             surface_config: Arc::new(tokio::sync::Mutex::new(surface_config)),
-            main_menu_renderer,
+            main_menu,
         })
     }
 
@@ -121,7 +136,7 @@ impl GpuContext {
         &self,
         width: u32,
         height: u32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         let mut config = self.surface_config.lock().await;
         config.width = width;
         config.height = height;
@@ -163,6 +178,7 @@ fn main() {
             // Simulation commands
             commands::start_slime_mold_simulation,
             commands::start_gray_scott_simulation,
+            commands::start_particle_life_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
             commands::destroy_simulation,
@@ -202,6 +218,8 @@ fn main() {
             commands::get_current_settings,
             commands::get_current_state,
             commands::randomize_settings,
+            
+            // Slime mold specific commands
             commands::update_agent_count,
             commands::get_current_agent_count,
             

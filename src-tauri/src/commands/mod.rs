@@ -7,6 +7,7 @@ pub mod settings;
 pub mod interaction;
 pub mod utility;
 pub mod reset;
+pub mod slime_mold;
 
 // Re-export all command functions for easy access
 pub use simulation::*;
@@ -17,4 +18,5 @@ pub use camera::*;
 pub use settings::*;
 pub use interaction::*;
 pub use utility::*;
-pub use reset::*; 
+pub use reset::*;
+pub use slime_mold::*;

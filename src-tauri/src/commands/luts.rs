@@ -14,7 +14,7 @@ pub async fn apply_lut_by_name(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.apply_lut(&lut_name, &gpu_ctx.queue) {
+    match sim_manager.apply_lut(&lut_name, &gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("LUT '{}' applied successfully", lut_name);
             Ok(format!("LUT '{}' applied successfully", lut_name))
@@ -35,7 +35,7 @@ pub async fn apply_lut(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.apply_lut(&lut_name, &gpu_ctx.queue) {
+    match sim_manager.apply_lut(&lut_name, &gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("LUT '{}' applied successfully", lut_name);
             Ok(format!("LUT '{}' applied successfully", lut_name))
@@ -55,7 +55,7 @@ pub async fn toggle_lut_reversed(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.reverse_current_lut(&gpu_ctx.queue) {
+    match sim_manager.reverse_current_lut(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("LUT reversed successfully");
             Ok("LUT reversed successfully".to_string())

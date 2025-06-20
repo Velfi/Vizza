@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing;
 use wgpu::{Device, Queue};
 use serde_json;
+use crate::error::SimulationResult;
 
 /// GPU-compatible camera uniform data
 #[repr(C)]
@@ -63,7 +64,7 @@ impl Camera {
         device: &Arc<Device>,
         viewport_width: f32,
         viewport_height: f32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> SimulationResult<Self> {
         let position = [0.5, 0.5]; // Center of [0,1] space
         let zoom = 1.0; // No zoom
         let aspect_ratio = viewport_width / viewport_height;
@@ -96,11 +97,15 @@ impl Camera {
     fn create_simple_transform_matrix(position: [f32; 2], zoom: f32) -> [f32; 16] {
         // Create a simple orthographic projection matrix
         // This maps [0,1] x [0,1] world space to [-1,1] x [-1,1] clip space
-        // Remove aspect ratio correction to fill the entire window
         let scale_x = zoom;
         let scale_y = zoom;
-        let translate_x = -2.0 * position[0] * zoom + 1.0;
-        let translate_y = -2.0 * position[1] * zoom + 1.0;
+        
+        // For proper center zooming, we want to:
+        // 1. Scale around the origin (0,0)
+        // 2. Then translate to account for camera position
+        // The translation should move the camera center to NDC origin (0,0)
+        let translate_x = -(position[0] - 0.5) * 2.0 * zoom;
+        let translate_y = -(position[1] - 0.5) * 2.0 * zoom;
 
         [
             scale_x, 0.0, 0.0, 0.0,
@@ -136,14 +141,23 @@ impl Camera {
         );
     }
 
-    /// Update zoom level
+    /// Update zoom level (zooms to center of viewport)
     pub fn zoom(&mut self, delta: f32) {
         let zoom_factor = 1.0 + delta * 0.3;
         let new_zoom = self.zoom * zoom_factor;
         let clamped_zoom = new_zoom.clamp(0.1, 50.0);
 
         if (clamped_zoom - self.zoom).abs() > 0.001 {
+            // Store the center point in world coordinates before zoom
+            let center_world_x = self.position[0];
+            let center_world_y = self.position[1];
+            
             self.zoom = clamped_zoom;
+            
+            // Keep the same center point after zoom
+            self.position[0] = center_world_x;
+            self.position[1] = center_world_y;
+            
             // Update uniform data after zoom change
             self.update_uniform();
             tracing::debug!("Camera zoom: delta={:.2}, new_zoom={:.2}", delta, clamped_zoom);
@@ -186,20 +200,6 @@ impl Camera {
             "Camera zoom to cursor: cursor=({:.2}, {:.2}), zoom={:.2}, pos=({:.2}, {:.2})",
             cursor_x, cursor_y, self.zoom, self.position[0], self.position[1]
         );
-    }
-
-    /// Convert NDC to world coordinates with a specific zoom level
-    fn ndc_to_world_with_zoom(&self, ndc: NdcCoords, zoom: f32) -> WorldCoords {
-        let world_x = (ndc.x / zoom) + self.position[0];
-        let world_y = (ndc.y / zoom) + self.position[1];
-        WorldCoords::new(world_x, world_y)
-    }
-
-    /// Convert world coordinates to NDC with a specific zoom level
-    fn world_to_ndc_with_zoom(&self, world: WorldCoords, zoom: f32) -> NdcCoords {
-        let ndc_x = (world.x - self.position[0]) * zoom;
-        let ndc_y = (world.y - self.position[1]) * zoom;
-        NdcCoords::new(ndc_x, ndc_y)
     }
 
     /// Reset camera to default position and zoom

@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{Device, Queue};
+use crate::error::SimulationResult;
+use rand;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -82,7 +84,7 @@ impl NoiseSeedCompute {
         height: u32,
         seed: u32,
         noise_strength: f32,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Create params buffer
         let params = NoiseParams {
             width,
@@ -139,5 +141,24 @@ impl NoiseSeedCompute {
         queue.submit(std::iter::once(encoder.finish()));
 
         Ok(())
+    }
+
+    pub fn seed_random_noise(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        u_buffer: &wgpu::Buffer,
+        v_buffer: &wgpu::Buffer,
+    ) -> SimulationResult<()> {
+        // Generate random seed and strength
+        let seed = rand::random::<u32>();
+        let noise_strength = 0.1; // Default noise strength
+        
+        // Get buffer size to determine width/height
+        let buffer_size = u_buffer.size() as usize;
+        let width = (buffer_size as f32).sqrt() as u32;
+        let height = width;
+        
+        self.seed_noise(device, queue, u_buffer, width, height, seed, noise_strength)
     }
 }

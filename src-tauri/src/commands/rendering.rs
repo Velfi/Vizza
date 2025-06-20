@@ -1,4 +1,5 @@
 use crate::simulation::SimulationManager;
+use crate::simulations::traits::Simulation;
 use std::sync::Arc;
 use tauri::State;
 
@@ -8,7 +9,7 @@ pub async fn render_frame(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<(), String> {
     let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
+    let mut gpu_ctx = gpu_context.lock().await;
 
     // Get current surface texture
     let surface_texture = gpu_ctx.get_current_texture()?;
@@ -16,26 +17,31 @@ pub async fn render_frame(
 
     // Check if simulation is running
     if !sim_manager.is_running() {
-        // Render main menu when no simulation is running
-        match gpu_ctx.main_menu_renderer.render(
-            &gpu_ctx.device,
-            &gpu_ctx.queue,
+        // Render main menu background when no simulation is running
+        let device = gpu_ctx.device.clone();
+        let queue = gpu_ctx.queue.clone();
+        let result = gpu_ctx.main_menu.render_frame(
+            &device,
+            &queue,
             &surface_view,
-            sim_manager.get_time(),
-        ) {
+        );
+        
+        match result {
             Ok(_) => {
                 surface_texture.present();
                 return Ok(());
             }
             Err(e) => {
-                tracing::error!("Failed to render main menu: {}", e);
-                return Err(format!("Failed to render main menu: {}", e));
+                tracing::error!("Failed to render main menu background: {}", e);
+                return Err(format!("Failed to render main menu background: {}", e));
             }
         }
     }
 
     // Render the simulation
-    if let Err(e) = sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &surface_view) {
+    let device = gpu_ctx.device.clone();
+    let queue = gpu_ctx.queue.clone();
+    if let Err(e) = sim_manager.render(&device, &queue, &surface_view) {
         tracing::error!("Failed to render frame: {}", e);
         return Err(format!("Failed to render frame: {}", e));
     }
@@ -52,7 +58,7 @@ pub async fn render_single_frame(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<(), String> {
     let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
+    let mut gpu_ctx = gpu_context.lock().await;
 
     // Get current surface texture
     let surface_texture = gpu_ctx.get_current_texture()?;
@@ -60,26 +66,31 @@ pub async fn render_single_frame(
 
     // Check if simulation is running
     if !sim_manager.is_running() {
-        // Render main menu when no simulation is running
-        match gpu_ctx.main_menu_renderer.render(
-            &gpu_ctx.device,
-            &gpu_ctx.queue,
+        // Render main menu background when no simulation is running
+        let device = gpu_ctx.device.clone();
+        let queue = gpu_ctx.queue.clone();
+        let result = gpu_ctx.main_menu.render_frame(
+            &device,
+            &queue,
             &surface_view,
-            sim_manager.get_time(),
-        ) {
+        );
+        
+        match result {
             Ok(_) => {
                 surface_texture.present();
                 return Ok(());
             }
             Err(e) => {
-                tracing::error!("Failed to render main menu: {}", e);
-                return Err(format!("Failed to render main menu: {}", e));
+                tracing::error!("Failed to render main menu background: {}", e);
+                return Err(format!("Failed to render main menu background: {}", e));
             }
         }
     }
 
     // Render the simulation
-    if let Err(e) = sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &surface_view) {
+    let device = gpu_ctx.device.clone();
+    let queue = gpu_ctx.queue.clone();
+    if let Err(e) = sim_manager.render(&device, &queue, &surface_view) {
         tracing::error!("Failed to render single frame: {}", e);
         return Err(format!("Failed to render single frame: {}", e));
     }

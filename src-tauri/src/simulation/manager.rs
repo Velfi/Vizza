@@ -4,11 +4,13 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
-use crate::simulations::shared::{coordinates::ScreenCoords, LutHandler, LutManager, SimulationLutManager};
+use crate::simulations::shared::{coordinates::ScreenCoords, LutManager, SimulationLutManager};
 use crate::simulations::traits::{Simulation, SimulationType};
 use crate::simulation::preset_manager::SimulationPresetManager;
 use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
 use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
+use crate::simulations::particle_life::{ParticleLifeModel, settings::Settings as ParticleLifeSettings};
+use crate::error::{AppError, AppResult};
 
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
@@ -56,7 +58,7 @@ impl SimulationManager {
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         match simulation_type.as_str() {
             "slime_mold" => {
                 // Initialize slime mold simulation
@@ -91,6 +93,22 @@ impl SimulationManager {
                 self.current_simulation = Some(SimulationType::GrayScott(simulation));
                 Ok(())
             }
+            "particle_life" => {
+                // Initialize Particle Life simulation
+                let settings = ParticleLifeSettings::default();
+                let simulation = ParticleLifeModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    adapter_info,
+                    settings.particle_count as usize,
+                    settings,
+                    &self.lut_manager,
+                )?;
+
+                self.current_simulation = Some(SimulationType::ParticleLife(simulation));
+                Ok(())
+            }
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -104,7 +122,7 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &wgpu::TextureView,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.render_frame(device, queue, surface_view)?;
         }
@@ -116,7 +134,7 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.resize(device, queue, new_config)?;
         }
@@ -129,7 +147,7 @@ impl SimulationManager {
         world_y: f32,
         is_seeding: bool,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)?;
         }
@@ -143,7 +161,7 @@ impl SimulationManager {
         screen_y: f32,
         is_seeding: bool,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::GrayScott(simulation) => {
@@ -182,22 +200,9 @@ impl SimulationManager {
         value: serde_json::Value,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.update_setting(setting_name, value.clone(), device, queue)?;
-        }
-        Ok(())
-    }
-
-    pub async fn update_agent_count(
-        &mut self,
-        count: u32,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        surface_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &mut self.current_simulation {
-            simulation.update_agent_count(count, device, queue, surface_config).await?;
         }
         Ok(())
     }
@@ -226,6 +231,11 @@ impl SimulationManager {
                 tracing::info!("Gray-Scott presets: {:?}", presets);
                 presets
             }
+            "particle_life" => {
+                // Particle life doesn't have preset manager yet, return empty list
+                tracing::info!("Particle life presets: (none implemented yet)");
+                vec![]
+            }
             _ => {
                 tracing::warn!("Unknown simulation type: {}", simulation_type);
                 vec![]
@@ -237,9 +247,10 @@ impl SimulationManager {
         &mut self,
         preset_name: &str,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            self.preset_manager.apply_preset(simulation, preset_name, queue)?;
+            self.preset_manager.apply_preset(simulation, preset_name, queue).map_err(|e| AppError::Preset(e))?;
+            simulation.reset_runtime_state(queue)?;
         }
         Ok(())
     }
@@ -248,15 +259,15 @@ impl SimulationManager {
         &self,
         preset_name: &str,
         settings: &serde_json::Value,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &self.current_simulation {
             self.preset_manager.save_preset(simulation, preset_name, settings)?;
         }
         Ok(())
     }
 
-    pub fn delete_preset(&mut self, preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(simulation) = &self.current_simulation {
+    pub fn delete_preset(&mut self, preset_name: &str) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
             self.preset_manager.delete_preset(simulation, preset_name)?;
         }
         Ok(())
@@ -273,17 +284,6 @@ impl SimulationManager {
     pub fn get_current_state(&self) -> Option<serde_json::Value> {
         if let Some(simulation) = &self.current_simulation {
             Some(simulation.get_state())
-        } else {
-            None
-        }
-    }
-
-    pub fn get_current_agent_count(&self) -> Option<u32> {
-        if let Some(simulation) = &self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.get_agent_count(),
-                SimulationType::GrayScott(_) => None, // Gray-Scott doesn't have agents
-            }
         } else {
             None
         }
@@ -311,20 +311,22 @@ impl SimulationManager {
     pub fn apply_lut(
         &mut self,
         lut_name: &str,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            self.simulation_lut_manager.apply_lut(simulation, &self.lut_manager, lut_name, queue)?;
+            simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
         }
         Ok(())
     }
 
     pub fn reverse_current_lut(
         &mut self,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            self.simulation_lut_manager.reverse_current_lut(simulation, &self.lut_manager, queue)?;
+            simulation.update_setting("lut_reversed", serde_json::json!(true), device, queue)?;
         }
         Ok(())
     }
@@ -414,32 +416,36 @@ impl SimulationManager {
     }
 
     // Reset methods
-    pub fn reset_trails(&mut self, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(SimulationType::SlimeMold(simulation)) = &mut self.current_simulation {
-            simulation.reset_trails(queue);
+    pub fn reset_trails(&mut self, queue: &Arc<Queue>) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            simulation.reset_runtime_state(queue)?;
         }
         Ok(())
     }
 
     pub fn reset_agents(
         &mut self,
-        device: &Arc<wgpu::Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(SimulationType::SlimeMold(simulation)) = &mut self.current_simulation {
-            simulation.reset_agents(device, queue)?;
+    ) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            simulation.reset_runtime_state(queue)?;
         }
         Ok(())
     }
 
     pub fn reset_simulation(
         &mut self,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                SimulationType::GrayScott(simulation) => simulation.reset(),
-                SimulationType::SlimeMold(simulation) => simulation.reset_trails(queue),
+                crate::simulations::traits::SimulationType::ParticleLife(sim) => {
+                    sim.reset_particles_gpu(device, queue)?;
+                }
+                _ => {
+                    simulation.reset_runtime_state(queue)?;
+                }
             }
         }
         Ok(())
@@ -449,7 +455,7 @@ impl SimulationManager {
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.randomize_settings(device, queue)?;
         }
@@ -461,12 +467,9 @@ impl SimulationManager {
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => simulation.seed_random_noise(device, queue)?,
-                SimulationType::GrayScott(simulation) => simulation.seed_random_noise(device, queue)?,
-            }
+            simulation.randomize_settings(device, queue)?;
         }
         Ok(())
     }
@@ -505,6 +508,8 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(simulation) => Some(simulation.camera.get_state()),
                 SimulationType::GrayScott(simulation) => Some(simulation.renderer.camera.get_state()),
+                SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
             None
@@ -524,6 +529,11 @@ impl SimulationManager {
                     let world = simulation.renderer.camera.screen_to_world(screen);
                     Some((world.x, world.y))
                 }
+                SimulationType::ParticleLife(_simulation) => {
+                    // No camera system for now
+                    Some((screen_x, screen_y))
+                }
+                SimulationType::MainMenu(_) => None, // No camera for main menu background
             }
         } else {
             None

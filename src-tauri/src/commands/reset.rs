@@ -30,7 +30,7 @@ pub async fn reset_agents(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.reset_agents(&gpu_ctx.device, &gpu_ctx.queue) {
+    match sim_manager.reset_agents(&gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("Agents reset successfully");
             Ok("Agents reset successfully".to_string())
@@ -50,7 +50,7 @@ pub async fn reset_simulation(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.reset_simulation(&gpu_ctx.queue) {
+    match sim_manager.reset_simulation(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("Simulation reset successfully");
             Ok("Simulation reset successfully".to_string())

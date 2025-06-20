@@ -2,6 +2,8 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
+use serde_json::Value;
+use crate::error::{SimulationError, SimulationResult};
 
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
@@ -58,7 +60,7 @@ impl GrayScottModel {
         height: u32,
         settings: Settings,
         lut_manager: &crate::simulations::shared::LutManager,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> SimulationResult<Self> {
         let vec_capacity = (width * height) as usize;
         let mut uvs: Vec<UVPair> = std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
 
@@ -235,7 +237,7 @@ impl GrayScottModel {
             }),
         ];
 
-        let renderer = Renderer::new(device, queue, surface_config, width, height)?;
+        let renderer = Renderer::new(device, queue, surface_config, width, height, lut_manager)?;
         let noise_seed_compute = NoiseSeedCompute::new(device);
 
         // Initialize LUT
@@ -291,7 +293,7 @@ impl GrayScottModel {
     pub fn resize(
         &mut self,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.renderer.resize(new_config)?;
         Ok(())
     }
@@ -307,7 +309,7 @@ impl GrayScottModel {
         }
     }
 
-    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
         // Generate a random seed for this noise generation
         let seed = rand::random::<u32>();
 
@@ -330,10 +332,10 @@ impl GrayScottModel {
     pub(crate) fn update_setting(
         &mut self,
         setting_name: &str,
-        value: serde_json::Value,
-        _device: &Arc<Device>,
+        value: Value,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         match setting_name {
             "feed_rate" => {
                 if let Some(v) = value.as_f64() {
@@ -431,10 +433,10 @@ impl GrayScottModel {
 
     pub(crate) fn render_frame(
         &mut self,
-        device: &Device,
-        queue: &Queue,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
         surface_view: &TextureView,
-    ) -> Result<(), wgpu::SurfaceError> {
+    ) -> SimulationResult<()> {
         // Calculate delta time
         let now = std::time::Instant::now();
         let delta_time = now.duration_since(self.last_frame_time).as_secs_f32();
@@ -467,7 +469,7 @@ impl GrayScottModel {
         // Render the current state - pass the output buffer (which contains the latest results)
         let output_buffer = &self.uvs_buffers[self.current_buffer];
         self.renderer
-            .render(surface_view, output_buffer, &self.params_buffer)
+            .render(surface_view, output_buffer, &self.params_buffer).map_err(|e| SimulationError::Gpu(Box::new(e)))
     }
 
     pub fn update_cursor_position(
@@ -475,7 +477,7 @@ impl GrayScottModel {
         x: f32,
         y: f32,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // x and y are world coordinates, pass them directly to shader
         // The shader will convert them to view space to match input.world_pos
 
@@ -504,7 +506,7 @@ impl GrayScottModel {
         texture_y: f32,
         is_seeding: bool,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // texture_x and texture_y are in [0,1] range
         // Update cursor position (for UI feedback, etc.)
         self.update_cursor_position(texture_x, texture_y, queue)?;
@@ -654,8 +656,8 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.render_frame(device, queue, surface_view).map_err(|e| e.into())
+    ) -> SimulationResult<()> {
+        self.render_frame(device, queue, surface_view)
     }
 
     fn resize(
@@ -663,17 +665,17 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         _device: &Arc<Device>,
         _queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.resize(new_config)
     }
 
     fn update_setting(
         &mut self,
         setting_name: &str,
-        value: serde_json::Value,
+        value: Value,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         self.update_setting(setting_name, value, device, queue)
     }
 
@@ -701,7 +703,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         world_y: f32,
         is_seeding: bool,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Convert world coordinates to texture coordinates
         let texture_x = (world_x + 1.0) * 0.5;
         let texture_y = (world_y + 1.0) * 0.5;
@@ -731,49 +733,27 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         })
     }
 
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
-        let new_settings: Settings = serde_json::from_value(settings)?;
+    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()> {
+        let new_settings: Settings = serde_json::from_value(settings).map_err(|e| SimulationError::Serialization(e))?;
         self.update_settings(new_settings, queue);
         Ok(())
     }
 
-    fn save_preset(&self, _preset_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn save_preset(&self, _preset_name: &str) -> SimulationResult<()> {
         // This would need to be implemented with the preset manager
         // For now, we'll return an error indicating it needs to be implemented
         Err("Preset saving not yet implemented for GrayScottModel".into())
     }
 
-    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> SimulationResult<()> {
         // This would need to be implemented with the preset manager
         // For now, we'll return an error indicating it needs to be implemented
         Err("Preset loading not yet implemented for GrayScottModel".into())
     }
 
-    fn reset_runtime_state(&mut self, _queue: &Arc<Queue>) -> Result<(), Box<dyn std::error::Error>> {
+    fn reset_runtime_state(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
         self.reset();
         Ok(())
-    }
-
-    fn get_simulation_type(&self) -> &str {
-        "gray_scott"
-    }
-
-    fn is_running(&self) -> bool {
-        true // GrayScottModel is always considered running when instantiated
-    }
-
-    fn get_agent_count(&self) -> Option<u32> {
-        None // Gray-Scott doesn't have agents
-    }
-
-    async fn update_agent_count(
-        &mut self,
-        _count: u32,
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
-        _surface_config: &SurfaceConfiguration,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err("Gray-Scott simulation does not support agent count updates".into())
     }
 
     fn toggle_gui(&mut self) -> bool {
@@ -788,7 +768,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         &mut self,
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> SimulationResult<()> {
         // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
