@@ -1,5 +1,5 @@
-// Particle Life compute shader using Lennard-Jones potential
-// More physically realistic force model
+// Classic Particle Life compute shader
+// Simple force-based attraction/repulsion model
 
 struct Particle {
     position: vec2<f32>,
@@ -29,17 +29,9 @@ struct SimParams {
     _pad3: u32,
 }
 
-// Lennard-Jones parameters for each species pair
-struct LJParams {
-    epsilon: f32,  // Potential well depth (attraction strength)
-    sigma: f32,    // Distance where potential is zero
-    _pad1: f32,
-    _pad2: f32,
-}
-
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(1) var<uniform> params: SimParams;
-@group(0) @binding(2) var<storage, read> lj_params: array<LJParams>;
+@group(0) @binding(2) var<storage, read> force_matrix: array<f32>;
 
 // Simple random number generator
 var<private> rng_state: u32;
@@ -61,35 +53,38 @@ fn rand_range(min_val: f32, max_val: f32) -> f32 {
     return min_val + rand_f32() * (max_val - min_val);
 }
 
-// Get Lennard-Jones parameters for species pair
-fn get_lj_params(species_a: u32, species_b: u32) -> LJParams {
+// Get force value from force matrix
+fn get_force(species_a: u32, species_b: u32) -> f32 {
     let index = species_a * params.species_count + species_b;
-    if (index >= arrayLength(&lj_params)) {
-        return LJParams(0.0, 1.0, 0.0, 0.0);
+    if (index >= arrayLength(&force_matrix)) {
+        return 0.0;
     }
-    return lj_params[index];
+    return force_matrix[index];
 }
 
-// Calculate Lennard-Jones force between two particles
-fn lennard_jones_force(r: f32, epsilon: f32, sigma: f32) -> f32 {
+// Calculate classic particle life force
+fn calculate_force(r: f32, force_strength: f32) -> f32 {
+    // Very short range repulsion to prevent overlap
     if (r < params.repulsion_min_distance) {
-        // Very strong repulsion at extremely small distances
-        return params.repulsion_extreme_strength; // Strong repulsive force
+        return params.repulsion_extreme_strength;
     }
     
+    // Medium range repulsion
     if (r < params.repulsion_medium_distance) {
-        // Additional repulsion at small distances to prevent overlap
-        return params.repulsion_linear_strength * (params.repulsion_medium_distance - r) / (params.repulsion_medium_distance - params.repulsion_min_distance); // Linear repulsion
+        let t = (params.repulsion_medium_distance - r) / (params.repulsion_medium_distance - params.repulsion_min_distance);
+        return params.repulsion_linear_strength * t;
     }
     
-    let sigma_over_r = sigma / r;
-    let sigma_over_r_6 = pow(sigma_over_r, 6.0);
-    let sigma_over_r_12 = sigma_over_r_6 * sigma_over_r_6;
+    // Outside minimum distance, apply the force matrix value
+    if (r > params.max_distance) {
+        return 0.0; // No force beyond max distance
+    }
     
-    // Force is negative gradient of potential: F = -dV/dr
-    // V(r) = 4ε[(σ/r)^12 - (σ/r)^6]
-    // F(r) = 24ε/r * [2(σ/r)^12 - (σ/r)^6]
-    return 24.0 * epsilon / r * (2.0 * sigma_over_r_12 - sigma_over_r_6);
+    // Linear falloff from max_distance to min_distance
+    let distance_factor = 1.0 - (r - params.min_distance) / (params.max_distance - params.min_distance);
+    let clamped_factor = clamp(distance_factor, 0.0, 1.0);
+    
+    return force_strength * clamped_factor;
 }
 
 // Wrap position around screen boundaries
@@ -164,22 +159,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let delta = wrapped_distance(particle.position, other.position);
         let distance = length(delta);
         
-        // Skip if too far (Lennard-Jones has natural cutoff)
+        // Skip if too far
         if (distance > params.max_distance) {
             continue;
         }
         
-        // Get Lennard-Jones parameters for this species pair
-        let lj_param = get_lj_params(particle.species, other.species);
+        // Get force strength from force matrix
+        let force_strength = get_force(particle.species, other.species);
         
-        // Calculate Lennard-Jones force magnitude
-        let lj_force_magnitude = lennard_jones_force(distance, lj_param.epsilon, lj_param.sigma);
+        // Calculate force magnitude using classic particle life model
+        let force_magnitude = calculate_force(distance, force_strength);
         
         // Limit maximum force to prevent instability
-        let clamped_force = clamp(lj_force_magnitude, -params.max_force, params.max_force);
+        let clamped_force = clamp(force_magnitude, -params.max_force, params.max_force);
         
         // Apply force in direction between particles
-        if (distance > 0.01) { // Allow forces at very small distances for repulsion
+        if (distance > 0.001) {
             let direction = normalize(delta);
             force += direction * clamped_force;
         }

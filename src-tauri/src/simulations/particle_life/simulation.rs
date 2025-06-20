@@ -28,14 +28,6 @@ pub struct ForceUpdateParams {
     pub species_count: u32,
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct LJParams {
-    pub epsilon: f32,  // Potential well depth (attraction strength)
-    pub sigma: f32,    // Distance where potential is zero
-    pub _pad1: f32,
-    pub _pad2: f32,
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -154,7 +146,7 @@ pub struct ParticleLifeModel {
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub sim_params_buffer: wgpu::Buffer,
-    pub lj_params_buffer: wgpu::Buffer,
+    pub force_matrix_buffer: wgpu::Buffer,
     pub lut_buffer: Arc<wgpu::Buffer>,
     
     // Compute pipeline
@@ -204,38 +196,17 @@ pub struct ParticleLifeModel {
 }
 
 impl ParticleLifeModel {
-    /// Convert force matrix values to Lennard-Jones parameters
-    fn force_matrix_to_lj_params(force_matrix: &[Vec<f32>]) -> Vec<LJParams> {
-        let mut lj_params = Vec::new();
+    /// Flatten 2D force matrix to 1D array for GPU
+    fn flatten_force_matrix(force_matrix: &[Vec<f32>]) -> Vec<f32> {
+        let mut flattened = Vec::new();
         
-        for i in 0..force_matrix.len() {
-            for j in 0..force_matrix[i].len() {
-                let force = force_matrix[i][j];
-                
-                // Convert force value [-1, 1] to Lennard-Jones parameters
-                // Original scaling for stronger dynamics
-                let epsilon = if force > 0.0 {
-                    force.abs() * 2.0  // Scale attraction strength
-                } else {
-                    0.1  // Minimal attraction for repulsive interactions
-                };
-                
-                let sigma = if force < 0.0 {
-                    10.0 + force.abs() * 20.0  // Larger sigma for repulsive forces
-                } else {
-                    5.0 + (1.0 - force) * 5.0  // Smaller sigma for attractive forces
-                };
-                
-                lj_params.push(LJParams {
-                    epsilon,
-                    sigma,
-                    _pad1: 0.0,
-                    _pad2: 0.0,
-                });
+        for row in force_matrix {
+            for &force in row {
+                flattened.push(force);
             }
         }
         
-        lj_params
+        flattened
     }
     
     pub fn new(
@@ -285,11 +256,11 @@ impl ParticleLifeModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         
-        // Create Lennard-Jones parameters buffer
-        let lj_params_data = Self::force_matrix_to_lj_params(&settings.force_matrix);
-        let lj_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LJ Params Buffer"),
-            contents: bytemuck::cast_slice(&lj_params_data),
+        // Create force matrix buffer (flatten 2D matrix to 1D array)
+        let force_matrix_data = Self::flatten_force_matrix(&settings.force_matrix);
+        let force_matrix_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Force Matrix Buffer"),
+            contents: bytemuck::cast_slice(&force_matrix_data),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
         
@@ -377,7 +348,7 @@ impl ParticleLifeModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: lj_params_buffer.as_entire_binding(),
+                    resource: force_matrix_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -527,7 +498,7 @@ impl ParticleLifeModel {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: lj_params_buffer.as_entire_binding(),
+                    resource: force_matrix_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -601,7 +572,7 @@ impl ParticleLifeModel {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: lj_params_buffer.as_entire_binding(),
+                    resource: force_matrix_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -803,7 +774,7 @@ impl ParticleLifeModel {
         let result = Self {
             particle_buffer,
             sim_params_buffer,
-            lj_params_buffer,
+            force_matrix_buffer,
             lut_buffer,
             compute_pipeline,
             compute_bind_group,
@@ -842,6 +813,8 @@ impl ParticleLifeModel {
     
     fn update_sim_params(&self, queue: &Arc<Queue>) {
         let sim_params = SimParams::new(self.width, self.height, self.settings.particle_count, &self.settings);
+        tracing::info!("Updating sim_params buffer: particle_count={}, buffer_size={}", 
+            sim_params.particle_count, self.particle_buffer.size());
         queue.write_buffer(&self.sim_params_buffer, 0, bytemuck::cast_slice(&[sim_params]));
     }
     
@@ -884,16 +857,25 @@ impl ParticleLifeModel {
     }
     
     pub fn reset_particles_gpu(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
+        tracing::info!("Resetting particles with count: {}", self.settings.particle_count);
+        
         // Update random seed for reset
         use rand::Rng;
         let mut rng = rand::rng();
         self.settings.random_seed = rng.random();
         
-        // Update sim params with new random seed
+        // Update sim params with new random seed and current particle count
         self.update_sim_params(queue);
         
+        tracing::info!("Reinitializing {} particles on GPU", self.settings.particle_count);
         // Re-initialize particles on GPU
-        self.initialize_particles_gpu(device, queue)
+        self.initialize_particles_gpu(device, queue)?;
+        
+        // Ensure GPU operations complete
+        device.poll(wgpu::Maintain::Wait);
+        
+        tracing::info!("Particle reset complete");
+        Ok(())
     }
     
     pub fn update_force_element_gpu(&self, device: &Arc<Device>, queue: &Arc<Queue>, species_a: u32, species_b: u32, new_force: f32) -> SimulationResult<()> {
@@ -986,7 +968,7 @@ impl ParticleLifeModel {
         }
     }
     
-    fn recreate_bind_groups_with_lj_params(&mut self, device: &Arc<Device>) {
+    fn recreate_bind_groups_with_force_matrix(&mut self, device: &Arc<Device>) {
         // Recreate compute bind group
         self.compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Compute Bind Group"),
@@ -1002,7 +984,7 @@ impl ParticleLifeModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: self.lj_params_buffer.as_entire_binding(),
+                    resource: self.force_matrix_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1014,7 +996,7 @@ impl ParticleLifeModel {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.lj_params_buffer.as_entire_binding(),
+                    resource: self.force_matrix_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -1030,7 +1012,7 @@ impl ParticleLifeModel {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.lj_params_buffer.as_entire_binding(),
+                    resource: self.force_matrix_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -1050,7 +1032,8 @@ impl Simulation for ParticleLifeModel {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Update GPU buffers with current state
-        self.update_sim_params(queue);
+        // TEMP: Disabled to test if this fixes particle count update issue
+        // self.update_sim_params(queue);
         
         // Update camera
         self.camera.upload_to_gpu(queue);
@@ -1070,7 +1053,9 @@ impl Simulation for ParticleLifeModel {
             compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
             
             let workgroup_size = 64;
-            let num_workgroups = (self.state.particle_count as u32 + workgroup_size - 1) / workgroup_size;
+            let num_workgroups = (self.settings.particle_count + workgroup_size - 1) / workgroup_size;
+            tracing::debug!("Compute dispatch: particle_count={}, num_workgroups={}, buffer_size={}", 
+                self.settings.particle_count, num_workgroups, self.particle_buffer.size());
             compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
         }
         
@@ -1097,7 +1082,8 @@ impl Simulation for ParticleLifeModel {
             render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
             
             // Draw instanced particles (6 vertices per particle for quad)
-            render_pass.draw(0..6, 0..self.state.particle_count as u32);
+            tracing::debug!("Render draw: drawing {} particles", self.settings.particle_count);
+            render_pass.draw(0..6, 0..self.settings.particle_count);
         }
         
         queue.submit(std::iter::once(encoder.finish()));
@@ -1129,21 +1115,24 @@ impl Simulation for ParticleLifeModel {
         match setting_name {
             "species_count" => {
                 if let Some(count) = value.as_u64() {
+                    let old_count = self.settings.species_count;
                     self.settings.set_species_count(count as u32);
                     
-                    // Recreate LJ params buffer with new size
-                    let lj_params_data = Self::force_matrix_to_lj_params(&self.settings.force_matrix);
-                    self.lj_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("LJ Params Buffer"),
-                        contents: bytemuck::cast_slice(&lj_params_data),
+                    // Recreate force matrix buffer with new size
+                    let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
+                    self.force_matrix_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Force Matrix Buffer"),
+                        contents: bytemuck::cast_slice(&force_matrix_data),
                         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     });
                     
                     // Recreate bind groups that use this buffer
-                    self.recreate_bind_groups_with_lj_params(device);
+                    self.recreate_bind_groups_with_force_matrix(device);
                     
                     // Respawn all particles to ensure proper species distribution
                     self.initialize_particles_gpu(device, queue)?;
+                    
+                    tracing::info!("Updated species count from {} to {} (respawned all particles)", old_count, count);
                 }
             }
             "particle_count" => {
@@ -1166,8 +1155,8 @@ impl Simulation for ParticleLifeModel {
                         }
                     }
                     // Update entire LJ params buffer since we changed the force matrix
-                    let lj_params_data = Self::force_matrix_to_lj_params(&self.settings.force_matrix);
-                    queue.write_buffer(&self.lj_params_buffer, 0, bytemuck::cast_slice(&lj_params_data));
+                    let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
+                    queue.write_buffer(&self.force_matrix_buffer, 0, bytemuck::cast_slice(&force_matrix_data));
                 }
             }
             "max_force" => {
@@ -1281,9 +1270,9 @@ impl Simulation for ParticleLifeModel {
     fn apply_settings(&mut self, settings: Value, queue: &Arc<Queue>) -> SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
-            // Upload the entire LJ params when applying new settings
-            let lj_params_data = Self::force_matrix_to_lj_params(&self.settings.force_matrix);
-            queue.write_buffer(&self.lj_params_buffer, 0, bytemuck::cast_slice(&lj_params_data));
+            // Upload the entire force matrix when applying new settings
+            let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
+            queue.write_buffer(&self.force_matrix_buffer, 0, bytemuck::cast_slice(&force_matrix_data));
         }
         Ok(())
     }
@@ -1318,19 +1307,14 @@ impl Simulation for ParticleLifeModel {
         // Randomize force matrix on GPU for better performance
         self.randomize_force_matrix_gpu(device, queue)?;
         
-        // Randomize other settings on CPU (these are small values)
-        // Note: particle_count and species_count are preserved
+        // Only update random seed - preserve all physics settings
         use rand::Rng;
         let mut rng = rand::rng();
-        self.settings.max_force = rng.random_range(50.0..200.0);
-        self.settings.min_distance = rng.random_range(2.0..10.0);
-        self.settings.max_distance = rng.random_range(50.0..150.0);
-        self.settings.friction = rng.random_range(0.9..0.999);
-        self.settings.time_step = rng.random_range(0.01..0.03);
-        self.settings.wrap_edges = rng.random_bool(0.7);
         self.settings.random_seed = rng.random();
         
-        // Explicitly preserve particle_count and species_count - they should not be randomized
+        // Note: Physics settings (max_force, distances, friction, time_step, wrap_edges)
+        // are intentionally NOT randomized to preserve user's simulation setup
+        // Note: particle_count and species_count are preserved
         
         Ok(())
     }
@@ -1349,11 +1333,17 @@ impl ParticleLifeModel {
         let old_count = self.settings.particle_count;
         
         if new_count == old_count {
+            tracing::info!("Particle count unchanged at {}, skipping update", new_count);
             return Ok(());
         }
         
-        // Update settings
+        tracing::info!("Starting particle count update: {} -> {}", old_count, new_count);
+        
+        // Update settings and state
         self.settings.particle_count = new_count;
+        self.state.particle_count = new_count as usize;
+        
+        tracing::info!("Updated settings: particle_count={}", self.settings.particle_count);
         
         // Check buffer size limits
         let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
@@ -1379,22 +1369,31 @@ impl ParticleLifeModel {
         // Replace the buffer
         self.particle_buffer = new_particle_buffer;
         
+        tracing::info!("Recreating bind groups after buffer recreation");
         // Recreate bind groups with new buffer
         self.recreate_bind_groups(device)?;
         
+        tracing::info!("Updating sim params buffer BEFORE particle initialization");
+        // Update simulation parameters with new particle count BEFORE initializing particles
+        self.update_sim_params(queue);
+        
+        tracing::info!("Respawning particles on GPU with count: {}", new_count);
         // Respawn all particles with new count
         self.initialize_particles_gpu(device, queue)?;
         
-        // Update simulation parameters with new particle count
-        self.update_sim_params(queue);
+        tracing::info!("Waiting for GPU commands to complete");
+        // Force GPU to finish all commands to ensure buffer updates are complete
+        device.poll(wgpu::Maintain::Wait);
         
-        tracing::info!("Updated particle count from {} to {} (respawned all)", old_count, new_count);
+        tracing::info!("Particle count update complete: {} -> {} (buffer_size={})", 
+            old_count, new_count, self.particle_buffer.size());
         Ok(())
     }
 
 
     /// Recreate bind groups after particle buffer changes
     fn recreate_bind_groups(&mut self, device: &Arc<Device>) -> SimulationResult<()> {
+        tracing::info!("Recreating compute bind group");
         // Recreate compute bind group
         self.compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Compute Bind Group"),
@@ -1410,11 +1409,12 @@ impl ParticleLifeModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: self.lj_params_buffer.as_entire_binding(),
+                    resource: self.force_matrix_buffer.as_entire_binding(),
                 },
             ],
         });
         
+        tracing::info!("Recreating render bind group");
         // Recreate render bind group
         self.render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Render Bind Group"),
@@ -1431,6 +1431,24 @@ impl ParticleLifeModel {
             ],
         });
         
+        tracing::info!("Recreating init bind group");
+        // Recreate init bind group (critical for particle initialization)
+        self.init_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Particle Life Init Bind Group"),
+            layout: &self.init_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.init_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        
+        tracing::info!("All bind groups recreated successfully");
         Ok(())
     }
 }

@@ -35,7 +35,7 @@ pub struct Settings {
     /// Random seed for particle reset operations
     pub random_seed: u32,
     
-    /// Short-range repulsion settings
+    /// Short-range repulsion settings (for preventing particle overlap)
     /// Minimum distance before extreme repulsion kicks in
     pub repulsion_min_distance: f32,
     
@@ -77,19 +77,19 @@ impl Default for Settings {
         
         Self {
             species_count: 4,
-            particle_count: 20000,
+            particle_count: 15000,
             force_matrix,
-            max_force: 100.0,
-            min_distance: 5.0,
-            max_distance: 100.0,
-            friction: 0.98,
-            time_step: 0.016, // ~60 FPS
+            max_force: 80.0,
+            min_distance: 1.0,
+            max_distance: 80.0,
+            friction: 0.95,
+            time_step: 0.02,
             wrap_edges: true,
             random_seed: 0,
-            repulsion_min_distance: 0.1,
-            repulsion_medium_distance: 0.5,
-            repulsion_extreme_strength: 1000.0,
-            repulsion_linear_strength: 200.0,
+            repulsion_min_distance: 0.5,
+            repulsion_medium_distance: 3.0,
+            repulsion_extreme_strength: 100.0,
+            repulsion_linear_strength: 50.0,
         }
     }
 }
@@ -138,22 +138,17 @@ impl Settings {
         }
     }
     
-    /// Randomize all settings within reasonable bounds
+    /// Randomize only the force matrix, preserving physics settings
     pub fn randomize(&mut self) {
         use rand::Rng;
         let mut rng = rand::rng();
         
-        // Keep species count and particle count stable but randomize force matrix
+        // Only randomize the force matrix - preserve all physics parameters
         self.randomize_force_matrix();
-        
-        self.max_force = rng.random_range(50.0..200.0);
-        self.min_distance = rng.random_range(2.0..10.0);
-        self.max_distance = rng.random_range(50.0..150.0);
-        self.friction = rng.random_range(0.9..0.99);
-        self.time_step = rng.random_range(0.01..0.03);
-        self.wrap_edges = rng.random_bool(0.7); // Usually wrap edges
         self.random_seed = rng.random();
         
+        // Note: Physics settings (max_force, distances, friction, time_step, wrap_edges)
+        // are intentionally NOT randomized to preserve user's simulation setup
         // Note: particle_count and species_count are intentionally NOT randomized
         // to preserve user's preferred configuration
     }

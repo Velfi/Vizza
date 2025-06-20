@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Don't be so obsequious and sycophantic.
 
+PL - Particle Life
+GS - Gray-Scott
+SM - Slime Mold
+
 ## Development Commands
 
 **Frontend (Svelte + Vite):**

@@ -27,7 +27,7 @@
   // Simulation state
   let settings: Settings = {
     species_count: 4,
-    particle_count: 20000,
+    particle_count: 15000,
     force_matrix: [
       [-0.2,  0.3, -0.1,  0.1],
       [-0.3, -0.1,  0.4, -0.2],
@@ -105,10 +105,19 @@
     settings.force_matrix = newMatrix;
     
     try {
+      // First update the species count
       await invoke('update_simulation_setting', { 
         settingName: 'species_count', 
         value: newCount 
       });
+      
+      // Then update the force matrix with the new size
+      await invoke('update_simulation_setting', { 
+        settingName: 'force_matrix', 
+        value: newMatrix 
+      });
+      
+      console.log(`Species count updated to ${newCount}, particles respawned`);
     } catch (e) {
       console.error('Failed to update species count:', e);
     }
@@ -142,8 +151,18 @@
   }
 
   async function updateParticleCount(value: number) {
-    const newCount = Math.max(1000, Math.min(100000, Math.round(value)));
+    const newCount = Math.max(1000, Math.min(50000, Math.round(value)));
     if (newCount === settings.particle_count) return;
+    
+    // Warn about performance impact at high particle counts
+    if (newCount >= 25000) {
+      const confirmed = confirm(
+        `Warning: ${newCount.toLocaleString()} particles may cause performance issues or freezing due to O(N²) force calculations.\n\n` +
+        `This equals ${Math.round((newCount * newCount) / 1000000).toLocaleString()} million force calculations per frame.\n\n` +
+        `Consider using fewer particles (under 25,000) for smooth performance. Continue?`
+      );
+      if (!confirmed) return;
+    }
     
     settings.particle_count = newCount;
     
@@ -551,11 +570,14 @@
             <NumberDragBox
               bind:value={settings.particle_count}
               min={1000}
-              max={100000}
+              max={50000}
               step={1000}
               precision={0}
               on:change={(e) => updateParticleCount(e.detail)}
             />
+            <small style="color: rgba(255, 255, 255, 0.6); margin-top: 4px; display: block;">
+              ⚠️ Performance drops significantly above 25,000 particles
+            </small>
           </div>
           <div class="control-group">
             <button 
@@ -620,11 +642,11 @@
         <fieldset>
           <legend>Physics</legend>
           <div class="control-group">
-            <label for="maxForce">Max Force</label>
+            <label for="maxForce">Force Strength</label>
             <NumberDragBox
               bind:value={settings.max_force}
               min={10}
-              max={500}
+              max={200}
               step={1}
               precision={1}
               on:change={(e) => updateSetting('max_force', e.detail)}
@@ -632,11 +654,11 @@
           </div>
           
           <div class="control-group">
-            <label for="minDistance">Min Distance</label>
+            <label for="minDistance">Min Range</label>
             <NumberDragBox
               bind:value={settings.min_distance}
-              min={1}
-              max={20}
+              min={0.5}
+              max={10}
               step={0.1}
               precision={1}
               on:change={(e) => updateSetting('min_distance', e.detail)}
@@ -644,11 +666,11 @@
           </div>
           
           <div class="control-group">
-            <label for="maxDistance">Max Distance</label>
+            <label for="maxDistance">Max Range</label>
             <NumberDragBox
               bind:value={settings.max_distance}
               min={20}
-              max={200}
+              max={150}
               step={1}
               precision={1}
               on:change={(e) => updateSetting('max_distance', e.detail)}
@@ -691,52 +713,52 @@
           </div>
         </fieldset>
 
-        <!-- Repulsion Settings -->
+        <!-- Collision Settings -->
         <fieldset>
-          <legend>Particle Repulsion</legend>
+          <legend>Collision Avoidance</legend>
           <div class="control-group">
-            <label for="repulsionMinDistance">Min Distance</label>
+            <label for="repulsionMinDistance">Collision Distance</label>
             <NumberDragBox
               bind:value={settings.repulsion_min_distance}
-              min={0.01}
-              max={1.0}
-              step={0.01}
-              precision={2}
+              min={0.1}
+              max={3.0}
+              step={0.1}
+              precision={1}
               on:change={(e) => updateSetting('repulsion_min_distance', e.detail)}
             />
           </div>
           
           <div class="control-group">
-            <label for="repulsionMediumDistance">Medium Distance</label>
+            <label for="repulsionMediumDistance">Repulsion Range</label>
             <NumberDragBox
               bind:value={settings.repulsion_medium_distance}
-              min={0.1}
-              max={2.0}
-              step={0.01}
-              precision={2}
+              min={1.0}
+              max={10.0}
+              step={0.5}
+              precision={1}
               on:change={(e) => updateSetting('repulsion_medium_distance', e.detail)}
             />
           </div>
           
           <div class="control-group">
-            <label for="repulsionExtremeStrength">Extreme Repulsion</label>
+            <label for="repulsionExtremeStrength">Collision Force</label>
             <NumberDragBox
               bind:value={settings.repulsion_extreme_strength}
-              min={100}
-              max={5000}
-              step={50}
+              min={20}
+              max={300}
+              step={10}
               precision={0}
               on:change={(e) => updateSetting('repulsion_extreme_strength', e.detail)}
             />
           </div>
           
           <div class="control-group">
-            <label for="repulsionLinearStrength">Linear Repulsion</label>
+            <label for="repulsionLinearStrength">Repulsion Force</label>
             <NumberDragBox
               bind:value={settings.repulsion_linear_strength}
-              min={50}
-              max={1000}
-              step={10}
+              min={10}
+              max={150}
+              step={5}
               precision={0}
               on:change={(e) => updateSetting('repulsion_linear_strength', e.detail)}
             />
@@ -966,8 +988,31 @@
   }
 
   .matrix-cell {
-    min-width: 50px;
-    max-width: 80px;
+    min-width: 55px;
+    max-width: 55px;
+    height: 55px;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .matrix-cell :global(.number-drag-container) {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .matrix-cell :global(.number-drag-box) {
+    width: 100%;
+    height: 100%;
+    min-width: unset;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
   }
   
   .matrix-placeholder {
@@ -988,17 +1033,17 @@
   }
   
   .force-matrix[style*="--species-count: 5"] .matrix-cell,
-  .force-matrix[style*="--species-count: 6"] .matrix-cell,
-  .force-matrix[style*="--species-count: 7"] .matrix-cell,
-  .force-matrix[style*="--species-count: 8"] .matrix-cell {
-    min-width: 45px;
-    max-width: 60px;
+  .force-matrix[style*="--species-count: 6"] .matrix-cell {
+    min-width: 50px;
+    max-width: 50px;
+    height: 50px;
   }
   
   .force-matrix[style*="--species-count: 7"] .matrix-cell,
   .force-matrix[style*="--species-count: 8"] .matrix-cell {
-    min-width: 40px;
-    max-width: 50px;
+    min-width: 45px;
+    max-width: 45px;
+    height: 45px;
   }
 
   .matrix-legend {
