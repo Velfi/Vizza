@@ -17,13 +17,13 @@ pub async fn toggle_gui(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     sim_manager.toggle_gui();
-    
+
     let state = if sim_manager.is_gui_visible() {
         "visible"
     } else {
         "hidden"
     };
-    
+
     tracing::info!("GUI toggled to {}", state);
     Ok(format!("GUI toggled to {}", state))
 }
@@ -44,7 +44,7 @@ pub async fn set_fps_limit(
 ) -> Result<String, String> {
     let sim_manager = manager.lock().await;
     sim_manager.set_fps_limit(enabled, limit);
-    
+
     if enabled {
         tracing::info!("FPS limit set to {}", limit);
         Ok(format!("FPS limit set to {}", limit))
@@ -52,4 +52,4 @@ pub async fn set_fps_limit(
         tracing::info!("FPS limit disabled");
         Ok("FPS limit disabled".to_string())
     }
-} 
+}

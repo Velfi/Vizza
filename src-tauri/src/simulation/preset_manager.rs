@@ -1,13 +1,14 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use wgpu::Device;
 use wgpu::Queue;
 
-use serde::{Deserialize, Serialize};
-use toml;
-use dirs::home_dir;
 use crate::error::PresetError;
 use crate::error::PresetResult;
+use dirs::home_dir;
+use serde::{Deserialize, Serialize};
+use toml;
 
 use crate::simulations::traits::Simulation;
 use crate::simulations::traits::SimulationType;
@@ -70,21 +71,21 @@ where
     }
 
     /// Save a preset to a TOML file in the user's Documents folder
-    pub fn save_user_preset(
-        &self,
-        name: &str,
-        settings: &Settings,
-    ) -> PresetResult<()> {
+    pub fn save_user_preset(&self, name: &str, settings: &Settings) -> PresetResult<()> {
         let preset = Preset {
             name: name.to_string(),
             settings: settings.clone(),
         };
 
-        let toml_content = toml::to_string_pretty(&preset).map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+        let toml_content = toml::to_string_pretty(&preset)
+            .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
         let path = self
             .user_presets_dir
             .join(format!("{}.toml", sanitize_filename(name)));
-        fs::write(&path, toml_content).map_err(|e| PresetError::FileError { path, error: e.to_string() })?;
+        fs::write(&path, toml_content).map_err(|e| PresetError::FileError {
+            path,
+            error: e.to_string(),
+        })?;
 
         Ok(())
     }
@@ -95,10 +96,16 @@ where
             return Ok(());
         }
 
-        let entries = fs::read_dir(&self.user_presets_dir).map_err(|e| PresetError::FileError { path: self.user_presets_dir.clone(), error: e.to_string() })?;
+        let entries = fs::read_dir(&self.user_presets_dir).map_err(|e| PresetError::FileError {
+            path: self.user_presets_dir.clone(),
+            error: e.to_string(),
+        })?;
 
         for entry in entries {
-            let entry = entry.map_err(|e| PresetError::FileError { path: self.user_presets_dir.clone(), error: e.to_string() })?;
+            let entry = entry.map_err(|e| PresetError::FileError {
+                path: self.user_presets_dir.clone(),
+                error: e.to_string(),
+            })?;
             let path = entry.path();
 
             if path.extension().and_then(|s| s.to_str()) == Some("toml") {
@@ -121,8 +128,12 @@ where
 
     /// Load a single preset from a TOML file
     fn load_preset_from_file(&self, path: &PathBuf) -> PresetResult<Preset<Settings>> {
-        let content = fs::read_to_string(path).map_err(|e| PresetError::FileError { path: path.clone(), error: e.to_string() })?;
-        let preset: Preset<Settings> = toml::from_str(&content).map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+        let content = fs::read_to_string(path).map_err(|e| PresetError::FileError {
+            path: path.clone(),
+            error: e.to_string(),
+        })?;
+        let preset: Preset<Settings> = toml::from_str(&content)
+            .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
         Ok(preset)
     }
 
@@ -135,7 +146,10 @@ where
 
         // Remove from file system
         if file_path.exists() {
-            fs::remove_file(&file_path).map_err(|e| PresetError::FileError { path: file_path.clone(), error: e.to_string() })?;
+            fs::remove_file(&file_path).map_err(|e| PresetError::FileError {
+                path: file_path.clone(),
+                error: e.to_string(),
+            })?;
         }
 
         // Also remove from memory immediately
@@ -178,27 +192,31 @@ fn sanitize_filename(name: &str) -> String {
 // Type aliases for convenience
 pub type SlimeMoldPresetManager = PresetManager<crate::simulations::slime_mold::settings::Settings>;
 pub type GrayScottPresetManager = PresetManager<crate::simulations::gray_scott::settings::Settings>;
+pub type ParticleLifePresetManager =
+    PresetManager<crate::simulations::particle_life::settings::Settings>;
 
 // Wrapper struct to hold multiple preset managers
 pub struct SimulationPresetManager {
     slime_mold_preset_manager: SlimeMoldPresetManager,
     gray_scott_preset_manager: GrayScottPresetManager,
+    particle_life_preset_manager: ParticleLifePresetManager,
 }
 
 impl SimulationPresetManager {
     pub fn new() -> Self {
-        let mut slime_mold_preset_manager = PresetManager::new("slime-mold".to_string());
-        let mut gray_scott_preset_manager = PresetManager::new("gray-scott".to_string());
+        let mut slime_mold_preset_manager = SlimeMoldPresetManager::new("slime_mold".to_string());
+        let mut gray_scott_preset_manager = GrayScottPresetManager::new("gray_scott".to_string());
+        let mut particle_life_preset_manager =
+            ParticleLifePresetManager::new("particle_life".to_string());
 
-        // Initialize slime mold presets
         Self::init_slime_mold_presets(&mut slime_mold_preset_manager);
-        
-        // Initialize gray scott presets
         Self::init_gray_scott_presets(&mut gray_scott_preset_manager);
+        Self::init_particle_life_presets(&mut particle_life_preset_manager);
 
         Self {
             slime_mold_preset_manager,
             gray_scott_preset_manager,
+            particle_life_preset_manager,
         }
     }
 
@@ -374,7 +392,7 @@ impl SimulationPresetManager {
     }
 
     fn init_gray_scott_presets(preset_manager: &mut GrayScottPresetManager) {
-        use crate::simulations::gray_scott::settings::{Settings, NutrientPattern};
+        use crate::simulations::gray_scott::settings::{NutrientPattern, Settings};
 
         tracing::info!("Initializing Gray-Scott presets...");
 
@@ -417,6 +435,30 @@ impl SimulationPresetManager {
         tracing::info!("Initialized {} Gray-Scott presets", preset_count);
     }
 
+    fn init_particle_life_presets(preset_manager: &mut ParticleLifePresetManager) {
+        use crate::simulations::particle_life::settings::Settings;
+
+        tracing::info!("Initializing Particle Life presets...");
+
+        // Add default presets
+        let all_presets = vec![("Default", Settings::default())];
+
+        for (preset_name, settings) in all_presets {
+            preset_manager.add_preset(Preset::new(preset_name.to_string(), settings));
+        }
+
+        // Capture all the built-in preset names we just added
+        preset_manager.capture_built_in_presets();
+
+        // Load user presets from TOML files
+        if let Err(e) = preset_manager.load_user_presets() {
+            eprintln!("Warning: Could not load user presets: {}", e);
+        }
+
+        let preset_count = preset_manager.get_preset_names().len();
+        tracing::info!("Initialized {} Particle Life presets", preset_count);
+    }
+
     pub fn get_available_presets(&self, simulation_type: &SimulationType) -> Vec<String> {
         let presets = match simulation_type {
             SimulationType::SlimeMold(_) => {
@@ -430,7 +472,9 @@ impl SimulationPresetManager {
                 gray_scott_presets
             }
             SimulationType::ParticleLife(_) => {
-                vec![] // Presets not yet implemented for Particle Life
+                let particle_life_presets = self.particle_life_preset_manager.get_preset_names();
+                tracing::info!("Particle Life presets: {:?}", particle_life_presets);
+                particle_life_presets
             }
             SimulationType::MainMenu(_) => {
                 vec![] // No presets for main menu background
@@ -444,16 +488,25 @@ impl SimulationPresetManager {
         &self,
         simulation: &mut SimulationType,
         preset_name: &str,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> PresetResult<()> {
         match simulation {
             SimulationType::SlimeMold(simulation) => {
-                if let Some(settings) = self.slime_mold_preset_manager.get_preset_settings(preset_name) {
+                if let Some(settings) = self
+                    .slime_mold_preset_manager
+                    .get_preset_settings(preset_name)
+                {
                     // Apply the settings to the simulation
-                    let settings_json = serde_json::to_value(settings).map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
-                    simulation.apply_settings(settings_json, queue).map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    simulation
+                        .apply_settings(settings_json, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     // Reset runtime state (trails, agents)
-                    simulation.reset_runtime_state(queue).map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    simulation
+                        .reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     tracing::info!("Applied slime mold preset '{}'", preset_name);
                 } else {
                     return Err(format!("Preset '{}' not found for Slime Mold", preset_name).into());
@@ -461,20 +514,48 @@ impl SimulationPresetManager {
                 Ok(())
             }
             SimulationType::GrayScott(simulation) => {
-                if let Some(settings) = self.gray_scott_preset_manager.get_preset_settings(preset_name) {
+                if let Some(settings) = self
+                    .gray_scott_preset_manager
+                    .get_preset_settings(preset_name)
+                {
                     // Apply the settings to the simulation
-                    let settings_json = serde_json::to_value(settings).map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
-                    simulation.apply_settings(settings_json, queue).map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    simulation
+                        .apply_settings(settings_json, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     // Reset runtime state
-                    simulation.reset_runtime_state(queue).map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    simulation
+                        .reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     tracing::info!("Applied Gray-Scott preset '{}'", preset_name);
                 } else {
                     return Err(format!("Preset '{}' not found for Gray-Scott", preset_name).into());
                 }
                 Ok(())
             }
-            SimulationType::ParticleLife(_) => {
-                Err("Presets not yet implemented for Particle Life".into())
+            SimulationType::ParticleLife(simulation) => {
+                if let Some(settings) = self
+                    .particle_life_preset_manager
+                    .get_preset_settings(preset_name)
+                {
+                    // Apply the settings to the simulation
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    simulation
+                        .apply_settings(settings_json, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    // Reset runtime state
+                    simulation
+                        .reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    tracing::info!("Applied Particle Life preset '{}'", preset_name);
+                } else {
+                    return Err(
+                        format!("Preset '{}' not found for Particle Life", preset_name).into(),
+                    );
+                }
+                Ok(())
             }
             SimulationType::MainMenu(_) => {
                 Err("No presets available for Main Menu Background".into())
@@ -491,16 +572,24 @@ impl SimulationPresetManager {
         match simulation {
             SimulationType::SlimeMold(_) => {
                 let slime_settings: crate::simulations::slime_mold::settings::Settings =
-                    serde_json::from_value(settings.clone()).map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
-                self.slime_mold_preset_manager.save_user_preset(preset_name, &slime_settings)?;
+                    serde_json::from_value(settings.clone())
+                        .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+                self.slime_mold_preset_manager
+                    .save_user_preset(preset_name, &slime_settings)?;
             }
             SimulationType::GrayScott(_) => {
                 let gray_scott_settings: crate::simulations::gray_scott::settings::Settings =
-                    serde_json::from_value(settings.clone()).map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
-                self.gray_scott_preset_manager.save_user_preset(preset_name, &gray_scott_settings)?;
+                    serde_json::from_value(settings.clone())
+                        .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+                self.gray_scott_preset_manager
+                    .save_user_preset(preset_name, &gray_scott_settings)?;
             }
             SimulationType::ParticleLife(_) => {
-                return Err("Presets not yet implemented for Particle Life".into());
+                let particle_life_settings: crate::simulations::particle_life::settings::Settings =
+                    serde_json::from_value(settings.clone())
+                        .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+                self.particle_life_preset_manager
+                    .save_user_preset(preset_name, &particle_life_settings)?;
             }
             SimulationType::MainMenu(_) => {
                 return Err("Cannot save presets for Main Menu Background".into());
@@ -513,20 +602,30 @@ impl SimulationPresetManager {
     pub fn delete_preset(
         &self,
         simulation_type: &SimulationType,
-        _preset_name: &str,
+        preset_name: &str,
     ) -> PresetResult<()> {
         match simulation_type {
             SimulationType::SlimeMold(_) => {
                 // We need a mutable reference for deletion, so we'll need to restructure this
                 // For now, return an error indicating this needs to be handled differently
-                Err("Delete preset functionality needs to be implemented with mutable access".into())
+                Err(
+                    "Delete preset functionality needs to be implemented with mutable access"
+                        .into(),
+                )
             }
             SimulationType::GrayScott(_) => {
                 // Same issue here
-                Err("Delete preset functionality needs to be implemented with mutable access".into())
+                Err(
+                    "Delete preset functionality needs to be implemented with mutable access"
+                        .into(),
+                )
             }
             SimulationType::ParticleLife(_) => {
-                Err("Presets not yet implemented for Particle Life".into())
+                // Same issue here
+                Err(
+                    "Delete preset functionality needs to be implemented with mutable access"
+                        .into(),
+                )
             }
             SimulationType::MainMenu(_) => {
                 Err("No presets available for Main Menu Background".into())
@@ -543,11 +642,7 @@ impl SimulationPresetManager {
         &self.gray_scott_preset_manager
     }
 
-    pub fn slime_mold_preset_manager_mut(&mut self) -> &mut SlimeMoldPresetManager {
-        &mut self.slime_mold_preset_manager
+    pub fn particle_life_preset_manager(&self) -> &ParticleLifePresetManager {
+        &self.particle_life_preset_manager
     }
-
-    pub fn gray_scott_preset_manager_mut(&mut self) -> &mut GrayScottPresetManager {
-        &mut self.gray_scott_preset_manager
-    }
-} 
+}

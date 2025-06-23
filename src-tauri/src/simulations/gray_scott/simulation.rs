@@ -1,15 +1,14 @@
+use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
+use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use serde_json::Value;
-use crate::error::{SimulationError, SimulationResult};
 
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
 use crate::simulations::shared::coordinates::TextureCoords;
-use crate::simulations::shared::LutHandler;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -62,7 +61,8 @@ impl GrayScottModel {
         lut_manager: &crate::simulations::shared::LutManager,
     ) -> SimulationResult<Self> {
         let vec_capacity = (width * height) as usize;
-        let mut uvs: Vec<UVPair> = std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+        let mut uvs: Vec<UVPair> =
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
 
         // Add some initial perturbations to start the reaction-diffusion process
         let center_x = width as i32 / 2;
@@ -290,17 +290,15 @@ impl GrayScottModel {
         self.renderer.update_settings(&self.settings, queue);
     }
 
-    pub fn resize(
-        &mut self,
-        new_config: &SurfaceConfiguration,
-    ) -> SimulationResult<()> {
+    pub fn resize(&mut self, new_config: &SurfaceConfiguration) -> SimulationResult<()> {
         self.renderer.resize(new_config)?;
         Ok(())
     }
 
     pub fn reset(&mut self) {
         let vec_capacity = (self.width * self.height) as usize;
-        let uvs: Vec<UVPair> = std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+        let uvs: Vec<UVPair> =
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
 
         for buffer in &self.uvs_buffers {
             self.renderer
@@ -309,7 +307,11 @@ impl GrayScottModel {
         }
     }
 
-    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
+    pub fn seed_random_noise(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         // Generate a random seed for this noise generation
         let seed = rand::random::<u32>();
 
@@ -325,7 +327,7 @@ impl GrayScottModel {
                 1.0, // Full noise strength
             )?;
         }
-        
+
         Ok(())
     }
 
@@ -333,7 +335,7 @@ impl GrayScottModel {
         &mut self,
         setting_name: &str,
         value: Value,
-        device: &Arc<Device>,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match setting_name {
@@ -469,7 +471,8 @@ impl GrayScottModel {
         // Render the current state - pass the output buffer (which contains the latest results)
         let output_buffer = &self.uvs_buffers[self.current_buffer];
         self.renderer
-            .render(surface_view, output_buffer, &self.params_buffer).map_err(|e| SimulationError::Gpu(Box::new(e)))
+            .render(surface_view, output_buffer, &self.params_buffer)
+            .map_err(|e| SimulationError::Gpu(Box::new(e)))
     }
 
     pub fn update_cursor_position(
@@ -516,7 +519,8 @@ impl GrayScottModel {
         // Debug output
         tracing::debug!(
             "Mouse interaction: texture=({:.3}, {:.3})",
-            texture_x, texture_y
+            texture_x,
+            texture_y
         );
 
         // Check if coordinates are within valid texture bounds
@@ -614,7 +618,7 @@ impl GrayScottModel {
     pub fn reset_camera(&mut self) {
         self.renderer.camera.reset();
     }
-    
+
     pub(crate) fn toggle_gui(&mut self) -> bool {
         self.show_gui = !self.show_gui;
         self.show_gui
@@ -622,31 +626,6 @@ impl GrayScottModel {
 
     pub(crate) fn is_gui_visible(&self) -> bool {
         self.show_gui
-    }
-}
-
-impl LutHandler for GrayScottModel {
-    fn get_name_of_active_lut(&self) -> &str {
-        &self.current_lut_name
-    }
-
-    fn is_lut_reversed(&self) -> bool {
-        self.lut_reversed
-    }
-
-    fn set_lut_reversed(&mut self, reversed: bool) {
-        self.lut_reversed = reversed;
-    }
-
-    fn set_active_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Queue) {
-        let lut_data_to_apply = if self.lut_reversed {
-            lut_data.reversed()
-        } else {
-            lut_data.clone()
-        };
-        
-        self.renderer.update_lut(&lut_data_to_apply, queue);
-        self.current_lut_name = lut_data.name.clone();
     }
 }
 
@@ -733,8 +712,13 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         })
     }
 
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()> {
-        let new_settings: Settings = serde_json::from_value(settings).map_err(|e| SimulationError::Serialization(e))?;
+    fn apply_settings(
+        &mut self,
+        settings: serde_json::Value,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        let new_settings: Settings =
+            serde_json::from_value(settings).map_err(|e| SimulationError::Serialization(e))?;
         self.update_settings(new_settings, queue);
         Ok(())
     }
@@ -751,8 +735,12 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         Err("Preset loading not yet implemented for GrayScottModel".into())
     }
 
-    fn reset_runtime_state(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
-        self.reset();
+    fn reset_runtime_state(
+        &mut self,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // No-op for Gray-Scott
         Ok(())
     }
 

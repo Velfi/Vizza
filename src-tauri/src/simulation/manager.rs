@@ -4,13 +4,15 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
-use crate::simulations::shared::{coordinates::ScreenCoords, LutManager, SimulationLutManager};
-use crate::simulations::traits::{Simulation, SimulationType};
-use crate::simulation::preset_manager::SimulationPresetManager;
-use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
-use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
-use crate::simulations::particle_life::{ParticleLifeModel, settings::Settings as ParticleLifeSettings};
 use crate::error::{AppError, AppResult};
+use crate::simulation::preset_manager::SimulationPresetManager;
+use crate::simulations::gray_scott::{settings::Settings as GrayScottSettings, GrayScottModel};
+use crate::simulations::particle_life::{
+    settings::Settings as ParticleLifeSettings, simulation::ColorMode, ParticleLifeModel,
+};
+use crate::simulations::shared::{coordinates::ScreenCoords, LutManager, SimulationLutManager};
+use crate::simulations::slime_mold::{settings::Settings as SlimeMoldSettings, SlimeMoldModel};
+use crate::simulations::traits::{Simulation, SimulationType};
 
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
@@ -101,9 +103,10 @@ impl SimulationManager {
                     queue,
                     surface_config,
                     adapter_info,
-                    settings.particle_count as usize,
+                    15000, // Default particle count
                     settings,
                     &self.lut_manager,
+                    ColorMode::Lut,
                 )?;
 
                 self.current_simulation = Some(SimulationType::ParticleLife(simulation));
@@ -191,7 +194,8 @@ impl SimulationManager {
             "Simulation Running"
         } else {
             "No Simulation Running"
-        }.to_string()
+        }
+        .to_string()
     }
 
     pub fn update_setting(
@@ -222,19 +226,28 @@ impl SimulationManager {
     pub fn get_presets_for_simulation_type(&self, simulation_type: &str) -> Vec<String> {
         match simulation_type {
             "slime_mold" => {
-                let presets = self.preset_manager.slime_mold_preset_manager().get_preset_names();
+                let presets = self
+                    .preset_manager
+                    .slime_mold_preset_manager()
+                    .get_preset_names();
                 tracing::info!("Slime mold presets: {:?}", presets);
                 presets
             }
             "gray_scott" => {
-                let presets = self.preset_manager.gray_scott_preset_manager().get_preset_names();
+                let presets = self
+                    .preset_manager
+                    .gray_scott_preset_manager()
+                    .get_preset_names();
                 tracing::info!("Gray-Scott presets: {:?}", presets);
                 presets
             }
             "particle_life" => {
-                // Particle life doesn't have preset manager yet, return empty list
-                tracing::info!("Particle life presets: (none implemented yet)");
-                vec![]
+                let presets = self
+                    .preset_manager
+                    .particle_life_preset_manager()
+                    .get_preset_names();
+                tracing::info!("Particle Life presets: {:?}", presets);
+                presets
             }
             _ => {
                 tracing::warn!("Unknown simulation type: {}", simulation_type);
@@ -246,22 +259,22 @@ impl SimulationManager {
     pub fn apply_preset(
         &mut self,
         preset_name: &str,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            self.preset_manager.apply_preset(simulation, preset_name, queue).map_err(|e| AppError::Preset(e))?;
-            simulation.reset_runtime_state(queue)?;
+            self.preset_manager
+                .apply_preset(simulation, preset_name, device, queue)
+                .map_err(|e| AppError::Preset(e))?;
+            simulation.reset_runtime_state(device, queue)?;
         }
         Ok(())
     }
 
-    pub fn save_preset(
-        &self,
-        preset_name: &str,
-        settings: &serde_json::Value,
-    ) -> AppResult<()> {
+    pub fn save_preset(&self, preset_name: &str, settings: &serde_json::Value) -> AppResult<()> {
         if let Some(simulation) = &self.current_simulation {
-            self.preset_manager.save_preset(simulation, preset_name, settings)?;
+            self.preset_manager
+                .save_preset(simulation, preset_name, settings)?;
         }
         Ok(())
     }
@@ -305,7 +318,8 @@ impl SimulationManager {
 
     // LUT management methods
     pub fn get_available_luts(&self) -> Vec<String> {
-        self.simulation_lut_manager.get_available_luts(&self.lut_manager)
+        self.simulation_lut_manager
+            .get_available_luts(&self.lut_manager)
     }
 
     pub fn apply_lut(
@@ -326,7 +340,46 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.update_setting("lut_reversed", serde_json::json!(true), device, queue)?;
+            match simulation {
+                SimulationType::ParticleLife(simulation) => {
+                    // For particle life, we need to update the LUT with reversed flag
+                    let current_reversed = simulation.lut_reversed;
+                    let color_mode = simulation.color_mode;
+                    let current_lut_name = simulation.current_lut_name.clone();
+                    let lut_manager = &self.lut_manager;
+                    simulation.update_lut(
+                        device,
+                        queue,
+                        lut_manager,
+                        color_mode,
+                        Some(&current_lut_name),
+                        !current_reversed,
+                    )?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Update LUT for particle life simulation
+    pub fn update_particle_life_lut(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        color_mode: ColorMode,
+        lut_name: Option<&str>,
+        lut_reversed: bool,
+    ) -> AppResult<()> {
+        if let Some(SimulationType::ParticleLife(simulation)) = &mut self.current_simulation {
+            simulation.update_lut(
+                device,
+                queue,
+                &self.lut_manager,
+                color_mode,
+                lut_name,
+                lut_reversed,
+            )?;
         }
         Ok(())
     }
@@ -416,35 +469,28 @@ impl SimulationManager {
     }
 
     // Reset methods
-    pub fn reset_trails(&mut self, queue: &Arc<Queue>) -> AppResult<()> {
+    pub fn reset_trails(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.reset_runtime_state(queue)?;
+            simulation.reset_runtime_state(device, queue)?;
         }
         Ok(())
     }
 
-    pub fn reset_agents(
-        &mut self,
-        queue: &Arc<Queue>,
-    ) -> AppResult<()> {
+    pub fn reset_agents(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.reset_runtime_state(queue)?;
+            simulation.reset_runtime_state(device, queue)?;
         }
         Ok(())
     }
 
-    pub fn reset_simulation(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> AppResult<()> {
+    pub fn reset_simulation(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 crate::simulations::traits::SimulationType::ParticleLife(sim) => {
                     sim.reset_particles_gpu(device, queue)?;
                 }
                 _ => {
-                    simulation.reset_runtime_state(queue)?;
+                    simulation.reset_runtime_state(device, queue)?;
                 }
             }
         }
@@ -463,11 +509,7 @@ impl SimulationManager {
     }
 
     // Note: seed_random_noise is not in the Simulation trait, so we'll implement it per simulation type
-    pub fn seed_random_noise(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-    ) -> AppResult<()> {
+    pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.randomize_settings(device, queue)?;
         }
@@ -476,7 +518,11 @@ impl SimulationManager {
 
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        tracing::debug!("SimulationManager pan_camera: delta=({:.2}, {:.2})", delta_x, delta_y);
+        tracing::debug!(
+            "SimulationManager pan_camera: delta=({:.2}, {:.2})",
+            delta_x,
+            delta_y
+        );
         if let Some(simulation) = &mut self.current_simulation {
             simulation.pan_camera(delta_x, delta_y);
         }
@@ -490,7 +536,12 @@ impl SimulationManager {
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        tracing::debug!("SimulationManager zoom_camera_to_cursor: delta={:.2}, cursor=({:.2}, {:.2})", delta, cursor_x, cursor_y);
+        tracing::debug!(
+            "SimulationManager zoom_camera_to_cursor: delta={:.2}, cursor=({:.2}, {:.2})",
+            delta,
+            cursor_x,
+            cursor_y
+        );
         if let Some(simulation) = &mut self.current_simulation {
             simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
         }
@@ -507,12 +558,33 @@ impl SimulationManager {
         if let Some(simulation) = &self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => Some(simulation.camera.get_state()),
-                SimulationType::GrayScott(simulation) => Some(simulation.renderer.camera.get_state()),
+                SimulationType::GrayScott(simulation) => {
+                    Some(simulation.renderer.camera.get_state())
+                }
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
             None
+        }
+    }
+
+    /// Set the camera smoothing factor for the active simulation
+    pub fn set_camera_smoothing(&mut self, smoothing_factor: f32) {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
+                SimulationType::GrayScott(simulation) => simulation
+                    .renderer
+                    .camera
+                    .set_smoothing_factor(smoothing_factor),
+                SimulationType::ParticleLife(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
+                SimulationType::MainMenu(_) => {} // No camera for main menu background
+            }
         }
     }
 
@@ -539,4 +611,4 @@ impl SimulationManager {
             None
         }
     }
-} 
+}

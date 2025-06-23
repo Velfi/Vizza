@@ -46,4 +46,4 @@ pub async fn get_current_agent_count(
     } else {
         Ok(None)
     }
-} 
+}

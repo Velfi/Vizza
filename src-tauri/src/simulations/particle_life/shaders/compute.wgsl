@@ -1,5 +1,5 @@
-// Classic Particle Life compute shader
-// Simple force-based attraction/repulsion model
+// Optimized Particle Life compute shader
+// Based on the standalone particle-life implementation for better performance
 
 struct Particle {
     position: vec2<f32>,
@@ -15,18 +15,18 @@ struct SimParams {
     min_distance: f32,
     max_distance: f32,
     friction: f32,
-    time_step: f32,
     wrap_edges: u32,
     width: f32,
     height: f32,
     random_seed: u32,
-    repulsion_min_distance: f32,
-    repulsion_medium_distance: f32,
-    repulsion_extreme_strength: f32,
-    repulsion_linear_strength: f32,
+    dt: f32,  // Time step for simulation
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
+    _pad4: u32,
+    _pad5: u32,
+    _pad6: u32,
+    _pad7: u32,  // Added to make struct 72 bytes (18 * 4)
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -62,75 +62,59 @@ fn get_force(species_a: u32, species_b: u32) -> f32 {
     return force_matrix[index];
 }
 
-// Calculate classic particle life force
-fn calculate_force(r: f32, force_strength: f32) -> f32 {
-    // Very short range repulsion to prevent overlap
-    if (r < params.repulsion_min_distance) {
-        return params.repulsion_extreme_strength;
+// Calculate force using the exact same model as standalone version
+fn calculate_force(distance: f32, attraction: f32) -> f32 {
+    let beta = 0.3; // Same as standalone version
+    let rmax = params.max_distance;
+    let force_multiplier = params.max_force;
+    
+    if (distance < beta * rmax) {
+        // Close range: linear repulsion
+        return (distance / (beta * rmax) - 1.0) * force_multiplier;
+    } else if (distance <= rmax) {
+        // Far range: species-specific attraction/repulsion
+        return attraction * (1.0 - (1.0 + beta - 2.0 * distance / rmax) / (1.0 - beta)) * force_multiplier;
     }
     
-    // Medium range repulsion
-    if (r < params.repulsion_medium_distance) {
-        let t = (params.repulsion_medium_distance - r) / (params.repulsion_medium_distance - params.repulsion_min_distance);
-        return params.repulsion_linear_strength * t;
-    }
-    
-    // Outside minimum distance, apply the force matrix value
-    if (r > params.max_distance) {
-        return 0.0; // No force beyond max distance
-    }
-    
-    // Linear falloff from max_distance to min_distance
-    let distance_factor = 1.0 - (r - params.min_distance) / (params.max_distance - params.min_distance);
-    let clamped_factor = clamp(distance_factor, 0.0, 1.0);
-    
-    return force_strength * clamped_factor;
+    return 0.0; // No force beyond max distance
 }
 
-// Wrap position around screen boundaries
+// Wrap position around world boundaries (-2.0 to 2.0)
+// Using the same logic as standalone version
 fn wrap_position(pos: vec2<f32>) -> vec2<f32> {
     if (params.wrap_edges == 0u) {
         return pos;
     }
     
-    var wrapped = pos;
-    if (wrapped.x < 0.0) {
-        wrapped.x += params.width;
-    } else if (wrapped.x >= params.width) {
-        wrapped.x -= params.width;
-    }
+    let world_size = 4.0; // -2.0 to 2.0 = 4.0 width
+    let world_min = -2.0;
     
-    if (wrapped.y < 0.0) {
-        wrapped.y += params.height;
-    } else if (wrapped.y >= params.height) {
-        wrapped.y -= params.height;
-    }
+    // Proper modulo wrapping that handles negative numbers correctly
+    let wrapped_x = world_min + ((pos.x - world_min) % world_size);
+    let wrapped_y = world_min + ((pos.y - world_min) % world_size);
     
-    return wrapped;
+    return vec2<f32>(wrapped_x, wrapped_y);
 }
 
-// Calculate shortest distance considering wrapping
+// Calculate shortest distance considering wrapping in world coordinates
+// Using the same logic as standalone version
 fn wrapped_distance(pos_a: vec2<f32>, pos_b: vec2<f32>) -> vec2<f32> {
     var delta = pos_b - pos_a;
     
     if (params.wrap_edges == 1u) {
-        let half_width = params.width * 0.5;
-        let half_height = params.height * 0.5;
+        let world_size = 4.0; // -2.0 to 2.0 = 4.0 width
         
-        if (abs(delta.x) > half_width) {
-            if (delta.x > 0.0) {
-                delta.x -= params.width;
-            } else {
-                delta.x += params.width;
-            }
+        // Find shortest distance across world boundaries
+        if (delta.x > world_size / 2.0) {
+            delta.x -= world_size;
+        } else if (delta.x < -world_size / 2.0) {
+            delta.x += world_size;
         }
         
-        if (abs(delta.y) > half_height) {
-            if (delta.y > 0.0) {
-                delta.y -= params.height;
-            } else {
-                delta.y += params.height;
-            }
+        if (delta.y > world_size / 2.0) {
+            delta.y -= world_size;
+        } else if (delta.y < -world_size / 2.0) {
+            delta.y += world_size;
         }
     }
     
@@ -150,6 +134,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var force = vec2<f32>(0.0, 0.0);
     
     // Calculate forces from all other particles
+    // This is the O(n²) part - in a real implementation you'd use spatial partitioning
     for (var i = 0u; i < params.particle_count; i++) {
         if (i == index) {
             continue;
@@ -157,55 +142,66 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         
         let other = particles[i];
         let delta = wrapped_distance(particle.position, other.position);
-        let distance = length(delta);
+        let distance_sq = dot(delta, delta);
         
-        // Skip if too far
-        if (distance > params.max_distance) {
+        // Skip if too far (using squared distance for efficiency)
+        if (distance_sq > params.max_distance * params.max_distance) {
+            continue;
+        }
+        
+        let distance = sqrt(distance_sq);
+        
+        // Skip if too close to avoid singularities
+        if (distance < 0.001) {
             continue;
         }
         
         // Get force strength from force matrix
-        let force_strength = get_force(particle.species, other.species);
+        let attraction = get_force(particle.species, other.species);
         
-        // Calculate force magnitude using classic particle life model
-        let force_magnitude = calculate_force(distance, force_strength);
-        
-        // Limit maximum force to prevent instability
-        let clamped_force = clamp(force_magnitude, -params.max_force, params.max_force);
+        // Calculate force magnitude using the same model as standalone
+        let force_magnitude = calculate_force(distance, attraction);
         
         // Apply force in direction between particles
-        if (distance > 0.001) {
-            let direction = normalize(delta);
-            force += direction * clamped_force;
-        }
+        let direction = delta / distance;
+        force += direction * force_magnitude;
     }
     
     // Update velocity with force and friction
-    particle.velocity += force * params.time_step;
-    particle.velocity *= params.friction;
+    // Using the same time stepping as standalone version
+    let dt = params.dt;
+    particle.velocity += force * dt;
     
-    // Clamp velocity to prevent extreme values
-    let max_velocity = 1000.0;
-    let velocity_magnitude = length(particle.velocity);
-    if (velocity_magnitude > max_velocity) {
-        particle.velocity = normalize(particle.velocity) * max_velocity;
-    }
+    // Apply friction with proper time scaling like standalone
+    particle.velocity *= pow(params.friction, dt * 60.0);
     
-    // Update position
-    particle.position += particle.velocity * params.time_step;
+    // Update position with time stepping
+    particle.position += particle.velocity * dt;
     
     // Handle boundary conditions
     if (params.wrap_edges == 1u) {
         particle.position = wrap_position(particle.position);
     } else {
-        // Bounce off walls
-        if (particle.position.x < 0.0 || particle.position.x >= params.width) {
-            particle.velocity.x *= -0.8;
-            particle.position.x = clamp(particle.position.x, 0.0, params.width - 1.0);
+        // Bounce off world boundaries (-2.0 to 2.0)
+        let world_min = -2.0;
+        let world_max = 2.0;
+        
+        // Handle X boundary
+        if (particle.position.x < world_min) {
+            particle.position.x = world_min;
+            particle.velocity.x = -particle.velocity.x * 0.8;
+        } else if (particle.position.x >= world_max) {
+            particle.position.x = world_max - 0.001;
+            particle.velocity.x = -particle.velocity.x * 0.8;
         }
-        if (particle.position.y < 0.0 || particle.position.y >= params.height) {
-            particle.velocity.y *= -0.8;
-            particle.position.y = clamp(particle.position.y, 0.0, params.height - 1.0);
+        
+        // Handle Y boundary
+        if (particle.position.y < world_min) {
+            particle.position.y = world_min;
+            particle.velocity.y = -particle.velocity.y * 0.8;
+        } else if (particle.position.y >= world_max) {
+            particle.position.y = world_max - 0.001;
+            particle.velocity.y = -particle.velocity.y * 0.8;
         }
     }
     

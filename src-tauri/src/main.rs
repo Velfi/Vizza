@@ -1,12 +1,12 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use crate::error::{AppError, AppResult, GpuError};
+use crate::simulations::shared::LutManager;
+use crate::simulations::traits::SimulationType;
 use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
 use wgpu::{Backends, Device, Instance, Queue, Surface, SurfaceConfiguration};
-use crate::error::{AppError, AppResult, GpuError};
-use crate::simulations::traits::SimulationType;
-use crate::simulations::shared::LutManager;
 
 mod commands;
 mod error;
@@ -27,9 +27,7 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    pub async fn new_with_surface(
-        window: &WebviewWindow,
-    ) -> AppResult<Self> {
+    pub async fn new_with_surface(window: &WebviewWindow) -> AppResult<Self> {
         // Create wgpu instance
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends: Backends::all(),
@@ -37,7 +35,9 @@ impl GpuContext {
         });
 
         // Create surface from window (this must happen on main thread)
-        let surface = instance.create_surface(window.clone()).map_err(|e| AppError::Gpu(GpuError::SurfaceCreationFailed(e.to_string())))?;
+        let surface = instance
+            .create_surface(window.clone())
+            .map_err(|e| AppError::Gpu(GpuError::SurfaceCreationFailed(e.to_string())))?;
 
         // Request adapter with surface
         let adapter = instance
@@ -55,7 +55,7 @@ impl GpuContext {
 
         // Request device and queue with increased buffer size limit
         let limits = wgpu::Limits {
-            max_buffer_size: 2_147_483_647, // 2 gigabytes - 1 byte
+            max_buffer_size: 2_147_483_647,                 // 2 gigabytes - 1 byte
             max_storage_buffer_binding_size: 2_147_483_647, // 2 gigabyte binding size - 1 byte
             ..Default::default()
         };
@@ -70,10 +70,13 @@ impl GpuContext {
                 },
                 None,
             )
-            .await.map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
+            .await
+            .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
 
         // Get window size and create surface config
-        let window_size = window.inner_size().map_err(|e| AppError::Window(e.to_string()))?;
+        let window_size = window
+            .inner_size()
+            .map_err(|e| AppError::Window(e.to_string()))?;
         let surface_caps = surface.get_capabilities(&adapter);
 
         // Choose appropriate surface format
@@ -106,10 +109,10 @@ impl GpuContext {
         // Create main menu background simulation
         let device_arc = Arc::new(device);
         let queue_arc = Arc::new(queue);
-        
+
         // Create LUT manager
         let lut_manager = LutManager::new();
-        
+
         // Create main menu background simulation
         let main_menu = SimulationType::new(
             "main_menu",
@@ -118,7 +121,9 @@ impl GpuContext {
             &surface_config,
             &adapter_info,
             &lut_manager,
-        ).await.map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
+        )
+        .await
+        .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
 
         Ok(Self {
             device: device_arc,
@@ -132,11 +137,7 @@ impl GpuContext {
     }
 
     /// Update surface configuration for resize
-    pub async fn resize_surface(
-        &self,
-        width: u32,
-        height: u32,
-    ) -> AppResult<()> {
+    pub async fn resize_surface(&self, width: u32, height: u32) -> AppResult<()> {
         let mut config = self.surface_config.lock().await;
         config.width = width;
         config.height = height;
@@ -164,14 +165,14 @@ fn main() {
         .manage(Arc::new(tokio::sync::Mutex::new(SimulationManager::new())))
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-            
+
             // Initialize GPU context
             let gpu_context = tauri::async_runtime::block_on(async {
                 GpuContext::new_with_surface(&window).await.unwrap()
             });
-            
+
             app.manage(Arc::new(tokio::sync::Mutex::new(gpu_context)));
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -183,19 +184,16 @@ fn main() {
             commands::resume_simulation,
             commands::destroy_simulation,
             commands::get_simulation_status,
-            
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
             commands::handle_window_resize,
-            
             // Preset commands
             commands::get_available_presets,
             commands::get_presets_for_simulation_type,
             commands::apply_preset,
             commands::save_preset,
             commands::delete_preset,
-            
             // LUT commands
             commands::apply_lut_by_name,
             commands::apply_lut,
@@ -204,7 +202,6 @@ fn main() {
             commands::save_custom_lut,
             commands::update_gradient_preview,
             commands::get_available_luts,
-            
             // Camera commands
             commands::pan_camera,
             commands::zoom_camera,
@@ -212,29 +209,25 @@ fn main() {
             commands::reset_camera,
             commands::get_camera_state,
             commands::stop_camera_pan,
-            
+            commands::set_camera_smoothing,
             // Settings commands
             commands::update_simulation_setting,
             commands::get_current_settings,
             commands::get_current_state,
             commands::randomize_settings,
-            
             // Slime mold specific commands
             commands::update_agent_count,
             commands::get_current_agent_count,
-            
             // Interaction commands
             commands::handle_mouse_interaction,
             commands::handle_mouse_interaction_screen,
             commands::update_cursor_position_screen,
             commands::seed_random_noise,
-            
             // Utility commands
             commands::check_gpu_context_ready,
             commands::toggle_gui,
             commands::get_gui_state,
             commands::set_fps_limit,
-            
             // Reset commands
             commands::reset_trails,
             commands::reset_agents,

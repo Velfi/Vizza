@@ -28,7 +28,7 @@ pub async fn apply_preset(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.apply_preset(&preset_name, &gpu_ctx.queue) {
+    match sim_manager.apply_preset(&preset_name, &gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::info!("Preset '{}' applied successfully", preset_name);
             Ok(format!("Preset '{}' applied successfully", preset_name))
@@ -81,4 +81,4 @@ pub async fn delete_preset(
             Err(format!("Failed to delete preset '{}': {}", preset_name, e))
         }
     }
-} 
+}

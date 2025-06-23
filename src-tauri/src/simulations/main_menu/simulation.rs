@@ -1,23 +1,20 @@
+use crate::error::SimulationResult;
+use crate::simulations::shared::LutManager;
+use crate::simulations::traits::Simulation;
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
-use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguration, TextureView};
 use wgpu::util::DeviceExt;
-use serde_json::Value;
-use crate::error::SimulationResult;
-use crate::simulations::traits::Simulation;
-use crate::simulations::shared::{LutManager, LutData, LutHandler};
+use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguration, TextureView};
 
 #[derive(Debug)]
 pub struct MainMenuModel {
     render_pipeline: RenderPipeline,
     time_buffer: Buffer,
     time_bind_group: BindGroup,
-    lut_buffer: Buffer,
     lut_bind_group: BindGroup,
     start_time: Instant,
     gui_visible: bool,
-    current_lut_name: String,
-    lut_reversed: bool,
 }
 
 impl MainMenuModel {
@@ -94,12 +91,16 @@ impl MainMenuModel {
         // Create shaders
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Main Menu Background Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(crate::simulations::main_menu::shaders::VERTEX_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::main_menu::shaders::VERTEX_SHADER.into(),
+            ),
         });
 
         let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Main Menu Background Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(crate::simulations::main_menu::shaders::FRAGMENT_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::main_menu::shaders::FRAGMENT_SHADER.into(),
+            ),
         });
 
         // Create render pipeline with both bind groups
@@ -154,12 +155,9 @@ impl MainMenuModel {
             render_pipeline,
             time_buffer,
             time_bind_group,
-            lut_buffer,
             lut_bind_group,
             start_time,
             gui_visible: false,
-            current_lut_name: "MATPLOTLIB_viridis".to_string(),
-            lut_reversed: false,
         })
     }
 
@@ -285,14 +283,21 @@ impl Simulation for MainMenuModel {
         Ok(())
     }
 
-    fn apply_settings(&mut self, _settings: serde_json::Value, _queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn apply_settings(
+        &mut self,
+        _settings: serde_json::Value,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         // No settings for this simulation
         Ok(())
     }
 
-    fn reset_runtime_state(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
-        // Reset the start time
-        self.start_time = Instant::now();
+    fn reset_runtime_state(
+        &mut self,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // No-op for Main Menu
         Ok(())
     }
 
@@ -314,29 +319,3 @@ impl Simulation for MainMenuModel {
         Ok(())
     }
 }
-
-impl LutHandler for MainMenuModel {
-    fn get_name_of_active_lut(&self) -> &str {
-        &self.current_lut_name
-    }
-
-    fn is_lut_reversed(&self) -> bool {
-        self.lut_reversed
-    }
-
-    fn set_lut_reversed(&mut self, reversed: bool) {
-        self.lut_reversed = reversed;
-    }
-
-    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue) {
-        let lut_data_to_apply = if self.lut_reversed {
-            lut_data.reversed()
-        } else {
-            lut_data.clone()
-        };
-        
-        let lut_data_u32 = lut_data_to_apply.to_u32_buffer();
-        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
-        self.current_lut_name = lut_data.name.clone();
-    }
-} 

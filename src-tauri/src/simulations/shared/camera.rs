@@ -1,10 +1,10 @@
 use super::coordinates::{CoordinateTransform, NdcCoords, ScreenCoords, WorldCoords};
+use crate::error::SimulationResult;
 use bytemuck::{Pod, Zeroable};
+use serde_json;
 use std::sync::Arc;
 use tracing;
 use wgpu::{Device, Queue};
-use serde_json;
-use crate::error::SimulationResult;
 
 /// GPU-compatible camera uniform data
 #[repr(C)]
@@ -47,8 +47,12 @@ impl CoordinateTransform for Camera {
 pub struct Camera {
     /// Camera position in world space
     pub position: [f32; 2],
+    /// Target camera position for smooth movement
+    target_position: [f32; 2],
     /// Zoom level (scale factor)
     pub zoom: f32,
+    /// Target zoom level for smooth zooming
+    target_zoom: f32,
     /// Viewport dimensions
     pub viewport_width: f32,
     pub viewport_height: f32,
@@ -56,6 +60,8 @@ pub struct Camera {
     buffer: wgpu::Buffer,
     /// Cached uniform data
     uniform_data: CameraUniform,
+    /// Smoothing factor for camera movement (0.0 = no smoothing, 1.0 = instant)
+    smoothing_factor: f32,
 }
 
 impl Camera {
@@ -85,11 +91,14 @@ impl Camera {
 
         Ok(Self {
             position,
+            target_position: position,
             zoom,
+            target_zoom: zoom,
             viewport_width,
             viewport_height,
             buffer,
             uniform_data,
+            smoothing_factor: 0.15, // Smooth camera movement
         })
     }
 
@@ -99,7 +108,7 @@ impl Camera {
         // This maps [0,1] x [0,1] world space to [-1,1] x [-1,1] clip space
         let scale_x = zoom;
         let scale_y = zoom;
-        
+
         // For proper center zooming, we want to:
         // 1. Scale around the origin (0,0)
         // 2. Then translate to account for camera position
@@ -108,16 +117,38 @@ impl Camera {
         let translate_y = -(position[1] - 0.5) * 2.0 * zoom;
 
         [
-            scale_x, 0.0, 0.0, 0.0,
-            0.0, scale_y, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            translate_x, translate_y, 0.0, 1.0,
+            scale_x,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            scale_y,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            translate_x,
+            translate_y,
+            0.0,
+            1.0,
         ]
     }
 
     /// Update camera state (call this every frame for smooth movement)
-    pub fn update(&mut self, _delta_time: f32) -> bool {
-        // For now, just update the uniform data
+    pub fn update(&mut self, delta_time: f32) -> bool {
+        // Apply smoothing to position
+        let smoothing = self.smoothing_factor * delta_time * 60.0; // Adjust for frame rate
+        let smoothing = smoothing.min(1.0); // Clamp to prevent overshooting
+
+        self.position[0] += (self.target_position[0] - self.position[0]) * smoothing;
+        self.position[1] += (self.target_position[1] - self.position[1]) * smoothing;
+
+        // Apply smoothing to zoom
+        self.zoom += (self.target_zoom - self.zoom) * smoothing;
+
+        // Update uniform data after smoothing
         self.update_uniform();
         true
     }
@@ -125,87 +156,90 @@ impl Camera {
     /// Update camera position (panning)
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
         let pan_speed = 0.1 / self.zoom; // Pan speed depends on zoom level
-        self.position[0] += delta_x * pan_speed;
-        self.position[1] += delta_y * pan_speed;
-        
-        // Clamp position to reasonable bounds
-        self.position[0] = self.position[0].clamp(-2.0, 2.0);
-        self.position[1] = self.position[1].clamp(-2.0, 2.0);
 
-        // Update uniform data after position change
-        self.update_uniform();
+        // Update target position instead of current position
+        self.target_position[0] += delta_x * pan_speed;
+        self.target_position[1] += delta_y * pan_speed;
+
+        // Clamp target position to reasonable bounds
+        self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
+        self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
         tracing::debug!(
-            "Camera pan: delta=({:.2}, {:.2}), pos=({:.2}, {:.2})",
-            delta_x, delta_y, self.position[0], self.position[1]
+            "Camera pan: delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2})",
+            delta_x,
+            delta_y,
+            self.target_position[0],
+            self.target_position[1]
         );
     }
 
     /// Update zoom level (zooms to center of viewport)
     pub fn zoom(&mut self, delta: f32) {
         let zoom_factor = 1.0 + delta * 0.3;
-        let new_zoom = self.zoom * zoom_factor;
+        let new_zoom = self.target_zoom * zoom_factor;
         let clamped_zoom = new_zoom.clamp(0.1, 50.0);
 
-        if (clamped_zoom - self.zoom).abs() > 0.001 {
+        if (clamped_zoom - self.target_zoom).abs() > 0.001 {
             // Store the center point in world coordinates before zoom
-            let center_world_x = self.position[0];
-            let center_world_y = self.position[1];
-            
-            self.zoom = clamped_zoom;
-            
+            let center_world_x = self.target_position[0];
+            let center_world_y = self.target_position[1];
+
+            self.target_zoom = clamped_zoom;
+
             // Keep the same center point after zoom
-            self.position[0] = center_world_x;
-            self.position[1] = center_world_y;
-            
-            // Update uniform data after zoom change
-            self.update_uniform();
-            tracing::debug!("Camera zoom: delta={:.2}, new_zoom={:.2}", delta, clamped_zoom);
+            self.target_position[0] = center_world_x;
+            self.target_position[1] = center_world_y;
+
+            tracing::debug!(
+                "Camera zoom: delta={:.2}, target_zoom={:.2}",
+                delta,
+                clamped_zoom
+            );
         }
     }
 
     /// Zoom towards a specific screen position (for mouse wheel)
     pub fn zoom_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        let old_zoom = self.zoom;
+        let old_zoom = self.target_zoom;
         self.zoom(delta);
 
         // Convert cursor position to NDC coordinates
         let mouse_x_norm = (cursor_x / self.viewport_width) * 2.0 - 1.0;
         let mouse_y_norm = -((cursor_y / self.viewport_height) * 2.0 - 1.0);
-        
-        // Calculate the world point under the cursor before zoom
-        let world_x = mouse_x_norm / old_zoom + self.position[0];
-        let world_y = mouse_y_norm / old_zoom + self.position[1];
-        
-        // Calculate where this world point should be in NDC after zoom
-        let new_ndc_x = (world_x - self.position[0]) * self.zoom;
-        let new_ndc_y = (world_y - self.position[1]) * self.zoom;
-        
-        // Calculate the offset needed to keep the cursor point stationary
-        let offset_x = (mouse_x_norm - new_ndc_x) / self.zoom;
-        let offset_y = (mouse_y_norm - new_ndc_y) / self.zoom;
-        
-        // Apply the offset to keep the cursor point stationary
-        self.position[0] += offset_x;
-        self.position[1] += offset_y;
-        
-        // Clamp position to reasonable bounds to prevent going too far out
-        self.position[0] = self.position[0].clamp(-2.0, 2.0);
-        self.position[1] = self.position[1].clamp(-2.0, 2.0);
 
-        // Update uniform data after position change
-        self.update_uniform();
+        // Calculate the world point under the cursor before zoom
+        let world_x = mouse_x_norm / old_zoom + self.target_position[0];
+        let world_y = mouse_y_norm / old_zoom + self.target_position[1];
+
+        // Calculate where this world point should be in NDC after zoom
+        let new_ndc_x = (world_x - self.target_position[0]) * self.target_zoom;
+        let new_ndc_y = (world_y - self.target_position[1]) * self.target_zoom;
+
+        // Calculate the offset needed to keep the cursor point stationary
+        let offset_x = (mouse_x_norm - new_ndc_x) / self.target_zoom;
+        let offset_y = (mouse_y_norm - new_ndc_y) / self.target_zoom;
+
+        // Apply the offset to keep the cursor point stationary
+        self.target_position[0] += offset_x;
+        self.target_position[1] += offset_y;
+
+        // Clamp target position to reasonable bounds to prevent going too far out
+        self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
+        self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
         tracing::debug!(
-            "Camera zoom to cursor: cursor=({:.2}, {:.2}), zoom={:.2}, pos=({:.2}, {:.2})",
-            cursor_x, cursor_y, self.zoom, self.position[0], self.position[1]
+            "Camera zoom to cursor: cursor=({:.2}, {:.2}), target_zoom={:.2}, target_pos=({:.2}, {:.2})",
+            cursor_x, cursor_y, self.target_zoom, self.target_position[0], self.target_position[1]
         );
     }
 
     /// Reset camera to default position and zoom
     pub fn reset(&mut self) {
         self.position = [0.5, 0.5];
+        self.target_position = [0.5, 0.5];
         self.zoom = 1.0;
+        self.target_zoom = 1.0;
         self.update_uniform();
         tracing::debug!("Camera reset to default position and zoom");
     }
@@ -242,10 +276,10 @@ impl Camera {
     pub fn screen_to_world(&self, screen: ScreenCoords) -> WorldCoords {
         let ndc_x = (screen.x / self.viewport_width) * 2.0 - 1.0;
         let ndc_y = -((screen.y / self.viewport_height) * 2.0 - 1.0); // Flip Y axis correctly
-        
+
         let world_x = (ndc_x / self.zoom) + self.position[0];
         let world_y = (ndc_y / self.zoom) + self.position[1];
-        
+
         WorldCoords::new(world_x, world_y)
     }
 
@@ -253,10 +287,10 @@ impl Camera {
     pub fn world_to_screen(&self, world: WorldCoords) -> ScreenCoords {
         let ndc_x = (world.x - self.position[0]) * self.zoom;
         let ndc_y = (world.y - self.position[1]) * self.zoom;
-        
+
         let screen_x = (ndc_x + 1.0) * self.viewport_width * 0.5;
         let screen_y = (-ndc_y + 1.0) * self.viewport_height * 0.5; // Flip Y axis correctly
-        
+
         ScreenCoords::new(screen_x, screen_y)
     }
 
@@ -297,5 +331,26 @@ impl Camera {
             "viewport_height": self.viewport_height,
             "aspect_ratio": self.viewport_width / self.viewport_height
         })
+    }
+
+    /// Set the camera smoothing factor
+    pub fn set_smoothing_factor(&mut self, factor: f32) {
+        self.smoothing_factor = factor.clamp(0.0, 1.0);
+        tracing::debug!("Camera smoothing factor set to: {}", self.smoothing_factor);
+    }
+
+    /// Get the current camera smoothing factor
+    pub fn get_smoothing_factor(&self) -> f32 {
+        self.smoothing_factor
+    }
+
+    /// Get the target camera position
+    pub fn get_target_position(&self) -> [f32; 2] {
+        self.target_position
+    }
+
+    /// Get the target zoom level
+    pub fn get_target_zoom(&self) -> f32 {
+        self.target_zoom
     }
 }

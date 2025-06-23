@@ -1,4 +1,4 @@
 pub mod shaders;
 pub mod simulation;
 
-pub use simulation::MainMenuModel; 
+pub use simulation::MainMenuModel;

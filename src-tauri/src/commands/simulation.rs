@@ -198,4 +198,4 @@ pub async fn get_simulation_status(
 ) -> Result<String, String> {
     let sim_manager = manager.lock().await;
     Ok(sim_manager.get_status())
-} 
+}

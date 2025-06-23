@@ -43,7 +43,12 @@ pub async fn zoom_camera_to_cursor(
     let _gpu_ctx = gpu_context.lock().await;
 
     sim_manager.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
-    tracing::debug!("Camera zoomed to cursor ({}, {}) by {}", cursor_x, cursor_y, delta);
+    tracing::debug!(
+        "Camera zoomed to cursor ({}, {}) by {}",
+        cursor_x,
+        cursor_y,
+        delta
+    );
     Ok("Camera zoomed to cursor successfully".to_string())
 }
 
@@ -79,4 +84,16 @@ pub async fn stop_camera_pan() -> Result<String, String> {
     // Currently, camera panning is handled through the simulation manager
     tracing::debug!("Camera pan stopped");
     Ok("Camera pan stopped".to_string())
-} 
+}
+
+#[tauri::command]
+pub async fn set_camera_smoothing(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    smoothing_factor: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+
+    sim_manager.set_camera_smoothing(smoothing_factor);
+    tracing::debug!("Camera smoothing factor set to: {}", smoothing_factor);
+    Ok("Camera smoothing factor updated".to_string())
+}

@@ -50,11 +50,14 @@ impl ShaderManager {
             "@workgroup_size(256)",
             &format!("@workgroup_size({})", workgroup_size_1d),
         );
-        
+
         // Also replace 2D workgroup sizes for functions that need them
         modified_source = modified_source.replace(
             "@workgroup_size(16, 16, 1)",
-            &format!("@workgroup_size({}, {}, 1)", workgroup_size_2d.0, workgroup_size_2d.1),
+            &format!(
+                "@workgroup_size({}, {}, 1)",
+                workgroup_size_2d.0, workgroup_size_2d.1
+            ),
         );
 
         device.create_shader_module(ShaderModuleDescriptor {

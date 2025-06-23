@@ -18,7 +18,11 @@ pub struct PipelineManager {
 }
 
 impl PipelineManager {
-    pub fn new(device: &Device, workgroup_config: &WorkgroupConfig, surface_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &Device,
+        workgroup_config: &WorkgroupConfig,
+        surface_format: wgpu::TextureFormat,
+    ) -> Self {
         // Initialize shader manager with workgroup config
         let shader_manager = ShaderManager::new(device, workgroup_config);
 
@@ -239,20 +243,21 @@ impl PipelineManager {
             compilation_options: Default::default(),
         });
 
-        let update_speeds_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Update Speeds Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Update Speeds Pipeline Layout"),
-                    bind_group_layouts: &[&compute_bind_group_layout],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &shader_manager.compute_shader,
-            entry_point: Some("update_agent_speeds"),
-            cache: None,
-            compilation_options: Default::default(),
-        });
+        let update_speeds_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Update Speeds Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Update Speeds Pipeline Layout"),
+                        bind_group_layouts: &[&compute_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &shader_manager.compute_shader,
+                entry_point: Some("update_agent_speeds"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),

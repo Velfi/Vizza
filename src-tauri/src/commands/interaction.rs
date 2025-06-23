@@ -35,7 +35,8 @@ pub async fn handle_mouse_interaction_screen(
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    sim_manager.handle_mouse_interaction_screen_coords(screen_x, screen_y, is_seeding, &gpu_ctx.queue)
+    sim_manager
+        .handle_mouse_interaction_screen_coords(screen_x, screen_y, is_seeding, &gpu_ctx.queue)
         .map_err(|e| e.to_string())?;
     Ok("Mouse interaction handled".to_string())
 }
@@ -74,4 +75,4 @@ pub async fn seed_random_noise(
             Err(format!("Failed to seed random noise: {}", e))
         }
     }
-} 
+}

@@ -14,7 +14,6 @@ struct SimParams {
     min_distance: f32,
     max_distance: f32,
     friction: f32,
-    time_step: f32,
     wrap_edges: u32,
     width: f32,
     height: f32,
@@ -26,6 +25,7 @@ struct SimParams {
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
+    _pad4: u32,  // Added to make struct 72 bytes (18 * 4)
 }
 
 struct CameraUniform {
@@ -76,18 +76,16 @@ fn main(
         vec2<f32>(0.0, 0.0),  // Top-left
     );
     
-    // Convert particle world position to normalized world space [0,1]
+    // Convert particle world position (-2.0 to 2.0) to normalized device coordinates [-1,1]
+    // World coordinates are -2.0 to 2.0, so we need to map them to -1 to 1
     let world_pos = vec2<f32>(
-        particle.position.x / sim_params.width,
-        particle.position.y / sim_params.height
+        particle.position.x / 2.0, // -2.0 to 2.0 -> -1.0 to 1.0
+        particle.position.y / 2.0  // -2.0 to 2.0 -> -1.0 to 1.0
     );
     
-    // Convert to NDC space [-1,1]
-    let ndc_pos = world_pos * 2.0 - 1.0;
-    
-    // Add particle quad offset in world space
+    // Add particle quad offset in normalized space
     let quad_offset = quad_positions[vertex_index] * particle_size / vec2<f32>(sim_params.width, sim_params.height);
-    let final_world_pos = ndc_pos + quad_offset;
+    let final_world_pos = world_pos + quad_offset;
     
     // Apply camera transformation
     let camera_pos = camera.transform_matrix * vec4<f32>(final_world_pos, 0.0, 1.0);

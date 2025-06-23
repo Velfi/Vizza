@@ -1,10 +1,10 @@
+use crate::error::SimulationResult;
+use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use serde_json::Value;
-use crate::error::SimulationResult;
 
 /// Common interface for all simulation types
-/// 
+///
 /// This trait defines the contract that all simulations must implement.
 /// It provides a unified way to interact with different simulation types
 /// while maintaining clear separation between settings (presettable) and state (runtime).
@@ -26,7 +26,7 @@ pub trait Simulation {
     ) -> SimulationResult<()>;
 
     /// Update a specific setting by name
-    /// 
+    ///
     /// This method should only modify user-configurable settings that can be saved in presets.
     /// Runtime state should not be modified through this method.
     fn update_setting(
@@ -38,13 +38,13 @@ pub trait Simulation {
     ) -> SimulationResult<()>;
 
     /// Get the current settings as a serializable value
-    /// 
+    ///
     /// This should return only user-configurable settings that can be saved in presets.
     /// Runtime state should not be included in the returned value.
     fn get_settings(&self) -> Value;
 
     /// Get the current runtime state as a serializable value
-    /// 
+    ///
     /// This should return runtime state that is not saved in presets.
     /// Examples: current agent positions, simulation time, etc.
     fn get_state(&self) -> Value;
@@ -74,24 +74,32 @@ pub trait Simulation {
     fn get_camera_state(&self) -> Value;
 
     /// Save the current settings as a preset
-    /// 
+    ///
     /// This should only save settings, not runtime state.
     fn save_preset(&self, _preset_name: &str) -> SimulationResult<()>;
 
     /// Load settings from a preset and reset runtime state
-    /// 
+    ///
     /// This should load settings and reset any runtime state to default values.
     fn load_preset(&mut self, _preset_name: &str, _queue: &Arc<Queue>) -> SimulationResult<()>;
 
     /// Update the simulation settings directly
-    /// 
+    ///
     /// This should apply new settings to the simulation without resetting runtime state.
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()>;
+    fn apply_settings(
+        &mut self,
+        settings: serde_json::Value,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()>;
 
     /// Reset the simulation's runtime state
-    /// 
+    ///
     /// This should reset runtime state (like agent positions, trail maps) but preserve settings.
-    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> SimulationResult<()>;
+    fn reset_runtime_state(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()>;
 
     /// Toggle GUI visibility
     fn toggle_gui(&mut self) -> bool;
@@ -108,7 +116,7 @@ pub trait Simulation {
 }
 
 /// Enum wrapper for all simulation types
-/// 
+///
 /// This provides a type-safe way to handle different simulation types
 /// without using trait objects (Box<dyn Simulation>).
 #[derive(Debug)]
@@ -163,9 +171,10 @@ impl SimulationType {
                     queue,
                     surface_config,
                     adapter_info,
-                    settings.particle_count as usize,
+                    15000, // Default particle count
                     settings,
                     lut_manager,
+                    crate::simulations::particle_life::simulation::ColorMode::Lut,
                 )?;
                 Ok(SimulationType::ParticleLife(simulation))
             }
@@ -180,6 +189,21 @@ impl SimulationType {
             _ => Err(format!("Unknown simulation type: {}", simulation_type).into()),
         }
     }
+
+    pub fn reset_runtime_state(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        match self {
+            SimulationType::SlimeMold(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::GrayScott(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.reset_runtime_state(device, queue)
+            }
+            SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
+        }
+    }
 }
 
 impl Simulation for SimulationType {
@@ -190,10 +214,18 @@ impl Simulation for SimulationType {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.render_frame(device, queue, surface_view),
-            SimulationType::GrayScott(simulation) => simulation.render_frame(device, queue, surface_view).map_err(|e| e.into()),
-            SimulationType::ParticleLife(simulation) => simulation.render_frame(device, queue, surface_view),
-            SimulationType::MainMenu(simulation) => simulation.render_frame(device, queue, surface_view),
+            SimulationType::SlimeMold(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
+            SimulationType::GrayScott(simulation) => simulation
+                .render_frame(device, queue, surface_view)
+                .map_err(|e| e.into()),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
         }
     }
 
@@ -206,7 +238,9 @@ impl Simulation for SimulationType {
         match self {
             SimulationType::SlimeMold(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::GrayScott(simulation) => simulation.resize(new_config),
-            SimulationType::ParticleLife(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.resize(device, queue, new_config)
+            }
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
         }
     }
@@ -219,10 +253,18 @@ impl Simulation for SimulationType {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.update_setting(setting_name, value, device, queue),
-            SimulationType::GrayScott(simulation) => simulation.update_setting(setting_name, value, device, queue),
-            SimulationType::ParticleLife(simulation) => simulation.update_setting(setting_name, value, device, queue),
-            SimulationType::MainMenu(simulation) => simulation.update_setting(setting_name, value, device, queue),
+            SimulationType::SlimeMold(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
         }
     }
 
@@ -252,10 +294,18 @@ impl Simulation for SimulationType {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue),
-            SimulationType::GrayScott(simulation) => simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue),
-            SimulationType::ParticleLife(simulation) => simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue),
-            SimulationType::MainMenu(simulation) => simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue),
+            SimulationType::SlimeMold(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+            }
         }
     }
 
@@ -279,10 +329,18 @@ impl Simulation for SimulationType {
 
     fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-            SimulationType::GrayScott(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-            SimulationType::ParticleLife(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-            SimulationType::MainMenu(simulation) => simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
+            SimulationType::SlimeMold(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
         }
     }
 
@@ -322,7 +380,11 @@ impl Simulation for SimulationType {
         }
     }
 
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn apply_settings(
+        &mut self,
+        settings: serde_json::Value,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         match self {
             SimulationType::SlimeMold(simulation) => simulation.apply_settings(settings, queue),
             SimulationType::GrayScott(simulation) => simulation.apply_settings(settings, queue),
@@ -331,12 +393,18 @@ impl Simulation for SimulationType {
         }
     }
 
-    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn reset_runtime_state(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.reset_runtime_state(queue),
-            SimulationType::GrayScott(simulation) => simulation.reset_runtime_state(queue),
-            SimulationType::ParticleLife(simulation) => simulation.reset_runtime_state(queue),
-            SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(queue),
+            SimulationType::SlimeMold(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::GrayScott(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.reset_runtime_state(device, queue)
+            }
+            SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
 
@@ -366,8 +434,10 @@ impl Simulation for SimulationType {
         match self {
             SimulationType::SlimeMold(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::GrayScott(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::ParticleLife(simulation) => simulation.randomize_settings(device, queue),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.randomize_settings(device, queue)
+            }
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
         }
     }
-} 
+}

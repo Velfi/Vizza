@@ -144,7 +144,7 @@ impl Settings {
     pub fn randomize(&mut self) {
         use rand::Rng;
         let mut rng = rand::rng();
-        
+
         self.agent_speed_min = rand::random::<f32>() * 500.0;
         self.agent_speed_max =
             self.agent_speed_min + rand::random::<f32>() * (500.0 - self.agent_speed_min);
@@ -155,7 +155,7 @@ impl Settings {
         self.pheromone_decay_rate = 100.0;
         self.pheromone_deposition_rate = 100.0;
         self.pheromone_diffusion_rate = 100.0;
-        
+
         // Don't randomize gradient settings
         self.gradient_type = GradientType::Disabled;
         self.gradient_strength = 0.5;

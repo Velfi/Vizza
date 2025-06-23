@@ -158,12 +158,10 @@ impl BindGroupManager {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
         })
     }
 }

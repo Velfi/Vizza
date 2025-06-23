@@ -1,7 +1,7 @@
+use crate::error::SimulationResult;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use crate::error::SimulationResult;
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
@@ -42,45 +42,44 @@ impl Renderer {
         });
 
         // Create simulation data bind group layout
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Render Bind Group Layout"),
-                entries: &[
-                    // Binding 0: Simulation data (UVPair array)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Render Bind Group Layout"),
+            entries: &[
+                // Binding 0: Simulation data (UVPair array)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // Binding 1: LUT data
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // Binding 1: LUT data
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // Binding 2: Simulation parameters
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // Binding 2: Simulation parameters
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
-            });
+                    count: None,
+                },
+            ],
+        });
 
         // Create camera bind group layout
         let camera_bind_group_layout =
@@ -101,12 +100,8 @@ impl Renderer {
         // Initialize camera with appropriate settings for Gray Scott simulation
         // Gray Scott operates in [0,1] UV space, so we want to view that area
         // Use physical pixels for camera viewport (surface configuration dimensions)
-        let camera = Camera::new(
-            device, 
-            width as f32, 
-            height as f32
-        )?;
-        
+        let camera = Camera::new(device, width as f32, height as f32)?;
+
         // Create pipeline layout with both bind group layouts
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
@@ -263,10 +258,7 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn resize(
-        &mut self,
-        new_config: &SurfaceConfiguration,
-    ) -> SimulationResult<()> {
+    pub fn resize(&mut self, new_config: &SurfaceConfiguration) -> SimulationResult<()> {
         self.surface_config = new_config.clone();
         self.width = new_config.width;
         self.height = new_config.height;

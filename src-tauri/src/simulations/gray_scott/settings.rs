@@ -125,13 +125,13 @@ impl Settings {
     pub fn randomize(&mut self) {
         use rand::Rng;
         let mut rng = rand::rng();
-        
+
         self.feed_rate = rng.random_range(0.02..0.08);
         self.kill_rate = rng.random_range(0.04..0.08);
         self.diffusion_rate_u = rng.random_range(0.1..0.3);
         self.diffusion_rate_v = rng.random_range(0.05..0.15);
         self.timestep = rng.random_range(0.5..2.0);
-        
+
         // Randomly choose a nutrient pattern
         let patterns = [
             NutrientPattern::Uniform,
@@ -145,7 +145,7 @@ impl Settings {
             NutrientPattern::CosineGrid,
         ];
         self.nutrient_pattern = patterns[rng.random_range(0..patterns.len())];
-        
+
         self.nutrient_pattern_reversed = rng.random_bool(0.5);
     }
 }

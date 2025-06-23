@@ -1,9 +1,8 @@
+use crate::error::{LutError, LutResult};
 use dirs::home_dir;
 use rand::Rng;
 use std::collections::HashMap;
 use std::io;
-use wgpu::Queue;
-use crate::error::{LutError, LutResult};
 
 #[derive(Debug, Clone)]
 pub struct LutData {
@@ -267,6 +266,7 @@ lazy_static::lazy_static! {
     );
 }
 
+#[derive(Debug, Clone)]
 pub struct LutManager;
 
 impl LutManager {
@@ -292,10 +292,14 @@ impl LutManager {
             // Each color component should be 256 bytes
             if buffer.len() != 768 {
                 // 256 * 3 (RGB)
-                return Err(LutError::DataError(format!("Invalid LUT file size for {}", name)));
+                return Err(LutError::DataError(format!(
+                    "Invalid LUT file size for {}",
+                    name
+                )));
             }
 
-            return LutData::from_bytes(name.to_string(), buffer.as_slice()).map_err(|e| LutError::DataError(e.to_string()));
+            return LutData::from_bytes(name.to_string(), buffer.as_slice())
+                .map_err(|e| LutError::DataError(e.to_string()));
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT
@@ -303,7 +307,8 @@ impl LutManager {
     }
 
     fn lut_dir() -> LutResult<std::path::PathBuf> {
-        let home_dir = home_dir().ok_or_else(|| LutError::DataError("Could not find home directory".to_string()))?;
+        let home_dir = home_dir()
+            .ok_or_else(|| LutError::DataError("Could not find home directory".to_string()))?;
 
         let lut_dir = home_dir.join("sim-pix").join("LUTs");
         Ok(lut_dir)
@@ -318,7 +323,8 @@ impl LutManager {
 
         // Save the LUT file
         let file_path = lut_dir.join(format!("{}.lut", name));
-        std::fs::write(file_path, lut_data.clone().into_bytes()).map_err(|e| LutError::DataError(e.to_string()))?;
+        std::fs::write(file_path, lut_data.clone().into_bytes())
+            .map_err(|e| LutError::DataError(e.to_string()))?;
 
         Ok(())
     }
@@ -354,7 +360,7 @@ impl LutManager {
         lut_data.reverse();
         lut_data
     }
-    
+
     pub(crate) fn get_random_lut(&self) -> LutResult<LutData> {
         let mut lut_names = EMBEDDED_LUTS.keys();
         let random_index = rand::rng().random_range(0..lut_names.len());
@@ -367,21 +373,6 @@ impl Default for LutManager {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Trait for handling LUT operations in simulations
-pub trait LutHandler {
-    /// Get the name of the currently active LUT
-    fn get_name_of_active_lut(&self) -> &str;
-
-    /// Check if the LUT is currently reversed
-    fn is_lut_reversed(&self) -> bool;
-
-    /// Set whether the LUT should be reversed
-    fn set_lut_reversed(&mut self, reversed: bool);
-
-    /// Set the active LUT with new data and name
-    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue);
 }
 
 /// Unified LUT manager for simulation operations

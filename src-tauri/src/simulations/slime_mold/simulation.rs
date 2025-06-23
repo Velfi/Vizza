@@ -1,15 +1,15 @@
+use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
+use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use serde_json::Value;
-use crate::error::{SimulationError, SimulationResult};
 
 use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
-use crate::simulations::shared::{LutData, LutManager, LutHandler, camera::Camera};
+use crate::simulations::shared::{camera::Camera, LutData, LutManager};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -77,8 +77,7 @@ impl SimSizeUniform {
 #[derive(Debug)]
 /// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
-pub struct 
-SlimeMoldModel {
+pub struct SlimeMoldModel {
     // Simulation-specific GPU resources
     pub bind_group_manager: BindGroupManager,
     pub pipeline_manager: PipelineManager,
@@ -135,10 +134,12 @@ impl SlimeMoldModel {
         let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
         let trail_map_size = (physical_width * physical_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
-        
+
         // If buffer would be too large, scale down the resolution
-        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size {
-            let scale_factor = (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
+        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size
+        {
+            let scale_factor =
+                (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
             let new_width = (physical_width as f64 * scale_factor * 0.95) as u32; // 95% to be safe
             let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
             tracing::warn!(
@@ -251,7 +252,8 @@ impl SlimeMoldModel {
         let workgroup_config = WorkgroupConfig::new(device, adapter_info);
 
         // Create pipeline manager
-        let pipeline_manager = PipelineManager::new(device, &workgroup_config, surface_config.format);
+        let pipeline_manager =
+            PipelineManager::new(device, &workgroup_config, surface_config.format);
 
         // Create camera
         let camera = Camera::new(device, effective_width as f32, effective_height as f32)?;
@@ -332,10 +334,12 @@ impl SlimeMoldModel {
         let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
         let trail_map_size = (physical_width * physical_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
-        
+
         // If buffer would be too large, scale down the resolution
-        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size {
-            let scale_factor = (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
+        let (effective_width, effective_height) = if trail_map_size_bytes > max_storage_buffer_size
+        {
+            let scale_factor =
+                (max_storage_buffer_size as f64 / trail_map_size_bytes as f64).sqrt();
             let new_width = (physical_width as f64 * scale_factor * 0.95) as u32; // 95% to be safe
             let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
             tracing::warn!(
@@ -350,8 +354,9 @@ impl SlimeMoldModel {
         // Early return if dimensions haven't changed significantly
         let width_diff = effective_width.abs_diff(self.current_width);
         let height_diff = effective_height.abs_diff(self.current_height);
-        let total_pixel_change = width_diff * self.current_height + height_diff * self.current_width;
-        
+        let total_pixel_change =
+            width_diff * self.current_height + height_diff * self.current_width;
+
         // If change is less than 1% of total pixels, skip resize
         let total_pixels = self.current_width * self.current_height;
         if total_pixel_change < total_pixels / 100 {
@@ -369,7 +374,10 @@ impl SlimeMoldModel {
 
         tracing::info!(
             "Resizing slime mold from {}x{} to {}x{}",
-            self.current_width, self.current_height, effective_width, effective_height
+            self.current_width,
+            self.current_height,
+            effective_width,
+            effective_height
         );
 
         // Calculate new buffer sizes
@@ -382,7 +390,8 @@ impl SlimeMoldModel {
             return Err(format!(
                 "New trail map buffer size {} bytes exceeds GPU limit {} bytes",
                 trail_map_size_bytes, max_storage_buffer_size
-            ).into());
+            )
+            .into());
         }
 
         // Store old buffers for scaling
@@ -440,7 +449,12 @@ impl SlimeMoldModel {
         })) {
             tracing::error!("Failed to scale trail map data: {:?}", e);
             // If scaling fails, just reset the trail map
-            reset_trails(&self.trail_map_buffer, queue, effective_width, effective_height);
+            reset_trails(
+                &self.trail_map_buffer,
+                queue,
+                effective_width,
+                effective_height,
+            );
         }
 
         // Scale gradient data from old dimensions to new dimensions
@@ -458,7 +472,12 @@ impl SlimeMoldModel {
         })) {
             tracing::error!("Failed to scale gradient data: {:?}", e);
             // If scaling fails, just reset the gradient
-            reset_trails(&self.gradient_buffer, queue, effective_width, effective_height);
+            reset_trails(
+                &self.gradient_buffer,
+                queue,
+                effective_width,
+                effective_height,
+            );
         }
 
         // Return old buffers to pool after scaling is complete
@@ -576,7 +595,8 @@ impl SlimeMoldModel {
         self.recreate_bind_groups(device);
 
         // Resize camera
-        self.camera.resize(effective_width as f32, effective_height as f32);
+        self.camera
+            .resize(effective_width as f32, effective_height as f32);
 
         tracing::info!("Slime mold resize completed successfully");
         Ok(())
@@ -653,7 +673,8 @@ impl SlimeMoldModel {
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
 
             // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
-            let workgroup_size = self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
+            let workgroup_size =
+                self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
             let total_workgroups = (self.agent_count as u32).div_ceil(workgroup_size);
 
             // Calculate 2D dispatch grid
@@ -727,7 +748,7 @@ impl SlimeMoldModel {
     ) -> SimulationResult<()> {
         // Update the random seed to ensure different randomization
         self.settings.random_seed = rand::random::<u32>();
-        
+
         // Update the sim size buffer with the new random seed
         let sim_size = SimSizeUniform::new(
             self.current_width,
@@ -789,7 +810,8 @@ impl SlimeMoldModel {
             compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
 
             // For large agent counts, use 2D dispatch to avoid 65535 workgroup limit
-            let workgroup_size = self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
+            let workgroup_size =
+                self.workgroup_config.compute_2d.0 * self.workgroup_config.compute_2d.1;
             let total_workgroups = (self.agent_count as u32).div_ceil(workgroup_size);
 
             // Calculate 2D dispatch grid
@@ -1024,7 +1046,11 @@ impl SlimeMoldModel {
 
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        tracing::debug!("Slime mold pan_camera called: delta=({:.2}, {:.2})", delta_x, delta_y);
+        tracing::debug!(
+            "Slime mold pan_camera called: delta=({:.2}, {:.2})",
+            delta_x,
+            delta_y
+        );
         self.camera.pan(delta_x, delta_y);
     }
 
@@ -1034,7 +1060,12 @@ impl SlimeMoldModel {
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        tracing::debug!("Slime mold zoom_camera_to_cursor called: delta={:.2}, cursor=({:.2}, {:.2})", delta, cursor_x, cursor_y);
+        tracing::debug!(
+            "Slime mold zoom_camera_to_cursor called: delta={:.2}, cursor=({:.2}, {:.2})",
+            delta,
+            cursor_x,
+            cursor_y
+        );
         self.camera.zoom_to_cursor(delta, cursor_x, cursor_y);
     }
 
@@ -1048,32 +1079,6 @@ impl Drop for SlimeMoldModel {
     fn drop(&mut self) {
         // Clean up buffer pool
         self.buffer_pool.clear();
-    }
-}
-
-impl LutHandler for SlimeMoldModel {
-    fn get_name_of_active_lut(&self) -> &str {
-        &self.current_lut_name
-    }
-
-    fn is_lut_reversed(&self) -> bool {
-        self.lut_reversed
-    }
-
-    fn set_lut_reversed(&mut self, reversed: bool) {
-        self.lut_reversed = reversed;
-    }
-
-    fn set_active_lut(&mut self, lut_data: &LutData, queue: &Queue) {
-        let lut_data_to_apply = if self.lut_reversed {
-            lut_data.reversed()
-        } else {
-            lut_data.clone()
-        };
-        
-        let lut_data_u32 = lut_data_to_apply.to_u32_buffer();
-        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
-        self.current_lut_name = lut_data.name.clone();
     }
 }
 
@@ -1127,10 +1132,10 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn handle_mouse_interaction(
         &mut self,
-        world_x: f32,
-        world_y: f32,
-        is_seeding: bool,
-        queue: &Arc<Queue>,
+        _world_x: f32,
+        _world_y: f32,
+        _is_seeding: bool,
+        _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Slime mold doesn't currently support mouse interaction
         // This could be implemented in the future for seeding agents
@@ -1172,11 +1177,12 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         Err("Preset loading not yet implemented for SlimeMoldModel".into())
     }
 
-    fn reset_runtime_state(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn reset_runtime_state(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         self.reset_trails(queue);
-        // Note: reset_agents requires a device, but we don't have one in this context
-        // This is a limitation of the current trait design
-        // In practice, this would be called from a context where we have access to the device
         Ok(())
     }
 
@@ -1190,7 +1196,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn randomize_settings(
         &mut self,
-        device: &Arc<Device>,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Randomize the settings
@@ -1199,8 +1205,16 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         Ok(())
     }
 
-    fn apply_settings(&mut self, settings: serde_json::Value, queue: &Arc<Queue>) -> SimulationResult<()> {
-        let new_settings: Settings = serde_json::from_value(settings).map_err(|e| SimulationError::InvalidSetting { setting_name: "settings".to_string(), message: e.to_string() })?;
+    fn apply_settings(
+        &mut self,
+        settings: serde_json::Value,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        let new_settings: Settings =
+            serde_json::from_value(settings).map_err(|e| SimulationError::InvalidSetting {
+                setting_name: "settings".to_string(),
+                message: e.to_string(),
+            })?;
         self.update_settings(new_settings, queue);
         Ok(())
     }
@@ -1432,15 +1446,15 @@ fn scale_trail_map_data(
                     // Map new coordinates to old coordinates
                     let old_x = (new_x as f32 * old_width as f32 / new_width as f32) as u32;
                     let old_y = (new_y as f32 * old_height as f32 / new_height as f32) as u32;
-                    
+
                     // Clamp to old dimensions
                     let old_x = old_x.min(old_width - 1);
                     let old_y = old_y.min(old_height - 1);
-                    
+
                     // Copy value from old position to new position
                     let old_idx = (old_y * old_width + old_x) as usize;
                     let new_idx = (new_y * new_width + new_x) as usize;
-                    
+
                     if old_idx < old_trail_data.len() && new_idx < new_trail_data.len() {
                         new_trail_data[new_idx] = old_trail_data[old_idx];
                     }
@@ -1511,15 +1525,15 @@ fn scale_trail_map_data(
                     // Map new coordinates to old coordinates
                     let old_x = (new_x as f32 * old_width as f32 / new_width as f32) as u32;
                     let old_y = (new_y as f32 * old_height as f32 / new_height as f32) as u32;
-                    
+
                     // Clamp to old dimensions
                     let old_x = old_x.min(old_width - 1);
                     let old_y = old_y.min(old_height - 1);
-                    
+
                     // Copy value from old position to new position
                     let old_idx = (old_y * old_width + old_x) as usize;
                     let new_idx = (new_y * new_width + new_x) as usize;
-                    
+
                     if old_idx < old_trail_data.len() && new_idx < new_trail_data.len() {
                         new_trail_data[new_idx] = old_trail_data[old_idx];
                     }

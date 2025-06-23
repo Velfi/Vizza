@@ -24,18 +24,8 @@
 
   // Reactive statements to handle prop changes
   $: if (available_luts.length > 0 && !current_lut) {
-    // Try to find a good default LUT
-    const defaultLuts = ['viridis', 'plasma', 'inferno', 'magma', 'turbo'];
-    for (const lut of defaultLuts) {
-      if (available_luts.includes(lut)) {
-        current_lut = lut;
-        break;
-      }
-    }
-    // If no default found, use the first available
-    if (!current_lut && available_luts.length > 0) {
-      current_lut = available_luts[0];
-    }
+    // Use the first available LUT from the backend
+    current_lut = available_luts[0];
   }
 
   function handleSelect(event: Event) {

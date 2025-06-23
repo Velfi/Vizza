@@ -13,7 +13,12 @@ pub async fn update_simulation_setting(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.update_setting(&setting_name, value.clone(), &gpu_ctx.device, &gpu_ctx.queue) {
+    match sim_manager.update_setting(
+        &setting_name,
+        value.clone(),
+        &gpu_ctx.device,
+        &gpu_ctx.queue,
+    ) {
         Ok(_) => {
             tracing::info!("Setting '{}' updated to {:?}", setting_name, value);
             Ok(format!("Setting '{}' updated successfully", setting_name))
@@ -30,7 +35,7 @@ pub async fn get_current_settings(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<serde_json::Value, String> {
     let sim_manager = manager.lock().await;
-    
+
     match sim_manager.get_current_settings() {
         Some(settings) => Ok(settings),
         None => Err("No simulation running".to_string()),
@@ -42,7 +47,7 @@ pub async fn get_current_state(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<serde_json::Value, String> {
     let sim_manager = manager.lock().await;
-    
+
     match sim_manager.get_current_state() {
         Some(state) => Ok(state),
         None => Err("No simulation running".to_string()),
@@ -67,4 +72,4 @@ pub async fn randomize_settings(
             Err(format!("Failed to randomize settings: {}", e))
         }
     }
-} 
+}
