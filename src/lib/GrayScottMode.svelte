@@ -314,7 +314,7 @@
       zoomCamera(0.2);
       moved = true;
     }
-    if (pressedKeys.has('c')) {
+    if (pressedKeys.has('c') || pressedKeys.has('C')) {
       console.log('Resetting camera');
       resetCamera();
       moved = true;

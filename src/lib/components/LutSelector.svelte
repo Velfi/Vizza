@@ -23,20 +23,20 @@
   let dragStopIndex = -1;
 
   // Reactive statements to handle prop changes
-  $: if (available_luts.length > 0 && !current_lut) {
-    // Use the first available LUT from the backend
-    current_lut = available_luts[0];
-  }
+  // Note: Don't auto-select the first LUT when current_lut is empty,
+  // let the parent component set the initial LUT from backend state
 
   function handleSelect(event: Event) {
     const select = event.target as HTMLSelectElement;
     const selectedName = select.value;
+    console.log(`LutSelector: Selected ${selectedName}, was ${current_lut}`);
     current_lut = selectedName; // Update local state
     dispatch('select', { name: selectedName });
   }
 
   async function handleReverse() {
     reversed = !reversed;
+    console.log(`LutSelector: Reversing to ${reversed}, current LUT: ${current_lut}`);
     dispatch('reverse', { reversed });
   }
 
@@ -374,6 +374,7 @@
     border: 1px solid #ccc;
     border-radius: 4px;
     background: #f8f9fa;
+    color: #333;
     cursor: pointer;
     font-size: 0.9rem;
     transition: all 0.2s ease;
@@ -382,6 +383,7 @@
   .control-btn:hover {
     background: #e9ecef;
     border-color: #adb5bd;
+    color: #222;
   }
 
   .control-btn.reverse-btn {
@@ -405,7 +407,8 @@
     padding: 0.5rem;
     border: 1px solid #ccc;
     border-radius: 4px;
-    background: white;
+    background: #f8f9fa;
+    color: #333;
     font-size: 0.9rem;
   }
 

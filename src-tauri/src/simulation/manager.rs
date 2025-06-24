@@ -148,11 +148,11 @@ impl SimulationManager {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_seeding: bool,
+        is_attract: bool,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)?;
+            simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)?;
         }
         Ok(())
     }
@@ -162,7 +162,7 @@ impl SimulationManager {
         &mut self,
         screen_x: f32,
         screen_y: f32,
-        is_seeding: bool,
+        is_attract: bool,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
@@ -177,7 +177,30 @@ impl SimulationManager {
                     // Convert NDC [-1,1] to texture coordinates [0,1]
                     let texture_x = (ndc_x + 1.0) * 0.5;
                     let texture_y = (ndc_y + 1.0) * 0.5;
-                    simulation.handle_mouse_interaction(texture_x, texture_y, is_seeding, queue)?;
+                    simulation.handle_mouse_interaction(texture_x, texture_y, is_attract, queue)?;
+                }
+                SimulationType::ParticleLife(simulation) => {
+                    // Handle mouse release special case before camera transformation
+                    if screen_x == -9999.0 && screen_y == -9999.0 {
+                        println!("🌍 ParticleLife mouse: RELEASE");
+                        simulation.handle_mouse_interaction(-9999.0, -9999.0, is_attract, queue)?;
+                    } else {
+                        let camera = &simulation.camera;
+                        let screen = ScreenCoords::new(screen_x, screen_y);
+                        let world = camera.screen_to_world(screen);
+                        // Convert world to NDC relative to camera (same as Gray-Scott)
+                        let ndc_x = (world.x - camera.position[0]) * camera.zoom;
+                        let ndc_y = (world.y - camera.position[1]) * camera.zoom;
+                        // Convert NDC [-1,1] to particle coordinates [-2,2]
+                        let particle_x = ndc_x * 2.0;
+                        let particle_y = ndc_y * 2.0;
+                        
+                        println!("🌍 ParticleLife mouse: screen=({}, {}) -> world=({}, {}) -> ndc=({}, {}) -> particle=({}, {}), attract={}", 
+                                 screen_x, screen_y, world.x, world.y, ndc_x, ndc_y, particle_x, particle_y, is_attract);
+                        tracing::info!("ParticleLife mouse: screen=({}, {}) -> particle=({}, {}), attract={}", 
+                                       screen_x, screen_y, particle_x, particle_y, is_attract);
+                        simulation.handle_mouse_interaction(particle_x, particle_y, is_attract, queue)?;
+                    }
                 }
                 _ => (),
             }

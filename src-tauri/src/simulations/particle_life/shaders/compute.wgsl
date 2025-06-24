@@ -20,13 +20,19 @@ struct SimParams {
     height: f32,
     random_seed: u32,
     dt: f32,  // Time step for simulation
+    beta: f32,  // Transition point between repulsion and attraction zones
+    cursor_x: f32,  // Cursor position in world coordinates
+    cursor_y: f32,
+    cursor_size: f32,  // Cursor interaction radius
+    cursor_strength: f32,  // Cursor force strength
+    cursor_active: u32,  // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
     _pad4: u32,
     _pad5: u32,
     _pad6: u32,
-    _pad7: u32,  // Added to make struct 72 bytes (18 * 4)
+    _pad7: u32,  // Added to make struct 88 bytes (22 * 4)
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -64,16 +70,15 @@ fn get_force(species_a: u32, species_b: u32) -> f32 {
 
 // Calculate force using the exact same model as standalone version
 fn calculate_force(distance: f32, attraction: f32) -> f32 {
-    let beta = 0.3; // Same as standalone version
     let rmax = params.max_distance;
     let force_multiplier = params.max_force;
     
-    if (distance < beta * rmax) {
+    if (distance < params.beta * rmax) {
         // Close range: linear repulsion
-        return (distance / (beta * rmax) - 1.0) * force_multiplier;
+        return (distance / (params.beta * rmax) - 1.0) * force_multiplier;
     } else if (distance <= rmax) {
         // Far range: species-specific attraction/repulsion
-        return attraction * (1.0 - (1.0 + beta - 2.0 * distance / rmax) / (1.0 - beta)) * force_multiplier;
+        return attraction * (1.0 - (1.0 + params.beta - 2.0 * distance / rmax) / (1.0 - params.beta)) * force_multiplier;
     }
     
     return 0.0; // No force beyond max distance
@@ -165,6 +170,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Apply force in direction between particles
         let direction = delta / distance;
         force += direction * force_magnitude;
+    }
+    
+    // Calculate cursor interaction force
+    if (params.cursor_active > 0u) {
+        let cursor_pos = vec2<f32>(params.cursor_x, params.cursor_y);
+        let delta_to_cursor = wrapped_distance(particle.position, cursor_pos);
+        let distance_to_cursor_sq = dot(delta_to_cursor, delta_to_cursor);
+        let distance_to_cursor = sqrt(distance_to_cursor_sq);
+        
+        // Only apply cursor force if within cursor radius
+        if (distance_to_cursor < params.cursor_size && distance_to_cursor > 0.001) {
+            let direction_to_cursor = delta_to_cursor / distance_to_cursor;
+            
+            // Calculate cursor force strength based on distance (stronger when closer)
+            let distance_factor = 1.0 - (distance_to_cursor / params.cursor_size);
+            let cursor_force_strength = params.cursor_strength * distance_factor;
+            
+            // Apply force based on cursor mode (attract or repel)
+            if (params.cursor_active == 1u) {
+                // Attract particles to cursor
+                force += direction_to_cursor * cursor_force_strength;
+            } else if (params.cursor_active == 2u) {
+                // Repel particles from cursor
+                force -= direction_to_cursor * cursor_force_strength;
+            }
+        }
     }
     
     // Update velocity with force and friction

@@ -49,12 +49,12 @@ pub trait Simulation {
     /// Examples: current agent positions, simulation time, etc.
     fn get_state(&self) -> Value;
 
-    /// Handle mouse interaction for seeding or other interactions
+    /// Handle mouse interaction for cursor-based particle attraction/repulsion
     fn handle_mouse_interaction(
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_seeding: bool,
+        is_attract: bool,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
 
@@ -89,6 +89,7 @@ pub trait Simulation {
     fn apply_settings(
         &mut self,
         settings: serde_json::Value,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
 
@@ -290,21 +291,21 @@ impl Simulation for SimulationType {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_seeding: bool,
+        is_attract: bool,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
             SimulationType::SlimeMold(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
             }
             SimulationType::GrayScott(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
             }
             SimulationType::ParticleLife(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
             }
             SimulationType::MainMenu(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_seeding, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
             }
         }
     }
@@ -383,13 +384,14 @@ impl Simulation for SimulationType {
     fn apply_settings(
         &mut self,
         settings: serde_json::Value,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.apply_settings(settings, queue),
-            SimulationType::GrayScott(simulation) => simulation.apply_settings(settings, queue),
-            SimulationType::ParticleLife(simulation) => simulation.apply_settings(settings, queue),
-            SimulationType::MainMenu(simulation) => simulation.apply_settings(settings, queue),
+            SimulationType::SlimeMold(simulation) => simulation.apply_settings(settings, device, queue),
+            SimulationType::GrayScott(simulation) => simulation.apply_settings(settings, device, queue),
+            SimulationType::ParticleLife(simulation) => simulation.apply_settings(settings, device, queue),
+            SimulationType::MainMenu(simulation) => simulation.apply_settings(settings, device, queue),
         }
     }
 

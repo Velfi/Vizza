@@ -1,6 +1,8 @@
 use crate::simulation::SimulationManager;
+use crate::simulations::traits::SimulationType;
 use std::sync::Arc;
 use tauri::{Emitter, State};
+use wgpu::util::DeviceExt;
 
 #[tauri::command]
 pub async fn start_slime_mold_simulation(
@@ -198,4 +200,36 @@ pub async fn get_simulation_status(
 ) -> Result<String, String> {
     let sim_manager = manager.lock().await;
     Ok(sim_manager.get_status())
+}
+
+#[tauri::command]
+pub async fn scale_force_matrix(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    scale_factor: f32,
+) -> Result<String, String> {
+    tracing::info!("scale_force_matrix called with factor: {}", scale_factor);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(SimulationType::ParticleLife(simulation)) = &mut sim_manager.current_simulation {
+        // Scale the force matrix in settings
+        simulation.settings.scale_force_matrix(scale_factor);
+        
+        // Update the force matrix buffer on GPU
+        let force_matrix_data = crate::simulations::particle_life::simulation::ParticleLifeModel::flatten_force_matrix(&simulation.settings.force_matrix);
+        simulation.force_matrix_buffer = gpu_ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Force Matrix Buffer"),
+            contents: bytemuck::cast_slice(&force_matrix_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Recreate bind groups that use this buffer
+        simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
+
+        tracing::info!("Force matrix scaled by factor: {}", scale_factor);
+        Ok(format!("Force matrix scaled by factor: {}", scale_factor))
+    } else {
+        Err("No Particle Life simulation running".to_string())
+    }
 }

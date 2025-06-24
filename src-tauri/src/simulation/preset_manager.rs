@@ -501,7 +501,7 @@ impl SimulationPresetManager {
                     let settings_json = serde_json::to_value(settings)
                         .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
                     simulation
-                        .apply_settings(settings_json, queue)
+                        .apply_settings(settings_json, device, queue)
                         .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     // Reset runtime state (trails, agents)
                     simulation
@@ -522,7 +522,7 @@ impl SimulationPresetManager {
                     let settings_json = serde_json::to_value(settings)
                         .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
                     simulation
-                        .apply_settings(settings_json, queue)
+                        .apply_settings(settings_json, device, queue)
                         .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     // Reset runtime state
                     simulation
@@ -543,7 +543,7 @@ impl SimulationPresetManager {
                     let settings_json = serde_json::to_value(settings)
                         .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
                     simulation
-                        .apply_settings(settings_json, queue)
+                        .apply_settings(settings_json, device, queue)
                         .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     // Reset runtime state
                     simulation

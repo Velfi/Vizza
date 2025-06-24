@@ -8,12 +8,12 @@ pub async fn handle_mouse_interaction(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     x: f32,
     y: f32,
-    is_seeding: bool,
+    is_attract: bool,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.handle_mouse_interaction(x, y, is_seeding, &gpu_ctx.queue) {
+    match sim_manager.handle_mouse_interaction(x, y, is_attract, &gpu_ctx.queue) {
         Ok(_) => {
             tracing::debug!("Mouse interaction handled at ({}, {})", x, y);
             Ok("Mouse interaction handled successfully".to_string())
@@ -31,12 +31,15 @@ pub async fn handle_mouse_interaction_screen(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     screen_x: f32,
     screen_y: f32,
-    is_seeding: bool,
+    is_attract: bool,
 ) -> Result<String, String> {
+    println!("🖱️ Mouse interaction: screen=({}, {}), attract={}", screen_x, screen_y, is_attract);
+    tracing::info!("Mouse interaction: screen=({}, {}), attract={}", screen_x, screen_y, is_attract);
+    
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     sim_manager
-        .handle_mouse_interaction_screen_coords(screen_x, screen_y, is_seeding, &gpu_ctx.queue)
+        .handle_mouse_interaction_screen_coords(screen_x, screen_y, is_attract, &gpu_ctx.queue)
         .map_err(|e| e.to_string())?;
     Ok("Mouse interaction handled".to_string())
 }

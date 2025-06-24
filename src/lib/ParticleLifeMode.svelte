@@ -15,10 +15,7 @@
     max_distance: number;
     friction: number;
     wrap_edges: boolean;
-    repulsion_min_distance: number;
-    repulsion_medium_distance: number;
-    repulsion_extreme_strength: number;
-    repulsion_linear_strength: number;
+    force_beta: number;
   }
 
   interface State {
@@ -33,6 +30,8 @@
     position_generator: string;
     type_generator: string;
     matrix_generator: string;
+    current_lut: string;
+    lut_reversed: boolean;
   }
 
   // Simulation state
@@ -49,10 +48,7 @@
     max_distance: 0.03,
     friction: 0.85,
     wrap_edges: true,
-    repulsion_min_distance: 0.005,
-    repulsion_medium_distance: 0.01,
-    repulsion_extreme_strength: 10.0,
-    repulsion_linear_strength: 5.0,
+    force_beta: 0.3,
   };
 
   // Runtime state
@@ -67,7 +63,9 @@
     edge_fade_strength: 0.0,
     position_generator: 'Random',
     type_generator: 'Random',
-    matrix_generator: 'Random'
+    matrix_generator: 'Random',
+    current_lut: '',
+    lut_reversed: false
   };
 
   // UI state
@@ -81,6 +79,7 @@
   let isSimulationRunning = false;
   
   // Enhanced UI state
+  let showUI = true;
   let showControls = true;
   let showMatrixEditor = true;
   let showParticleSetup = true;
@@ -218,17 +217,7 @@
     if (newCount === state.particle_count) return;
     
     console.log(`updateParticleCount called: ${state.particle_count} -> ${newCount}`);
-    
-    // Warn about performance impact at high particle counts
-    if (newCount >= 25000) {
-      const confirmed = confirm(
-        `Warning: ${newCount.toLocaleString()} particles may cause performance issues or freezing due to O(N²) force calculations.\n\n` +
-        `This equals ${Math.round((newCount * newCount) / 1000000).toLocaleString()} million force calculations per frame.\n\n` +
-        `Consider using fewer particles (under 25,000) for smooth performance. Continue?`
-      );
-      if (!confirmed) return;
-    }
-    
+
     state.particle_count = newCount;
     
     try {
@@ -420,6 +409,30 @@
           state.particle_count = (backendState as any).particle_count || 15000;
         }
         
+        // Sync LUT state from backend
+        if (backendState && typeof backendState === 'object') {
+          if ('current_lut' in backendState) {
+            const backendLut = (backendState as any).current_lut || '';
+            // Only update if we don't have a current LUT, or if the backend LUT is different and valid
+            if (!state.current_lut || (backendLut && backendLut !== state.current_lut)) {
+              // Check if this is a default fallback (bone_reversed) when we had a different LUT
+              if (state.current_lut && backendLut.includes('bone') && !state.current_lut.includes('bone')) {
+                console.log(`Backend tried to reset LUT from ${state.current_lut} to ${backendLut}, ignoring`);
+              } else {
+                state.current_lut = backendLut;
+                console.log(`Synced LUT from backend: ${state.current_lut}`);
+              }
+            }
+          }
+          if ('lut_reversed' in backendState) {
+            const newReversed = (backendState as any).lut_reversed || false;
+            if (newReversed !== state.lut_reversed) {
+              state.lut_reversed = newReversed;
+              console.log(`Synced LUT reversed from backend: ${state.lut_reversed}`);
+            }
+          }
+        }
+        
         // Log particle count changes for debugging
         if (oldParticleCount !== state.particle_count) {
           console.log(`Frontend particle count updated: ${oldParticleCount} -> ${state.particle_count}`);
@@ -498,30 +511,44 @@
   const CAMERA_UPDATE_INTERVAL = 16; // ~60 FPS
 
   function handleKeyDown(event: KeyboardEvent) {
-    pressedKeys.add(event.key);
+    if (event.key === '/') {
+      event.preventDefault();
+      toggleBackendGui();
+      return;
+    }
     
-    if (animationFrameId === null) {
-      animationFrameId = requestAnimationFrame(processCameraMovement);
+    // Handle camera controls
+    const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      pressedKeys.add(event.key.toLowerCase());
+      
+      if (animationFrameId === null) {
+        animationFrameId = requestAnimationFrame(processCameraMovement);
+      }
     }
   }
 
   function handleKeyUp(event: KeyboardEvent) {
-    pressedKeys.delete(event.key);
-    
-    if (pressedKeys.size === 0 && animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
+    const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
+      pressedKeys.delete(event.key.toLowerCase());
       
-      // Send any remaining accumulated movement
-      if (accumulatedDeltaX !== 0 || accumulatedDeltaY !== 0) {
-        sendCameraMovement(accumulatedDeltaX, accumulatedDeltaY);
-        accumulatedDeltaX = 0;
-        accumulatedDeltaY = 0;
+      if (pressedKeys.size === 0 && animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+        
+        // Send any remaining accumulated movement
+        if (accumulatedDeltaX !== 0 || accumulatedDeltaY !== 0) {
+          sendCameraMovement(accumulatedDeltaX, accumulatedDeltaY);
+          accumulatedDeltaX = 0;
+          accumulatedDeltaY = 0;
+        }
+        
+        invoke('stop_camera_pan').catch(e => 
+          console.error('Failed to stop camera pan:', e)
+        );
       }
-      
-      invoke('stop_camera_pan').catch(e => 
-        console.error('Failed to stop camera pan:', e)
-      );
     }
   }
 
@@ -533,19 +560,32 @@
     }
   }
 
+  async function resetCamera() {
+    try {
+      await invoke('reset_camera');
+    } catch (e) {
+      console.error('Failed to reset camera:', e);
+    }
+  }
+
   async function processCameraMovement(timestamp: number) {
     let deltaX = 0;
     let deltaY = 0;
     let zoomDelta = 0;
     
-    if (pressedKeys.has('ArrowLeft') || pressedKeys.has('a') || pressedKeys.has('A')) deltaX -= 1;
-    if (pressedKeys.has('ArrowRight') || pressedKeys.has('d') || pressedKeys.has('D')) deltaX += 1;
-    if (pressedKeys.has('ArrowUp') || pressedKeys.has('w') || pressedKeys.has('W')) deltaY -= 1;
-    if (pressedKeys.has('ArrowDown') || pressedKeys.has('s') || pressedKeys.has('S')) deltaY += 1;
+    if (pressedKeys.has('arrowleft') || pressedKeys.has('a')) deltaX -= 1;
+    if (pressedKeys.has('arrowright') || pressedKeys.has('d')) deltaX += 1;
+    if (pressedKeys.has('arrowup') || pressedKeys.has('w')) deltaY -= 1;
+    if (pressedKeys.has('arrowdown') || pressedKeys.has('s')) deltaY += 1;
     
     // Q/E for zoom in/out
-    if (pressedKeys.has('q') || pressedKeys.has('Q')) zoomDelta -= 1;
-    if (pressedKeys.has('e') || pressedKeys.has('E')) zoomDelta += 1;
+    if (pressedKeys.has('q')) zoomDelta -= 1;
+    if (pressedKeys.has('e')) zoomDelta += 1;
+    
+    // C for camera reset
+    if (pressedKeys.has('c')) {
+      resetCamera();
+    }
     
     // Accumulate camera movement
     if (deltaX !== 0 || deltaY !== 0) {
@@ -578,6 +618,9 @@
     }
   }
 
+  let isMousePressed = false;
+  let currentMouseButton = 0;
+
   function handleMouseEvent(event: MouseEvent | WheelEvent) {
     if (event.type === 'wheel') {
       const wheelEvent = event as WheelEvent;
@@ -590,7 +633,66 @@
         cursorX: wheelEvent.clientX,
         cursorY: wheelEvent.clientY
       }).catch(e => console.error('Failed to zoom camera:', e));
+    } else if (event.type === 'mousedown') {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.preventDefault();
+      
+      isMousePressed = true;
+      currentMouseButton = mouseEvent.button;
+      
+      // Convert screen coordinates to world coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+      
+      // Determine if it's left click (attract) or right click (repel)
+      const isAttract = mouseEvent.button === 0; // Left click = attract, right click = repel
+      
+      console.log(`Mouse ${isAttract ? 'attract' : 'repel'} at screen coords: (${physicalCursorX}, ${physicalCursorY}), raw: (${mouseEvent.clientX}, ${mouseEvent.clientY})`);
+      
+      invoke('handle_mouse_interaction_screen', {
+        screenX: physicalCursorX,
+        screenY: physicalCursorY,
+        isAttract: isAttract
+      }).catch(e => console.error('Failed to handle mouse interaction:', e));
+    } else if (event.type === 'mousemove') {
+      if (isMousePressed) {
+        const mouseEvent = event as MouseEvent;
+        mouseEvent.preventDefault();
+        
+        // Convert screen coordinates to world coordinates
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+        const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+        
+        // Use the same button state as when mouse was first pressed
+        const isAttract = currentMouseButton === 0;
+        
+        invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          isAttract: isAttract
+        }).catch(e => console.error('Failed to handle mouse interaction:', e));
+      }
+    } else if (event.type === 'mouseup') {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.preventDefault();
+      
+      isMousePressed = false;
+      
+      // Stop cursor interaction when mouse is released
+      // Send special coordinates to indicate mouse release
+      invoke('handle_mouse_interaction_screen', {
+        screenX: -9999.0,
+        screenY: -9999.0,
+        isAttract: false
+      }).catch(e => console.error('Failed to stop mouse interaction:', e));
     }
+  }
+
+  function handleContextMenu(event: MouseEvent) {
+    // Prevent right-click context menu from appearing
+    event.preventDefault();
   }
 
   // Generator trigger functions
@@ -612,6 +714,17 @@
     }
   }
 
+  async function toggleBackendGui() {
+    try {
+      await invoke('toggle_gui');
+      // Sync UI state with backend
+      const isVisible = await invoke<boolean>('get_gui_state');
+      showUI = isVisible;
+    } catch (err) {
+      console.error('Failed to toggle backend GUI:', err);
+    }
+  }
+
   // Lifecycle
   onMount(async () => {
     // Start simulation automatically
@@ -620,9 +733,11 @@
     // Load initial data
     await Promise.all([
       loadPresets(),
-      loadLuts(),
-      syncSettingsFromBackend()
+      loadLuts()
     ]);
+    
+    // Sync settings after LUTs are loaded
+    await syncSettingsFromBackend();
     
     // Set up FPS monitoring
     try {
@@ -685,6 +800,8 @@
 
   async function updateLut(lutName: string) {
     try {
+      console.log(`Updating LUT to: ${lutName}`);
+      state.current_lut = lutName;
       await invoke('update_simulation_setting', { 
         settingName: 'lut_name', 
         value: lutName 
@@ -696,10 +813,24 @@
 
   async function updateLutReversed(reversed: boolean) {
     try {
+      console.log(`Updating LUT reversed to: ${reversed}, current LUT: ${state.current_lut}`);
+      const originalLut = state.current_lut;
+      state.lut_reversed = reversed;
+      
       await invoke('update_simulation_setting', { 
         settingName: 'lut_reversed', 
         value: reversed 
       });
+      
+      // Ensure the LUT name doesn't get reset - if it changed, restore it
+      if (state.current_lut !== originalLut && originalLut) {
+        console.log(`LUT was reset from ${originalLut} to ${state.current_lut}, restoring...`);
+        state.current_lut = originalLut;
+        await invoke('update_simulation_setting', { 
+          settingName: 'lut_name', 
+          value: originalLut 
+        });
+      }
     } catch (e) {
       console.error('Failed to update LUT reversed:', e);
     }
@@ -715,10 +846,40 @@
       console.error('Failed to update background type:', e);
     }
   }
+
+  async function scaleMatrix(scaleFactor: number) {
+    // Ensure force matrix exists and has proper dimensions
+    if (!settings.force_matrix || !settings.force_matrix[0] || settings.force_matrix[0].length !== settings.species_count) {
+      console.warn('Force matrix not properly initialized, skipping scaling');
+      return;
+    }
+    
+    const newMatrix: number[][] = [];
+    for (let i = 0; i < settings.species_count; i++) {
+      newMatrix[i] = [];
+      for (let j = 0; j < settings.species_count; j++) {
+        if (i === j) {
+          newMatrix[i][j] = settings.force_matrix[i][j]; // Keep diagonal values unchanged
+        } else {
+          newMatrix[i][j] = Math.max(-1, Math.min(1, settings.force_matrix[i][j] * scaleFactor));
+        }
+      }
+    }
+    
+    settings.force_matrix = newMatrix;
+    
+    try {
+      await invoke('scale_force_matrix', { scaleFactor });
+      console.log(`Matrix scaled by factor: ${scaleFactor}`);
+    } catch (e) {
+      console.error('Failed to scale force matrix:', e);
+    }
+  }
 </script>
 
 <div class="particle-life-container">
   {#if isSimulationRunning}
+    {#if showUI}
     <div class="controls">
       <button class="back-button" on:click={() => dispatch('back')}>
         ← Back to Menu
@@ -728,582 +889,413 @@
         <span class="status-indicator running"></span>
         Particle Life Simulation Running
       </div>
-    </div>
-
-    <!-- Main UI Panel -->
-    <div class="ui-panel">
-      <div class="panel-header">
-        <h2>Particle Life Simulator</h2>
-        
-        <!-- Simulation Status -->
-        <div class="status-bar">
-          <div class="status-item">
-            <span class="status-label">Status:</span>
-            <span class="status-value running">▶ RUNNING</span>
-          </div>
-          <div class="status-item">
-            <span class="status-label">Render:</span>
-            <span class="status-value">{fps_display.toFixed(0)} FPS</span>
-          </div>
-          <div class="status-item">
-            <span class="status-label">Physics:</span>
-            <span class="status-value">{physics_time_avg.toFixed(2)}ms</span>
-          </div>
-        </div>
-        
-        <!-- Quick Controls -->
-        <div class="quick-controls">
-          <button type="button" on:click={resetSimulation} class="control-btn">🔄 Reset</button>
-          <div class="matrix-randomize-control">
-            <select 
-              id="matrixGenerator"
-              value={state.matrix_generator}
-              on:change={(e) => {
-                state.matrix_generator = (e.target as HTMLSelectElement).value;
-              }}
-              class="matrix-generator-select"
-            >
-              <option value="Random">Random</option>
-              <option value="Symmetry">Symmetry</option>
-              <option value="Chains">Chains</option>
-              <option value="Chains2">Chains 2</option>
-              <option value="Chains3">Chains 3</option>
-              <option value="Snakes">Snakes</option>
-              <option value="Zero">Zero</option>
-              <optgroup label="Biological/Ecological">
-                <option value="PredatorPrey">Predator-Prey</option>
-                <option value="Symbiosis">Symbiosis</option>
-                <option value="Territorial">Territorial</option>
-              </optgroup>
-              <optgroup label="Physical/Chemical">
-                <option value="Magnetic">Magnetic</option>
-                <option value="Crystal">Crystal</option>
-                <option value="Wave">Wave</option>
-              </optgroup>
-              <optgroup label="Social/Behavioral">
-                <option value="Hierarchy">Hierarchy</option>
-                <option value="Clique">Clique</option>
-                <option value="AntiClique">Anti-Clique</option>
-              </optgroup>
-              <optgroup label="Mathematical">
-                <option value="Fibonacci">Fibonacci</option>
-                <option value="Prime">Prime</option>
-                <option value="Fractal">Fractal</option>
-              </optgroup>
-              <optgroup label="Game Theory">
-                <option value="RockPaperScissors">Rock-Paper-Scissors</option>
-                <option value="Cooperation">Cooperation</option>
-                <option value="Competition">Competition</option>
-              </optgroup>
-            </select>
-            <button type="button" on:click={randomizeMatrix} class="control-btn">🎲 Randomize Matrix</button>
-          </div>
-        </div>
+      
+      <div class="mouse-instructions">
+        <span>🖱️ Left click: Attract | Right click: Repel</span>
+        <span>📹 WASD/Arrows: Pan | Q/E or Mouse wheel: Zoom</span>
       </div>
+    </div>
+    {/if}
 
-      <div class="panel-content">
-        <!-- Presets Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showControls = !showControls}>
-            <span class="section-icon">💾</span>
-            <span class="section-title">Presets</span>
-            <span class="section-toggle">{showControls ? '▼' : '▶'}</span>
-          </div>
-          
-          {#if showControls}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="presetSelector">Current Preset</label>
-                <select 
-                  id="presetSelector"
-                  value={current_preset} 
-                  on:change={(e) => updatePreset((e.target as HTMLSelectElement).value)}
-                >
-                  <option value="">Select Preset...</option>
-                  {#each available_presets as preset}
-                    <option value={preset}>{preset}</option>
-                  {/each}
-                </select>
-              </div>
-              <div class="control-group preset-actions">
-                <button type="button" on:click={() => show_save_preset_dialog = true}>💾 Save Current</button>
-                <button type="button" on:click={deletePreset} disabled={current_preset === ''}>🗑 Delete</button>
-              </div>
-            </div>
-          {/if}
+    <!-- Main UI Controls Panel -->
+    {#if showUI}
+    <div class="simulation-controls">
+    <form on:submit|preventDefault>
+      <!-- FPS Display & Status -->
+      <fieldset>
+        <legend>Status</legend>
+        <div class="control-group">
+          <span>Running at {fps_display.toFixed(0)} FPS | Physics: {physics_time_avg.toFixed(2)}ms</span>
         </div>
+      </fieldset>
 
-        <!-- Matrix Editor Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showMatrixEditor = !showMatrixEditor}>
-            <span class="section-icon">🔗</span>
-            <span class="section-title">Interaction Matrix</span>
-            <span class="section-toggle">{showMatrixEditor ? '▼' : '▶'}</span>
+      <!-- Quick Controls -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="control-group">
+          <button type="button" on:click={resetSimulation}>🔄 Reset</button>
+          <button type="button" on:click={async () => {
+            state.matrix_generator = 'Random';
+            await randomizeMatrix();
+          }}>🎲 Randomize Matrix</button>
+        </div>
+      </fieldset>
+      <!-- Presets -->
+      <fieldset>
+        <legend>Presets</legend>
+        <div class="control-group">
+          <div class="preset-controls">
+            <button type="button" on:click={async () => {
+              const currentIndex = available_presets.indexOf(current_preset);
+              const newIndex = currentIndex > 0 ? currentIndex - 1 : available_presets.length - 1;
+              if (available_presets[newIndex]) await updatePreset(available_presets[newIndex]);
+            }}>◀</button>
+            <select 
+              bind:value={current_preset}
+              on:change={(e) => updatePreset((e.target as HTMLSelectElement).value)}
+            >
+              <option value="">Select Preset...</option>
+              {#each available_presets as preset}
+                <option value={preset}>{preset}</option>
+              {/each}
+            </select>
+            <button type="button" on:click={async () => {
+              const currentIndex = available_presets.indexOf(current_preset);
+              const newIndex = currentIndex < available_presets.length - 1 ? currentIndex + 1 : 0;
+              if (available_presets[newIndex]) await updatePreset(available_presets[newIndex]);
+            }}>▶</button>
           </div>
-          
-          {#if showMatrixEditor}
-            <div class="section-content">
-              <div class="matrix-info">
-                <p>Click and drag to edit values. Purple = Repulsion, Blue = Weak, Green = Moderate, Yellow = Strong Attraction</p>
-              </div>
-              
-              <div class="force-matrix" style="--species-count: {settings.species_count}">
-                <div class="matrix-labels">
-                  <div class="corner"></div>
-                  {#each Array(settings.species_count) as _, j}
-                    <div class="col-label" style="color: {speciesColors[j]}">
-                      S{j + 1}
-                    </div>
-                  {/each}
-                </div>
-                
-                {#each Array(settings.species_count) as _, i}
-                  <div class="matrix-row">
-                    <div class="row-label" style="color: {speciesColors[i]}">
-                      S{i + 1}
-                    </div>
-                    {#each Array(settings.species_count) as _, j}
-                      {@const matrixValue = settings.force_matrix && settings.force_matrix[i] && settings.force_matrix[i][j] !== undefined ? settings.force_matrix[i][j] : 0}
-                      <div class="matrix-cell" class:repulsion={matrixValue < -0.3} class:weak={matrixValue >= -0.3 && matrixValue < 0} class:moderate={matrixValue >= 0 && matrixValue < 0.5} class:strong={matrixValue >= 0.5}>
-                        {#if settings.force_matrix && settings.force_matrix[i] && settings.force_matrix[i][j] !== undefined}
-                          <NumberDragBox
-                            value={settings.force_matrix[i][j]}
-                            min={-1}
-                            max={1}
-                            step={0.1}
-                            precision={2}
-                            showButtons={false}
-                            on:change={(e) => updateForceMatrix(i, j, e.detail)}
-                          />
-                        {:else}
-                          <div class="matrix-placeholder">0.00</div>
-                        {/if}
-                      </div>
-                    {/each}
+        </div>
+        <div class="preset-actions">
+          <button type="button" on:click={() => show_save_preset_dialog = true}>Save Current Settings</button>
+        </div>
+      </fieldset>
+
+      <!-- Interaction Matrix and Particle Setup -->
+      <fieldset>
+        <legend>Interaction Matrix & Particle Setup</legend>
+        <div class="matrix-info">
+          <p>Click and drag to edit values. Purple = Repulsion, Blue = Weak, Green = Moderate, Yellow = Strong Attraction</p>
+        </div>
+        
+        <div class="matrix-and-setup-container">
+          <div class="matrix-section">
+            <div class="force-matrix" style="--species-count: {settings.species_count}">
+              <div class="matrix-labels">
+                <div class="corner"></div>
+                {#each Array(settings.species_count) as _, j}
+                  <div class="col-label" style="color: {speciesColors[j]}">
+                    S{j + 1}
                   </div>
                 {/each}
               </div>
               
-              <div class="matrix-legend">
-                <span class="negative">-1.0 = Repulsion</span>
-                <span class="neutral">0.0 = Neutral</span>
-                <span class="positive">+1.0 = Attraction</span>
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Particle Setup Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showParticleSetup = !showParticleSetup}>
-            <span class="section-icon">⚛️</span>
-            <span class="section-title">Particle Setup</span>
-            <span class="section-toggle">{showParticleSetup ? '▼' : '▶'}</span>
-          </div>
-          
-          {#if showParticleSetup}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="speciesCount">Species Count</label>
-                <NumberDragBox
-                  value={settings.species_count}
-                  min={2}
-                  max={8}
-                  step={1}
-                  precision={0}
-                  on:change={(e) => updateSpeciesCount(e.detail)}
-                />
-              </div>
-              
-              <div class="control-group">
-                <label for="particleCount">Particle Count</label>
-                <NumberDragBox
-                  value={state.particle_count}
-                  min={1}
-                  max={50000}
-                  step={1000}
-                  precision={0}
-                  on:change={(e) => updateParticleCount(e.detail)}
-                />
-                <small class="warning-text">
-                  ⚠️ Performance drops significantly above 25,000 particles
-                </small>
-              </div>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Generators Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showGenerators = !showGenerators}>
-            <span class="section-icon">🎲</span>
-            <span class="section-title">Generators</span>
-            <span class="section-toggle">{showGenerators ? '▼' : '▶'}</span>
-          </div>
-          
-          {#if showGenerators}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="positionGenerator">Position Generator</label>
-                <div class="generator-control">
-                  <select 
-                    id="positionGenerator"
-                    value={state.position_generator}
-                    on:change={(e) => {
-                      state.position_generator = (e.target as HTMLSelectElement).value;
-                      triggerPositionGenerator();
-                    }}
-                  >
-                    <option value="Random">Random</option>
-                    <option value="Center">Center</option>
-                    <option value="UniformCircle">Uniform Circle</option>
-                    <option value="CenteredCircle">Centered Circle</option>
-                    <option value="Ring">Ring</option>
-                    <option value="RainbowRing">Rainbow Ring</option>
-                    <option value="ColorBattle">Color Battle</option>
-                    <option value="ColorWheel">Color Wheel</option>
-                    <option value="Line">Line</option>
-                    <option value="Spiral">Spiral</option>
-                    <option value="RainbowSpiral">Rainbow Spiral</option>
-                  </select>
-                  <button type="button" on:click={triggerPositionGenerator} class="generator-btn" title="Generate new positions">🔄</button>
+              {#each Array(settings.species_count) as _, i}
+                <div class="matrix-row">
+                  <div class="row-label" style="color: {speciesColors[i]}">
+                    S{i + 1}
+                  </div>
+                  {#each Array(settings.species_count) as _, j}
+                    {@const matrixValue = settings.force_matrix && settings.force_matrix[i] && settings.force_matrix[i][j] !== undefined ? settings.force_matrix[i][j] : 0}
+                    <div class="matrix-cell" class:repulsion={matrixValue < -0.3} class:weak={matrixValue >= -0.3 && matrixValue < 0} class:moderate={matrixValue >= 0 && matrixValue < 0.5} class:strong={matrixValue >= 0.5}>
+                      {#if settings.force_matrix && settings.force_matrix[i] && settings.force_matrix[i][j] !== undefined}
+                        <NumberDragBox
+                          value={settings.force_matrix[i][j]}
+                          min={-1}
+                          max={1}
+                          step={0.1}
+                          precision={2}
+                          showButtons={false}
+                          on:change={(e) => updateForceMatrix(i, j, e.detail)}
+                        />
+                      {:else}
+                        <div class="matrix-placeholder">0.00</div>
+                      {/if}
+                    </div>
+                  {/each}
                 </div>
-                <div class="control-description">Controls how particles are positioned when spawned</div>
+              {/each}
+            </div>
+            
+            <div class="matrix-legend">
+              <span class="negative">-1.0 = Repulsion</span>
+              <span class="neutral">0.0 = Neutral</span>
+              <span class="positive">+1.0 = Attraction</span>
+            </div>
+            
+            <!-- Matrix Scaling Controls -->
+            <div class="matrix-scaling-controls">
+              <div class="scaling-buttons">
+                <button 
+                  type="button" 
+                  class="scale-btn scale-down" 
+                  on:click={() => scaleMatrix(0.8)}
+                  title="Scale down matrix values by 20%"
+                >
+                  ⬇️ Scale Down
+                </button>
+                <button 
+                  type="button" 
+                  class="scale-btn scale-up" 
+                  on:click={() => scaleMatrix(1.2)}
+                  title="Scale up matrix values by 20%"
+                >
+                  ⬆️ Scale Up
+                </button>
               </div>
-              
-              <div class="control-group">
-                <label for="typeGenerator">Type Generator</label>
-                <div class="generator-control">
-                  <select 
-                    id="typeGenerator"
-                    value={state.type_generator}
-                    on:change={(e) => {
-                      state.type_generator = (e.target as HTMLSelectElement).value;
-                      triggerTypeGenerator();
-                    }}
-                  >
-                    <option value="Random">Random</option>
-                    <option value="Randomize10Percent">Randomize 10%</option>
-                    <option value="Slices">Slices</option>
-                    <option value="Onion">Onion</option>
-                    <option value="Rotate">Rotate</option>
-                    <option value="Flip">Flip</option>
-                    <option value="MoreOfFirst">More of First</option>
-                    <option value="KillStill">Kill Still</option>
-                  </select>
-                  <button type="button" on:click={triggerTypeGenerator} class="generator-btn" title="Generate new types">🔄</button>
-                </div>
-                <div class="control-description">Controls how particle types are assigned</div>
-              </div>
-              
-              <div class="info-box">
-                <strong>Generator Tips:</strong>
-                <ul>
-                  <li><strong>Position Generators:</strong> Create different initial particle arrangements</li>
-                  <li><strong>Type Generators:</strong> Control how species are distributed</li>
-                  <li>Try "Rainbow Ring" + "Slices" for interesting color patterns</li>
-                  <li>Use "Spiral" + "Onion" for radial type distribution</li>
-                </ul>
+              <div class="scaling-info">
+                <small>Scaling affects all non-diagonal matrix values</small>
               </div>
             </div>
-          {/if}
-        </div>
-
-        <!-- Rendering Settings Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showRenderingSettings = !showRenderingSettings}>
-            <span class="section-icon">🎨</span>
-            <span class="section-title">Rendering Settings</span>
-            <span class="section-toggle">{showRenderingSettings ? '▼' : '▶'}</span>
           </div>
-          
-          {#if showRenderingSettings}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="backgroundType">Background Type</label>
+
+          <div class="setup-section">
+            <h4>Particle Setup</h4>
+            <div class="control-group">
+              <label for="speciesCount">Species Count</label>
+              <NumberDragBox
+                value={settings.species_count}
+                min={2}
+                max={8}
+                step={1}
+                precision={0}
+                on:change={(e) => updateSpeciesCount(e.detail)}
+              />
+            </div>
+            
+            <div class="control-group">
+              <label for="particleCount">Particle Count</label>
+              <NumberDragBox
+                value={state.particle_count}
+                min={1}
+                max={50000}
+                step={1000}
+                precision={0}
+                on:change={(e) => updateParticleCount(e.detail)}
+              />
+              <small class="warning-text">
+                ⚠️ Performance drops significantly above 25,000 particles
+              </small>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+
+      <!-- Advanced Physics Settings -->
+      <fieldset>
+        <legend>Physics Settings</legend>
+        <div class="physics-controls-grid">
+          <div class="control-group">
+            <label for="maxForce">Max Force</label>
+            <NumberDragBox
+              value={settings.max_force}
+              min={0.1}
+              max={10}
+              step={0.01}
+              precision={2}
+              on:change={(e) => updateSetting('max_force', e.detail)}
+            />
+          </div>
+          <div class="control-group">
+            <label for="minDistance">Min Distance</label>
+            <NumberDragBox
+              value={settings.min_distance}
+              min={0.0001}
+              max={0.01}
+              step={0.0001}
+              precision={4}
+              on:change={(e) => updateSetting('min_distance', e.detail)}
+            />
+          </div>
+          <div class="control-group">
+            <label for="maxDistance">Max Distance</label>
+            <NumberDragBox
+              value={settings.max_distance}
+              min={0.01}
+              max={0.2}
+              step={0.001}
+              precision={3}
+              on:change={(e) => updateSetting('max_distance', e.detail)}
+            />
+          </div>
+          <div class="control-group">
+            <label for="friction">Friction</label>
+            <NumberDragBox
+              value={settings.friction}
+              min={0.5}
+              max={1.0}
+              step={0.01}
+              precision={2}
+              on:change={(e) => updateSetting('friction', e.detail)}
+            />
+          </div>
+          <div class="control-group">
+            <label for="forceBeta">Force Beta</label>
+            <NumberDragBox
+              value={settings.force_beta}
+              min={0.1}
+              max={0.9}
+              step={0.01}
+              precision={2}
+              on:change={(e) => updateSetting('force_beta', e.detail)}
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Type Distribution and Generators -->
+      <fieldset>
+        <legend>Type Distribution & Generators</legend>
+        <div class="distribution-generators-container">
+          <div class="distribution-section">
+            <h4>Type Distribution</h4>
+            {#if typeCounts.length > 0}
+              {#each typeCounts as count, i}
+                <div class="type-distribution-item">
+                  <div class="type-info">
+                    <span class="type-color" style="background-color: {speciesColors[i]}"></span>
+                    <span class="type-label">Type {i + 1}</span>
+                    <span class="type-count">{count.toLocaleString()}</span>
+                    <span class="type-percentage">({typePercentages[i].toFixed(1)}%)</span>
+                  </div>
+                  <div class="type-progress">
+                    <div class="progress-bar" style="width: {typePercentages[i]}%"></div>
+                  </div>
+                </div>
+              {/each}
+            {:else}
+              <p class="no-data">No type distribution data available</p>
+            {/if}
+          </div>
+
+          <div class="generators-section">
+            <h4>Generators</h4>
+            <div class="control-group">
+              <label for="positionGenerator">Position Generator</label>
+              <div class="generator-control">
                 <select 
-                  id="backgroundType"
+                  id="positionGenerator"
                   value={state.position_generator}
                   on:change={(e) => {
                     state.position_generator = (e.target as HTMLSelectElement).value;
-                    updateBackgroundType(state.position_generator);
+                    triggerPositionGenerator();
                   }}
                 >
-                  <option value="Gray18">18% Gray</option>
-                  <option value="White">White</option>
-                  <option value="Black">Black</option>
-                  <option value="Lut">LUT Mode</option>
+                  <option value="Random">Random</option>
+                  <option value="Center">Center</option>
+                  <option value="UniformCircle">Uniform Circle</option>
+                  <option value="CenteredCircle">Centered Circle</option>
+                  <option value="Ring">Ring</option>
+                  <option value="RainbowRing">Rainbow Ring</option>
+                  <option value="ColorBattle">Color Battle</option>
+                  <option value="ColorWheel">Color Wheel</option>
+                  <option value="Line">Line</option>
+                  <option value="Spiral">Spiral</option>
+                  <option value="RainbowSpiral">Rainbow Spiral</option>
                 </select>
-                <div class="control-description">Choose the background color type. LUT Mode uses the first LUT color as background.</div>
-              </div>
-              
-              <div class="control-group">
-                <label for="lutSelector">Color Scheme</label>
-                <LutSelector 
-                  bind:available_luts 
-                  on:select={(e) => updateLut(e.detail.name)}
-                  on:reverse={(e) => updateLutReversed(e.detail.reversed)}
-                />
-              </div>
-              
-              <div class="control-group">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    checked={state.traces_enabled}
-                    on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
-                  />
-                  Enable Particle Traces [T]
-                </label>
-              </div>
-              
-              {#if state.traces_enabled}
-                <div class="control-group">
-                  <label for="traceFade">Trace Fade</label>
-                  <input 
-                    type="range" 
-                    id="traceFade"
-                    value={state.trace_fade}
-                    min="0" 
-                    max="1" 
-                    step="0.01"
-                    on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
-                  />
-                  <span class="range-value">{state.trace_fade.toFixed(2)}</span>
-                </div>
-              {/if}
-              
-              <div class="control-group">
-                <label for="edgeFade">Edge Fade</label>
-                <input 
-                  type="range" 
-                  id="edgeFade"
-                  value={state.edge_fade_strength}
-                  min="0" 
-                  max="1" 
-                  step="0.05"
-                  on:input={(e) => updateEdgeFadeStrength(parseFloat((e.target as HTMLInputElement).value))}
-                />
-                <span class="range-value">{state.edge_fade_strength.toFixed(2)}</span>
+                <button type="button" on:click={triggerPositionGenerator} class="generator-btn" title="Generate new positions">🔄</button>
               </div>
             </div>
-          {/if}
-        </div>
-
-        <!-- Mouse Interaction Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showMouseInteraction = !showMouseInteraction}>
-            <span class="section-icon">🖱️</span>
-            <span class="section-title">Mouse Interaction</span>
-            <span class="section-toggle">{showMouseInteraction ? '▼' : '▶'}</span>
+            
+            <div class="control-group">
+              <label for="typeGenerator">Type Generator</label>
+              <div class="generator-control">
+                <select 
+                  id="typeGenerator"
+                  value={state.type_generator}
+                  on:change={(e) => {
+                    state.type_generator = (e.target as HTMLSelectElement).value;
+                    triggerTypeGenerator();
+                  }}
+                >
+                  <option value="Random">Random</option>
+                  <option value="Randomize10Percent">Randomize 10%</option>
+                  <option value="Slices">Slices</option>
+                  <option value="Onion">Onion</option>
+                  <option value="Rotate">Rotate</option>
+                  <option value="Flip">Flip</option>
+                  <option value="MoreOfFirst">More of First</option>
+                  <option value="KillStill">Kill Still</option>
+                </select>
+                <button type="button" on:click={triggerTypeGenerator} class="generator-btn" title="Generate new types">🔄</button>
+              </div>
+            </div>
           </div>
-          
-          {#if showMouseInteraction}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="cursorSize">Cursor Size</label>
-                <input 
-                  type="range" 
-                  id="cursorSize"
-                  value={state.cursor_size}
-                  min="0.05" 
-                  max="1.0" 
-                  step="0.05"
-                  on:input={(e) => updateCursorSize(parseFloat((e.target as HTMLInputElement).value))}
-                />
-                <span class="range-value">{state.cursor_size.toFixed(2)}</span>
-              </div>
-              
-              <div class="control-group">
-                <label for="cursorStrength">Cursor Strength</label>
-                <input 
-                  type="range" 
-                  id="cursorStrength"
-                  value={state.cursor_strength}
-                  min="0" 
-                  max="20" 
-                  step="0.5"
-                  on:input={(e) => updateCursorStrength(parseFloat((e.target as HTMLInputElement).value))}
-                />
-                <span class="range-value">{state.cursor_strength.toFixed(1)}</span>
-              </div>
-              
-              <div class="control-info">
-                <p>Left Click: Repel particles</p>
-                <p>Right Click: Attract particles</p>
-              </div>
-            </div>
-          {/if}
         </div>
+      </fieldset>
 
-        <!-- Physics Settings Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showPhysicsSettings = !showPhysicsSettings}>
-            <span class="section-icon">⚙️</span>
-            <span class="section-title">Physics Settings</span>
-            <span class="section-toggle">{showPhysicsSettings ? '▼' : '▶'}</span>
-          </div>
-          
-          {#if showPhysicsSettings}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="maxForce">Force Strength</label>
-                <NumberDragBox
-                  value={settings.max_force}
-                  min={0.1}
-                  max={5.0}
-                  step={0.1}
-                  precision={1}
-                />
-              </div>
-              
-              <div class="control-group">
-                <label for="minDistance">Min Range</label>
-                <NumberDragBox
-                  value={settings.min_distance}
-                  min={0.01}
-                  max={0.03}
-                  step={0.001}
-                  precision={3}
-                />
-                
-              </div>
-              
-              <div class="control-group">
-                <label for="maxDistance">Max Range</label>
-                <NumberDragBox
-                  value={settings.max_distance}
-                  min={0.01}
-                  max={0.03}
-                  step={0.001}
-                  precision={3}
-                />
-              </div>
-              
-              <div class="control-group">
-                <label for="friction">Friction</label>
-                <NumberDragBox
-                  value={settings.friction}
-                  min={0.01}
-                  max={0.99}
-                  step={0.01}
-                  precision={2}
-                />
-              </div>
-              
-              <div class="control-group">
-                <label>
-                  <input 
-                    type="checkbox" 
-                    checked={settings.wrap_edges}
-                    on:change={(e) => updateSetting('wrap_edges', (e.target as HTMLInputElement).checked)}
-                  />
-                  Wrap Edges
-                </label>
-                <div class="control-description">Particles wrap around screen edges instead of bouncing</div>
-              </div>
-            </div>
-          {/if}
+      <!-- Mouse Interaction -->
+      <fieldset>
+        <legend>Mouse Interaction</legend>
+        <div class="control-group">
+          <label for="cursorSize">Cursor Size</label>
+          <input 
+            type="range" 
+            id="cursorSize"
+            value={state.cursor_size}
+            min="0.05" 
+            max="1.0" 
+            step="0.05"
+            on:input={(e) => updateCursorSize(parseFloat((e.target as HTMLInputElement).value))}
+          />
+          <span class="range-value">{state.cursor_size.toFixed(2)}</span>
         </div>
+        
+        <div class="control-group">
+          <label for="cursorStrength">Cursor Strength</label>
+          <input 
+            type="range" 
+            id="cursorStrength"
+            value={state.cursor_strength}
+            min="0" 
+            max="20" 
+            step="0.5"
+            on:input={(e) => updateCursorStrength(parseFloat((e.target as HTMLInputElement).value))}
+          />
+          <span class="range-value">{state.cursor_strength.toFixed(1)}</span>
+        </div>
+      </fieldset>
 
-        <!-- Collision Avoidance Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showPhysicsSettings = !showPhysicsSettings}>
-            <span class="section-icon">💥</span>
-            <span class="section-title">Collision Avoidance</span>
-            <span class="section-toggle">{showPhysicsSettings ? '▼' : '▶'}</span>
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="display-controls-grid">
+          <div class="control-group">
+            <label for="lutSelector">Color Scheme</label>
+            <LutSelector 
+              bind:available_luts 
+              bind:current_lut={state.current_lut}
+              bind:reversed={state.lut_reversed}
+              on:select={(e) => updateLut(e.detail.name)}
+              on:reverse={(e) => updateLutReversed(e.detail.reversed)}
+            />
           </div>
-          
-          {#if showPhysicsSettings}
-            <div class="section-content">
-              <div class="control-group">
-                <label for="repulsionMinDistance">Close Range Distance</label>
-                <NumberDragBox
-                  value={settings.repulsion_min_distance}
-                  min={0.005}
-                  max={0.01}
-                  step={0.0001}
-                  precision={4}
-                />
-                <div class="control-description">Distance where extreme repulsion multiplier applies</div>
-              </div>
-              
-              <div class="control-group">
-                <label for="repulsionMediumDistance">Repulsion Range</label>
-                <NumberDragBox
-                  value={settings.repulsion_medium_distance}
-                  min={0.005}
-                  max={0.01}
-                  step={0.0001}
-                  precision={4}
-                />
-                <div class="control-description">Distance where medium repulsion multiplier applies</div>
-              </div>
-              
-              <div class="control-group">
-                <label for="repulsionExtremeStrength">Extreme Repulsion Multiplier</label>
-                <NumberDragBox
-                  value={settings.repulsion_extreme_strength}
-                  min={5}
-                  max={50}
-                  step={1}
-                  precision={0}
-                />
-                <div class="control-description">Force multiplier for very close particles (distance &lt; close range)</div>
-              </div>
-              
-              <div class="control-group">
-                <label for="repulsionLinearStrength">Medium Repulsion Multiplier</label>
-                <NumberDragBox
-                  value={settings.repulsion_linear_strength}
-                  min={2}
-                  max={25}
-                  step={1}
-                  precision={0}
-                />
-                <div class="control-description">Force multiplier for close particles (close range &lt; distance &lt; repulsion range)</div>
-              </div>
-              
-              <div class="info-box">
-                <strong>How it works:</strong> All forces use inverse square law (1/r²). Within the repulsion range, a multiplier increases the force strength to prevent particle overlap.
-              </div>
+          <div class="control-group">
+            <label>
+              <input 
+                type="checkbox" 
+                checked={state.traces_enabled}
+                on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
+              />
+              Enable Particle Traces
+            </label>
+          </div>
+          {#if state.traces_enabled}
+            <div class="control-group">
+              <label for="traceFade">Trace Fade</label>
+              <input 
+                type="range" 
+                id="traceFade"
+                value={state.trace_fade}
+                min="0" 
+                max="1" 
+                step="0.01"
+                on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span class="range-value">{state.trace_fade.toFixed(2)}</span>
             </div>
           {/if}
+          
+          <div class="control-group">
+            <label for="edgeFade">Edge Fade</label>
+            <input 
+              type="range" 
+              id="edgeFade"
+              value={state.edge_fade_strength}
+              min="0" 
+              max="1" 
+              step="0.05"
+              on:input={(e) => updateEdgeFadeStrength(parseFloat((e.target as HTMLInputElement).value))}
+            />
+            <span class="range-value">{state.edge_fade_strength.toFixed(2)}</span>
+          </div>
         </div>
+      </fieldset>
 
-        <!-- Type Distribution Section -->
-        <div class="section">
-          <div class="section-header" on:click={() => showTypeDistribution = !showTypeDistribution}>
-            <span class="section-icon">📊</span>
-            <span class="section-title">Type Distribution</span>
-            <span class="section-toggle">{showTypeDistribution ? '▼' : '▶'}</span>
-          </div>
-          
-          {#if showTypeDistribution}
-            <div class="section-content">
-              {#if typeCounts.length > 0}
-                {#each typeCounts as count, i}
-                  <div class="type-distribution-item">
-                    <div class="type-info">
-                      <span class="type-color" style="background-color: {speciesColors[i]}"></span>
-                      <span class="type-label">Type {i + 1}</span>
-                      <span class="type-count">{count.toLocaleString()}</span>
-                      <span class="type-percentage">({typePercentages[i].toFixed(1)}%)</span>
-                    </div>
-                    <div class="type-progress">
-                      <div class="progress-bar" style="width: {typePercentages[i]}%"></div>
-                    </div>
-                  </div>
-                {/each}
-              {:else}
-                <p class="no-data">No type distribution data available</p>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      </div>
+    </form>
     </div>
-  {/if}
+    {/if}
 
   <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
@@ -1332,10 +1324,15 @@
   <!-- Mouse overlay for camera interaction (only when simulation is running) -->
   <div 
     class="mouse-overlay"
+    on:mousedown={handleMouseEvent}
+    on:mouseup={handleMouseEvent}
+    on:mousemove={handleMouseEvent}
     on:wheel={handleMouseEvent}
+    on:contextmenu={handleContextMenu}
     role="button"
     tabindex="0"
   ></div>
+  {/if}
 </div>
 
 <style>
@@ -1357,6 +1354,15 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     position: relative;
     z-index: 20;
+  }
+
+  .mouse-instructions {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.8rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
   .back-button {
@@ -1395,239 +1401,63 @@
     background: #51cf66;
   }
 
-  /* Main UI Panel */
-  .ui-panel {
-    position: fixed;
-    top: 80px;
-    left: 20px;
-    width: 380px;
-    max-height: calc(100vh - 100px);
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(15px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    overflow: hidden;
-    z-index: 100;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  }
-
-  .panel-header {
+  .simulation-controls {
     padding: 1rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    max-width: 800px;
+    margin: 0 auto;
+    background: rgba(0, 0, 0, 1.0);
+    position: relative;
+    z-index: 20;
   }
 
-  .panel-header h2 {
-    margin: 0 0 0.5rem 0;
-    color: white;
-    font-size: 1.2rem;
-    font-weight: 600;
-  }
-
-  .status-bar {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  .status-label {
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .status-value {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .status-value.running {
-    color: #51cf66;
-  }
-
-  .quick-controls {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .control-btn {
-    flex: 1;
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+  fieldset {
+    border: 1px solid #ccc;
     border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    font-size: 0.8rem;
-    transition: all 0.2s ease;
-  }
-
-  .control-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .panel-content {
-    max-height: calc(100vh - 200px);
-    overflow-y: auto;
-    padding: 0;
-  }
-
-  /* Sections */
-  .section {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .section:last-child {
-    border-bottom: none;
-  }
-
-  .section-header {
-    display: flex;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    background: rgba(255, 255, 255, 0.02);
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-  }
-
-  .section-header:hover {
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .section-icon {
-    margin-right: 0.5rem;
-    font-size: 1rem;
-  }
-
-  .section-title {
-    flex: 1;
-    color: white;
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
-  .section-toggle {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 0.8rem;
-    transition: transform 0.2s ease;
-  }
-
-  .section-content {
     padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
-  }
-
-  /* Control Groups */
-  .control-group {
     margin-bottom: 1rem;
   }
 
-  .control-group:last-child {
-    margin-bottom: 0;
+  legend {
+    font-weight: bold;
+    padding: 0 0.5rem;
   }
 
-  .control-group h4 {
-    margin: 0 0 0.5rem 0;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  .control-list {
-    margin: 0;
-    padding-left: 1rem;
-    list-style: none;
-  }
-
-  .control-list li {
-    margin-bottom: 0.25rem;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
-  }
-
-  kbd {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-    padding: 0.1rem 0.3rem;
-    font-size: 0.7rem;
-    font-family: monospace;
+  .control-group {
+    margin-bottom: 1rem;
   }
 
   label {
     display: block;
     margin-bottom: 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.85rem;
   }
 
-  input[type="number"],
   select {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid #ccc;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    font-size: 0.85rem;
-  }
-
-  select option {
-    background: #333;
-    color: white;
+    background: #f8f9fa;
+    color: #333;
   }
 
   input[type="checkbox"] {
     margin-right: 0.5rem;
   }
 
-  input[type="range"] {
-    width: 100%;
-    margin: 0.5rem 0;
+  .preset-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
   }
 
-  .range-value {
-    display: inline-block;
-    margin-left: 0.5rem;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
-    font-family: monospace;
-  }
-
-  button {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-    font-size: 0.85rem;
-  }
-
-  button:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .preset-controls select {
+    flex: 1;
   }
 
   .preset-actions {
     display: flex;
     gap: 0.5rem;
-  }
-
-  .preset-actions button {
-    flex: 1;
+    margin-top: 1rem;
   }
 
   .warning-text {
@@ -1637,20 +1467,22 @@
     font-size: 0.75rem;
   }
 
-  .control-info {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
+
+  button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #ccc;
     border-radius: 4px;
+    background: #f8f9fa;
+    color: #333;
+    cursor: pointer;
+    height: 35px;
   }
 
-  .control-info p {
-    margin: 0.25rem 0;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
+  button:hover {
+    background: #e9ecef;
+    color: #222;
   }
 
-  /* Matrix Editor */
   .matrix-info {
     margin-bottom: 1rem;
     padding: 0.5rem;
@@ -1664,9 +1496,79 @@
     font-size: 0.8rem;
   }
 
-  .force-matrix {
+  .matrix-and-setup-container {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+  }
+
+  .matrix-section {
+    flex: 1;
+  }
+
+  .setup-section {
+    flex: 0 0 280px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .setup-section h4 {
+    margin: 0 0 1rem 0;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .distribution-generators-container {
+    display: flex;
+    gap: 2rem;
+    align-items: flex-start;
+  }
+
+  .distribution-section {
+    flex: 1;
+  }
+
+  .generators-section {
+    flex: 0 0 320px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 1rem;
+  }
+
+  .distribution-section h4,
+  .generators-section h4 {
+    margin: 0 0 1rem 0;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .physics-controls-grid {
     display: grid;
-    gap: 2px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+  }
+
+  .physics-controls-grid .control-group {
+    margin-bottom: 0;
+  }
+
+  .display-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+  }
+
+  .display-controls-grid .control-group {
+    margin-bottom: 0;
+  }
+
+  .force-matrix {
+    display: block;
     max-width: 100%;
     overflow-x: auto;
     margin-bottom: 1rem;
@@ -1674,18 +1576,16 @@
 
   .matrix-labels {
     display: grid;
-    grid-template-columns: 40px repeat(var(--species-count, 4), minmax(50px, 1fr));
+    grid-template-columns: 40px repeat(var(--species-count, 4), 55px);
     gap: 2px;
     margin-bottom: 2px;
-    max-width: 100%;
-    overflow-x: auto;
   }
 
   .matrix-row {
     display: grid;
-    grid-template-columns: 40px repeat(var(--species-count, 4), minmax(50px, 1fr));
+    grid-template-columns: 40px repeat(var(--species-count, 4), 55px);
     gap: 2px;
-    max-width: 100%;
+    margin-bottom: 2px;
   }
 
   .corner {
@@ -1707,7 +1607,6 @@
     min-width: 55px;
     max-width: 55px;
     height: 55px;
-    aspect-ratio: 1;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1763,39 +1662,141 @@
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
   }
-  
-  /* Responsive matrix sizing for higher species counts */
-  .force-matrix[style*="--species-count: 5"],
-  .force-matrix[style*="--species-count: 6"],
-  .force-matrix[style*="--species-count: 7"],
-  .force-matrix[style*="--species-count: 8"] {
-    font-size: 0.8rem;
-  }
-  
-  .force-matrix[style*="--species-count: 5"] .matrix-cell,
-  .force-matrix[style*="--species-count: 6"] .matrix-cell {
-    min-width: 50px;
-    max-width: 50px;
-    height: 50px;
-  }
-  
-  .force-matrix[style*="--species-count: 7"] .matrix-cell,
-  .force-matrix[style*="--species-count: 8"] .matrix-cell {
-    min-width: 45px;
-    max-width: 45px;
-    height: 45px;
-  }
 
   .matrix-legend {
     display: flex;
     justify-content: space-between;
-    margin-top: 10px;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    margin-top: 0.5rem;
   }
 
-  .negative { color: #ff6666; }
-  .neutral { color: #cccccc; }
-  .positive { color: #66ff66; }
+  .matrix-legend span {
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .matrix-legend .negative {
+    background: rgba(255, 100, 100, 0.2);
+    color: rgba(255, 100, 100, 0.9);
+  }
+
+  .matrix-legend .neutral {
+    background: rgba(100, 150, 255, 0.2);
+    color: rgba(100, 150, 255, 0.9);
+  }
+
+  .matrix-legend .positive {
+    background: rgba(100, 255, 100, 0.2);
+    color: rgba(100, 255, 100, 0.9);
+  }
+
+  /* Matrix Scaling Controls */
+  .matrix-scaling-controls {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+  }
+
+  .scaling-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .scale-btn {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+  }
+
+  .scale-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .scale-btn.scale-down {
+    background: rgba(255, 100, 100, 0.2);
+    border-color: rgba(255, 100, 100, 0.4);
+  }
+
+  .scale-btn.scale-down:hover {
+    background: rgba(255, 100, 100, 0.3);
+    border-color: rgba(255, 100, 100, 0.5);
+  }
+
+  .scale-btn.scale-up {
+    background: rgba(100, 255, 100, 0.2);
+    border-color: rgba(100, 255, 100, 0.4);
+  }
+
+  .scale-btn.scale-up:hover {
+    background: rgba(100, 255, 100, 0.3);
+    border-color: rgba(100, 255, 100, 0.5);
+  }
+
+  .scaling-info {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+  }
+
+  /* Generator Controls */
+  .generator-control {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .generator-control select {
+    flex: 1;
+  }
+
+  .generator-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .generator-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.4);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    margin: 0.5rem 0;
+  }
+
+  .range-value {
+    display: inline-block;
+    margin-left: 0.5rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.8rem;
+    font-family: monospace;
+  }
 
   /* Type Distribution */
   .type-distribution-item {
@@ -1862,7 +1863,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1870,36 +1871,25 @@
   }
 
   .dialog {
-    background: rgba(0, 0, 0, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: white;
+    padding: 2rem;
     border-radius: 8px;
-    padding: 20px;
     min-width: 300px;
   }
 
   .dialog h3 {
-    margin: 0 0 15px 0;
-    color: white;
+    margin-top: 0;
   }
 
   .dialog input {
     width: 100%;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 8px;
-    border-radius: 4px;
-    margin-bottom: 15px;
-  }
-
-  .dialog input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+    margin: 1rem 0;
   }
 
   .dialog-buttons {
     display: flex;
-    gap: 10px;
     justify-content: flex-end;
+    gap: 0.5rem;
   }
 
   /* Mouse overlay for camera interaction */
@@ -1911,113 +1901,5 @@
     bottom: 0;
     z-index: 10;
     pointer-events: auto;
-  }
-
-  /* Scrollbar styling */
-  .panel-content::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .panel-content::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  .panel-content::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
-  }
-
-  .panel-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
-  }
-
-  /* Control descriptions and info boxes */
-  .control-description {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 0.75rem;
-    margin-top: 0.25rem;
-    line-height: 1.3;
-  }
-
-  .info-box {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 12px;
-    margin-top: 12px;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.8rem;
-    line-height: 1.4;
-  }
-
-  .info-box strong {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  /* Generator Controls */
-  .generator-control {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .generator-control select {
-    flex: 1;
-  }
-
-  .generator-btn {
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
-    padding: 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-size: 1rem;
-    width: 36px;
-    height: 36px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .generator-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .generator-btn:active {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(1px);
-  }
-
-  /* Matrix Randomize Control */
-  .matrix-randomize-control {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .matrix-generator-select {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    min-width: 120px;
-    cursor: pointer;
-  }
-
-  .matrix-generator-select:focus {
-    outline: none;
-    border-color: rgba(255, 255, 255, 0.4);
-    background: rgba(255, 255, 255, 0.15);
-  }
-
-  .matrix-generator-select option {
-    background: rgba(0, 0, 0, 0.9);
-    color: white;
   }
 </style>

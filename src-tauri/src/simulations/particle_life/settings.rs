@@ -14,29 +14,26 @@ pub struct Settings {
     /// Maximum force magnitude applied to particles
     pub max_force: f32,
 
-    /// Minimum distance for force calculation (prevents singularities)
-    pub min_distance: f32,
-
-    /// Maximum distance for force calculation (cutoff radius)
-    pub max_distance: f32,
-
     /// Friction/damping factor for particle movement
     pub friction: f32,
 
     /// Wrap particles around screen edges if true
     pub wrap_edges: bool,
 
-    /// Minimum distance for repulsion calculation
-    pub repulsion_min_distance: f32,
+    /// Beta parameter for force calculation (0.0-1.0)
+    /// Controls the transition point between repulsion and attraction zones
+    /// Lower values = more repulsion, higher values = more attraction
+    pub force_beta: f32,
 
-    /// Medium distance for repulsion calculation
-    pub repulsion_medium_distance: f32,
+    /// Repulsion strength multiplier for close-range interactions
+    /// Multiplies the base repulsion force in the close range zone
+    pub repulsion_strength: f32,
 
-    /// Extreme repulsion strength for very close particles
-    pub repulsion_extreme_strength: f32,
+    /// Minimum distance for force calculation (prevents singularities)
+    pub min_distance: f32,
 
-    /// Linear repulsion strength for medium-distance particles
-    pub repulsion_linear_strength: f32,
+    /// Maximum distance for force calculation (cutoff radius)
+    pub max_distance: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,14 +125,12 @@ impl Default for Settings {
             species_count: 4,
             force_matrix,
             max_force: 1.0,
-            min_distance: 0.001,
-            max_distance: 0.03,
             friction: 0.85,
             wrap_edges: true,
-            repulsion_min_distance: 0.001,
-            repulsion_medium_distance: 0.01,
-            repulsion_extreme_strength: 1.0,
-            repulsion_linear_strength: 0.5,
+            force_beta: 0.3,
+            repulsion_strength: 1.0,
+            min_distance: 0.001,
+            max_distance: 0.03,
         }
     }
 }
@@ -173,7 +168,7 @@ impl Settings {
 
         match generator {
             MatrixGenerator::Random => {
-                // Random matrix
+                // Random matrix with more varied ranges
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         self.force_matrix[i][j] = rng.random_range(-1.0..1.0);
@@ -181,11 +176,19 @@ impl Settings {
                 }
             }
             MatrixGenerator::Symmetry => {
-                // Symmetric matrix - only iterate over upper triangle
+                // Symmetric matrix with random strength variations
+                let base_strength = rng.random_range(0.3..0.8);
+                let variation = rng.random_range(0.1..0.4);
+                
                 for i in 0..self.species_count as usize {
                     for j in i..self.species_count as usize {
-                        let value = rng.random_range(-1.0..1.0);
-                        self.force_matrix[i][j] = value;
+                        let value: f32 = if i == j {
+                            rng.random_range(-0.3..-0.05) // Self-repulsion varies
+                        } else {
+                            let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
+                            sign * rng.random_range(0.2..base_strength) + rng.random_range(-variation..variation)
+                        };
+                        self.force_matrix[i][j] = value.clamp(-1.0, 1.0);
                         if i != j {
                             self.force_matrix[j][i] = value; // Copy to lower triangle
                         }
@@ -193,74 +196,88 @@ impl Settings {
                 }
             }
             MatrixGenerator::Chains => {
-                // Chain-like structure
+                // Chain-like structure with random strengths
+                let chain_strength = rng.random_range(0.3..0.7);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let background_strength = rng.random_range(-0.2..0.1);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i as i32 - j as i32).abs() == 1 {
-                            self.force_matrix[i][j] = 0.5; // Strong attraction to neighbors
+                            self.force_matrix[i][j] = chain_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            self.force_matrix[i][j] = 0.0; // No interaction with others
+                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Chains2 => {
-                // Alternative chain structure
+                // Alternative chain structure with more complexity
+                let near_strength = rng.random_range(0.2..0.6);
+                let far_strength = rng.random_range(-0.3..0.1);
+                let self_repulsion = rng.random_range(-0.4..-0.1);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.2;
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i as i32 - j as i32).abs() == 1 {
-                            self.force_matrix[i][j] = 0.3;
+                            self.force_matrix[i][j] = near_strength + rng.random_range(-0.15..0.15);
                         } else if (i as i32 - j as i32).abs() == 2 {
-                            self.force_matrix[i][j] = -0.1;
+                            self.force_matrix[i][j] = far_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            self.force_matrix[i][j] = 0.0;
+                            self.force_matrix[i][j] = rng.random_range(-0.1..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Chains3 => {
-                // Complex chain structure
+                // Complex chain structure with decaying interactions
+                let decay_rate: f32 = rng.random_range(0.6..0.9);
+                let base_strength = rng.random_range(0.3..0.6);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1;
-                        } else if (i as i32 - j as i32).abs() == 1 {
-                            self.force_matrix[i][j] = 0.4;
-                        } else if (i as i32 - j as i32).abs() == 2 {
-                            self.force_matrix[i][j] = 0.1;
-                        } else if (i as i32 - j as i32).abs() == 3 {
-                            self.force_matrix[i][j] = -0.05;
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = 0.0;
+                            let distance = (i as i32 - j as i32).abs() as f32;
+                            let strength: f32 = base_strength * decay_rate.powf(distance - 1.0);
+                            let variation = rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] = (strength + variation).clamp(-0.8, 0.8);
                         }
                     }
                 }
             }
             MatrixGenerator::Snakes => {
-                // Snake-like pattern
+                // Snake-like pattern with random variations
+                let snake_strength = rng.random_range(0.2..0.5);
+                let end_connection_strength = rng.random_range(0.1..0.4);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let background_strength = rng.random_range(-0.1..0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1;
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if i == 0 && j == (self.species_count as usize) - 1 {
-                            self.force_matrix[i][j] = 0.3; // Connect ends
+                            self.force_matrix[i][j] = end_connection_strength + rng.random_range(-0.1..0.1);
                         } else if (i as i32 - j as i32).abs() == 1 {
-                            self.force_matrix[i][j] = 0.3;
+                            self.force_matrix[i][j] = snake_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            self.force_matrix[i][j] = 0.0;
+                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Zero => {
-                // Zero matrix - no interactions
+                // Zero matrix with tiny random noise
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
-                        self.force_matrix[i][j] = 0.0;
+                        self.force_matrix[i][j] = rng.random_range(-0.01..0.01);
                     }
                 }
             }
@@ -281,156 +298,196 @@ impl Settings {
                 }
             }
             MatrixGenerator::Symbiosis => {
-                // Symbiosis: pairs of species have mutual attraction
+                // Symbiosis: pairs of species have mutual attraction with random variations
+                let symbiosis_strength = rng.random_range(0.3..0.7);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let background_strength = rng.random_range(-0.1..0.1);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if i % 2 == 0 && j == i + 1 && j < self.species_count as usize {
-                            // Even-odd pairs have mutual attraction
-                            self.force_matrix[i][j] = 0.5;
-                            self.force_matrix[j][i] = 0.5;
+                            // Even-odd pairs have mutual attraction with variation
+                            let strength = symbiosis_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] = strength;
+                            self.force_matrix[j][i] = strength;
                         } else {
-                            self.force_matrix[i][j] = 0.0; // Neutral to others
+                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Territorial => {
-                // Territorial: strong self-repulsion, moderate repulsion from others
+                // Territorial: strong self-repulsion, varied repulsion from others
+                let self_repulsion = rng.random_range(-0.9..-0.5);
+                let other_repulsion_base = rng.random_range(-0.5..-0.1);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.8; // Strong self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = -0.3; // Moderate repulsion from others
+                            self.force_matrix[i][j] = other_repulsion_base + rng.random_range(-0.2..0.2);
                         }
                     }
                 }
             }
             // Physical/Chemical Patterns
             MatrixGenerator::Magnetic => {
-                // Magnetic: alternating attraction/repulsion based on "charge"
+                // Magnetic: alternating attraction/repulsion based on "charge" with random strengths
+                let attraction_strength = rng.random_range(0.2..0.6);
+                let repulsion_strength = rng.random_range(-0.6..-0.2);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i % 2 == 0) == (j % 2 == 0) {
-                            // Same "charge" (both even or both odd) - attraction
-                            self.force_matrix[i][j] = 0.4;
+                            // Same "charge" (both even or both odd) - attraction with variation
+                            self.force_matrix[i][j] = attraction_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            // Different "charge" - repulsion
-                            self.force_matrix[i][j] = -0.4;
+                            // Different "charge" - repulsion with variation
+                            self.force_matrix[i][j] = repulsion_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
             }
             MatrixGenerator::Crystal => {
-                // Crystal: strong attraction to specific neighbors (like crystal lattice)
+                // Crystal: strong attraction to specific neighbors with random lattice variations
+                let lattice_strength = rng.random_range(0.4..0.8);
+                let self_repulsion = rng.random_range(-0.4..-0.1);
+                let background_strength = rng.random_range(-0.2..0.05);
+                let lattice_variation = rng.random_range(0.05..0.2);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.2; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i as i32 - j as i32).abs() == 1
                             || (i == 0 && j == (self.species_count as usize) - 1)
                             || (j == 0 && i == (self.species_count as usize) - 1)
                         {
-                            // Neighbors in crystal lattice - strong attraction
-                            self.force_matrix[i][j] = 0.6;
+                            // Neighbors in crystal lattice - strong attraction with variation
+                            self.force_matrix[i][j] = lattice_strength + rng.random_range(-lattice_variation..lattice_variation);
                         } else {
-                            self.force_matrix[i][j] = -0.1; // Weak repulsion from others
+                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
             }
             MatrixGenerator::Wave => {
-                // Wave: sinusoidal force based on species distance
+                // Wave: sinusoidal force based on species distance with random amplitude and phase
+                let amplitude = rng.random_range(0.3..0.7);
+                let frequency = rng.random_range(0.5..2.0);
+                let phase = rng.random_range(0.0..std::f32::consts::PI * 2.0);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
                             let distance = (i as f32 - j as f32).abs();
-                            let wave = (distance * std::f32::consts::PI / 2.0).sin();
-                            self.force_matrix[i][j] = wave * 0.5; // Scale to reasonable range
+                            let wave = (distance * frequency + phase).sin();
+                            let variation = rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] = wave * amplitude + variation;
                         }
                     }
                 }
             }
             // Social/Behavioral Patterns
             MatrixGenerator::Hierarchy => {
-                // Hierarchy: higher species attract lower ones, lower species neutral to higher
+                // Hierarchy: higher species attract lower ones with random strength variations
+                let hierarchy_strength = rng.random_range(0.2..0.5);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let background_strength = rng.random_range(-0.05..0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if i < j {
-                            // Higher species attracts lower ones
-                            self.force_matrix[i][j] = 0.3;
-                            self.force_matrix[j][i] = 0.0; // Lower species neutral to higher
+                            // Higher species attracts lower ones with variation
+                            self.force_matrix[i][j] = hierarchy_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[j][i] = background_strength + rng.random_range(-0.05..0.05);
                         } else {
-                            self.force_matrix[i][j] = 0.0; // Already set above
+                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Clique => {
                 // Clique: small groups have strong internal attraction, weak repulsion between groups
-                let group_size = 2;
+                let group_size = rng.random_range(2..=4).min(self.species_count as usize / 2);
+                let clique_strength = rng.random_range(0.3..0.7);
+                let between_clique_strength = rng.random_range(-0.4..-0.1);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i / group_size) == (j / group_size) {
-                            // Same clique - strong attraction
-                            self.force_matrix[i][j] = 0.5;
+                            // Same clique - strong attraction with variation
+                            self.force_matrix[i][j] = clique_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            // Different clique - weak repulsion
-                            self.force_matrix[i][j] = -0.2;
+                            // Different clique - repulsion with variation
+                            self.force_matrix[i][j] = between_clique_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
             }
             MatrixGenerator::AntiClique => {
                 // Anti-Clique: strong repulsion within groups, attraction between groups
-                let group_size = 2;
+                let group_size = rng.random_range(2..=4).min(self.species_count as usize / 2);
+                let within_clique_strength = rng.random_range(-0.7..-0.3);
+                let between_clique_strength = rng.random_range(0.2..0.5);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if (i / group_size) == (j / group_size) {
-                            // Same clique - strong repulsion
-                            self.force_matrix[i][j] = -0.5;
+                            // Same clique - strong repulsion with variation
+                            self.force_matrix[i][j] = within_clique_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            // Different clique - attraction
-                            self.force_matrix[i][j] = 0.3;
+                            // Different clique - attraction with variation
+                            self.force_matrix[i][j] = between_clique_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
             }
             // Mathematical Patterns
             MatrixGenerator::Fibonacci => {
-                // Fibonacci: force strength based on Fibonacci sequence
+                // Fibonacci: force strength based on Fibonacci sequence with random scaling
                 let mut fib = vec![1, 1];
                 for k in 2..self.species_count as usize {
                     fib.push(fib[k - 1] + fib[k - 2]);
                 }
 
+                let scale_factor = rng.random_range(0.5..1.5);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let base_offset = rng.random_range(-0.2..0.2);
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
                             let fib_value = fib[i.min(j)];
                             let max_fib = *fib.iter().max().unwrap_or(&1) as f32;
-                            self.force_matrix[i][j] = (fib_value as f32 / max_fib) * 0.8 - 0.4;
-                            // Scale to [-0.4, 0.4]
+                            let base_force = (fib_value as f32 / max_fib) * scale_factor + base_offset;
+                            let variation = rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] = (base_force + variation).clamp(-0.8, 0.8);
                         }
                     }
                 }
             }
             MatrixGenerator::Prime => {
-                // Prime: prime-numbered species have special interactions
+                // Prime: prime-numbered species have special interactions with random strengths
                 let is_prime = |n: usize| -> bool {
                     if n < 2 {
                         return false;
@@ -443,34 +500,46 @@ impl Settings {
                     true
                 };
 
+                let prime_attraction = rng.random_range(0.4..0.8);
+                let mixed_attraction = rng.random_range(0.1..0.4);
+                let non_prime_repulsion = rng.random_range(-0.2..-0.05);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else if is_prime(i) && is_prime(j) {
-                            // Both prime - strong attraction
-                            self.force_matrix[i][j] = 0.6;
+                            // Both prime - strong attraction with variation
+                            self.force_matrix[i][j] = prime_attraction + rng.random_range(-0.1..0.1);
                         } else if is_prime(i) || is_prime(j) {
-                            // One prime - moderate attraction
-                            self.force_matrix[i][j] = 0.2;
+                            // One prime - moderate attraction with variation
+                            self.force_matrix[i][j] = mixed_attraction + rng.random_range(-0.1..0.1);
                         } else {
-                            // Neither prime - weak repulsion
-                            self.force_matrix[i][j] = -0.1;
+                            // Neither prime - weak repulsion with variation
+                            self.force_matrix[i][j] = non_prime_repulsion + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
             }
             MatrixGenerator::Fractal => {
-                // Fractal: recursive force patterns (simplified version)
+                // Fractal: recursive force patterns with random parameters
+                let scale_factor = rng.random_range(0.3..0.7);
+                let frequency = rng.random_range(1.0..3.0);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                let base_offset = rng.random_range(-0.1..0.1);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
                             let distance = (i as f32 - j as f32).abs();
-                            let scale = (distance / (self.species_count as f32)).log2().max(0.0);
-                            let force = (scale * std::f32::consts::PI).sin() * 0.5;
-                            self.force_matrix[i][j] = force;
+                            let normalized_distance = distance / (self.species_count as f32);
+                            let scale = (normalized_distance * frequency).log2().max(0.0);
+                            let force = (scale * std::f32::consts::PI).sin() * scale_factor + base_offset;
+                            let variation = rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] = (force + variation).clamp(-0.8, 0.8);
                         }
                     }
                 }
@@ -497,25 +566,31 @@ impl Settings {
                 }
             }
             MatrixGenerator::Cooperation => {
-                // Cooperation: all species have weak mutual attraction
+                // Cooperation: all species have weak mutual attraction with random variations
+                let cooperation_strength = rng.random_range(0.1..0.4);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = 0.2; // Weak mutual attraction
+                            self.force_matrix[i][j] = cooperation_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
             }
             MatrixGenerator::Competition => {
-                // Competition: all species have weak mutual repulsion
+                // Competition: all species have weak mutual repulsion with random variations
+                let competition_strength = rng.random_range(-0.4..-0.1);
+                let self_repulsion = rng.random_range(-0.3..-0.05);
+                
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
-                            self.force_matrix[i][j] = -0.1; // Self-repulsion
+                            self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = -0.2; // Weak mutual repulsion
+                            self.force_matrix[i][j] = competition_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -545,6 +620,17 @@ impl Settings {
     pub fn set_force(&mut self, species_a: usize, species_b: usize, force: f32) {
         if species_a < self.force_matrix.len() && species_b < self.force_matrix[species_a].len() {
             self.force_matrix[species_a][species_b] = force.clamp(-1.0, 1.0);
+        }
+    }
+
+    /// Scale all force matrix values by a given factor
+    pub fn scale_force_matrix(&mut self, scale_factor: f32) {
+        for i in 0..self.force_matrix.len() {
+            for j in 0..self.force_matrix[i].len() {
+                if i != j { // Don't scale self-repulsion
+                    self.force_matrix[i][j] = (self.force_matrix[i][j] * scale_factor).clamp(-1.0, 1.0);
+                }
+            }
         }
     }
 }

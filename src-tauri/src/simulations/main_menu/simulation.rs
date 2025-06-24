@@ -286,6 +286,7 @@ impl Simulation for MainMenuModel {
     fn apply_settings(
         &mut self,
         _settings: serde_json::Value,
+        _device: &Arc<Device>,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // No settings for this simulation

@@ -1208,6 +1208,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
     fn apply_settings(
         &mut self,
         settings: serde_json::Value,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         let new_settings: Settings =

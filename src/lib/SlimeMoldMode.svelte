@@ -463,7 +463,7 @@
     if (pressedKeys.has('e')) {
       zoomCamera(0.2);
     }
-    if (pressedKeys.has('c')) {
+    if (pressedKeys.has('c') || pressedKeys.has('C')) {
       resetCamera();
     }
 

@@ -51,7 +51,7 @@ impl GpuContext {
 
         // Get adapter info
         let adapter_info = adapter.get_info();
-        println!("Using adapter: {:?}", adapter_info);
+        tracing::debug!("Using adapter: {:?}", adapter_info);
 
         // Request device and queue with increased buffer size limit
         let limits = wgpu::Limits {
@@ -184,6 +184,7 @@ fn main() {
             commands::resume_simulation,
             commands::destroy_simulation,
             commands::get_simulation_status,
+            commands::scale_force_matrix,
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

@@ -66,13 +66,19 @@ pub struct SimParams {
     pub height: f32,
     pub random_seed: u32,
     pub dt: f32, // Time step for simulation
+    pub beta: f32, // Transition point between repulsion and attraction zones
+    pub cursor_x: f32, // Cursor position in world coordinates
+    pub cursor_y: f32,
+    pub cursor_size: f32, // Cursor interaction radius
+    pub cursor_strength: f32, // Cursor force strength
+    pub cursor_active: u32, // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
     _pad4: u32,
     _pad5: u32,
     _pad6: u32,
-    _pad7: u32, // Added to make struct 72 bytes (18 * 4)
+    _pad7: u32, // Added to make struct 88 bytes (22 * 4)
 }
 
 impl SimParams {
@@ -95,6 +101,12 @@ impl SimParams {
             height: height as f32,
             random_seed: state.random_seed,
             dt: state.dt,
+            beta: settings.force_beta,
+            cursor_x: 0.0, // Initialize cursor position to center
+            cursor_y: 0.0,
+            cursor_size: state.cursor_size,
+            cursor_strength: state.cursor_strength,
+            cursor_active: 0, // Start with cursor interaction inactive
             _pad1: 0,
             _pad2: 0,
             _pad3: 0,
@@ -156,8 +168,8 @@ impl State {
             particles,
             random_seed,
             dt: 0.016,
-            cursor_size: 0.2,
-            cursor_strength: 5.0,
+            cursor_size: 0.5,
+            cursor_strength: 1.0,
             traces_enabled: false,
             trace_fade: 0.95,
             edge_fade_strength: 1.0,
@@ -243,6 +255,11 @@ pub struct ParticleLifeModel {
     // Add color mode field
     pub color_mode: ColorMode,
     pub lut_colors: Vec<[f32; 4]>, // Store LUT colors for current mode
+    
+    // Cursor interaction state
+    pub cursor_active_mode: u32, // 0=inactive, 1=attract, 2=repel
+    pub cursor_world_x: f32,
+    pub cursor_world_y: f32,
 }
 
 impl ParticleLifeModel {
@@ -266,7 +283,7 @@ impl ParticleLifeModel {
     }
 
     /// Flatten 2D force matrix to 1D array for GPU
-    fn flatten_force_matrix(force_matrix: &[Vec<f32>]) -> Vec<f32> {
+    pub fn flatten_force_matrix(force_matrix: &[Vec<f32>]) -> Vec<f32> {
         let mut flattened = Vec::new();
 
         for row in force_matrix {
@@ -297,8 +314,8 @@ impl ParticleLifeModel {
             particles: vec![], // Empty - will be initialized on GPU
             random_seed: 0,
             dt: 0.016,
-            cursor_size: 0.2,
-            cursor_strength: 5.0,
+            cursor_size: 0.5,
+            cursor_strength: 1.0,
             traces_enabled: false,
             trace_fade: 0.95,
             edge_fade_strength: 1.0,
@@ -991,6 +1008,9 @@ impl ParticleLifeModel {
             last_frame_time: std::time::Instant::now(),
             color_mode,
             lut_colors,
+            cursor_active_mode: 0,
+            cursor_world_x: 0.0,
+            cursor_world_y: 0.0,
         };
 
         // Initialize particles on GPU
@@ -1000,6 +1020,35 @@ impl ParticleLifeModel {
     }
 
     fn update_sim_params(&mut self, _device: &Arc<Device>, queue: &Arc<Queue>) {
+        let mut sim_params = SimParams::new(
+            self.width,
+            self.height,
+            self.state.particle_count as u32,
+            &self.settings,
+            &self.state,
+        );
+        
+        // Override with stored cursor values if cursor is active
+        sim_params.cursor_x = self.cursor_world_x;
+        sim_params.cursor_y = self.cursor_world_y;
+        sim_params.cursor_active = self.cursor_active_mode;
+        if self.cursor_active_mode > 0 {
+            sim_params.cursor_strength = self.state.cursor_strength * self.settings.max_force * 10.0;
+        }
+        
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
+    }
+
+    fn update_sim_params_preserve_cursor(&mut self, _device: &Arc<Device>, queue: &Arc<Queue>, preserve_cursor: bool) {
+        if preserve_cursor {
+            // Don't update if we want to preserve cursor settings
+            return;
+        }
+        
         let sim_params = SimParams::new(
             self.width,
             self.height,
@@ -1183,7 +1232,7 @@ impl ParticleLifeModel {
         Ok(())
     }
 
-    fn recreate_bind_groups_with_force_matrix(&mut self, device: &Arc<Device>) {
+    pub fn recreate_bind_groups_with_force_matrix(&mut self, device: &Arc<Device>) {
         // Recreate compute bind group with new force matrix
         self.compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Compute Bind Group"),
@@ -1552,6 +1601,19 @@ impl Simulation for ParticleLifeModel {
                     // Recreate bind groups that use this buffer
                     self.recreate_bind_groups_with_force_matrix(device);
 
+                    // Update LUT colors for new species count
+                    let current_lut_name = self.current_lut_name.clone();
+                    let lut_reversed = self.lut_reversed;
+                    let lut_manager = self.lut_manager.clone();
+                    self.update_lut(
+                        device,
+                        queue,
+                        &lut_manager,
+                        self.color_mode,
+                        Some(&current_lut_name),
+                        lut_reversed,
+                    )?;
+
                     // Respawn all particles to ensure proper species distribution
                     self.initialize_particles_gpu(device, queue)?;
 
@@ -1612,6 +1674,11 @@ impl Simulation for ParticleLifeModel {
                     self.settings.friction = friction as f32;
                 }
             }
+            "force_beta" => {
+                if let Some(beta) = value.as_f64() {
+                    self.settings.force_beta = beta as f32;
+                }
+            }
             "wrap_edges" => {
                 if let Some(wrap) = value.as_bool() {
                     self.settings.wrap_edges = wrap;
@@ -1629,7 +1696,7 @@ impl Simulation for ParticleLifeModel {
             }
             "cursor_strength" => {
                 if let Some(strength) = value.as_f64() {
-                    self.state.cursor_strength = strength as f32;
+                    self.state.cursor_strength = (strength as f32).clamp(0.0, 10.0);
                 }
             }
             "traces_enabled" => {
@@ -1810,13 +1877,64 @@ impl Simulation for ParticleLifeModel {
 
     fn handle_mouse_interaction(
         &mut self,
-        _world_x: f32,
-        _world_y: f32,
-        _is_seeding: bool,
-        _queue: &Arc<Queue>,
+        world_x: f32,
+        world_y: f32,
+        is_attract: bool,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // For now, just add some attraction at the mouse position
-        // This could be extended to add/remove particles or create forces
+        // Determine cursor mode based on is_attract and handle mouse release
+        let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
+            0 // mouse release - turn off cursor interaction
+        } else if is_attract { 
+            1 // attract
+        } else {
+            2 // repel
+        };
+        
+        // Store coordinates directly - conversion is handled in the manager
+        let (sim_x, sim_y) = if cursor_mode == 0 {
+            (0.0, 0.0) // Don't matter when cursor is inactive
+        } else {
+            (world_x, world_y)
+        };
+        
+        // Store cursor values in the model
+        self.cursor_active_mode = cursor_mode;
+        self.cursor_world_x = sim_x;
+        self.cursor_world_y = sim_y;
+        
+        println!("🎯 Mouse interaction: world=({}, {}), mode={} ({}), size={}, strength={} (scaled: {})", 
+                 sim_x, sim_y, cursor_mode, 
+                 match cursor_mode { 0 => "inactive", 1 => "attract", 2 => "repel", _ => "unknown" },
+                 self.state.cursor_size, self.state.cursor_strength, 
+                 self.state.cursor_strength * self.settings.max_force * 10.0);
+        println!("📏 Simulation bounds: width={}, height={}, particles live in [-2,2] space", 
+                 self.width, self.height);
+        
+        // Update sim params immediately with new cursor values
+        let mut sim_params = SimParams::new(
+            self.width,
+            self.height,
+            self.state.particle_count as u32,
+            &self.settings,
+            &self.state,
+        );
+        
+        // Override with cursor values
+        sim_params.cursor_x = sim_x;
+        sim_params.cursor_y = sim_y;
+        sim_params.cursor_active = cursor_mode;
+        if cursor_mode > 0 {
+            sim_params.cursor_strength = self.state.cursor_strength * self.settings.max_force * 10.0;
+        }
+        
+        // Upload to GPU immediately
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
+        
         Ok(())
     }
 
@@ -1850,9 +1968,11 @@ impl Simulation for ParticleLifeModel {
         Ok(())
     }
 
-    fn apply_settings(&mut self, settings: Value, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn apply_settings(&mut self, settings: Value, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
+            let old_species_count = self.settings.species_count;
             self.settings = new_settings;
+            
             // Upload the entire force matrix when applying new settings
             let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
             queue.write_buffer(
@@ -1860,6 +1980,21 @@ impl Simulation for ParticleLifeModel {
                 0,
                 bytemuck::cast_slice(&force_matrix_data),
             );
+            
+            // Update LUT if species count changed
+            if self.settings.species_count != old_species_count {
+                let current_lut_name = self.current_lut_name.clone();
+                let lut_reversed = self.lut_reversed;
+                let lut_manager = self.lut_manager.clone();
+                self.update_lut(
+                    device,
+                    queue,
+                    &lut_manager,
+                    self.color_mode,
+                    Some(&current_lut_name),
+                    lut_reversed,
+                )?;
+            }
         }
         Ok(())
     }
