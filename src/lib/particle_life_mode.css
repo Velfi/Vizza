@@ -78,3 +78,33 @@
   justify-content: center;
 }
 
+/* Expandable Physics Diagram Styles */
+.fieldset-toggle {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-size: 1em;
+  font-weight: 600;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.2s ease;
+}
+
+.fieldset-toggle:hover {
+  color: rgba(255, 255, 255, 1);
+}
+
+.diagram-content {
+  margin-top: 1rem;
+}
+
+/* Responsive design for diagram section */
+@media (max-width: 768px) {
+  .diagram-content {
+    padding: 0.5rem;
+  }
+}
+

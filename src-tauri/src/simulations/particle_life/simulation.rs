@@ -935,18 +935,6 @@ impl ParticleLifeModel {
             },
         );
 
-        let lut_view = lut_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("LUT Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
         // Create LUT size uniform buffer
         let lut_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Size Buffer"),
@@ -1090,26 +1078,6 @@ impl ParticleLifeModel {
             sim_params.cursor_strength = self.state.cursor_strength * self.settings.max_force * 10.0;
         }
         
-        queue.write_buffer(
-            &self.sim_params_buffer,
-            0,
-            bytemuck::cast_slice(&[sim_params]),
-        );
-    }
-
-    fn update_sim_params_preserve_cursor(&mut self, _device: &Arc<Device>, queue: &Arc<Queue>, preserve_cursor: bool) {
-        if preserve_cursor {
-            // Don't update if we want to preserve cursor settings
-            return;
-        }
-        
-        let sim_params = SimParams::new(
-            self.width,
-            self.height,
-            self.state.particle_count as u32,
-            &self.settings,
-            &self.state,
-        );
         queue.write_buffer(
             &self.sim_params_buffer,
             0,

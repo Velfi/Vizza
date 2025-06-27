@@ -4,6 +4,7 @@
   import { listen } from '@tauri-apps/api/event';
   import NumberDragBox from './components/NumberDragBox.svelte';
   import LutSelector from './components/LutSelector.svelte';
+  import InteractivePhysicsDiagram from './components/InteractivePhysicsDiagram.svelte';
 
   import './particle_life_mode.css';
 
@@ -13,7 +14,6 @@
     species_count: number;
     force_matrix: number[][];
     max_force: number;
-    min_distance: number;
     max_distance: number;
     friction: number;
     wrap_edges: boolean;
@@ -47,7 +47,6 @@
       [ 0.1, -0.1,  0.2, -0.1]
     ],
     max_force: 1.0,
-    min_distance: 0.01,
     max_distance: 0.03,
     friction: 0.85,
     wrap_edges: true,
@@ -78,6 +77,7 @@
   let available_luts: string[] = [];
   let show_save_preset_dialog = false;
   let new_preset_name = '';
+  let show_physics_diagram = false; // Toggle for expandable physics diagram section
   let fps_display = 0;
   let physics_time_avg = 0;
   let isSimulationRunning = false;
@@ -260,9 +260,31 @@
 
   async function updateSetting(settingName: string, value: any) {
     try {
+      // Update local state first for immediate UI feedback
+      switch (settingName) {
+        case 'max_force':
+          settings.max_force = value;
+          break;
+        case 'max_distance':
+          settings.max_distance = value;
+          break;
+        case 'force_beta':
+          settings.force_beta = value;
+          break;
+        case 'friction':
+          settings.friction = value;
+          break;
+        case 'wrap_edges':
+          settings.wrap_edges = value;
+          break;
+      }
+      
+      // Then update backend
       await invoke('update_simulation_setting', { settingName, value });
     } catch (e) {
       console.error(`Failed to update ${settingName}:`, e);
+      // On error, sync from backend to restore correct state
+      await syncSettingsFromBackend();
     }
   }
 
@@ -1473,66 +1495,29 @@
       </fieldset>
 
 
-      <!-- Advanced Physics Settings -->
+      <!-- Physics Equation Visualization -->
       <fieldset>
-        <legend>Physics Settings</legend>
-        <div class="physics-controls-grid">
-          <div class="control-group">
-            <label for="maxForce">Max Force</label>
-            <NumberDragBox
-              value={settings.max_force}
-              min={0.1}
-              max={10}
-              step={0.01}
-              precision={2}
-              on:change={(e) => updateSetting('max_force', e.detail)}
+        <legend>
+          <button 
+            type="button" 
+            class="fieldset-toggle"
+            on:click={() => show_physics_diagram = !show_physics_diagram}
+          >
+            {show_physics_diagram ? '▼' : '▶'} Physics
+          </button>
+        </legend>
+        
+        {#if show_physics_diagram}
+          <div class="diagram-content">
+            <InteractivePhysicsDiagram 
+              maxForce={settings.max_force}
+              maxDistance={settings.max_distance}
+              forceBeta={settings.force_beta}
+              friction={settings.friction}
+              on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
             />
           </div>
-          <div class="control-group">
-            <label for="minDistance">Min Distance</label>
-            <NumberDragBox
-              value={settings.min_distance}
-              min={0.0001}
-              max={0.01}
-              step={0.0001}
-              precision={4}
-              on:change={(e) => updateSetting('min_distance', e.detail)}
-            />
-          </div>
-          <div class="control-group">
-            <label for="maxDistance">Max Distance</label>
-            <NumberDragBox
-              value={settings.max_distance}
-              min={0.01}
-              max={0.2}
-              step={0.001}
-              precision={3}
-              on:change={(e) => updateSetting('max_distance', e.detail)}
-            />
-          </div>
-          <div class="control-group">
-            <label for="friction">Friction</label>
-            <NumberDragBox
-              value={settings.friction}
-              min={0.5}
-              max={1.0}
-              step={0.01}
-              precision={2}
-              on:change={(e) => updateSetting('friction', e.detail)}
-            />
-          </div>
-          <div class="control-group">
-            <label for="forceBeta">Force Beta</label>
-            <NumberDragBox
-              value={settings.force_beta}
-              min={0.1}
-              max={0.9}
-              step={0.01}
-              precision={2}
-              on:change={(e) => updateSetting('force_beta', e.detail)}
-            />
-          </div>
-        </div>
+        {/if}
       </fieldset>
 
       <!-- Type Distribution -->
@@ -1819,7 +1804,7 @@
   }
 
   fieldset {
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     padding: 1rem;
     margin-bottom: 1rem;
@@ -1828,6 +1813,7 @@
   legend {
     font-weight: bold;
     padding: 0 0.5rem;
+    color: rgba(255, 255, 255, 0.9);
   }
 
   .control-group {
@@ -1880,15 +1866,16 @@
   label {
     display: block;
     margin-bottom: 0.5rem;
+    color: rgba(255, 255, 255, 0.8);
   }
 
   select {
     width: 100%;
     padding: 0.5rem;
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    background: #f8f9fa;
-    color: #333;
+    background: rgba(0, 0, 0, 0.5);
+    color: rgba(255, 255, 255, 0.9);
   }
 
   input[type="checkbox"] {
@@ -1913,17 +1900,17 @@
 
   button {
     padding: 0.5rem 1rem;
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    background: #f8f9fa;
-    color: #333;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
     height: 35px;
   }
 
   button:hover {
-    background: #e9ecef;
-    color: #222;
+    background: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 1);
   }
 
   .matrix-info {
