@@ -1,0 +1,80 @@
+.matrix-cell .number-drag-container {
+    height: 60px;
+    width: 60px;
+    padding: 0;
+    justify-content: center;
+    align-items: center;
+    display: flex;
+    background: none;
+    outline: 1px solid rgb(0, 0, 0);
+    text-shadow: 0 0 2px rgb(0, 0, 0);
+}
+
+.matrix-cell .number-drag-container .number-drag-box {
+    background: none;
+}
+
+@media (max-width: 1200px) {
+    .matrix-cell .number-drag-container {
+        height: 50px;
+        width: 50px;
+    }
+}
+
+@media (max-width: 900px) {
+    .matrix-cell .number-drag-container {
+        height: 40px;
+        width: 40px;
+    }
+}
+
+/* Particle Life Mode Specific Styles */
+
+/* Additional matrix transformation control styles */
+.matrix-scaling-controls {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+/* Responsive layout for transformation buttons */
+@media (max-width: 800px) {
+  .icon-transformation-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 600px) {
+  .icon-transformation-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+  
+  .icon-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+}
+
+/* Enhanced visual feedback for matrix transformations */
+.matrix-cell:hover {
+  transform: scale(1.05);
+  z-index: 1;
+}
+
+/* Better spacing for the transformation controls */
+.matrix-scaling-controls > .icon-button-pair,
+.matrix-scaling-controls > .icon-transformation-grid {
+  justify-content: center;
+}
+

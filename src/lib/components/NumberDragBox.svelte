@@ -170,7 +170,6 @@
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    overflow: hidden;
   }
 
   .step-button {
@@ -208,7 +207,6 @@
     border: none;
     cursor: ew-resize;
     user-select: none;
-    min-width: 60px;
     text-align: center;
     transition: all 0.2s ease;
     color: rgba(255, 255, 255, 0.9);

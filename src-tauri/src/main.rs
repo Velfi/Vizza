@@ -185,6 +185,14 @@ fn main() {
             commands::destroy_simulation,
             commands::get_simulation_status,
             commands::scale_force_matrix,
+            commands::flip_force_matrix_horizontal,
+            commands::flip_force_matrix_vertical,
+            commands::rotate_force_matrix_clockwise,
+            commands::rotate_force_matrix_counterclockwise,
+            commands::shift_force_matrix_left,
+            commands::shift_force_matrix_right,
+            commands::shift_force_matrix_up,
+            commands::shift_force_matrix_down,
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
@@ -203,6 +211,8 @@ fn main() {
             commands::save_custom_lut,
             commands::update_gradient_preview,
             commands::get_available_luts,
+            commands::get_current_lut_colors,
+            commands::get_species_colors,
             // Camera commands
             commands::pan_camera,
             commands::zoom_camera,

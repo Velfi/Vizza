@@ -59,7 +59,7 @@ impl LutData {
     }
 
     /// Get colors for a given number of species
-    /// Returns a vector of RGBA colors (f32 values in range 0-1)
+    /// Returns a vector of RGBA colors (f32 values in range 0-1) in linear color space
     pub fn get_colors(&self, n: usize) -> Vec<Vec<f32>> {
         let mut colors = Vec::with_capacity(n);
 
@@ -68,10 +68,23 @@ impl LutData {
             let index = if n == 1 { 0 } else { (i * 255) / (n - 1) };
             let index = index.min(255);
 
+            // Convert from sRGB (gamma-corrected) to linear RGB
+            let srgb_to_linear = |srgb: f32| -> f32 {
+                if srgb <= 0.04045 {
+                    srgb / 12.92
+                } else {
+                    ((srgb + 0.055) / 1.055).powf(2.4)
+                }
+            };
+
+            let r_srgb = self.red[index] as f32 / 255.0;
+            let g_srgb = self.green[index] as f32 / 255.0;
+            let b_srgb = self.blue[index] as f32 / 255.0;
+
             colors.push(vec![
-                self.red[index] as f32 / 255.0,
-                self.green[index] as f32 / 255.0,
-                self.blue[index] as f32 / 255.0,
+                srgb_to_linear(r_srgb),
+                srgb_to_linear(g_srgb),
+                srgb_to_linear(b_srgb),
                 1.0, // Alpha is always 1.0
             ]);
         }

@@ -7,29 +7,43 @@ struct VertexOutput {
     @location(2) uv: vec2<f32>,
 }
 
-@group(1) @binding(0) var lut_texture: texture_2d<f32>;
-@group(1) @binding(1) var lut_sampler: sampler;
-@group(1) @binding(2) var<uniform> lut_size: u32;
+struct SpeciesColors {
+    colors: array<vec4<f32>, 9>, // Allocate space for 9 colors (background + 8 species)
+}
+
+@group(1) @binding(0) var<uniform> species_colors: SpeciesColors;
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // LUT mode: sample color from LUT texture based on species index
-    // LUT is a 2D texture with N+1 colors (first is background, rest are species)
-    let species_index = f32(input.species);
-    let lut_index = (species_index + 1.0) / f32(lut_size); // +1 to skip background color, normalize to [0,1]
-    let lut_color = textureSample(lut_texture, lut_sampler, vec2<f32>(lut_index, 0.5)).rgb;
-    let base_color = lut_color;
+    // Get the color for this particle's species directly from the uniform buffer
+    let species_index = input.species;
+    let base_color = species_colors.colors[species_index].rgb;
     
-    // Modulate brightness based on velocity for visual feedback
-    let velocity_factor = clamp(input.velocity_magnitude / 50.0, 0.3, 1.0);
-    let color = base_color * velocity_factor;
-    
-    // Create circular particles by using distance from center
+    // Create circular particles with anti-aliased edges
     let center = vec2<f32>(0.5, 0.5);
     let dist_from_center = distance(input.uv, center);
     
-    // Smooth circular falloff
-    let alpha = 1.0 - smoothstep(0.35, 0.5, dist_from_center);
+    // Define particle radius and anti-aliasing falloff
+    let particle_radius = 0.45;
+    let falloff_start = 0.35; // Start alpha falloff here
+    let falloff_end = particle_radius; // End falloff at particle edge
     
-    return vec4<f32>(color, alpha);
+    // Calculate alpha with smooth falloff for anti-aliasing
+    var alpha: f32 = 1.0;
+    
+    if (dist_from_center > falloff_start) {
+        // Smooth falloff from falloff_start to falloff_end
+        let falloff_range = falloff_end - falloff_start;
+        let falloff_progress = (dist_from_center - falloff_start) / falloff_range;
+        // Use smoothstep for a nice S-curve falloff
+        alpha = 1.0 - smoothstep(0.0, 1.0, falloff_progress);
+    }
+    
+    // Discard completely transparent pixels for performance
+    if (alpha <= 0.0) {
+        discard;
+    }
+    
+    // Return color with calculated alpha for smooth anti-aliased edges
+    return vec4<f32>(base_color, alpha);
 }

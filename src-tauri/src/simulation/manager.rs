@@ -110,6 +110,15 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::ParticleLife(simulation));
+                
+                // Apply the "Default" preset to ensure consistent initial state
+                if let Some(simulation) = &mut self.current_simulation {
+                    self.preset_manager
+                        .apply_preset(simulation, "Default", device, queue)
+                        .map_err(|e| format!("Failed to apply Default preset: {}", e))?;
+                    tracing::info!("Applied Default preset to Particle Life simulation");
+                }
+                
                 Ok(())
             }
             _ => Err("Unknown simulation type".into()),
@@ -366,9 +375,9 @@ impl SimulationManager {
             match simulation {
                 SimulationType::ParticleLife(simulation) => {
                     // For particle life, we need to update the LUT with reversed flag
-                    let current_reversed = simulation.lut_reversed;
-                    let color_mode = simulation.color_mode;
-                    let current_lut_name = simulation.current_lut_name.clone();
+                    let current_reversed = simulation.state.lut_reversed;
+                    let color_mode = simulation.state.color_mode;
+                    let current_lut_name = simulation.state.current_lut_name.clone();
                     let lut_manager = &self.lut_manager;
                     simulation.update_lut(
                         device,
