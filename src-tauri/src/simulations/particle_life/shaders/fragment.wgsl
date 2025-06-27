@@ -5,6 +5,7 @@ struct VertexOutput {
     @location(0) species: u32,
     @location(1) velocity_magnitude: f32,
     @location(2) uv: vec2<f32>,
+    @location(3) grid_fade_factor: f32,
 }
 
 struct SpeciesColors {
@@ -38,6 +39,9 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
         // Use smoothstep for a nice S-curve falloff
         alpha = 1.0 - smoothstep(0.0, 1.0, falloff_progress);
     }
+    
+    // Apply grid fade factor for 3x3 grid mode
+    alpha = alpha * input.grid_fade_factor;
     
     // Discard completely transparent pixels for performance
     if (alpha <= 0.0) {

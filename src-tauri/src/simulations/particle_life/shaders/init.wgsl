@@ -36,68 +36,68 @@ fn random_f32(seed: u32) -> f32 {
     return f32(hash(seed)) / f32(0xffffffffu);
 }
 
-// Position generation functions
+// Position generation functions - now using [-1,1] coordinate system
 fn generate_random_position(seed: u32) -> vec2<f32> {
-    let x = random_f32(seed * 2u);
-    let y = random_f32(seed * 3u);
-    return vec2<f32>((x - 0.5) * 4.0, (y - 0.5) * 4.0); // -2.0 to 2.0
+    let x = random_f32(seed * 2u) * 2.0 - 1.0; // [0,1] -> [-1,1]
+    let y = random_f32(seed * 3u) * 2.0 - 1.0; // [0,1] -> [-1,1]
+    return vec2<f32>(x, y); // [-1,1] x [-1,1]
 }
 
 fn generate_center_position(seed: u32) -> vec2<f32> {
-    let x = random_f32(seed * 2u);
-    let y = random_f32(seed * 3u);
-    let scale = 1.2;
-    return vec2<f32>((x - 0.5) * 2.0 * scale, (y - 0.5) * 2.0 * scale);
+    let x = random_f32(seed * 2u) * 2.0 - 1.0; // [0,1] -> [-1,1]
+    let y = random_f32(seed * 3u) * 2.0 - 1.0; // [0,1] -> [-1,1]
+    let scale = 0.3; // Scale around center (0,0)
+    return vec2<f32>(x * scale, y * scale);
 }
 
 fn generate_uniform_circle_position(seed: u32) -> vec2<f32> {
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = sqrt(random_f32(seed * 3u)) * 2.0;
+    let radius = sqrt(random_f32(seed * 3u)) * 0.8; // Scale for [-1,1] space (radius up to 0.8)
     return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
 }
 
 fn generate_centered_circle_position(seed: u32) -> vec2<f32> {
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = random_f32(seed * 3u) * 2.0;
+    let radius = random_f32(seed * 3u) * 0.8; // Scale for [-1,1] space
     return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
 }
 
 fn generate_ring_position(seed: u32) -> vec2<f32> {
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = 0.7 + 0.02 * (random_f32(seed * 3u) - 0.5) * 2.0;
-    return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
+    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale down for [0,1] space
+    return vec2<f32>(0.5 + cos(angle) * radius, 0.5 + sin(angle) * radius);
 }
 
 fn generate_rainbow_ring_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let angle = (0.3 * (random_f32(seed * 2u) - 0.5) * 2.0 + f32(type_id)) / f32(n_types) * 2.0 * 3.14159;
-    let radius = 0.7 + 0.02 * (random_f32(seed * 3u) - 0.5) * 2.0;
-    return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
+    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale down for [0,1] space
+    return vec2<f32>(0.5 + cos(angle) * radius, 0.5 + sin(angle) * radius);
 }
 
 fn generate_color_battle_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let center_angle = f32(type_id) / f32(n_types) * 2.0 * 3.14159;
-    let center_radius = 0.5;
+    let center_radius = 0.25; // Scale down for [0,1] space
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = random_f32(seed * 3u) * 0.1;
+    let radius = random_f32(seed * 3u) * 0.05; // Scale down for [0,1] space
     return vec2<f32>(
-        center_radius * cos(center_angle) + cos(angle) * radius,
-        center_radius * sin(center_angle) + sin(angle) * radius
+        0.5 + center_radius * cos(center_angle) + cos(angle) * radius,
+        0.5 + center_radius * sin(center_angle) + sin(angle) * radius
     );
 }
 
 fn generate_color_wheel_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let center_angle = f32(type_id) / f32(n_types) * 2.0 * 3.14159;
-    let center_radius = 0.3;
-    let individual_radius = 0.2;
+    let center_radius = 0.15; // Scale down for [0,1] space
+    let individual_radius = 0.1; // Scale down for [0,1] space
     return vec2<f32>(
-        center_radius * cos(center_angle) + (random_f32(seed * 2u) - 0.5) * 2.0 * individual_radius,
-        center_radius * sin(center_angle) + (random_f32(seed * 3u) - 0.5) * 2.0 * individual_radius
+        0.5 + center_radius * cos(center_angle) + (random_f32(seed * 2u) - 0.5) * 2.0 * individual_radius,
+        0.5 + center_radius * sin(center_angle) + (random_f32(seed * 3u) - 0.5) * 2.0 * individual_radius
     );
 }
 
 fn generate_line_position(seed: u32) -> vec2<f32> {
-    let x = (random_f32(seed * 2u) - 0.5) * 4.0;
-    let y = (random_f32(seed * 3u) - 0.5) * 1.2;
+    let x = random_f32(seed * 2u);
+    let y = 0.5 + (random_f32(seed * 3u) - 0.5) * 0.3; // Center around 0.5 with small spread
     return vec2<f32>(x, y);
 }
 
@@ -105,9 +105,9 @@ fn generate_spiral_position(seed: u32) -> vec2<f32> {
     let max_rotations = 2.0;
     let f = random_f32(seed * 2u);
     let angle = max_rotations * 2.0 * 3.14159 * f;
-    let spread = 0.5 * min(f, 0.2);
-    let radius = 0.9 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread;
-    return vec2<f32>(radius * cos(angle), radius * sin(angle));
+    let spread = 0.25 * min(f, 0.2); // Scale down for [0,1] space
+    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread; // Scale down for [0,1] space
+    return vec2<f32>(0.5 + radius * cos(angle), 0.5 + radius * sin(angle));
 }
 
 fn generate_rainbow_spiral_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
@@ -116,9 +116,9 @@ fn generate_rainbow_spiral_position(seed: u32, type_id: u32, n_types: u32) -> ve
     var f = (f32(type_id + 1u) / f32(n_types + 2u) + type_spread * (random_f32(seed * 2u) - 0.5) * 2.0);
     f = clamp(f, 0.0, 1.0);
     let angle = max_rotations * 2.0 * 3.14159 * f;
-    let spread = 0.5 * min(f, 0.2);
-    let radius = 0.9 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread;
-    return vec2<f32>(radius * cos(angle), radius * sin(angle));
+    let spread = 0.25 * min(f, 0.2); // Scale down for [0,1] space
+    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread; // Scale down for [0,1] space
+    return vec2<f32>(0.5 + radius * cos(angle), 0.5 + radius * sin(angle));
 }
 
 // Type generation functions
@@ -134,12 +134,12 @@ fn generate_randomize_10_percent_type(seed: u32, current_type: u32, n_types: u32
 }
 
 fn generate_slices_type(position: vec2<f32>, n_types: u32) -> u32 {
-    let normalized_x = (position.x + 2.0) / 4.0; // Convert -2..2 to 0..1
+    let normalized_x = position.x; // Already in [0,1] range
     return u32(normalized_x * f32(n_types));
 }
 
 fn generate_onion_type(position: vec2<f32>, n_types: u32) -> u32 {
-    let distance = length(position) * 2.0; // Scale to 0..1 range
+    let distance = length(position - vec2<f32>(0.5, 0.5)) * 2.0; // Distance from center, scale to 0..1 range
     return u32(distance * f32(n_types));
 }
 

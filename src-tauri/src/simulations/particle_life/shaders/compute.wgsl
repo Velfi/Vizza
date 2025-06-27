@@ -26,13 +26,13 @@ struct SimParams {
     cursor_size: f32,  // Cursor interaction radius
     cursor_strength: f32,  // Cursor force strength
     cursor_active: u32,  // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
+    brownian_motion: f32,  // Brownian motion strength (0.0-1.0)
+    traces_enabled: u32,  // Whether particle traces are enabled
+    trace_fade: f32,  // Trace fade factor (0.0-1.0)
+    edge_fade_strength: f32,  // Edge fade strength
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
-    _pad4: u32,
-    _pad5: u32,
-    _pad6: u32,
-    _pad7: u32,  // Added to make struct 88 bytes (22 * 4)
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -84,42 +84,45 @@ fn calculate_force(distance: f32, attraction: f32) -> f32 {
     return 0.0; // No force beyond max distance
 }
 
-// Wrap position around world boundaries (-2.0 to 2.0)
-// Using the same logic as standalone version
+// Wrap position around world boundaries [-1,1]
 fn wrap_position(pos: vec2<f32>) -> vec2<f32> {
     if (params.wrap_edges == 0u) {
         return pos;
     }
     
-    let world_size = 4.0; // -2.0 to 2.0 = 4.0 width
-    let world_min = -2.0;
+    // Proper modulo wrapping for [-1,1] space
+    var wrapped_x = pos.x;
+    var wrapped_y = pos.y;
     
-    // Proper modulo wrapping that handles negative numbers correctly
-    let wrapped_x = world_min + ((pos.x - world_min) % world_size);
-    let wrapped_y = world_min + ((pos.y - world_min) % world_size);
+    // Map to [0,2] space, wrap, then map back to [-1,1]
+    wrapped_x = wrapped_x + 1.0; // [-1,1] -> [0,2]
+    wrapped_x = wrapped_x - floor(wrapped_x / 2.0) * 2.0; // wrap in [0,2]
+    wrapped_x = wrapped_x - 1.0; // [0,2] -> [-1,1]
+    
+    wrapped_y = wrapped_y + 1.0; // [-1,1] -> [0,2]
+    wrapped_y = wrapped_y - floor(wrapped_y / 2.0) * 2.0; // wrap in [0,2]
+    wrapped_y = wrapped_y - 1.0; // [0,2] -> [-1,1]
     
     return vec2<f32>(wrapped_x, wrapped_y);
 }
 
-// Calculate shortest distance considering wrapping in world coordinates
-// Using the same logic as standalone version
+// Calculate shortest distance considering wrapping in world coordinates [-1,1]
 fn wrapped_distance(pos_a: vec2<f32>, pos_b: vec2<f32>) -> vec2<f32> {
     var delta = pos_b - pos_a;
     
     if (params.wrap_edges == 1u) {
-        let world_size = 4.0; // -2.0 to 2.0 = 4.0 width
-        
-        // Find shortest distance across world boundaries
-        if (delta.x > world_size / 2.0) {
-            delta.x -= world_size;
-        } else if (delta.x < -world_size / 2.0) {
-            delta.x += world_size;
+        // Find shortest distance across world boundaries in [-1,1] space
+        // The world has width/height of 2.0, so half is 1.0
+        if (delta.x > 1.0) {
+            delta.x -= 2.0;
+        } else if (delta.x < -1.0) {
+            delta.x += 2.0;
         }
         
-        if (delta.y > world_size / 2.0) {
-            delta.y -= world_size;
-        } else if (delta.y < -world_size / 2.0) {
-            delta.y += world_size;
+        if (delta.y > 1.0) {
+            delta.y -= 2.0;
+        } else if (delta.y < -1.0) {
+            delta.y += 2.0;
         }
     }
     
@@ -198,6 +201,20 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
     
+    // Apply Brownian motion (random thermal motion)
+    if (params.brownian_motion > 0.0) {
+        // Generate random force in random direction
+        let angle = rand_f32() * 2.0 * 3.14159; // Random angle 0 to 2π
+        let magnitude = rand_f32() * params.brownian_motion * params.max_force; // Random magnitude scaled by brownian_motion
+        
+        let brownian_force = vec2<f32>(
+            cos(angle) * magnitude,
+            sin(angle) * magnitude
+        );
+        
+        force += brownian_force;
+    }
+    
     // Update velocity with force and friction
     // Using the same time stepping as standalone version
     let dt = params.dt;
@@ -213,9 +230,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (params.wrap_edges == 1u) {
         particle.position = wrap_position(particle.position);
     } else {
-        // Bounce off world boundaries (-2.0 to 2.0)
-        let world_min = -2.0;
-        let world_max = 2.0;
+        // Bounce off world boundaries [-1,1]
+        let world_min = -1.0;
+        let world_max = 1.0;
         
         // Handle X boundary
         if (particle.position.x < world_min) {

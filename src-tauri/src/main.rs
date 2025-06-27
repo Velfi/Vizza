@@ -193,6 +193,7 @@ fn main() {
             commands::shift_force_matrix_right,
             commands::shift_force_matrix_up,
             commands::shift_force_matrix_down,
+            commands::clear_trail_texture,
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

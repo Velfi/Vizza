@@ -71,7 +71,7 @@ impl Camera {
         viewport_width: f32,
         viewport_height: f32,
     ) -> SimulationResult<Self> {
-        let position = [0.5, 0.5]; // Center of [0,1] space
+        let position = [0.0, 0.0]; // Center of [-1,1] space
         let zoom = 1.0; // No zoom
         let aspect_ratio = viewport_width / viewport_height;
 
@@ -105,7 +105,7 @@ impl Camera {
     /// Create a simple 2D transformation matrix
     fn create_simple_transform_matrix(position: [f32; 2], zoom: f32) -> [f32; 16] {
         // Create a simple orthographic projection matrix
-        // This maps [0,1] x [0,1] world space to [-1,1] x [-1,1] clip space
+        // This maps [-1,1] x [-1,1] world space to [-1,1] x [-1,1] clip space
         let scale_x = zoom;
         let scale_y = zoom;
 
@@ -113,8 +113,8 @@ impl Camera {
         // 1. Scale around the origin (0,0)
         // 2. Then translate to account for camera position
         // The translation should move the camera center to NDC origin (0,0)
-        let translate_x = -(position[0] - 0.5) * 2.0 * zoom;
-        let translate_y = -(position[1] - 0.5) * 2.0 * zoom;
+        let translate_x = -position[0] * zoom;
+        let translate_y = -position[1] * zoom;
 
         [
             scale_x,
@@ -161,7 +161,8 @@ impl Camera {
         self.target_position[0] += delta_x * pan_speed;
         self.target_position[1] += delta_y * pan_speed;
 
-        // Clamp target position to reasonable bounds
+        // Clamp target position to reasonable bounds for [-1,1] world space
+        // Allow movement within [-2.0, 2.0] to provide some margin around the [-1,1] space
         self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
         self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
@@ -208,7 +209,7 @@ impl Camera {
         let mouse_x_norm = (cursor_x / self.viewport_width) * 2.0 - 1.0;
         let mouse_y_norm = -((cursor_y / self.viewport_height) * 2.0 - 1.0);
 
-        // Calculate the world point under the cursor before zoom
+        // Calculate the world point under the cursor before zoom (use target position for consistency)
         let world_x = mouse_x_norm / old_zoom + self.target_position[0];
         let world_y = mouse_y_norm / old_zoom + self.target_position[1];
 
@@ -236,8 +237,8 @@ impl Camera {
 
     /// Reset camera to default position and zoom
     pub fn reset(&mut self) {
-        self.position = [0.5, 0.5];
-        self.target_position = [0.5, 0.5];
+        self.position = [0.0, 0.0];
+        self.target_position = [0.0, 0.0];
         self.zoom = 1.0;
         self.target_zoom = 1.0;
         self.update_uniform();
@@ -277,8 +278,9 @@ impl Camera {
         let ndc_x = (screen.x / self.viewport_width) * 2.0 - 1.0;
         let ndc_y = -((screen.y / self.viewport_height) * 2.0 - 1.0); // Flip Y axis correctly
 
-        let world_x = (ndc_x / self.zoom) + self.position[0];
-        let world_y = (ndc_y / self.zoom) + self.position[1];
+        // Use target position and zoom for immediate response (no smoothing lag)
+        let world_x = (ndc_x / self.target_zoom) + self.target_position[0];
+        let world_y = (ndc_y / self.target_zoom) + self.target_position[1];
 
         WorldCoords::new(world_x, world_y)
     }

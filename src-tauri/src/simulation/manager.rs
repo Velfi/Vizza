@@ -197,17 +197,11 @@ impl SimulationManager {
                         let camera = &simulation.camera;
                         let screen = ScreenCoords::new(screen_x, screen_y);
                         let world = camera.screen_to_world(screen);
-                        // Convert world to NDC relative to camera (same as Gray-Scott)
-                        let ndc_x = (world.x - camera.position[0]) * camera.zoom;
-                        let ndc_y = (world.y - camera.position[1]) * camera.zoom;
-                        // Convert NDC [-1,1] to particle coordinates [-2,2]
-                        let particle_x = ndc_x * 2.0;
-                        let particle_y = ndc_y * 2.0;
                         
-                        println!("🌍 ParticleLife mouse: screen=({}, {}) -> world=({}, {}) -> ndc=({}, {}) -> particle=({}, {}), attract={}", 
-                                 screen_x, screen_y, world.x, world.y, ndc_x, ndc_y, particle_x, particle_y, is_attract);
-                        tracing::info!("ParticleLife mouse: screen=({}, {}) -> particle=({}, {}), attract={}", 
-                                       screen_x, screen_y, particle_x, particle_y, is_attract);
+                        // Particles now live in [-1,1] world space, so use world coordinates directly
+                        let particle_x = world.x;
+                        let particle_y = world.y;
+                        
                         simulation.handle_mouse_interaction(particle_x, particle_y, is_attract, queue)?;
                     }
                 }

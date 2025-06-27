@@ -481,3 +481,46 @@ pub async fn shift_force_matrix_down(
         Err("No Particle Life simulation running".to_string())
     }
 }
+
+#[tauri::command]
+pub async fn clear_trail_texture(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("clear_trail_texture called");
+    let sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(simulation) = sim_manager.simulation() {
+        match simulation {
+            crate::simulations::traits::SimulationType::ParticleLife(particle_life) => {
+                    // Determine background color based on color mode
+                    let background_color = match particle_life.state.color_mode {
+                        crate::simulations::particle_life::simulation::ColorMode::Gray18 => {
+                            wgpu::Color { r: 0.18, g: 0.18, b: 0.18, a: 1.0 }
+                        }
+                        crate::simulations::particle_life::simulation::ColorMode::White => wgpu::Color::WHITE,
+                        crate::simulations::particle_life::simulation::ColorMode::Black => wgpu::Color::BLACK,
+                        crate::simulations::particle_life::simulation::ColorMode::Lut => {
+                            if let Some(&[r, g, b, a]) = particle_life.state.species_colors.last() {
+                                wgpu::Color { r: r.into(), g: g.into(), b: b.into(), a: a.into() }
+                            } else {
+                                wgpu::Color::BLACK
+                            }
+                        }
+                    };
+
+                // Clear the trail texture
+                particle_life.clear_trail_texture(&gpu_ctx.device, &gpu_ctx.queue, background_color);
+                
+                tracing::info!("Trail texture cleared successfully");
+                Ok("Trail texture cleared".to_string())
+            }
+            _ => {
+                Err("Clear trail texture is only available for Particle Life simulations".to_string())
+            }
+        }
+    } else {
+        Err("No simulation running".to_string())
+    }
+}

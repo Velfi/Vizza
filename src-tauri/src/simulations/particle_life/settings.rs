@@ -34,6 +34,15 @@ pub struct Settings {
 
     /// Maximum distance for force calculation (cutoff radius)
     pub max_distance: f32,
+
+    /// Brownian motion strength (0.0-1.0)
+    /// Controls the amount of random thermal motion applied to particles
+    /// Higher values create more chaotic, jittery movement
+    pub brownian_motion: f32,
+
+    /// Enable 3x3 grid view to visualize wrap-around behavior
+    /// Always enabled to show 9 instances of the simulation in a grid with faded outer cells
+    pub show_wrap_grid: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,13 +133,15 @@ impl Default for Settings {
         Self {
             species_count: 4,
             force_matrix,
-            max_force: 1.0,
-            friction: 0.85,
+            max_force: 0.5,
+            friction: 0.5,
             wrap_edges: true,
             force_beta: 0.3,
             repulsion_strength: 1.0,
             min_distance: 0.001,
-            max_distance: 0.03,
+            max_distance: 0.01,
+            brownian_motion: 0.5,
+            show_wrap_grid: true,
         }
     }
 }

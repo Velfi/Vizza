@@ -18,6 +18,8 @@
     friction: number;
     wrap_edges: boolean;
     force_beta: number;
+    brownian_motion: number;
+    show_wrap_grid: boolean;
   }
 
   interface State {
@@ -51,6 +53,8 @@
     friction: 0.85,
     wrap_edges: true,
     force_beta: 0.3,
+    brownian_motion: 0.1,
+    show_wrap_grid: true,
   };
 
   // Runtime state
@@ -273,6 +277,9 @@
           break;
         case 'friction':
           settings.friction = value;
+          break;
+        case 'brownian_motion':
+          settings.brownian_motion = value;
           break;
         case 'wrap_edges':
           settings.wrap_edges = value;
@@ -1142,6 +1149,15 @@
       console.error('Failed to update color mode:', e);
     }
   }
+
+  async function clearTrails() {
+    try {
+      await invoke('clear_trail_texture');
+      console.log('Trail texture cleared successfully');
+    } catch (e) {
+      console.error('Failed to clear trail texture:', e);
+    }
+  }
 </script>
 
 <div class="particle-life-container">
@@ -1514,6 +1530,7 @@
               maxDistance={settings.max_distance}
               forceBeta={settings.force_beta}
               friction={settings.friction}
+              brownianMotion={settings.brownian_motion}
               on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
             />
           </div>
@@ -1624,6 +1641,15 @@
                 on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
               />
               <span class="range-value">{state.trace_fade.toFixed(2)}</span>
+            </div>
+            <div class="control-group">
+              <button 
+                class="clear-trails-button"
+                on:click={clearTrails}
+                title="Clear all particle trails"
+              >
+                Clear Trails
+              </button>
             </div>
           {/if}
           
@@ -2005,8 +2031,8 @@
     border-radius: 6px;
     padding: 8px;
     margin-bottom: 1rem;
-    max-width: 100%;
-    overflow-x: auto;
+    justify-content: center;
+    padding-bottom: 35px;
   }
 
   .matrix-labels {
@@ -2306,5 +2332,29 @@
     bottom: 0;
     z-index: 10;
     pointer-events: auto;
+  }
+
+  /* Clear trails button */
+  .clear-trails-button {
+    padding: 0.5rem 1rem;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+    width: 100%;
+  }
+
+  .clear-trails-button:hover {
+    background: rgba(239, 68, 68, 0.4);
+    border-color: rgba(239, 68, 68, 0.6);
+    transform: translateY(-1px);
+  }
+
+  .clear-trails-button:active {
+    transform: translateY(0);
   }
 </style>

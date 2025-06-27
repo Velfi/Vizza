@@ -5,6 +5,7 @@
   export let maxDistance: number = 0.03;
   export let forceBeta: number = 0.3;
   export let friction: number = 0.85;
+  export let brownianMotion: number = 0.5;
 
   const dispatch = createEventDispatcher();
 
@@ -20,6 +21,9 @@
   let internalMaxDistance = maxDistance;
   let internalForceBeta = forceBeta;
   let betaDistance = internalForceBeta * internalMaxDistance;
+
+  // Range toggle state
+  let useNarrowRange = true; // true = narrow range (0.01-0.1), false = wide range (0.01-1.0)
 
   // Canvas and context
   let canvas: HTMLCanvasElement;
@@ -37,11 +41,12 @@
   let betaHandle = { x: 0, y: 0 };
 
   // Scale factors - these will be recalculated in draw()
-  // Use a fixed maximum distance for scaling so the blue handle can move within the plot
-  const maxScaleDistance = 2.0; // Maximum possible distance value
-  const maxScaleForce = 10; // Maximum possible force value
-  let xScale = plotWidth / maxScaleDistance;
-  let yScale = plotHeight / (2 * maxScaleForce);
+  // Use a dynamic maximum force for scaling based on the range mode
+  function getMaxScaleForce() {
+    return useNarrowRange ? 1.0 : 10.0; // Narrow mode: 0-1, Wide mode: 0-10
+  }
+  
+  let yScale = plotHeight / (2 * getMaxScaleForce());
   let yOffset = margin + plotHeight / 2;
 
   // Convert coordinates
@@ -49,19 +54,9 @@
     return yOffset - y * yScale;
   }
 
-  // Logarithmic scaling for distance values
-  function toLogDistance(linearDistance: number): number {
-    // Map linear 0-1 to logarithmic 0.01-2.0
-    const minDistance = 0.01;
-    const maxDistance = 2.0;
-    return minDistance * Math.pow(maxDistance / minDistance, linearDistance);
-  }
-  
-  function fromLogDistance(logDistance: number): number {
-    // Map logarithmic 0.01-2.0 back to linear 0-1
-    const minDistance = 0.01;
-    const maxDistance = 2.0;
-    return Math.log(logDistance / minDistance) / Math.log(maxDistance / minDistance);
+  // Dynamic plot range based on toggle
+  function getMaxPlotDistance() {
+    return useNarrowRange ? 0.1 : 1.0;
   }
 
   // Calculate force at a given distance
@@ -79,18 +74,18 @@
 
   // Update handle positions
   function updateHandlePositions() {
-    // Max Distance handle position - use logarithmic scaling for X position
-    const logDistanceRatio = fromLogDistance(internalMaxDistance);
-    maxDistanceHandle.x = margin + logDistanceRatio * plotWidth;
+    // Max Distance handle position - use linear scaling for X position
+    const distanceRatio = internalMaxDistance / getMaxPlotDistance();
+    maxDistanceHandle.x = margin + distanceRatio * plotWidth;
     maxDistanceHandle.y = toCanvasY(0);
     
     // Max Force handle is positioned at the left edge and moves freely on Y axis
     maxForceHandle.x = margin; // Position at left margin
     maxForceHandle.y = toCanvasY(internalMaxForce);
     
-    // Beta handle is positioned at the beta distance - also use logarithmic scaling
-    const logBetaRatio = fromLogDistance(betaDistance);
-    betaHandle.x = margin + logBetaRatio * plotWidth;
+    // Beta handle is positioned at the beta distance - use linear scaling
+    const betaRatio = Math.min(betaDistance / getMaxPlotDistance(), internalMaxDistance / getMaxPlotDistance());
+    betaHandle.x = margin + betaRatio * plotWidth;
     betaHandle.y = toCanvasY(0);
   }
 
@@ -102,8 +97,7 @@
     ctx.clearRect(0, 0, width, height);
 
     // Update scales
-    xScale = plotWidth / maxScaleDistance;
-    yScale = plotHeight / (2 * maxScaleForce);
+    yScale = plotHeight / (2 * getMaxScaleForce());
     betaDistance = internalForceBeta * internalMaxDistance;
 
     // Update handle positions
@@ -130,14 +124,16 @@
     ctx.lineTo(margin, height - margin);
     ctx.stroke();
     
-    // Draw logarithmic grid lines for distance reference
-    const logGridValues = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0];
+    // Draw dynamic grid lines for distance reference
+    const plotRange = getMaxPlotDistance();
+    const gridCount = 10; // Number of grid lines
     ctx.setLineDash([2, 2]);
     ctx.strokeStyle = '#444444';
-    for (const gridValue of logGridValues) {
+    for (let i = 1; i <= gridCount; i++) {
+      const gridValue = (i / gridCount) * plotRange;
       if (gridValue <= internalMaxDistance) {
-        const logRatio = fromLogDistance(gridValue);
-        const x = margin + logRatio * plotWidth;
+        const ratio = gridValue / plotRange;
+        const x = margin + ratio * plotWidth;
         ctx.beginPath();
         ctx.moveTo(x, margin);
         ctx.lineTo(x, height - margin);
@@ -194,13 +190,13 @@
     ctx.setLineDash([2, 2]);
     ctx.strokeStyle = '#444444';
     ctx.beginPath();
-    ctx.moveTo(margin, toCanvasY(maxScaleForce));
-    ctx.lineTo(width - margin, toCanvasY(maxScaleForce));
+    ctx.moveTo(margin, toCanvasY(getMaxScaleForce()));
+    ctx.lineTo(width - margin, toCanvasY(getMaxScaleForce()));
     ctx.stroke();
     
     ctx.beginPath();
-    ctx.moveTo(margin, toCanvasY(-maxScaleForce));
-    ctx.lineTo(width - margin, toCanvasY(-maxScaleForce));
+    ctx.moveTo(margin, toCanvasY(-getMaxScaleForce()));
+    ctx.lineTo(width - margin, toCanvasY(-getMaxScaleForce()));
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.strokeStyle = '#333333';
@@ -233,13 +229,17 @@
     ctx.lineWidth = 3;
     ctx.beginPath();
     
-    const steps = 100;
+    const steps = 200;
     let firstPoint = true;
+    
     for (let i = 0; i <= steps; i++) {
-      const distance = (i / steps) * internalMaxDistance; // Only draw up to current max distance
+      // Create linear progression from 0 to max distance
+      const distance = (i / steps) * internalMaxDistance;
+      const ratio = distance / getMaxPlotDistance();
+      
+      // Calculate force and position
       const force = calculateForce(distance);
-      const logRatio = fromLogDistance(distance);
-      const x = margin + logRatio * plotWidth;
+      const x = margin + ratio * plotWidth;
       const y = toCanvasY(force);
       
       if (firstPoint) {
@@ -330,7 +330,9 @@
     ctx.font = '11px sans-serif';
     ctx.fillStyle = '#cccccc';
     ctx.textAlign = 'center';
-    ctx.fillText('0.01', margin, height - 25);
+    const currentPlotRange = getMaxPlotDistance();
+    ctx.fillText('0.0', margin, height - 25);
+    ctx.fillText(currentPlotRange.toFixed(1), margin + plotWidth, height - 25);
     
     // Only show beta label if it's within the active area
     if (betaDistance <= internalMaxDistance) {
@@ -347,8 +349,8 @@
     // Show scale reference labels
     ctx.fillStyle = '#999999';
     ctx.font = '9px sans-serif';
-    ctx.fillText(`+${maxScaleForce}`, margin - 8, toCanvasY(maxScaleForce) + 4);
-    ctx.fillText(`-${maxScaleForce}`, margin - 8, toCanvasY(-maxScaleForce) + 4);
+    ctx.fillText(`+${getMaxScaleForce()}`, margin - 8, toCanvasY(getMaxScaleForce()) + 4);
+    ctx.fillText(`-${getMaxScaleForce()}`, margin - 8, toCanvasY(-getMaxScaleForce()) + 4);
   }
 
   // Check if point is near handle
@@ -399,16 +401,16 @@
         // Vertical dragging affects max force - handle moves like a slider on Y axis
         // Convert mouse Y position directly to force value
         const forceFromY = (yOffset - y) / yScale;
-        const newMaxForce = Math.max(0.1, Math.min(maxScaleForce, forceFromY));
+        const newMaxForce = Math.max(0.1, Math.min(getMaxScaleForce(), forceFromY));
         internalMaxForce = newMaxForce;
         dispatch('update', { setting: 'max_force', value: newMaxForce });
         break;
         
       case 'maxDistance':
-        // Horizontal dragging affects max distance - use logarithmic scaling
-        // Convert mouse X position to logarithmic distance value
-        const logRatio = Math.max(0, Math.min(1, (x - margin) / plotWidth));
-        const newMaxDistance = toLogDistance(logRatio);
+        // Horizontal dragging affects max distance - use linear scaling
+        // Convert mouse X position to linear distance value
+        const ratio = Math.max(0, Math.min(1, (x - margin) / plotWidth));
+        const newMaxDistance = ratio * getMaxPlotDistance();
         internalMaxDistance = newMaxDistance;
         dispatch('update', { setting: 'max_distance', value: newMaxDistance });
         break;
@@ -452,10 +454,11 @@
   // Reset to default values
   function resetToDefaults() {
     const defaults = {
-      max_force: 1.0,
-      max_distance: 0.03,
+      max_force: 0.5,
+      max_distance: 0.01,
       force_beta: 0.3,
-      friction: 0.85
+      friction: 0.5,
+      brownian_motion: 0.5
     };
     
     // Update internal values
@@ -463,12 +466,14 @@
     internalMaxDistance = defaults.max_distance;
     internalForceBeta = defaults.force_beta;
     friction = defaults.friction;
+    brownianMotion = defaults.brownian_motion;
     
     // Dispatch updates to parent
     dispatch('update', { setting: 'max_force', value: defaults.max_force });
     dispatch('update', { setting: 'max_distance', value: defaults.max_distance });
     dispatch('update', { setting: 'force_beta', value: defaults.force_beta });
     dispatch('update', { setting: 'friction', value: defaults.friction });
+    dispatch('update', { setting: 'brownian_motion', value: defaults.brownian_motion });
     
     // Redraw the diagram
     draw();
@@ -480,7 +485,7 @@
   });
 </script>
 
-<p class="instructions">Drag the handles to adjust physics parameters in real-time!</p>
+<p class="instructions">Drag the handles to adjust physics parameters</p>
 
 <canvas 
   bind:this={canvas}
@@ -513,7 +518,7 @@
       <span class="parameter-value">{(internalForceBeta * internalMaxDistance).toFixed(4)}</span>
     </div>
     <div class="parameter-note">
-      <strong>Distance Units:</strong> All distances are in world coordinate units. The simulation world spans from -2.0 to +2.0 in each direction, so a distance of 0.03 represents 0.75% of the world width.
+      <strong>Distance Units:</strong> All distances are in world coordinate units. The simulation world spans from 0.0 to 1.0 in each direction, so a distance of 0.03 represents 3% of the world width.
     </div>
   </div>
 </div>
@@ -535,20 +540,48 @@
   />
 </div>
 
+<div class="brownian-motion-control">
+  <label for="brownian-motion-slider">
+    <span class="brownian-motion-label">Brownian Motion:</span>
+    <span class="brownian-motion-value">{brownianMotion.toFixed(3)}</span>
+  </label>
+  <input 
+    id="brownian-motion-slider"
+    type="range" 
+    min="0.0" 
+    max="1.0" 
+    step="0.01"
+    bind:value={brownianMotion}
+    on:input={(e) => dispatch('update', { setting: 'brownian_motion', value: parseFloat((e.target as HTMLInputElement).value) })}
+    class="brownian-motion-slider"
+  />
+</div>
+
 <div class="controls-info">
   <div class="controls-header">
     <h4>Interactive Controls:</h4>
-    <button class="reset-button" on:click={resetToDefaults}>
-      Reset to Defaults
-    </button>
+    <div class="header-buttons">
+      <button 
+        class="toggle-button {useNarrowRange ? 'active' : ''}"
+        on:click={() => {
+          useNarrowRange = !useNarrowRange;
+          draw();
+        }}
+      >
+        {useNarrowRange ? 'Narrow (0.01-0.1)' : 'Wide (0.01-1.0)'}
+      </button>
+      <button class="reset-button" on:click={resetToDefaults}>
+        Reset to Defaults
+      </button>
+    </div>
   </div>
   <ul>
     <li><strong>🟢 Max Force:</strong> Drag vertically to adjust force strength</li>
-    <li><strong>🔵 Max Distance:</strong> Drag horizontally to adjust interaction range (logarithmic scale, 0.01-2.0 world units)</li>
+    <li><strong>🔵 Max Distance:</strong> Drag horizontally to adjust interaction range</li>
     <li><strong>🟡 Beta:</strong> Drag horizontally to adjust transition point</li>
   </ul>
   <div class="units-note">
-    <small><strong>Note:</strong> Distances use logarithmic scaling for better control over small values. Max Distance of 0.03 = 0.75% of world width.</small>
+    <small><strong>Note:</strong> Use the toggle button to switch between wide (0.01-1.0) and narrow (0.01-0.1) distance ranges for better control over small values.</small>
   </div>
 </div>
 
@@ -713,10 +746,40 @@
     margin-bottom: 10px;
   }
   
+  .header-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  
   .controls-info h4 {
     margin: 0;
     color: rgba(255, 255, 255, 0.9);
     font-size: 1em;
+  }
+  
+  .toggle-button {
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+  
+  .toggle-button:hover {
+    background: #5a6268;
+  }
+  
+  .toggle-button.active {
+    background: #fbbf24;
+    color: #1a1a1a;
+  }
+  
+  .toggle-button.active:hover {
+    background: #d97706;
   }
   
   .reset-button {
@@ -767,5 +830,73 @@
     color: #93c5fd;
     font-size: 0.85em;
     line-height: 1.3;
+  }
+  
+  .brownian-motion-control {
+    margin: 15px 0;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+  }
+  
+  .brownian-motion-control label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+  }
+  
+  .brownian-motion-label {
+    color: rgba(255, 255, 255, 0.8);
+  }
+  
+  .brownian-motion-value {
+    color: #fbbf24;
+    font-family: monospace;
+    font-weight: 600;
+  }
+  
+  .brownian-motion-slider {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  
+  .brownian-motion-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fbbf24;
+    cursor: pointer;
+    border: 2px solid #1a1a1a;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  
+  .brownian-motion-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fbbf24;
+    cursor: pointer;
+    border: 2px solid #1a1a1a;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  
+  .brownian-motion-slider:hover::-webkit-slider-thumb {
+    background: #d97706;
+  }
+  
+  .brownian-motion-slider:hover::-moz-range-thumb {
+    background: #d97706;
   }
 </style> 
