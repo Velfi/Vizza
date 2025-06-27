@@ -2266,16 +2266,18 @@ impl Simulation for ParticleLifeModel {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_attract: bool,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Determine cursor mode based on is_attract and handle mouse release
+        // Determine cursor mode based on mouse_button and handle mouse release
         let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
             0 // mouse release - turn off cursor interaction
-        } else if is_attract { 
-            1 // attract
+        } else if mouse_button == 0 { 
+            1 // left click = attract
+        } else if mouse_button == 2 {
+            2 // right click = repel
         } else {
-            2 // repel
+            0 // middle click or other = no interaction
         };
         
         // Store coordinates directly - conversion is handled in the manager

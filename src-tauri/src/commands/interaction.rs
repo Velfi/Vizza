@@ -8,14 +8,14 @@ pub async fn handle_mouse_interaction(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     x: f32,
     y: f32,
-    is_attract: bool,
+    mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.handle_mouse_interaction(x, y, is_attract, &gpu_ctx.queue) {
+    match sim_manager.handle_mouse_interaction(x, y, mouse_button, &gpu_ctx.queue) {
         Ok(_) => {
-            tracing::debug!("Mouse interaction handled at ({}, {})", x, y);
+            tracing::debug!("Mouse interaction handled at ({}, {}) with button {}", x, y, mouse_button);
             Ok("Mouse interaction handled successfully".to_string())
         }
         Err(e) => {
@@ -31,15 +31,15 @@ pub async fn handle_mouse_interaction_screen(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     screen_x: f32,
     screen_y: f32,
-    is_attract: bool,
+    mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
-    println!("🖱️ Mouse interaction: screen=({}, {}), attract={}", screen_x, screen_y, is_attract);
-    tracing::info!("Mouse interaction: screen=({}, {}), attract={}", screen_x, screen_y, is_attract);
+    println!("🖱️ Mouse interaction: screen=({}, {}), button={}", screen_x, screen_y, mouse_button);
+    tracing::info!("Mouse interaction: screen=({}, {}), button={}", screen_x, screen_y, mouse_button);
     
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     sim_manager
-        .handle_mouse_interaction_screen_coords(screen_x, screen_y, is_attract, &gpu_ctx.queue)
+        .handle_mouse_interaction_screen_coords(screen_x, screen_y, mouse_button, &gpu_ctx.queue)
         .map_err(|e| e.to_string())?;
     Ok("Mouse interaction handled".to_string())
 }

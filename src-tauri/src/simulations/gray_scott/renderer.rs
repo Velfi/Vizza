@@ -16,6 +16,7 @@ pub struct Renderer {
     settings: Settings,
     lut_buffer: wgpu::Buffer,
     render_pipeline: wgpu::RenderPipeline,
+    render_3x3_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group_layout: wgpu::BindGroupLayout,
     pub camera: Camera,
@@ -115,6 +116,12 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
         });
 
+        // Create 3x3 shader
+        let shader_3x3 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Render 3x3 Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render_3x3.wgsl").into()),
+        });
+
         // Create render pipeline
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -154,6 +161,45 @@ impl Renderer {
             cache: None,
         });
 
+        // Create 3x3 render pipeline
+        let render_3x3_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render 3x3 Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_3x3,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_3x3,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         Ok(Self {
             device: Arc::clone(device),
             queue: Arc::clone(queue),
@@ -163,6 +209,7 @@ impl Renderer {
             settings,
             lut_buffer,
             render_pipeline,
+            render_3x3_pipeline,
             bind_group_layout,
             camera_bind_group_layout,
             camera,
@@ -248,10 +295,11 @@ impl Renderer {
                 ..Default::default()
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            // Always use 3x3 instanced rendering
+            render_pass.set_pipeline(&self.render_3x3_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_bind_group(1, &camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..1);
+            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

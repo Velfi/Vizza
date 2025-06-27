@@ -507,7 +507,7 @@ impl GrayScottModel {
         &mut self,
         texture_x: f32,
         texture_y: f32,
-        is_seeding: bool,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // texture_x and texture_y are in [0,1] range
@@ -518,13 +518,16 @@ impl GrayScottModel {
 
         // Debug output
         tracing::debug!(
-            "Mouse interaction: texture=({:.3}, {:.3})",
+            "Gray-Scott handle_mouse_interaction: texture=({:.3}, {:.3}), button={}, valid={}",
             texture_x,
-            texture_y
+            texture_y,
+            mouse_button,
+            texture_coords.is_valid()
         );
 
         // Check if coordinates are within valid texture bounds
         if !texture_coords.is_valid() {
+            tracing::debug!("Mouse interaction outside simulation bounds, ignoring");
             return Ok(()); // Outside simulation bounds
         }
 
@@ -549,15 +552,18 @@ impl GrayScottModel {
                         let index = (py * self.width as i32 + px) as usize;
                         let factor = 1.0 - (distance / radius as f32);
 
-                        let uv_pair = if is_seeding {
+                        let uv_pair = if mouse_button == 0 {
                             // Left mouse button: seed the reaction with higher V concentration
                             UVPair {
                                 u: 0.2 + 0.3 * factor,
                                 v: 0.8 + 0.2 * factor,
                             }
-                        } else {
+                        } else if mouse_button == 2 {
                             // Right mouse button: create voids/erase
                             UVPair { u: 1.0, v: 0.0 }
+                        } else {
+                            // Middle mouse button or other: no effect
+                            continue;
                         };
 
                         updates.push((index, uv_pair));
@@ -680,29 +686,29 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_seeding: bool,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Convert world coordinates to texture coordinates
         let texture_x = (world_x + 1.0) * 0.5;
         let texture_y = (world_y + 1.0) * 0.5;
-        self.handle_mouse_interaction(texture_x, texture_y, is_seeding, queue)
+        GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, queue)
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        self.pan_camera(delta_x, delta_y);
+        GrayScottModel::pan_camera(self, delta_x, delta_y);
     }
 
     fn zoom_camera(&mut self, delta: f32) {
-        self.zoom_camera(delta);
+        GrayScottModel::zoom_camera(self, delta);
     }
 
     fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        self.zoom_camera_to_cursor(delta, cursor_x, cursor_y);
+        GrayScottModel::zoom_camera_to_cursor(self, delta, cursor_x, cursor_y);
     }
 
     fn reset_camera(&mut self) {
-        self.reset_camera();
+        GrayScottModel::reset_camera(self);
     }
 
     fn get_camera_state(&self) -> serde_json::Value {
@@ -746,11 +752,11 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
     }
 
     fn toggle_gui(&mut self) -> bool {
-        self.toggle_gui()
+        GrayScottModel::toggle_gui(self)
     }
 
     fn is_gui_visible(&self) -> bool {
-        self.is_gui_visible()
+        GrayScottModel::is_gui_visible(self)
     }
 
     fn randomize_settings(

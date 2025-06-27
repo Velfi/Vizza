@@ -6,6 +6,7 @@ pub struct ShaderManager {
     pub compute_shader: ShaderModule,
     pub display_shader: ShaderModule,
     pub quad_shader: ShaderModule,
+    pub quad_3x3_shader: ShaderModule,
 }
 
 impl ShaderManager {
@@ -28,6 +29,11 @@ impl ShaderManager {
                 device,
                 "Quad Shader",
                 include_str!("../shaders/quad.wgsl"),
+            ),
+            quad_3x3_shader: Self::create_shader(
+                device,
+                "Quad 3x3 Shader",
+                include_str!("../shaders/quad_3x3.wgsl"),
             ),
         }
     }

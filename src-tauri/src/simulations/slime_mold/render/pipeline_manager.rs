@@ -11,6 +11,7 @@ pub struct PipelineManager {
     pub reset_pipeline: ComputePipeline,
     pub update_speeds_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
+    pub render_3x3_pipeline: RenderPipeline,
     pub compute_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
     pub render_bind_group_layout: BindGroupLayout,
@@ -303,6 +304,50 @@ impl PipelineManager {
             cache: None,
         });
 
+        let render_3x3_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render 3x3 Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render 3x3 Pipeline Layout"),
+                    bind_group_layouts: &[&render_bind_group_layout, &camera_bind_group_layout],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            vertex: wgpu::VertexState {
+                module: &shader_manager.quad_3x3_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_manager.quad_3x3_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         Self {
             compute_pipeline,
             decay_pipeline,
@@ -311,6 +356,7 @@ impl PipelineManager {
             reset_pipeline,
             update_speeds_pipeline,
             render_pipeline,
+            render_3x3_pipeline,
             compute_bind_group_layout,
             display_bind_group_layout,
             render_bind_group_layout,

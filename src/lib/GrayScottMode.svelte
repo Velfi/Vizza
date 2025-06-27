@@ -483,16 +483,13 @@
         isMouseDown = true;
         lastMouseButton = mouseEvent.button;
         
-        // Start seeding or erasing based on mouse button
-        const isSeeding = mouseEvent.button === 0; // Left click = seeding, right click = erasing
-        
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            isSeeding: isSeeding
+            mouseButton: mouseEvent.button
           });
-          console.log(`Mouse interaction: ${isSeeding ? 'seeding' : 'erasing'} at (${physicalCursorX}, ${physicalCursorY})`);
+          console.log(`Mouse interaction: button ${mouseEvent.button} at (${physicalCursorX}, ${physicalCursorY})`);
         } catch (err) {
           console.error('Failed to handle mouse interaction:', err);
         }
@@ -500,13 +497,11 @@
       
       // Handle mouse move during drag - only when running
       if (mouseEvent.type === 'mousemove' && isMouseDown && running) {
-        const isSeeding = lastMouseButton === 0; // Use the button that started the drag
-        
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            isSeeding: isSeeding
+            mouseButton: lastMouseButton
           });
         } catch (err) {
           console.error('Failed to handle mouse drag interaction:', err);

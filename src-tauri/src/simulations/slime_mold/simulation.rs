@@ -634,7 +634,7 @@ impl SlimeMoldModel {
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
-        // Then render display texture to surface
+        // Then render display texture to surface with 3x3 instanced rendering
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Slime Mold Render Pass"),
@@ -651,10 +651,11 @@ impl SlimeMoldModel {
                 occlusion_query_set: None,
             });
 
-            render_pass.set_pipeline(&self.pipeline_manager.render_pipeline);
+            // Always use 3x3 instanced rendering
+            render_pass.set_pipeline(&self.pipeline_manager.render_3x3_pipeline);
             render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
             render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..1); // Full-screen quad
+            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1134,7 +1135,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         &mut self,
         _world_x: f32,
         _world_y: f32,
-        _is_seeding: bool,
+        _mouse_button: u32,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Slime mold doesn't currently support mouse interaction

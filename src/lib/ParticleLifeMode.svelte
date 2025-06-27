@@ -770,7 +770,7 @@
         await invoke('handle_mouse_interaction_screen', {
           screenX: physicalCursorX,
           screenY: physicalCursorY,
-          isAttract: isAttract
+          mouseButton: mouseEvent.button
         });
       } catch (e) {
         console.error('Failed to handle mouse interaction:', e);
@@ -792,7 +792,7 @@
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            isAttract: isAttract
+            mouseButton: currentMouseButton
           });
         } catch (e) {
           console.error('Failed to handle mouse interaction:', e);
@@ -810,7 +810,7 @@
         await invoke('handle_mouse_interaction_screen', {
           screenX: -9999.0,
           screenY: -9999.0,
-          isAttract: false
+          mouseButton: 0
         });
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);

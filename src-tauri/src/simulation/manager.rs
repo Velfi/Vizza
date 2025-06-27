@@ -157,11 +157,11 @@ impl SimulationManager {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_attract: bool,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)?;
+            simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
         }
         Ok(())
     }
@@ -171,7 +171,7 @@ impl SimulationManager {
         &mut self,
         screen_x: f32,
         screen_y: f32,
-        is_attract: bool,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
@@ -180,19 +180,24 @@ impl SimulationManager {
                     let camera = &simulation.renderer.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
-                    // Convert world to NDC relative to camera
-                    let ndc_x = (world.x - camera.position[0]) * camera.zoom;
-                    let ndc_y = (world.y - camera.position[1]) * camera.zoom;
-                    // Convert NDC [-1,1] to texture coordinates [0,1]
-                    let texture_x = (ndc_x + 1.0) * 0.5;
-                    let texture_y = (ndc_y + 1.0) * 0.5;
-                    simulation.handle_mouse_interaction(texture_x, texture_y, is_attract, queue)?;
+                    
+                    // Convert world coordinates [-1,1] to texture coordinates [0,1]
+                    // Gray-Scott simulation expects texture coordinates in [0,1] range
+                    let texture_x = (world.x + 1.0) * 0.5;
+                    let texture_y = (world.y + 1.0) * 0.5;
+                    
+                    tracing::debug!(
+                        "Gray-Scott mouse interaction: screen=({:.2}, {:.2}), world=({:.3}, {:.3}), texture=({:.3}, {:.3}), button={}",
+                        screen_x, screen_y, world.x, world.y, texture_x, texture_y, mouse_button
+                    );
+                    
+                    simulation.handle_mouse_interaction(texture_x, texture_y, mouse_button, queue)?;
                 }
                 SimulationType::ParticleLife(simulation) => {
                     // Handle mouse release special case before camera transformation
                     if screen_x == -9999.0 && screen_y == -9999.0 {
                         println!("🌍 ParticleLife mouse: RELEASE");
-                        simulation.handle_mouse_interaction(-9999.0, -9999.0, is_attract, queue)?;
+                        simulation.handle_mouse_interaction(-9999.0, -9999.0, mouse_button, queue)?;
                     } else {
                         let camera = &simulation.camera;
                         let screen = ScreenCoords::new(screen_x, screen_y);
@@ -202,7 +207,7 @@ impl SimulationManager {
                         let particle_x = world.x;
                         let particle_y = world.y;
                         
-                        simulation.handle_mouse_interaction(particle_x, particle_y, is_attract, queue)?;
+                        simulation.handle_mouse_interaction(particle_x, particle_y, mouse_button, queue)?;
                     }
                 }
                 _ => (),
@@ -355,7 +360,44 @@ impl SimulationManager {
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    // For slime mold, load the LUT data and apply it directly
+                    let mut lut_data = self.lut_manager.get(lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.update_lut(&lut_data, queue);
+                    simulation.current_lut_name = lut_name.to_string();
+                    
+                    tracing::info!("LUT '{}' applied to slime mold simulation", lut_name);
+                }
+                SimulationType::GrayScott(simulation) => {
+                    // For Gray-Scott, load the LUT data and apply it to the renderer
+                    let mut lut_data = self.lut_manager.get(lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.renderer.update_lut(&lut_data, queue);
+                    simulation.current_lut_name = lut_name.to_string();
+                    
+                    tracing::info!("LUT '{}' applied to Gray-Scott simulation", lut_name);
+                }
+                SimulationType::ParticleLife(simulation) => {
+                    // For particle life, use the existing update_setting method
+                    simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
+                }
+                SimulationType::MainMenu(_) => {
+                    // Main menu doesn't support LUT changes
+                    tracing::warn!("LUT changes not supported for main menu simulation");
+                }
+            }
         }
         Ok(())
     }
@@ -367,6 +409,32 @@ impl SimulationManager {
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    // Toggle the reversed flag and reload the LUT
+                    simulation.lut_reversed = !simulation.lut_reversed;
+                    let mut lut_data = self.lut_manager.get(&simulation.current_lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", simulation.current_lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.update_lut(&lut_data, queue);
+                    tracing::info!("LUT reversed for slime mold simulation");
+                }
+                SimulationType::GrayScott(simulation) => {
+                    // Toggle the reversed flag and reload the LUT
+                    simulation.lut_reversed = !simulation.lut_reversed;
+                    let mut lut_data = self.lut_manager.get(&simulation.current_lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", simulation.current_lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.renderer.update_lut(&lut_data, queue);
+                    tracing::info!("LUT reversed for Gray-Scott simulation");
+                }
                 SimulationType::ParticleLife(simulation) => {
                     // For particle life, we need to update the LUT with reversed flag
                     let current_reversed = simulation.state.lut_reversed;
@@ -382,7 +450,10 @@ impl SimulationManager {
                         !current_reversed,
                     )?;
                 }
-                _ => {}
+                SimulationType::MainMenu(_) => {
+                    // Main menu doesn't support LUT changes
+                    tracing::warn!("LUT reversal not supported for main menu simulation");
+                }
             }
         }
         Ok(())

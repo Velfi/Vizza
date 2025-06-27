@@ -245,7 +245,7 @@ impl Simulation for MainMenuModel {
         &mut self,
         _world_x: f32,
         _world_y: f32,
-        _is_seeding: bool,
+        _mouse_button: u32,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // No mouse interaction for this simulation

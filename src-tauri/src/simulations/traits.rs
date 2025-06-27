@@ -54,7 +54,7 @@ pub trait Simulation {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_attract: bool,
+        mouse_button: u32, // 0 = left, 1 = middle, 2 = right
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
 
@@ -291,21 +291,21 @@ impl Simulation for SimulationType {
         &mut self,
         world_x: f32,
         world_y: f32,
-        is_attract: bool,
+        mouse_button: u32, // 0 = left, 1 = middle, 2 = right
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
             SimulationType::SlimeMold(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
             SimulationType::GrayScott(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
             SimulationType::ParticleLife(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
             SimulationType::MainMenu(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, is_attract, queue)
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
         }
     }
