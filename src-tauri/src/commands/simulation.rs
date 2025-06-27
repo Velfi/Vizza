@@ -524,3 +524,65 @@ pub async fn clear_trail_texture(
         Err("No simulation running".to_string())
     }
 }
+
+#[tauri::command]
+pub async fn zero_force_matrix(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("zero_force_matrix called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(SimulationType::ParticleLife(simulation)) = &mut sim_manager.current_simulation {
+        // Set all force matrix values to zero
+        simulation.settings.zero_matrix();
+        
+        // Update the force matrix buffer on GPU
+        let force_matrix_data = crate::simulations::particle_life::simulation::ParticleLifeModel::flatten_force_matrix(&simulation.settings.force_matrix);
+        simulation.force_matrix_buffer = gpu_ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Force Matrix Buffer"),
+            contents: bytemuck::cast_slice(&force_matrix_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Recreate bind groups that use this buffer
+        simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
+
+        tracing::info!("Force matrix set to zero");
+        Ok("Force matrix set to zero".to_string())
+    } else {
+        Err("No Particle Life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn flip_force_matrix_sign(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    tracing::info!("flip_force_matrix_sign called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(SimulationType::ParticleLife(simulation)) = &mut sim_manager.current_simulation {
+        // Flip the sign of all force matrix values
+        simulation.settings.flip_sign();
+        
+        // Update the force matrix buffer on GPU
+        let force_matrix_data = crate::simulations::particle_life::simulation::ParticleLifeModel::flatten_force_matrix(&simulation.settings.force_matrix);
+        simulation.force_matrix_buffer = gpu_ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Force Matrix Buffer"),
+            contents: bytemuck::cast_slice(&force_matrix_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Recreate bind groups that use this buffer
+        simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
+
+        tracing::info!("Force matrix signs flipped");
+        Ok("Force matrix signs flipped".to_string())
+    } else {
+        Err("No Particle Life simulation running".to_string())
+    }
+}

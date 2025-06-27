@@ -1118,6 +1118,28 @@
     }
   }
 
+  async function zeroMatrix() {
+    try {
+      await invoke('zero_force_matrix');
+      // Sync settings from backend to update the UI
+      await syncSettingsFromBackend();
+      console.log('Matrix set to zero');
+    } catch (e) {
+      console.error('Failed to zero force matrix:', e);
+    }
+  }
+
+  async function flipMatrixSign() {
+    try {
+      await invoke('flip_force_matrix_sign');
+      // Sync settings from backend to update the UI
+      await syncSettingsFromBackend();
+      console.log('Matrix signs flipped');
+    } catch (e) {
+      console.error('Failed to flip force matrix signs:', e);
+    }
+  }
+
   function matrixValueIsNeutral(value: number) {
     return Math.abs(value) <= 0.1;
   }
@@ -1498,6 +1520,26 @@
                     title="Shift matrix down"
                   >
                     ↓
+                  </button>
+                </div>
+                
+                <!-- Zero and Sign Flip Pair -->
+                <div class="icon-button-pair">
+                  <button 
+                    type="button" 
+                    class="icon-btn" 
+                    on:click={zeroMatrix}
+                    title="Set all matrix values to zero"
+                  >
+                    0
+                  </button>
+                  <button 
+                    type="button" 
+                    class="icon-btn" 
+                    on:click={flipMatrixSign}
+                    title="Flip the sign of all matrix values"
+                  >
+                    ±
                   </button>
                 </div>
               </div>

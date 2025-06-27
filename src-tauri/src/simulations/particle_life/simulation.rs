@@ -2290,13 +2290,18 @@ impl Simulation for ParticleLifeModel {
         self.cursor_world_x = sim_x;
         self.cursor_world_y = sim_y;
         
-        println!("🎯 Mouse interaction: world=({}, {}), mode={} ({}), size={}, strength={} (scaled: {})", 
-                 sim_x, sim_y, cursor_mode, 
-                 match cursor_mode { 0 => "inactive", 1 => "attract", 2 => "repel", _ => "unknown" },
-                 self.state.cursor_size, self.state.cursor_strength, 
-                 self.state.cursor_strength * self.settings.max_force * 10.0);
-        println!("📏 Simulation bounds: width={}, height={}, particles live in [-1,1] space", 
-                 self.width, self.height);
+        tracing::debug!(
+            world_x = sim_x,
+            world_y = sim_y,
+            cursor_mode = cursor_mode,
+            cursor_mode_name = match cursor_mode { 0 => "inactive", 1 => "attract", 2 => "repel", _ => "unknown" },
+            cursor_size = self.state.cursor_size,
+            cursor_strength = self.state.cursor_strength,
+            scaled_strength = self.state.cursor_strength * self.settings.max_force * 10.0,
+            sim_width = self.width,
+            sim_height = self.height,
+            "Mouse interaction updated"
+        );
         
         // Update sim params immediately with new cursor values
         let mut sim_params = SimParams::new(

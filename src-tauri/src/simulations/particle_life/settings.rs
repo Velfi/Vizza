@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::matrix_operations;
 
 /// Settings for the Particle Life simulation that can be saved in presets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -636,128 +637,56 @@ impl Settings {
 
     /// Scale all force matrix values by a given factor
     pub fn scale_force_matrix(&mut self, scale_factor: f32) {
-        for i in 0..self.force_matrix.len() {
-            for j in 0..self.force_matrix[i].len() {
-                if i != j { // Don't scale self-repulsion
-                    self.force_matrix[i][j] = (self.force_matrix[i][j] * scale_factor).clamp(-1.0, 1.0);
-                }
-            }
-        }
+        super::matrix_operations::scale_force_matrix(&mut self.force_matrix, scale_factor);
     }
 
     /// Flip the force matrix horizontally
     pub fn flip_horizontal(&mut self) {
-        let n = self.force_matrix.len();
-        for i in 0..n {
-            for j in 0..n/2 {
-                if i != j && i != (n - 1 - j) { // Don't flip diagonal elements
-                    let temp = self.force_matrix[i][j];
-                    self.force_matrix[i][j] = self.force_matrix[i][n - 1 - j];
-                    self.force_matrix[i][n - 1 - j] = temp;
-                }
-            }
-        }
+        matrix_operations::flip_horizontal(&mut self.force_matrix);
     }
 
     /// Flip the force matrix vertically
     pub fn flip_vertical(&mut self) {
-        let n = self.force_matrix.len();
-        for i in 0..n/2 {
-            for j in 0..n {
-                if i != j && (n - 1 - i) != j { // Don't flip diagonal elements
-                    let temp = self.force_matrix[i][j];
-                    self.force_matrix[i][j] = self.force_matrix[n - 1 - i][j];
-                    self.force_matrix[n - 1 - i][j] = temp;
-                }
-            }
-        }
+        matrix_operations::flip_vertical(&mut self.force_matrix);
     }
 
     /// Rotate the force matrix clockwise (90 degrees)
     pub fn rotate_clockwise(&mut self) {
-        let n = self.force_matrix.len();
-        let mut new_matrix = vec![vec![0.0; n]; n];
-        
-        // Copy diagonal elements (self-repulsion) as-is
-        for i in 0..n {
-            new_matrix[i][i] = self.force_matrix[i][i];
-        }
-        
-        // Rotate non-diagonal elements
-        for i in 0..n {
-            for j in 0..n {
-                if i != j {
-                    new_matrix[j][n - 1 - i] = self.force_matrix[i][j];
-                }
-            }
-        }
-        
-        self.force_matrix = new_matrix;
+        matrix_operations::rotate_clockwise(&mut self.force_matrix);
     }
 
     /// Rotate the force matrix counterclockwise (90 degrees)
     pub fn rotate_counterclockwise(&mut self) {
-        let n = self.force_matrix.len();
-        let mut new_matrix = vec![vec![0.0; n]; n];
-        
-        // Copy diagonal elements (self-repulsion) as-is
-        for i in 0..n {
-            new_matrix[i][i] = self.force_matrix[i][i];
-        }
-        
-        // Rotate non-diagonal elements
-        for i in 0..n {
-            for j in 0..n {
-                if i != j {
-                    new_matrix[n - 1 - j][i] = self.force_matrix[i][j];
-                }
-            }
-        }
-        
-        self.force_matrix = new_matrix;
+        matrix_operations::rotate_counterclockwise(&mut self.force_matrix);
     }
 
     /// Shift the force matrix left (circular shift of columns)
     pub fn shift_left(&mut self) {
-        let n = self.force_matrix.len();
-        for i in 0..n {
-            let temp = self.force_matrix[i][0];
-            for j in 0..n-1 {
-                self.force_matrix[i][j] = self.force_matrix[i][j + 1];
-            }
-            self.force_matrix[i][n - 1] = temp;
-        }
+        matrix_operations::shift_left(&mut self.force_matrix);
     }
 
     /// Shift the force matrix right (circular shift of columns)
     pub fn shift_right(&mut self) {
-        let n = self.force_matrix.len();
-        for i in 0..n {
-            let temp = self.force_matrix[i][n - 1];
-            for j in (1..n).rev() {
-                self.force_matrix[i][j] = self.force_matrix[i][j - 1];
-            }
-            self.force_matrix[i][0] = temp;
-        }
+        matrix_operations::shift_right(&mut self.force_matrix);
     }
 
     /// Shift the force matrix up (circular shift of rows)
     pub fn shift_up(&mut self) {
-        let n = self.force_matrix.len();
-        let temp_row = self.force_matrix[0].clone();
-        for i in 0..n-1 {
-            self.force_matrix[i] = self.force_matrix[i + 1].clone();
-        }
-        self.force_matrix[n - 1] = temp_row;
+        matrix_operations::shift_up(&mut self.force_matrix);
     }
 
     /// Shift the force matrix down (circular shift of rows)
     pub fn shift_down(&mut self) {
-        let n = self.force_matrix.len();
-        let temp_row = self.force_matrix[n - 1].clone();
-        for i in (1..n).rev() {
-            self.force_matrix[i] = self.force_matrix[i - 1].clone();
-        }
-        self.force_matrix[0] = temp_row;
+        matrix_operations::shift_down(&mut self.force_matrix);
+    }
+
+    /// Set all force matrix values to zero
+    pub fn zero_matrix(&mut self) {
+        matrix_operations::zero_matrix(&mut self.force_matrix);
+    }
+
+    /// Flip the sign of all force matrix values (multiply by -1)
+    pub fn flip_sign(&mut self) {
+        matrix_operations::flip_sign(&mut self.force_matrix);
     }
 }

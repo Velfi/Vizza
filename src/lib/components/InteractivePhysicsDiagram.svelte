@@ -485,7 +485,23 @@
   });
 </script>
 
-<p class="instructions">Drag the handles to adjust physics parameters</p>
+<div class="instructions">
+  <div class="top-controls">
+    <button 
+      class="toggle-button {useNarrowRange ? 'active' : ''}"
+      on:click={() => {
+        useNarrowRange = !useNarrowRange;
+        draw();
+      }}
+    >
+      {useNarrowRange ? 'Narrow (0.01-0.1)' : 'Wide (0.01-1.0)'}
+    </button>
+    <span>Drag the handles to adjust physics parameters</span>
+    <button class="reset-button" on:click={resetToDefaults}>
+      Reset to Defaults
+    </button>
+  </div>
+</div>
 
 <canvas 
   bind:this={canvas}
@@ -560,20 +576,6 @@
 <div class="controls-info">
   <div class="controls-header">
     <h4>Interactive Controls:</h4>
-    <div class="header-buttons">
-      <button 
-        class="toggle-button {useNarrowRange ? 'active' : ''}"
-        on:click={() => {
-          useNarrowRange = !useNarrowRange;
-          draw();
-        }}
-      >
-        {useNarrowRange ? 'Narrow (0.01-0.1)' : 'Wide (0.01-1.0)'}
-      </button>
-      <button class="reset-button" on:click={resetToDefaults}>
-        Reset to Defaults
-      </button>
-    </div>
   </div>
   <ul>
     <li><strong>🟢 Max Force:</strong> Drag vertically to adjust force strength</li>
@@ -591,6 +593,18 @@
     color: rgba(255, 255, 255, 0.7);
     font-size: 0.9em;
     font-style: italic;
+  }
+  
+  .top-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+  
+  .top-controls span {
+    flex: 1;
+    text-align: center;
   }
   
   .force-diagram {
@@ -744,12 +758,6 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 10px;
-  }
-  
-  .header-buttons {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
   }
   
   .controls-info h4 {
