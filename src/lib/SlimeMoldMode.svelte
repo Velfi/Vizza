@@ -5,6 +5,8 @@
   import NumberDragBox from './components/NumberDragBox.svelte';
   import AgentCountInput from './components/AgentCountInput.svelte';
   import LutSelector from './components/LutSelector.svelte';
+  import CursorConfig from './components/CursorConfig.svelte';
+  import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
 
@@ -36,12 +38,18 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_name: 'MATPLOTLIB_bone',
-    lut_reversed: true
   };
+
+  // LUT state (runtime, not saved in presets)
+  let lut_name = 'MATPLOTLIB_bone';
+  let lut_reversed = true;
 
   // Agent count tracked separately (not part of preset settings)
   let currentAgentCount = 1_000_000;
+
+  // Cursor interaction state (runtime, not saved in presets)
+  let cursorSize = 100.0;
+  let cursorStrength = 5.0;
 
   // Preset and LUT state
   let current_preset = '';
@@ -126,6 +134,25 @@
       await syncSettingsFromBackend(); // Sync UI with backend
     } catch (e) {
       console.error('Failed to toggle LUT reversed:', e);
+    }
+  }
+
+  // Cursor configuration handlers
+  async function updateCursorSize(size: number) {
+    cursorSize = size;
+    try {
+      await invoke('update_simulation_setting', { settingName: 'cursor_size', value: size });
+    } catch (e) {
+      console.error('Failed to update cursor size:', e);
+    }
+  }
+
+  async function updateCursorStrength(strength: number) {
+    cursorStrength = strength;
+    try {
+      await invoke('update_simulation_setting', { settingName: 'cursor_strength', value: strength });
+    } catch (e) {
+      console.error('Failed to update cursor strength:', e);
     }
   }
 
@@ -290,7 +317,7 @@
   async function syncSettingsFromBackend() {
     try {
       const currentSettings = await invoke('get_current_settings') as any;
-      const currentState = await invoke('get_current_state') as { lut_name: string; lut_reversed: boolean } | null;
+      const currentState = await invoke('get_current_state') as { current_lut_name: string; lut_reversed: boolean } | null;
       
       console.log('Syncing settings from backend:', { currentSettings, currentState });
       
@@ -323,9 +350,23 @@
       
       if (currentState) {
         // Update LUT-related settings from state
-        settings.lut_name = currentState.lut_name;
-        settings.lut_reversed = currentState.lut_reversed;
-        console.log('LUT state synced from backend:', { lut_name: settings.lut_name, lut_reversed: settings.lut_reversed });
+        lut_name = currentState.current_lut_name;
+        lut_reversed = currentState.lut_reversed;
+        
+        // Update cursor configuration from state
+        if ((currentState as any).cursor_size !== undefined) {
+          cursorSize = (currentState as any).cursor_size;
+        }
+        if ((currentState as any).cursor_strength !== undefined) {
+          cursorStrength = (currentState as any).cursor_strength;
+        }
+        
+        console.log('State synced from backend:', { 
+          lut_name: lut_name, 
+          lut_reversed: lut_reversed,
+          cursor_size: cursorSize,
+          cursor_strength: cursorStrength
+        });
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -471,6 +512,9 @@
   }
 
   // Mouse event handler for camera controls and UI interaction
+  let isMousePressed = false;
+  let currentMouseButton = 0;
+
   async function handleMouseEvent(event: MouseEvent | WheelEvent) {
     const isWheelEvent = event instanceof WheelEvent;
     const isMouseEvent = event instanceof MouseEvent;
@@ -504,23 +548,41 @@
       
       // Handle mouse down (start of drag) - could be used for slime mold interaction
       if (mouseEvent.type === 'mousedown') {
-        // Future: Add slime mold interaction here if needed
-        console.log('Mouse down at:', cursorX, cursorY);
-      }
-      
-      // Handle mouse up (end of drag) - always handle
-      if (mouseEvent.type === 'mouseup') {
-        console.log('Mouse up');
-      }
-      
-      // Handle mouse leave (end of drag if mouse leaves window) - always handle
-      if (mouseEvent.type === 'mouseleave') {
-        console.log('Mouse leave');
-      }
-      
-      // Handle context menu (right click) - always prevent
-      if (mouseEvent.type === 'contextmenu') {
-        console.log('Context menu prevented');
+        isMousePressed = true;
+        currentMouseButton = mouseEvent.button;
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: physicalCursorX,
+            screenY: physicalCursorY,
+            mouseButton: mouseEvent.button
+          });
+        } catch (e) {
+          console.error('Failed to handle mouse interaction:', e);
+        }
+      } else if (mouseEvent.type === 'mousemove' && isMousePressed) {
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: physicalCursorX,
+            screenY: physicalCursorY,
+            mouseButton: currentMouseButton
+          });
+        } catch (e) {
+          // Don't spam errors
+        }
+      } else if (mouseEvent.type === 'mouseup' || mouseEvent.type === 'mouseleave') {
+        isMousePressed = false;
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: -9999.0,
+            screenY: -9999.0,
+            mouseButton: 0
+          });
+        } catch (e) {
+          // Don't spam errors
+        }
+      } else if (mouseEvent.type === 'contextmenu') {
+        // Prevent right-click menu
+        event.preventDefault();
       }
     }
   }
@@ -603,7 +665,7 @@
   }
 </script>
 
-<div class="slime-mold-container">
+<div class="simulation-container">
   <!-- Mouse interaction overlay -->
   <div 
     class="mouse-overlay"
@@ -774,8 +836,8 @@
           <label for="lutSelector">Color Scheme</label>
           <LutSelector
             {available_luts}
-            current_lut={settings.lut_name}
-            reversed={settings.lut_reversed}
+            current_lut={lut_name}
+            reversed={lut_reversed}
             on:select={({ detail }) => updateLutName(detail.name)}
             on:reverse={() => updateLutReversed()}
           />
@@ -789,9 +851,28 @@
           <span>📹 WASD/Arrows: Pan | Q/E or Mouse wheel: Zoom | C: Reset camera</span>
         </div>
         <div class="control-group">
+          <span>🖱️ Left click: Attract agents | Right click: Repel agents</span>
+        </div>
+        <div class="control-group">
           <button type="button" on:click={resetCamera}>Reset Camera</button>
         </div>
       </fieldset>
+
+      <!-- Cursor Configuration -->
+      <CursorConfig
+        cursorSize={cursorSize}
+        cursorStrength={cursorStrength}
+        sizeMin={10}
+        sizeMax={500}
+        sizeStep={5}
+        strengthMin={0}
+        strengthMax={50}
+        strengthStep={0.5}
+        sizePrecision={0}
+        strengthPrecision={1}
+        on:sizechange={(e) => updateCursorSize(e.detail)}
+        on:strengthchange={(e) => updateCursorStrength(e.detail)}
+      />
 
       <!-- 4. Controls (Pause/Resume, Reset Trails, Reset Agents, Randomize) -->
       <fieldset>
@@ -1143,7 +1224,60 @@
 </div>
 
 <style>
-  .slime-mold-container {
+  /* SlimeMold specific styles */
+  
+  /* Custom loading screen styling */
+  .loading-overlay {
+    background: black;
+  }
+
+  .loading-content {
+    padding: 2rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .loading-content h2 {
+    margin: 1rem 0 0.5rem 0;
+    font-size: 1.5rem;
+  }
+
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top: 4px solid #646cff;
+  }
+
+  /* Custom dialog styling */
+  .save-preset-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dialog-content {
+    background: white;
+    padding: 1rem;
+    border-radius: 4px;
+    min-width: 300px;
+  }
+
+  .dialog-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+  }
+
+  .simulation-container {
     display: flex;
     flex-direction: column;
     height: 100vh;
@@ -1255,95 +1389,6 @@
     display: flex;
     gap: 0.5rem;
     margin-top: 1rem;
-  }
-
-  .save-preset-dialog {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .dialog-content {
-    background: white;
-    padding: 1rem;
-    border-radius: 4px;
-    min-width: 300px;
-  }
-
-  .dialog-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-    margin-top: 1rem;
-  }
-
-  button {
-    padding: 0.5rem 1rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background: #f8f9fa;
-    cursor: pointer;
-    height: 35px;
-  }
-
-  button:hover {
-    background: #e9ecef;
-  }
-
-  /* Loading Screen Styles */
-  .loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: black;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .loading-content {
-    text-align: center;
-    color: white;
-    padding: 2rem;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  .loading-content h2 {
-    margin: 1rem 0 0.5rem 0;
-    font-size: 1.5rem;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .loading-content p {
-    margin: 0;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 1rem;
-  }
-
-  .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top: 4px solid #646cff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto;
-  }
-
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
   }
 
   .mouse-overlay {

@@ -74,6 +74,18 @@ impl SimSizeUniform {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct CursorParams {
+    pub is_active: u32, // 0=inactive, 1=attract, 2=repel
+    pub x: f32,
+    pub y: f32,
+    pub strength: f32,
+    pub size: f32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+}
+
 #[derive(Debug)]
 /// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
@@ -114,6 +126,16 @@ pub struct SlimeMoldModel {
     // Resize debouncing
     pub last_resize_time: std::time::Instant,
     pub resize_debounce_threshold: std::time::Duration,
+
+    // Add cursor interaction state to SlimeMoldModel
+    pub cursor_active_mode: u32, // 0=inactive, 1=attract, 2=repel
+    pub cursor_world_x: f32,
+    pub cursor_world_y: f32,
+    pub cursor_buffer: wgpu::Buffer, // buffer for CursorParams
+    
+    // Cursor configuration (runtime state, not saved in presets)
+    pub cursor_size: f32,
+    pub cursor_strength: f32,
 }
 
 impl SlimeMoldModel {
@@ -258,6 +280,22 @@ impl SlimeMoldModel {
         // Create camera
         let camera = Camera::new(device, effective_width as f32, effective_height as f32)?;
 
+        // Create cursor buffer
+        let cursor_params = CursorParams {
+            is_active: 0,
+            x: 0.0,
+            y: 0.0,
+            strength: 10.0, // reasonable default
+            size: 80.0,     // reasonable default
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let cursor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Cursor Params Buffer"),
+            contents: bytemuck::bytes_of(&cursor_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
             device,
@@ -273,6 +311,7 @@ impl SlimeMoldModel {
             &display_sampler,
             &lut_buffer,
             camera.buffer(),
+            &cursor_buffer,
         );
 
         // Create buffer pool
@@ -305,6 +344,12 @@ impl SlimeMoldModel {
             camera,
             last_resize_time: std::time::Instant::now(),
             resize_debounce_threshold: std::time::Duration::from_millis(500),
+            cursor_active_mode: 0,
+            cursor_world_x: 0.0,
+            cursor_world_y: 0.0,
+            cursor_buffer,
+            cursor_size: 100.0,   // Default cursor size
+            cursor_strength: 5.0, // Default cursor strength
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -935,6 +980,20 @@ impl SlimeMoldModel {
                     self.settings.gradient_angle = v as f32;
                 }
             }
+            "cursor_size" => {
+                if let Some(size) = value.as_f64() {
+                    self.cursor_size = (size as f32).max(10.0).min(500.0); // Clamp to reasonable range
+                    self.update_cursor_params(queue);
+                    return Ok(()); // Return early to avoid updating GPU uniforms unnecessarily
+                }
+            }
+            "cursor_strength" => {
+                if let Some(strength) = value.as_f64() {
+                    self.cursor_strength = (strength as f32).max(0.0).min(50.0); // Clamp to reasonable range
+                    self.update_cursor_params(queue);
+                    return Ok(()); // Return early to avoid updating GPU uniforms unnecessarily
+                }
+            }
             "random_seed" => {
                 if let Some(v) = value.as_u64() {
                     self.settings.random_seed = v as u32;
@@ -1029,6 +1088,7 @@ impl SlimeMoldModel {
             &self.display_sampler,
             &self.lut_buffer,
             self.camera.buffer(),
+            &self.cursor_buffer,
         );
     }
 
@@ -1073,6 +1133,20 @@ impl SlimeMoldModel {
     pub fn reset_camera(&mut self) {
         tracing::debug!("Slime mold reset_camera called");
         self.camera.reset();
+    }
+
+    /// Update the cursor state and upload to GPU (to be used in compute shader)
+    pub fn update_cursor_params(&mut self, queue: &Arc<Queue>) {
+        let params = CursorParams {
+            is_active: self.cursor_active_mode,
+            x: self.cursor_world_x,
+            y: self.cursor_world_y,
+            strength: self.cursor_strength,
+            size: self.cursor_size,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        queue.write_buffer(&self.cursor_buffer, 0, bytemuck::bytes_of(&params));
     }
 }
 
@@ -1124,6 +1198,8 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "lut_reversed": self.lut_reversed,
             "current_lut_name": self.current_lut_name,
             "show_gui": self.show_gui,
+            "cursor_size": self.cursor_size,
+            "cursor_strength": self.cursor_strength,
             "camera": {
                 "position": self.camera.position,
                 "zoom": self.camera.zoom
@@ -1133,13 +1209,43 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
     fn handle_mouse_interaction(
         &mut self,
-        _world_x: f32,
-        _world_y: f32,
-        _mouse_button: u32,
-        _queue: &Arc<Queue>,
+        world_x: f32,
+        world_y: f32,
+        mouse_button: u32,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Slime mold doesn't currently support mouse interaction
-        // This could be implemented in the future for seeding agents
+        // Determine cursor mode based on mouse_button and handle mouse release
+        let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
+            0 // mouse release - turn off cursor interaction
+        } else if mouse_button == 0 {
+            1 // left click = attract
+        } else if mouse_button == 2 {
+            2 // right click = repel
+        } else {
+            0 // middle click or other = no interaction
+        };
+        
+        let (sim_x, sim_y) = if cursor_mode == 0 {
+            (0.0, 0.0)
+        } else {
+            // Convert world coordinates [-1, 1] to simulation pixel coordinates [0, width] x [0, height]
+            // World space is [-1, 1] where (-1, -1) is bottom-left and (1, 1) is top-right
+            // Simulation space is [0, width] x [0, height] where (0, 0) is top-left
+            let sim_x = ((world_x + 1.0) * 0.5) * self.current_width as f32;
+            let sim_y = ((1.0 - world_y) * 0.5) * self.current_height as f32; // Flip Y axis
+            (sim_x, sim_y)
+        };
+        
+        self.cursor_active_mode = cursor_mode;
+        self.cursor_world_x = sim_x;
+        self.cursor_world_y = sim_y;
+        
+        tracing::debug!(
+            "Slime mold cursor interaction: world=({:.3}, {:.3}), sim=({:.1}, {:.1}), mode={}, dimensions={}x{}",
+            world_x, world_y, sim_x, sim_y, cursor_mode, self.current_width, self.current_height
+        );
+        
+        self.update_cursor_params(queue);
         Ok(())
     }
 

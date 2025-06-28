@@ -4,6 +4,7 @@
   import { listen } from '@tauri-apps/api/event';
   import NumberDragBox from './components/NumberDragBox.svelte';
   import LutSelector from './components/LutSelector.svelte';
+  import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
 
@@ -17,8 +18,6 @@
     nutrient_pattern_reversed: boolean;
     fps_limit: number;
     fps_limit_enabled: boolean;
-    lut_name: string;
-    lut_reversed: boolean;
   }
 
   // Simulation state
@@ -37,8 +36,6 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
-    lut_name: '',
-    lut_reversed: false
   };
 
   // Preset and LUT state
@@ -49,6 +46,10 @@
   // Dialog state
   let show_save_preset_dialog = false;
   let new_preset_name = '';
+
+  // LUT state (runtime, not saved in presets)
+  let lut_name = '';
+  let lut_reversed = false;
 
   // Two-way binding handlers
   async function updateFpsLimitEnabled(value: boolean) {
@@ -213,7 +214,7 @@
   async function syncSettingsFromBackend() {
     try {
       const currentSettings = await invoke('get_current_settings');
-      const currentState = await invoke('get_current_state') as { lut_name: string; lut_reversed: boolean } | null;
+      const currentState = await invoke('get_current_state') as { current_lut_name: string; lut_reversed: boolean } | null;
       
       if (currentSettings) {
         // Update the settings object with current backend values
@@ -225,8 +226,8 @@
       
       if (currentState) {
         // Update LUT-related settings from state
-        settings.lut_name = currentState.lut_name;
-        settings.lut_reversed = currentState.lut_reversed;
+        lut_name = currentState.current_lut_name;
+        lut_reversed = currentState.lut_reversed;
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -637,7 +638,7 @@
   });
 </script>
 
-<div class="gray-scott-container">
+<div class="simulation-container">
   <!-- Mouse interaction overlay -->
   <div 
     class="mouse-overlay"
@@ -681,15 +682,20 @@
       {/if}
     </div>
 
-    <!-- Simulation Controls -->
+    <!-- Main UI Controls Panel -->
     <div class="simulation-controls">
     <form on:submit|preventDefault>
-      <!-- 1. FPS Display & Limiter -->
+      <!-- Status -->
       <fieldset>
-        <legend>FPS & Display</legend>
+        <legend>Status</legend>
         <div class="control-group">
           <span>Running at {currentFps} FPS</span>
         </div>
+      </fieldset>
+
+      <!-- FPS Controls -->
+      <fieldset>
+        <legend>FPS & Display</legend>
         <div class="control-group">
           <label for="fpsLimitEnabled">Enable FPS Limit</label>
           <input 
@@ -729,7 +735,7 @@
         {/if}
       </fieldset>
 
-      <!-- 2. Preset Controls -->
+      <!-- Preset Controls -->
       <fieldset>
         <legend>Presets</legend>
         <div class="control-group">
@@ -753,21 +759,21 @@
         </div>
       </fieldset>
 
-      <!-- 3. LUT Controls -->
+      <!-- Display Settings -->
       <fieldset>
-        <legend>Color Map</legend>
+        <legend>Display Settings</legend>
         <div class="control-group">
           <LutSelector
             {available_luts}
-            current_lut={settings.lut_name}
-            reversed={settings.lut_reversed}
+            current_lut={lut_name}
+            reversed={lut_reversed}
             on:select={({ detail }) => updateLut(detail.name)}
             on:reverse={() => updateLutReversed()}
           />
         </div>
       </fieldset>
 
-      <!-- 4. Simulation Controls -->
+      <!-- Simulation Controls -->
       <fieldset>
         <legend>Controls</legend>
         <div class="control-group">
@@ -780,7 +786,7 @@
             } catch (e) {
               console.error('Failed to reset simulation:', e);
             }
-          }}>Reset Simulation</button>
+          }}>🔄 Reset Simulation</button>
           <button type="button" on:click={async () => {
             try {
               await invoke('randomize_settings');
@@ -801,112 +807,114 @@
         </div>
       </fieldset>
 
-      <!-- 5. Reaction-Diffusion Settings -->
+      <!-- Reaction-Diffusion Settings -->
       <fieldset>
         <legend>Reaction-Diffusion Settings</legend>
-        <div class="control-group">
-          <label for="feedRate">Feed Rate</label>
-          <NumberDragBox 
-            bind:value={settings.feed_rate}
-            min={0}
-            max={0.1}
-            step={0.001}
-            precision={3}
-            on:change={async (e) => {
-              try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'feed_rate', 
-                  value: e.detail 
-                });
-              } catch (err) {
-                console.error('Failed to update feed rate:', err);
-              }
-            }}
-          />
-        </div>
-        <div class="control-group">
-          <label for="killRate">Kill Rate</label>
-          <NumberDragBox 
-            bind:value={settings.kill_rate}
-            min={0}
-            max={0.1}
-            step={0.001}
-            precision={3}
-            on:change={async (e) => {
-              try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'kill_rate', 
-                  value: e.detail 
-                });
-              } catch (err) {
-                console.error('Failed to update kill rate:', err);
-              }
-            }}
-          />
-        </div>
-        <div class="control-group">
-          <label for="diffusionRateU">Diffusion Rate U</label>
-          <NumberDragBox 
-            bind:value={settings.diffusion_rate_u}
-            min={0}
-            max={1}
-            step={0.01}
-            precision={2}
-            on:change={async (e) => {
-              try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'diffusion_rate_u', 
-                  value: e.detail 
-                });
-              } catch (err) {
-                console.error('Failed to update diffusion rate U:', err);
-              }
-            }}
-          />
-        </div>
-        <div class="control-group">
-          <label for="diffusionRateV">Diffusion Rate V</label>
-          <NumberDragBox 
-            bind:value={settings.diffusion_rate_v}
-            min={0}
-            max={1}
-            step={0.01}
-            precision={2}
-            on:change={async (e) => {
-              try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'diffusion_rate_v', 
-                  value: e.detail 
-                });
-              } catch (err) {
-                console.error('Failed to update diffusion rate V:', err);
-              }
-            }}
-          />
-        </div>
-        <div class="control-group">
-          <label for="timestep">Timestep</label>
-          <NumberDragBox 
-            bind:value={settings.timestep}
-            min={0.1}
-            max={10}
-            step={0.1}
-            precision={1}
-            on:change={async (e) => {
-              try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'timestep', 
-                  value: e.detail 
-                });
-              } catch (err) {
-                console.error('Failed to update timestep:', err);
-              }
-            }}
-          />
+        <div class="physics-controls-grid">
+          <div class="control-group">
+            <label for="feedRate">Feed Rate</label>
+            <NumberDragBox 
+              bind:value={settings.feed_rate}
+              min={0}
+              max={0.1}
+              step={0.001}
+              precision={3}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', { 
+                    settingName: 'feed_rate', 
+                    value: e.detail 
+                  });
+                } catch (err) {
+                  console.error('Failed to update feed rate:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="control-group">
+            <label for="killRate">Kill Rate</label>
+            <NumberDragBox 
+              bind:value={settings.kill_rate}
+              min={0}
+              max={0.1}
+              step={0.001}
+              precision={3}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', { 
+                    settingName: 'kill_rate', 
+                    value: e.detail 
+                  });
+                } catch (err) {
+                  console.error('Failed to update kill rate:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="control-group">
+            <label for="diffusionRateU">Diffusion Rate U</label>
+            <NumberDragBox 
+              bind:value={settings.diffusion_rate_u}
+              min={0}
+              max={1}
+              step={0.01}
+              precision={2}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', { 
+                    settingName: 'diffusion_rate_u', 
+                    value: e.detail 
+                  });
+                } catch (err) {
+                  console.error('Failed to update diffusion rate U:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="control-group">
+            <label for="diffusionRateV">Diffusion Rate V</label>
+            <NumberDragBox 
+              bind:value={settings.diffusion_rate_v}
+              min={0}
+              max={1}
+              step={0.01}
+              precision={2}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', { 
+                    settingName: 'diffusion_rate_v', 
+                    value: e.detail 
+                  });
+                } catch (err) {
+                  console.error('Failed to update diffusion rate V:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="control-group">
+            <label for="timestep">Timestep</label>
+            <NumberDragBox 
+              bind:value={settings.timestep}
+              min={0.1}
+              max={10}
+              step={0.1}
+              precision={1}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', { 
+                    settingName: 'timestep', 
+                    value: e.detail 
+                  });
+                } catch (err) {
+                  console.error('Failed to update timestep:', err);
+                }
+              }}
+            />
+          </div>
         </div>
       </fieldset>
 
-      <!-- 6. Nutrient Pattern Settings -->
+      <!-- Nutrient Pattern Settings -->
       <fieldset>
         <legend>Nutrient Pattern</legend>
         <div class="control-group">
@@ -948,7 +956,7 @@
 
   <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
-    <div class="dialog-overlay">
+    <div class="dialog-backdrop">
       <div class="dialog">
         <h3>Save Current Settings</h3>
         <input 
@@ -956,7 +964,7 @@
           bind:value={new_preset_name}
           placeholder="Enter preset name"
         />
-        <div class="dialog-actions">
+        <div class="dialog-buttons">
           <button type="button" on:click={savePreset}>Save</button>
           <button type="button" on:click={() => show_save_preset_dialog = false}>Cancel</button>
         </div>
@@ -966,203 +974,5 @@
 </div>
 
 <style>
-  .gray-scott-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: transparent;
-    position: relative;
-  }
-
-  .mouse-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
-    pointer-events: auto;
-  }
-
-  .controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    position: relative;
-    z-index: 20;
-  }
-
-  .back-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-  }
-
-  .back-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.9rem;
-  }
-
-  .status-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #ff6b6b;
-    transition: background-color 0.3s ease;
-  }
-
-  .status-indicator.running {
-    background: #51cf66;
-  }
-
-  .mouse-instructions {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .simulation-controls {
-    padding: 1rem;
-    max-width: 800px;
-    margin: 0 auto;
-    background: rgba(0, 0, 0, 1.0);
-    position: relative;
-    z-index: 20;
-  }
-
-  fieldset {
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  legend {
-    font-weight: bold;
-    padding: 0 0.5rem;
-  }
-
-  .control-group {
-    margin-bottom: 1rem;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-  }
-
-  select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-  }
-
-  input[type="checkbox"] {
-    margin-right: 0.5rem;
-  }
-
-  .preset-controls {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
-
-  .preset-controls select {
-    flex: 1;
-  }
-
-  .preset-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-
-  .dialog-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .dialog {
-    background: white;
-    padding: 2rem;
-    border-radius: 8px;
-    min-width: 300px;
-  }
-
-  .dialog h3 {
-    margin-top: 0;
-  }
-
-  .dialog input {
-    width: 100%;
-    margin: 1rem 0;
-  }
-
-  .dialog-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-
-  .loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .loading-content {
-    text-align: center;
-    color: white;
-  }
-
-  .loading-spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #f3f3f3;
-    border-top: 5px solid #3498db;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 1rem;
-  }
-
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
+  /* Gray-Scott specific styles (if any) */
 </style> 

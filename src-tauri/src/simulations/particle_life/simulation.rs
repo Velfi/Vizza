@@ -1,5 +1,6 @@
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -208,7 +209,7 @@ impl State {
 }
 
 // Add color mode enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColorMode {
     Gray18,
     White,
@@ -2259,6 +2260,9 @@ impl Simulation for ParticleLifeModel {
             "position_generator": self.state.position_generator,
             "type_generator": self.state.type_generator,
             "matrix_generator": self.state.matrix_generator,
+            "current_lut_name": self.state.current_lut_name,
+            "lut_reversed": self.state.lut_reversed,
+            "color_mode": self.state.color_mode,
         })
     }
 

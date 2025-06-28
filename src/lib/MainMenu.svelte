@@ -56,7 +56,7 @@
       on:click={() => selectSimulation('slime-mold')}
     >
       <h3>Slime Mold</h3>
-      <p>Cellular automaton simulation</p>
+      <p>Agent collaboration simulation</p>
     </button>
     
     <button 
@@ -75,10 +75,13 @@
       <p>Multi-species particle simulation</p>
     </button>
 
-    <div class="simulation-card disabled">
+    <button 
+      class="simulation-card disabled" 
+      disabled
+    >
       <h3>Coming Soon</h3>
       <p>More simulations</p>
-    </div>
+    </button>
   </div>
 </div>
 
@@ -122,7 +125,7 @@
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
-    padding: 2rem;
+    padding: 1.2rem;
     cursor: pointer;
     transition: all 0.3s ease;
     color: inherit;
@@ -130,6 +133,14 @@
     text-align: center;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    max-width: 240px;
+    min-height: 120px;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
   }
 
   .simulation-card:hover:not(.disabled) {
@@ -147,11 +158,21 @@
     margin: 0 0 0.5rem 0;
     font-size: 1.5rem;
     color: rgba(255, 255, 255, 0.9);
+    word-break: break-word;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   .simulation-card p {
     margin: 0;
     font-size: 1rem;
     color: rgba(255, 255, 255, 0.7);
+    word-break: break-word;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 </style>

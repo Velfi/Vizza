@@ -628,7 +628,7 @@ impl SimulationPresetManager {
                 )
             }
             SimulationType::MainMenu(_) => {
-                Err("No presets available for Main Menu Background".into())
+                unreachable!("No presets available for Main Menu Background")
             }
         }
     }

@@ -5,7 +5,8 @@
   import NumberDragBox from './components/NumberDragBox.svelte';
   import LutSelector from './components/LutSelector.svelte';
   import InteractivePhysicsDiagram from './components/InteractivePhysicsDiagram.svelte';
-
+  import CursorConfig from './components/CursorConfig.svelte';
+  import './shared-theme.css';
   import './particle_life_mode.css';
 
   const dispatch = createEventDispatcher();
@@ -507,8 +508,8 @@
         
         // Sync LUT state from backend
         if (backendState && typeof backendState === 'object') {
-          if ('current_lut' in backendState) {
-            const backendLut = (backendState as any).current_lut || '';
+          if ('current_lut_name' in backendState) {
+            const backendLut = (backendState as any).current_lut_name || '';
             // Always sync LUT from backend to ensure consistency
             if (backendLut !== state.current_lut) {
                 state.current_lut = backendLut;
@@ -786,8 +787,6 @@
         const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
         
         // Use the same button state as when mouse was first pressed
-        const isAttract = currentMouseButton === 0;
-        
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
@@ -1182,7 +1181,7 @@
   }
 </script>
 
-<div class="particle-life-container">
+<div class="simulation-container">
   {#if isLoading}
     <div class="loading-screen">
       <div class="loading-content">
@@ -1606,36 +1605,20 @@
       </fieldset>
 
       <!-- Mouse Interaction -->
-      <fieldset>
-        <legend>Mouse Interaction</legend>
-        <div class="control-group">
-          <label for="cursorSize">Cursor Size</label>
-          <input 
-            type="range" 
-            id="cursorSize"
-            value={state.cursor_size}
-            min="0.05" 
-            max="1.0" 
-            step="0.05"
-            on:input={(e) => updateCursorSize(parseFloat((e.target as HTMLInputElement).value))}
-          />
-          <span class="range-value">{state.cursor_size.toFixed(2)}</span>
-        </div>
-        
-        <div class="control-group">
-          <label for="cursorStrength">Cursor Strength</label>
-          <input 
-            type="range" 
-            id="cursorStrength"
-            value={state.cursor_strength}
-            min="0" 
-            max="20" 
-            step="0.5"
-            on:input={(e) => updateCursorStrength(parseFloat((e.target as HTMLInputElement).value))}
-          />
-          <span class="range-value">{state.cursor_strength.toFixed(1)}</span>
-        </div>
-      </fieldset>
+      <CursorConfig
+        cursorSize={state.cursor_size}
+        cursorStrength={state.cursor_strength}
+        sizeMin={0.05}
+        sizeMax={1.0}
+        sizeStep={0.05}
+        strengthMin={0}
+        strengthMax={20}
+        strengthStep={0.5}
+        sizePrecision={2}
+        strengthPrecision={1}
+        on:sizechange={(e) => updateCursorSize(e.detail)}
+        on:strengthchange={(e) => updateCursorStrength(e.detail)}
+      />
 
       <!-- Display Settings -->
       <fieldset>
@@ -1754,7 +1737,7 @@
 </div>
 
 <style>
-  .particle-life-container {
+  .simulation-container {
     display: flex;
     flex-direction: column;
     height: 100vh;

@@ -26,6 +26,16 @@ struct SimSizeUniform {
     _pad1: u32,
 };
 
+struct CursorParams {
+    is_active: u32, // 0=inactive, 1=attract, 2=repel
+    x: f32,
+    y: f32,
+    strength: f32,
+    size: f32,
+    _pad1: u32,
+    _pad2: u32,
+};
+
 @group(0) @binding(0)
 var<storage, read_write> agents: array<vec4<f32>>;
 
@@ -37,6 +47,9 @@ var<uniform> sim_size: SimSizeUniform;
 
 @group(0) @binding(3)
 var<storage, read> gradient_map: array<f32>;
+
+@group(0) @binding(4)
+var<uniform> cursor: CursorParams;
 
 // Helper function for bilinear interpolation
 fn sample_trail_map(pos: vec2<f32>) -> f32 {
@@ -202,6 +215,27 @@ fn update_agents(
     let move_dist = speed * TIME_STEP;
     x = x + move_dist * cos(angle);
     y = y + move_dist * sin(angle);
+
+    // --- CURSOR INTERACTION ---
+    if (cursor.is_active > 0u) {
+        let cursor_pos = vec2<f32>(cursor.x, cursor.y);
+        let delta = cursor_pos - vec2<f32>(x, y);
+        let dist = length(delta);
+        if (dist < cursor.size && dist > 0.01) {
+            let dir = normalize(delta);
+            let force = cursor.strength * (1.0 - dist / cursor.size);
+            if (cursor.is_active == 1u) {
+                // Attract
+                x += dir.x * force;
+                y += dir.y * force;
+            } else if (cursor.is_active == 2u) {
+                // Repel
+                x -= dir.x * force;
+                y -= dir.y * force;
+            }
+        }
+    }
+    // --- END CURSOR INTERACTION ---
 
     // Apply jitter with proper random distribution
     let jitter_strength = sim_size.agent_jitter;

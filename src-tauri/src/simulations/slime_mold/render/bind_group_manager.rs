@@ -26,6 +26,7 @@ impl BindGroupManager {
         display_sampler: &wgpu::Sampler,
         lut_buffer: &Buffer,
         camera_buffer: &Buffer,
+        cursor_buffer: &Buffer,
     ) -> Self {
         Self {
             compute_bind_group: Self::create_compute_bind_group(
@@ -35,6 +36,7 @@ impl BindGroupManager {
                 trail_map_buffer,
                 gradient_buffer,
                 sim_size_buffer,
+                cursor_buffer,
             ),
             display_bind_group: Self::create_display_bind_group(
                 device,
@@ -66,6 +68,7 @@ impl BindGroupManager {
         trail_map_buffer: &Buffer,
         gradient_buffer: &Buffer,
         sim_size_buffer: &Buffer,
+        cursor_buffer: &Buffer,
     ) -> BindGroup {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("Compute Bind Group"),
@@ -86,6 +89,10 @@ impl BindGroupManager {
                 BindGroupEntry {
                     binding: 3,
                     resource: gradient_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 4,
+                    resource: cursor_buffer.as_entire_binding(),
                 },
             ],
         })

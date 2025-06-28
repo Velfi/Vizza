@@ -210,6 +210,20 @@ impl SimulationManager {
                         simulation.handle_mouse_interaction(particle_x, particle_y, mouse_button, queue)?;
                     }
                 }
+                SimulationType::SlimeMold(simulation) => {
+                    // Handle mouse release special case before camera transformation
+                    if screen_x == -9999.0 && screen_y == -9999.0 {
+                        println!("🌍 SlimeMold mouse: RELEASE");
+                        simulation.handle_mouse_interaction(-9999.0, -9999.0, mouse_button, queue)?;
+                    } else {
+                        let camera = &simulation.camera;
+                        let screen = ScreenCoords::new(screen_x, screen_y);
+                        let world = camera.screen_to_world(screen);
+                        let world_x = world.x;
+                        let world_y = world.y;
+                        simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
+                    }
+                }
                 _ => (),
             }
         }
