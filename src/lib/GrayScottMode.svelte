@@ -4,6 +4,8 @@
   import { listen } from '@tauri-apps/api/event';
   import NumberDragBox from './components/NumberDragBox.svelte';
   import LutSelector from './components/LutSelector.svelte';
+  import CursorConfig from './components/CursorConfig.svelte';
+  import UiHiddenIndicator from './components/UiHiddenIndicator.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -18,6 +20,8 @@
     nutrient_pattern_reversed: boolean;
     fps_limit: number;
     fps_limit_enabled: boolean;
+    cursor_size: number;
+    cursor_strength: number;
   }
 
   // Simulation state
@@ -36,6 +40,10 @@
     // Display Settings
     fps_limit: 60,
     fps_limit_enabled: false,
+
+    // Cursor Settings
+    cursor_size: 10,
+    cursor_strength: 0.5,
   };
 
   // Preset and LUT state
@@ -773,6 +781,40 @@
         </div>
       </fieldset>
 
+      <!-- Cursor Configuration -->
+      <CursorConfig
+        cursorSize={settings.cursor_size}
+        cursorStrength={settings.cursor_strength}
+        sizeMin={5}
+        sizeMax={50}
+        sizeStep={1}
+        strengthMin={0.1}
+        strengthMax={2.0}
+        strengthStep={0.1}
+        sizePrecision={0}
+        strengthPrecision={1}
+        on:sizechange={async (e) => {
+          try {
+            await invoke('update_simulation_setting', { 
+              settingName: 'cursor_size', 
+              value: e.detail 
+            });
+          } catch (err) {
+            console.error('Failed to update cursor size:', err);
+          }
+        }}
+        on:strengthchange={async (e) => {
+          try {
+            await invoke('update_simulation_setting', { 
+              settingName: 'cursor_strength', 
+              value: e.detail 
+            });
+          } catch (err) {
+            console.error('Failed to update cursor strength:', err);
+          }
+        }}
+      />
+
       <!-- Simulation Controls -->
       <fieldset>
         <legend>Controls</legend>
@@ -952,6 +994,9 @@
       </fieldset>
     </form>
     </div>
+  {:else}
+    <!-- UI Hidden Indicator -->
+    <UiHiddenIndicator {showUI} on:toggle={toggleBackendGui} />
   {/if}
 
   <!-- Save Preset Dialog -->

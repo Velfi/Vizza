@@ -21,6 +21,7 @@
   let selectedStopIndex = -1;
   let isDragging = false;
   let dragStopIndex = -1;
+  let original_lut_name = ''; // Store the original LUT name to restore on cancel
 
   // Reactive statements to handle prop changes
   // Note: Don't auto-select the first LUT when current_lut is empty,
@@ -56,6 +57,28 @@
     const prevLut = available_luts[prevIndex];
     current_lut = prevLut; // Update local state
     dispatch('select', { name: prevLut });
+  }
+
+  // Function to open gradient editor and apply initial gradient
+  async function openGradientEditor() {
+    original_lut_name = current_lut; // Store the original LUT name
+    show_gradient_editor = true;
+    
+    // Apply the initial gradient preview immediately
+    await updateGradientPreview();
+  }
+
+  // Function to close gradient editor and restore original LUT
+  async function closeGradientEditor() {
+    show_gradient_editor = false;
+    custom_lut_name = '';
+    
+    // Restore the original LUT
+    try {
+      await invoke('apply_lut_by_name', { lutName: original_lut_name });
+    } catch (e) {
+      console.error('Failed to restore original LUT:', e);
+    }
   }
 
   // Gradient editor functions
@@ -157,18 +180,50 @@
 
   async function updateGradientPreview() {
     try {
-      // Convert gradient stops to the format expected by the backend
-      // Send both colors and positions for proper interpolation
-      const colors = gradientStops.map(stop => {
-        const r = parseInt(stop.color.slice(1, 3), 16) / 255;
-        const g = parseInt(stop.color.slice(3, 5), 16) / 255;
-        const b = parseInt(stop.color.slice(5, 7), 16) / 255;
-        return [r, g, b];
-      });
+      // Build LUT in [r0..r255, g0..g255, b0..b255] format for preview, as integers 0-255
+      const rArr: number[] = [];
+      const gArr: number[] = [];
+      const bArr: number[] = [];
+      for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        let leftStop = gradientStops[0];
+        let rightStop = gradientStops[gradientStops.length - 1];
+        
+        // Find the correct stops to interpolate between
+        if (t <= gradientStops[0].position) {
+          // Before first stop - use first stop color
+          leftStop = gradientStops[0];
+          rightStop = gradientStops[0];
+        } else if (t >= gradientStops[gradientStops.length - 1].position) {
+          // After last stop - use last stop color
+          leftStop = gradientStops[gradientStops.length - 1];
+          rightStop = gradientStops[gradientStops.length - 1];
+        } else {
+          // Between stops - find the correct pair
+          for (let j = 0; j < gradientStops.length - 1; j++) {
+            if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
+              leftStop = gradientStops[j];
+              rightStop = gradientStops[j + 1];
+              break;
+            }
+          }
+        }
+        
+        // Calculate interpolation factor, handling edge cases
+        const positionDiff = rightStop.position - leftStop.position;
+        const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
+        const interpolatedColor = interpolateColor(leftStop.color, rightStop.color, interp_t);
+        
+        const r = parseInt(interpolatedColor.slice(1, 3), 16);
+        const g = parseInt(interpolatedColor.slice(3, 5), 16);
+        const b = parseInt(interpolatedColor.slice(5, 7), 16);
+        rArr.push(r);
+        gArr.push(g);
+        bArr.push(b);
+      }
+      const lutData = [...rArr, ...gArr, ...bArr];
       
-      // For now, we'll use the simplified backend approach with evenly spaced stops
-      // The backend will interpolate between the provided colors
-      await invoke('update_gradient_preview', { colors });
+      await invoke('update_gradient_preview', { lutData });
     } catch (e) {
       console.error('Failed to update gradient preview:', e);
     }
@@ -177,40 +232,52 @@
   async function saveCustomLut() {
     if (!custom_lut_name.trim()) return;
     try {
-      // Convert gradient stops to LUT format (256 RGB values)
-      const lutData = [];
-      
+      // Build LUT in [r0..r255, g0..g255, b0..b255] format as integers
+      const rArr: number[] = [];
+      const gArr: number[] = [];
+      const bArr: number[] = [];
       for (let i = 0; i < 256; i++) {
         const t = i / 255;
-        
-        // Find the two stops that bound this position
         let leftStop = gradientStops[0];
         let rightStop = gradientStops[gradientStops.length - 1];
         
-        for (let j = 0; j < gradientStops.length - 1; j++) {
-          if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
-            leftStop = gradientStops[j];
-            rightStop = gradientStops[j + 1];
-            break;
+        // Find the correct stops to interpolate between
+        if (t <= gradientStops[0].position) {
+          // Before first stop - use first stop color
+          leftStop = gradientStops[0];
+          rightStop = gradientStops[0];
+        } else if (t >= gradientStops[gradientStops.length - 1].position) {
+          // After last stop - use last stop color
+          leftStop = gradientStops[gradientStops.length - 1];
+          rightStop = gradientStops[gradientStops.length - 1];
+        } else {
+          // Between stops - find the correct pair
+          for (let j = 0; j < gradientStops.length - 1; j++) {
+            if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
+              leftStop = gradientStops[j];
+              rightStop = gradientStops[j + 1];
+              break;
+            }
           }
         }
         
-        // Interpolate between the two colors
-        const interp_t = (t - leftStop.position) / (rightStop.position - leftStop.position);
+        // Calculate interpolation factor, handling edge cases
+        const positionDiff = rightStop.position - leftStop.position;
+        const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
         const interpolatedColor = interpolateColor(leftStop.color, rightStop.color, interp_t);
-        
-        // Convert to RGB values (0-255 range)
         const r = parseInt(interpolatedColor.slice(1, 3), 16);
         const g = parseInt(interpolatedColor.slice(3, 5), 16);
         const b = parseInt(interpolatedColor.slice(5, 7), 16);
-        
-        lutData.push(r, g, b);
+        rArr.push(r);
+        gArr.push(g);
+        bArr.push(b);
       }
-      
+      const lutData = [...rArr, ...gArr, ...bArr];
       await invoke('save_custom_lut', { 
         name: custom_lut_name,
         lut_data: lutData
       });
+      // Close the editor without restoring the original LUT
       show_gradient_editor = false;
       custom_lut_name = '';
       // Refresh available LUTs
@@ -240,7 +307,7 @@
     <button 
       type="button"
       class="control-btn gradient-btn"
-      on:click={() => show_gradient_editor = true}
+      on:click={openGradientEditor}
       title="Create Custom LUT"
     >
       🎨
@@ -249,8 +316,8 @@
 </div>
 
 {#if show_gradient_editor}
-  <div class="gradient-editor-dialog" on:click|self={() => show_gradient_editor = false}>
-    <div class="dialog-content gradient-editor-content">
+  <div class="gradient-editor-dialog" on:click|self={closeGradientEditor}>
+    <div class="dialog-content gradient-editor-content" on:click|stopPropagation>
       <h3>Custom LUT Editor</h3>
       
       <!-- LUT Name Input -->
@@ -339,15 +406,7 @@
         <button 
           type="button"
           class="secondary-button"
-          on:click={async () => {
-            try {
-              await invoke('apply_lut_by_name', { lutName: current_lut });
-            } catch (e) {
-              console.error('Failed to restore original LUT:', e);
-            }
-            show_gradient_editor = false;
-            custom_lut_name = '';
-          }}
+          on:click={closeGradientEditor}
         >
           Cancel
         </button>

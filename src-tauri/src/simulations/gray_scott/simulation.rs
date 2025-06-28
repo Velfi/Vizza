@@ -23,6 +23,8 @@ pub struct SimulationParams {
     pub is_nutrient_pattern_reversed: u32,
     pub cursor_x: f32,
     pub cursor_y: f32,
+    pub cursor_size: f32,
+    pub cursor_strength: f32,
 }
 
 #[repr(C)]
@@ -130,6 +132,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
+            cursor_size: 10.0,
+            cursor_strength: 1.0,
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -284,6 +288,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
+            cursor_size: self.settings.cursor_size,
+            cursor_strength: self.settings.cursor_strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -410,6 +416,16 @@ impl GrayScottModel {
                     self.settings.nutrient_pattern_reversed = v;
                 }
             }
+            "cursor_size" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.cursor_size = v as f32;
+                }
+            }
+            "cursor_strength" => {
+                if let Some(v) = value.as_f64() {
+                    self.settings.cursor_strength = v as f32;
+                }
+            }
             _ => {}
         }
 
@@ -425,6 +441,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
+            cursor_size: self.settings.cursor_size,
+            cursor_strength: self.settings.cursor_strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -495,6 +513,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: x,
             cursor_y: y,
+            cursor_size: self.settings.cursor_size,
+            cursor_strength: self.settings.cursor_strength,
         };
 
         // Update params buffer
@@ -535,7 +555,7 @@ impl GrayScottModel {
         let ty = (texture_coords.y * self.height as f32) as i32;
 
         // Apply interaction in a circular area
-        let radius = 15; // Size of the brush
+        let radius = self.settings.cursor_size as i32; // Use configurable cursor size
 
         // Collect all updates into a batch
         let mut updates: Vec<(usize, UVPair)> = Vec::new();
@@ -550,7 +570,7 @@ impl GrayScottModel {
                     let distance = ((dx * dx + dy * dy) as f32).sqrt();
                     if distance <= radius as f32 {
                         let index = (py * self.width as i32 + px) as usize;
-                        let factor = 1.0 - (distance / radius as f32);
+                        let factor = (1.0 - (distance / radius as f32)) * self.settings.cursor_strength;
 
                         let uv_pair = if mouse_button == 0 {
                             // Left mouse button: seed the reaction with higher V concentration

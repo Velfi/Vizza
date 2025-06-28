@@ -229,6 +229,8 @@ pub fn init_preset_manager() -> PresetManager {
             timestep: 1.0,
             nutrient_pattern: super::settings::NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
+            cursor_size: 10.0,
+            cursor_strength: 0.5,
         };
 
         let preset_name = preset_type.name().to_string();

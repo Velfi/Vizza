@@ -10,6 +10,7 @@ use crate::simulations::gray_scott::{settings::Settings as GrayScottSettings, Gr
 use crate::simulations::particle_life::{
     settings::Settings as ParticleLifeSettings, simulation::ColorMode, ParticleLifeModel,
 };
+use crate::simulations::shared::LutData;
 use crate::simulations::shared::{coordinates::ScreenCoords, LutManager, SimulationLutManager};
 use crate::simulations::slime_mold::{settings::Settings as SlimeMoldSettings, SlimeMoldModel};
 use crate::simulations::traits::{Simulation, SimulationType};
@@ -469,6 +470,56 @@ impl SimulationManager {
                     tracing::warn!("LUT reversal not supported for main menu simulation");
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Apply a custom LUT to any running simulation
+    pub fn apply_custom_lut(
+        &mut self,
+        lut_data: &LutData,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    simulation.update_lut(lut_data, queue);
+                    tracing::info!("Custom LUT applied to slime mold simulation");
+                }
+                SimulationType::GrayScott(simulation) => {
+                    simulation.renderer.update_lut(lut_data, queue);
+                    tracing::info!("Custom LUT applied to Gray-Scott simulation");
+                }
+                SimulationType::ParticleLife(simulation) => {
+                    // For particle life, we need to temporarily store the custom LUT in the manager
+                    // since the particle life update_lut method expects a LUT name, not LutData directly
+                    let temp_lut_name = "gradient_preview";
+                    
+                    // Store the custom LUT temporarily in the LUT manager
+                    self.lut_manager.save_custom(temp_lut_name, lut_data)
+                        .map_err(|e| AppError::Simulation(format!("Failed to store temporary LUT: {}", e).into()))?;
+                    
+                    let color_mode = simulation.state.color_mode;
+                    let lut_reversed = simulation.state.lut_reversed;
+                    
+                    simulation.update_lut(
+                        device,
+                        queue,
+                        &self.lut_manager,
+                        color_mode,
+                        Some(temp_lut_name),
+                        lut_reversed,
+                    )?;
+                    tracing::info!("Custom LUT applied to particle life simulation");
+                }
+                SimulationType::MainMenu(_) => {
+                    // Main menu doesn't support LUT changes
+                    tracing::warn!("Custom LUT not supported for main menu simulation");
+                }
+            }
+        } else {
+            return Err(AppError::Simulation("No simulation is currently running".into()));
         }
         Ok(())
     }

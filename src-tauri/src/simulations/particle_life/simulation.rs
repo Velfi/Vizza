@@ -6,9 +6,9 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
-use super::settings::{MatrixGenerator, PositionGenerator, Settings, TypeGenerator};
+use super::settings::{MatrixGenerator, Settings, TypeGenerator};
 use super::shaders;
-use crate::simulations::shared::{camera::Camera, LutManager};
+use crate::simulations::shared::{camera::Camera, LutManager, PositionGenerator};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]
@@ -2110,18 +2110,18 @@ impl Simulation for ParticleLifeModel {
             "position_generator" => {
                 if let Some(generator_str) = value.as_str() {
                     let generator = match generator_str {
-                        "Random" => super::settings::PositionGenerator::Random,
-                        "Center" => super::settings::PositionGenerator::Center,
-                        "UniformCircle" => super::settings::PositionGenerator::UniformCircle,
-                        "CenteredCircle" => super::settings::PositionGenerator::CenteredCircle,
-                        "Ring" => super::settings::PositionGenerator::Ring,
-                        "RainbowRing" => super::settings::PositionGenerator::RainbowRing,
-                        "ColorBattle" => super::settings::PositionGenerator::ColorBattle,
-                        "ColorWheel" => super::settings::PositionGenerator::ColorWheel,
-                        "Line" => super::settings::PositionGenerator::Line,
-                        "Spiral" => super::settings::PositionGenerator::Spiral,
-                        "RainbowSpiral" => super::settings::PositionGenerator::RainbowSpiral,
-                        _ => super::settings::PositionGenerator::Random,
+                        "Random" => PositionGenerator::Random,
+                        "Center" => PositionGenerator::Center,
+                        "UniformCircle" => PositionGenerator::UniformCircle,
+                        "CenteredCircle" => PositionGenerator::CenteredCircle,
+                        "Ring" => PositionGenerator::Ring,
+                        "RainbowRing" => PositionGenerator::RainbowRing,
+                        "ColorBattle" => PositionGenerator::ColorBattle,
+                        "ColorWheel" => PositionGenerator::ColorWheel,
+                        "Line" => PositionGenerator::Line,
+                        "Spiral" => PositionGenerator::Spiral,
+                        "RainbowSpiral" => PositionGenerator::RainbowSpiral,
+                        _ => PositionGenerator::Random,
                     };
                     self.state.position_generator = generator;
                     // Regenerate particles with new position generator

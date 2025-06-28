@@ -6,6 +6,7 @@
   import LutSelector from './components/LutSelector.svelte';
   import InteractivePhysicsDiagram from './components/InteractivePhysicsDiagram.svelte';
   import CursorConfig from './components/CursorConfig.svelte';
+  import UiHiddenIndicator from './components/UiHiddenIndicator.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
@@ -544,7 +545,7 @@
   async function startSimulation() {
     try {
       await invoke('start_particle_life_simulation');
-      isSimulationRunning = true;
+      // Don't set isSimulationRunning = true here - wait for simulation-initialized event
       console.log('Particle Life simulation started');
     } catch (e) {
       console.error('Failed to start simulation:', e);
@@ -558,6 +559,26 @@
       console.log('Simulation stopped');
     } catch (e) {
       console.error('Failed to stop simulation:', e);
+    }
+  }
+
+  async function pauseSimulation() {
+    try {
+      await invoke('pause_simulation');
+      isSimulationRunning = false;
+      console.log('Simulation paused');
+    } catch (e) {
+      console.error('Failed to pause simulation:', e);
+    }
+  }
+
+  async function resumeSimulation() {
+    try {
+      await invoke('resume_simulation');
+      isSimulationRunning = true;
+      console.log('Simulation resumed');
+    } catch (e) {
+      console.error('Failed to resume simulation:', e);
     }
   }
 
@@ -898,6 +919,28 @@
         console.error('Failed to set up type counts listener:', e);
       }
       
+      // Listen for simulation initialization event
+      try {
+        await listen('simulation-initialized', async () => {
+          console.log('Simulation initialized, syncing settings...');
+          await syncSettingsFromBackend();
+          await updateSpeciesColors();
+          isSimulationRunning = true;
+        });
+      } catch (e) {
+        console.error('Failed to set up simulation-initialized listener:', e);
+      }
+
+      // Listen for simulation resumed event
+      try {
+        await listen('simulation-resumed', async () => {
+          console.log('Simulation resumed');
+          isSimulationRunning = true;
+        });
+      } catch (e) {
+        console.error('Failed to set up simulation-resumed listener:', e);
+      }
+      
       // Set up keyboard listeners for camera control
       document.addEventListener('keydown', handleKeyDown);
       document.addEventListener('keyup', handleKeyUp);
@@ -1198,8 +1241,8 @@
       </button>
       
       <div class="status">
-        <span class="status-indicator running"></span>
-        Particle Life Simulation Running
+        <span class="status-indicator" class:running={isSimulationRunning}></span>
+        Particle Life Simulation {isSimulationRunning ? 'Running' : 'Paused'}
       </div>
       
       <div class="mouse-instructions">
@@ -1207,6 +1250,9 @@
         <span>📹 WASD/Arrows: Pan | Q/E or Mouse wheel: Zoom</span>
       </div>
     </div>
+    {:else}
+    <!-- UI Hidden Indicator -->
+    <UiHiddenIndicator {showUI} on:toggle={toggleBackendGui} />
     {/if}
 
     <!-- Main UI Controls Panel -->
@@ -1226,6 +1272,8 @@
         <legend>Controls</legend>
         <div class="control-group">
           <button type="button" on:click={resetSimulation}>🔄 Reset Particles</button>
+          <button type="button" on:click={resumeSimulation} disabled={isSimulationRunning}>▶ Resume</button>
+          <button type="button" on:click={pauseSimulation} disabled={!isSimulationRunning}>⏸ Pause</button>
           <div class="matrix-controls">
             <button type="button" on:click={async () => {
               await randomizeMatrix();
@@ -2381,5 +2429,38 @@
 
   .clear-trails-button:active {
     transform: translateY(0);
+  }
+
+  /* UI Hidden Indicator Styles */
+  .ui-hidden-indicator {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    color: white;
+    z-index: 1000;
+  }
+
+  .ui-hidden-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .ui-toggle-button {
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  .ui-toggle-button:hover {
+    background: rgba(255, 255, 255, 0.4);
+    border-color: rgba(255, 255, 255, 0.6);
   }
 </style>

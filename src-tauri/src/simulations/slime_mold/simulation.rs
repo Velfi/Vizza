@@ -33,6 +33,7 @@ pub struct SimSizeUniform {
     pub gradient_size: f32,
     pub gradient_angle: f32,
     pub random_seed: u32,
+    pub position_generator: u32, // Position generator type for agent initialization
     pub _pad1: u32,
 }
 
@@ -69,6 +70,7 @@ impl SimSizeUniform {
             gradient_size: settings.gradient_size,
             gradient_angle: settings.gradient_angle,
             random_seed: settings.random_seed,
+            position_generator: settings.position_generator.as_u32(),
             _pad1: 0,
         }
     }
@@ -997,6 +999,21 @@ impl SlimeMoldModel {
             "random_seed" => {
                 if let Some(v) = value.as_u64() {
                     self.settings.random_seed = v as u32;
+                }
+            }
+            "position_generator" => {
+                if let Some(generator_str) = value.as_str() {
+                    let generator = match generator_str {
+                        "Random" => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
+                        "Center" => crate::simulations::shared::SlimeMoldPositionGenerator::Center,
+                        "UniformCircle" => crate::simulations::shared::SlimeMoldPositionGenerator::UniformCircle,
+                        "CenteredCircle" => crate::simulations::shared::SlimeMoldPositionGenerator::CenteredCircle,
+                        "Ring" => crate::simulations::shared::SlimeMoldPositionGenerator::Ring,
+                        "Line" => crate::simulations::shared::SlimeMoldPositionGenerator::Line,
+                        "Spiral" => crate::simulations::shared::SlimeMoldPositionGenerator::Spiral,
+                        _ => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
+                    };
+                    self.settings.position_generator = generator;
                 }
             }
             _ => {

@@ -39,18 +39,27 @@ var<storage, read> lut_data: array<u32>;
 @group(0) @binding(4)
 var<storage, read> gradient_map: array<f32>;
 
-// Helper to convert linear color to sRGB
-fn linear_to_srgb(color: vec3<f32>) -> vec3<f32> {
-    return pow(color, vec3<f32>(1.0 / 2.2));
+// Convert from sRGB (gamma-corrected) to linear RGB
+fn srgb_to_linear(srgb: f32) -> f32 {
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    } else {
+        return pow((srgb + 0.055) / 1.055, 2.4);
+    }
 }
 
 // Get color from LUT
 fn get_lut_color(intensity: f32) -> vec3<f32> {
     let idx = clamp(i32(intensity * 255.0), 0, 255);
-    let r = f32(lut_data[idx]) / 255.0;
-    let g = f32(lut_data[256 + idx]) / 255.0;
-    let b = f32(lut_data[512 + idx]) / 255.0;
-    return vec3<f32>(r, g, b);
+    let r_srgb = f32(lut_data[idx]) / 255.0;
+    let g_srgb = f32(lut_data[256 + idx]) / 255.0;
+    let b_srgb = f32(lut_data[512 + idx]) / 255.0;
+    
+    return vec3<f32>(
+        srgb_to_linear(r_srgb),
+        srgb_to_linear(g_srgb),
+        srgb_to_linear(b_srgb)
+    );
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -69,8 +78,14 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (sim_x >= 0.0 && sim_x < f32(sim_size.width) && sim_y >= 0.0 && sim_y < f32(sim_size.height)) {
         let idx = u32(sim_y) * sim_size.width + u32(sim_x);
         let trail = trail_map[idx];
-        let grad = gradient_map[idx];
-        let intensity = clamp(trail + grad, 0.0, 1.0);
+        
+        // Only add gradient if it's enabled (gradient_type != 0 means enabled)
+        var intensity = trail;
+        if (sim_size.gradient_type != 0u) {
+            let grad = gradient_map[idx];
+            intensity = clamp(trail + grad, 0.0, 1.0);
+        }
+        
         color = get_lut_color(intensity);
     }
     textureStore(display_tex, vec2<i32>(i32(id.x), i32(id.y)), vec4<f32>(color, 1.0));

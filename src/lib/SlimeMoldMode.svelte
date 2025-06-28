@@ -6,6 +6,7 @@
   import AgentCountInput from './components/AgentCountInput.svelte';
   import LutSelector from './components/LutSelector.svelte';
   import CursorConfig from './components/CursorConfig.svelte';
+  import UiHiddenIndicator from './components/UiHiddenIndicator.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -26,6 +27,7 @@
     agent_jitter: 0.1,
     agent_sensor_angle: 45, // degrees
     agent_sensor_distance: 50,
+    position_generator: 'Random',
 
     // Gradient Settings
     gradient_type: 'disabled',
@@ -874,29 +876,12 @@
         on:strengthchange={(e) => updateCursorStrength(e.detail)}
       />
 
-      <!-- 4. Controls (Pause/Resume, Reset Trails, Reset Agents, Randomize) -->
+      <!-- 4. Controls (Pause/Resume, Randomize) -->
       <fieldset>
         <legend>Controls</legend>
         <div class="control-group">
           <button type="button" on:click={resumeSimulation} disabled={running}>▶ Resume</button>
           <button type="button" on:click={stopSimulation} disabled={!running}>⏸ Pause</button>
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('reset_trails');
-              console.log('Trails reset successfully');
-            } catch (e) {
-              console.error('Failed to reset trails:', e);
-            }
-          }}>Reset Trails</button>
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('reset_agents');
-              await invoke('reset_trails'); // Also reset trails to make agent redistribution visible
-              console.log('Agents reset successfully');
-            } catch (e) {
-              console.error('Failed to reset agents:', e);
-            }
-          }}>Reset Agents</button>
           <button type="button" on:click={async () => {
             try {
               await invoke('randomize_settings');
@@ -1126,6 +1111,51 @@
             }}
           />
         </div>
+        <div class="control-group">
+          <button type="button" on:click={async () => {
+            try {
+              await invoke('reset_trails');
+              console.log('Trails reset successfully');
+            } catch (e) {
+              console.error('Failed to reset trails:', e);
+            }
+          }}>Reset Trails</button>
+          <button type="button" on:click={async () => {
+            try {
+              await invoke('reset_agents');
+              await invoke('reset_trails'); // Also reset trails to make agent redistribution visible
+              console.log('Agents reset successfully');
+            } catch (e) {
+              console.error('Failed to reset agents:', e);
+            }
+          }}>Reset Agent Positions</button>
+        </div>
+        <div class="control-group">
+          <label for="positionGenerator">Position Generator</label>
+          <select 
+            id="positionGenerator"
+            value={settings.position_generator}
+            on:change={async (e) => {
+              try {
+                await invoke('update_simulation_setting', { 
+                  settingName: 'position_generator', 
+                  value: (e.target as HTMLSelectElement).value
+                });
+                await syncSettingsFromBackend();
+              } catch (err) {
+                console.error('Failed to update position generator:', err);
+              }
+            }}
+          >
+            <option value="Random">Random</option>
+            <option value="Center">Center</option>
+            <option value="UniformCircle">Uniform Circle</option>
+            <option value="CenteredCircle">Centered Circle</option>
+            <option value="Ring">Ring</option>
+            <option value="Line">Line</option>
+            <option value="Spiral">Spiral</option>
+          </select>
+        </div>
       </fieldset>
 
       <!-- 7. Gradient Settings -->
@@ -1220,6 +1250,9 @@
       </fieldset>
     </form>
     </div>
+  {:else}
+    <!-- UI Hidden Indicator -->
+    <UiHiddenIndicator {showUI} on:toggle={toggleBackendGui} />
   {/if}
 </div>
 
@@ -1399,5 +1432,77 @@
     bottom: 0;
     z-index: 10;
     pointer-events: auto;
+  }
+
+  /* UI Hidden Indicator styles */
+  .ui-hidden-indicator {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    color: white;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .ui-hidden-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  .ui-hidden-content kbd {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 3px;
+    padding: 0.2rem 0.4rem;
+    font-family: monospace;
+    font-size: 0.8rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .ui-toggle-button {
+    padding: 0.4rem 0.8rem;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: white;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+  }
+
+  .ui-toggle-button:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+  }
+
+  .ui-toggle-button:active {
+    transform: translateY(0);
+  }
+
+  /* Responsive design for UI hidden indicator */
+  @media (max-width: 600px) {
+    .ui-hidden-indicator {
+      top: 5px;
+      right: 5px;
+      padding: 0.5rem 0.75rem;
+    }
+    
+    .ui-hidden-content {
+      font-size: 0.8rem;
+      gap: 0.5rem;
+    }
+    
+    .ui-toggle-button {
+      padding: 0.3rem 0.6rem;
+      font-size: 0.8rem;
+    }
   }
 </style>

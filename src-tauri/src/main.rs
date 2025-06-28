@@ -210,7 +210,6 @@ fn main() {
             commands::apply_lut_by_name,
             commands::apply_lut,
             commands::toggle_lut_reversed,
-            commands::apply_custom_lut,
             commands::save_custom_lut,
             commands::update_gradient_preview,
             commands::get_available_luts,

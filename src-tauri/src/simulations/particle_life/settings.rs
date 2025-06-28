@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use super::matrix_operations;
+use crate::simulations::shared::PositionGenerator;
 
 /// Settings for the Particle Life simulation that can be saved in presets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,21 +45,6 @@ pub struct Settings {
     /// Enable 3x3 grid view to visualize wrap-around behavior
     /// Always enabled to show 9 instances of the simulation in a grid with faded outer cells
     pub show_wrap_grid: bool,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum PositionGenerator {
-    Random,
-    Center,
-    UniformCircle,
-    CenteredCircle,
-    Ring,
-    RainbowRing,
-    ColorBattle,
-    ColorWheel,
-    Line,
-    Spiral,
-    RainbowSpiral,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

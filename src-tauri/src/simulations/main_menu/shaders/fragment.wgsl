@@ -108,13 +108,27 @@ fn multivariate_fbm(p: vec3<f32>, t: f32) -> f32 {
     return sum;
 }
 
+// Convert from sRGB (gamma-corrected) to linear RGB
+fn srgb_to_linear(srgb: f32) -> f32 {
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    } else {
+        return pow((srgb + 0.055) / 1.055, 2.4);
+    }
+}
+
 // LUT lookup function
 fn lookup_lut(value: f32) -> vec3<f32> {
     let index = u32(value * 255.0);
-    let r = f32(lut_data[index]) / 255.0;
-    let g = f32(lut_data[256 + index]) / 255.0;
-    let b = f32(lut_data[512 + index]) / 255.0;
-    return vec3<f32>(r, g, b);
+    let r_srgb = f32(lut_data[index]) / 255.0;
+    let g_srgb = f32(lut_data[256 + index]) / 255.0;
+    let b_srgb = f32(lut_data[512 + index]) / 255.0;
+    
+    return vec3<f32>(
+        srgb_to_linear(r_srgb),
+        srgb_to_linear(g_srgb),
+        srgb_to_linear(b_srgb)
+    );
 }
 
 @fragment

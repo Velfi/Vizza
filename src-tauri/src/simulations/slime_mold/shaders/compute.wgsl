@@ -23,6 +23,7 @@ struct SimSizeUniform {
     gradient_size: f32,
     gradient_angle: f32,
     random_seed: u32,
+    position_generator: u32,
     _pad1: u32,
 };
 
@@ -350,6 +351,68 @@ fn random_range(seed: u32, min_val: f32, max_val: f32) -> f32 {
     return min_val + random_float(seed) * (max_val - min_val);
 }
 
+// Position generation functions for slime mold agents
+fn generate_random_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let x = random_range(seed * 2u, 0.0, width);
+    let y = random_range(seed * 3u, 0.0, height);
+    return vec2<f32>(x, y);
+}
+
+fn generate_center_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let center_x = width * 0.5;
+    let center_y = height * 0.5;
+    let scale = 0.3; // Scale around center
+    let x = center_x + (random_range(seed * 2u, -1.0, 1.0) * width * scale);
+    let y = center_y + (random_range(seed * 3u, -1.0, 1.0) * height * scale);
+    return vec2<f32>(x, y);
+}
+
+fn generate_uniform_circle_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let center_x = width * 0.5;
+    let center_y = height * 0.5;
+    let max_radius = min(width, height) * 0.4; // Scale for the smaller dimension
+    let angle = random_range(seed * 2u, 0.0, TAU);
+    let radius = sqrt(random_range(seed * 3u, 0.0, 1.0)) * max_radius;
+    return vec2<f32>(center_x + cos(angle) * radius, center_y + sin(angle) * radius);
+}
+
+fn generate_centered_circle_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let center_x = width * 0.5;
+    let center_y = height * 0.5;
+    let max_radius = min(width, height) * 0.4;
+    let angle = random_range(seed * 2u, 0.0, TAU);
+    let radius = random_range(seed * 3u, 0.0, max_radius);
+    return vec2<f32>(center_x + cos(angle) * radius, center_y + sin(angle) * radius);
+}
+
+fn generate_ring_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let center_x = width * 0.5;
+    let center_y = height * 0.5;
+    let ring_radius = min(width, height) * 0.35;
+    let ring_width = min(width, height) * 0.01;
+    let angle = random_range(seed * 2u, 0.0, TAU);
+    let radius = ring_radius + (random_range(seed * 3u, -1.0, 1.0) * ring_width);
+    return vec2<f32>(center_x + cos(angle) * radius, center_y + sin(angle) * radius);
+}
+
+fn generate_line_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let x = random_range(seed * 2u, 0.0, width);
+    let y = height * 0.5 + (random_range(seed * 3u, -1.0, 1.0) * height * 0.3);
+    return vec2<f32>(x, y);
+}
+
+fn generate_spiral_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    let center_x = width * 0.5;
+    let center_y = height * 0.5;
+    let max_radius = min(width, height) * 0.45;
+    let max_rotations = 2.0;
+    let f = random_range(seed * 2u, 0.0, 1.0);
+    let angle = max_rotations * TAU * f;
+    let spread = max_radius * 0.25 * min(f, 0.2);
+    let radius = max_radius * f + spread * (random_range(seed * 3u, -1.0, 1.0));
+    return vec2<f32>(center_x + radius * cos(angle), center_y + radius * sin(angle));
+}
+
 @compute @workgroup_size(64, 1, 1)
 fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // With 2D dispatch and workgroup_size(64, 1, 1):
@@ -368,9 +431,34 @@ fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let y_seed = hash(base_seed + 1013904223u);
     let angle_seed = hash(base_seed + 1664525u);
     
-    // Generate random position
-    let x = random_range(x_seed, 0.0, f32(sim_size.width));
-    let y = random_range(y_seed, 0.0, f32(sim_size.height));
+    // Generate position based on generator type
+    var position: vec2<f32>;
+    switch (sim_size.position_generator) {
+        case 0u: { // Random
+            position = generate_random_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 1u: { // Center
+            position = generate_center_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 2u: { // UniformCircle
+            position = generate_uniform_circle_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 3u: { // CenteredCircle
+            position = generate_centered_circle_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 4u: { // Ring
+            position = generate_ring_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 5u: { // Line
+            position = generate_line_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 6u: { // Spiral
+            position = generate_spiral_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        default: {
+            position = generate_random_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+    }
     
     // Generate random angle
     let angle = random_range(angle_seed, 0.0, TAU);
@@ -379,5 +467,5 @@ fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let speed = (sim_size.agent_speed_min + sim_size.agent_speed_max) * 0.5;
     
     // Update agent
-    agents[agent_index] = vec4<f32>(x, y, angle, speed);
+    agents[agent_index] = vec4<f32>(position.x, position.y, angle, speed);
 } 

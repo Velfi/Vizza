@@ -308,13 +308,12 @@ button:disabled {
   .simulation-controls {
     padding: 0.5rem;
   }
-
+  
   fieldset {
-    padding: 0.75rem;
+    padding: 0.5rem;
   }
-
+  
   button {
-    font-size: 0.9rem;
     padding: 0.4rem 0.8rem;
   }
 } 
