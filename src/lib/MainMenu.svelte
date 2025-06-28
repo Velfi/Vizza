@@ -76,11 +76,11 @@
     </button>
 
     <button 
-      class="simulation-card disabled" 
-      disabled
+      class="simulation-card" 
+      on:click={() => selectSimulation('space-colonization')}
     >
-      <h3>Coming Soon</h3>
-      <p>More simulations</p>
+      <h3>Space Colonization</h3>
+      <p>Organic branching structures</p>
     </button>
   </div>
 </div>

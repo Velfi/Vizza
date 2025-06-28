@@ -79,3 +79,23 @@ pub async fn seed_random_noise(
         }
     }
 }
+
+#[tauri::command]
+pub async fn seed_space_colonization_noise(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.seed_space_colonization_noise(&gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("Space colonization noise seeded successfully");
+            Ok("Space colonization noise seeded successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to seed space colonization noise: {}", e);
+            Err(format!("Failed to seed space colonization noise: {}", e))
+        }
+    }
+}

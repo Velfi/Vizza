@@ -194,12 +194,14 @@ pub type SlimeMoldPresetManager = PresetManager<crate::simulations::slime_mold::
 pub type GrayScottPresetManager = PresetManager<crate::simulations::gray_scott::settings::Settings>;
 pub type ParticleLifePresetManager =
     PresetManager<crate::simulations::particle_life::settings::Settings>;
+pub type SpaceColonizationPresetManager = PresetManager<crate::simulations::space_colonization::settings::Settings>;
 
 // Wrapper struct to hold multiple preset managers
 pub struct SimulationPresetManager {
     slime_mold_preset_manager: SlimeMoldPresetManager,
     gray_scott_preset_manager: GrayScottPresetManager,
     particle_life_preset_manager: ParticleLifePresetManager,
+    space_colonization_preset_manager: SpaceColonizationPresetManager,
 }
 
 impl SimulationPresetManager {
@@ -208,15 +210,18 @@ impl SimulationPresetManager {
         let mut gray_scott_preset_manager = GrayScottPresetManager::new("gray_scott".to_string());
         let mut particle_life_preset_manager =
             ParticleLifePresetManager::new("particle_life".to_string());
+        let mut space_colonization_preset_manager = SpaceColonizationPresetManager::new("space_colonization".to_string());
 
         Self::init_slime_mold_presets(&mut slime_mold_preset_manager);
         Self::init_gray_scott_presets(&mut gray_scott_preset_manager);
         Self::init_particle_life_presets(&mut particle_life_preset_manager);
+        Self::init_space_colonization_presets(&mut space_colonization_preset_manager);
 
         Self {
             slime_mold_preset_manager,
             gray_scott_preset_manager,
             particle_life_preset_manager,
+            space_colonization_preset_manager,
         }
     }
 
@@ -461,6 +466,31 @@ impl SimulationPresetManager {
         tracing::info!("Initialized {} Particle Life presets", preset_count);
     }
 
+    fn init_space_colonization_presets(preset_manager: &mut SpaceColonizationPresetManager) {
+        use crate::simulations::space_colonization::settings::Settings;
+
+        tracing::info!("Initializing Space Colonization presets...");
+
+        // Add default and other presets using the preset methods from settings.rs
+        preset_manager.add_preset(Preset::new("Default".to_string(), Settings::default()));
+        preset_manager.add_preset(Preset::new("Tree".to_string(), Settings::tree_preset()));
+        preset_manager.add_preset(Preset::new("Leaf".to_string(), Settings::leaf_preset()));
+        preset_manager.add_preset(Preset::new("Coral".to_string(), Settings::coral_preset()));
+        preset_manager.add_preset(Preset::new("Lightning".to_string(), Settings::lightning_preset()));
+        preset_manager.add_preset(Preset::new("Beautiful Leaf".to_string(), Settings::beautiful_leaf_preset()));
+
+        // Capture all the built-in preset names we just added
+        preset_manager.capture_built_in_presets();
+
+        // Load user presets from TOML files
+        if let Err(e) = preset_manager.load_user_presets() {
+            eprintln!("Warning: Could not load user presets: {}", e);
+        }
+
+        let preset_count = preset_manager.get_preset_names().len();
+        tracing::info!("Initialized {} Space Colonization presets", preset_count);
+    }
+
     pub fn get_available_presets(&self, simulation_type: &SimulationType) -> Vec<String> {
         let presets = match simulation_type {
             SimulationType::SlimeMold(_) => {
@@ -477,6 +507,11 @@ impl SimulationPresetManager {
                 let particle_life_presets = self.particle_life_preset_manager.get_preset_names();
                 tracing::info!("Particle Life presets: {:?}", particle_life_presets);
                 particle_life_presets
+            }
+            SimulationType::SpaceColonization(_) => {
+                let space_colonization_presets = self.space_colonization_preset_manager.get_preset_names();
+                tracing::info!("Space Colonization presets: {:?}", space_colonization_presets);
+                space_colonization_presets
             }
             SimulationType::MainMenu(_) => {
                 vec![] // No presets for main menu background
@@ -559,6 +594,29 @@ impl SimulationPresetManager {
                 }
                 Ok(())
             }
+            SimulationType::SpaceColonization(simulation) => {
+                if let Some(settings) = self
+                    .space_colonization_preset_manager
+                    .get_preset_settings(preset_name)
+                {
+                    // Apply the settings to the simulation
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    simulation
+                        .apply_settings(settings_json, device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    // Reset runtime state
+                    simulation
+                        .reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    tracing::info!("Applied Space Colonization preset '{}'", preset_name);
+                } else {
+                    return Err(
+                        format!("Preset '{}' not found for Space Colonization", preset_name).into(),
+                    );
+                }
+                Ok(())
+            }
             SimulationType::MainMenu(_) => {
                 Err("No presets available for Main Menu Background".into())
             }
@@ -592,6 +650,13 @@ impl SimulationPresetManager {
                         .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
                 self.particle_life_preset_manager
                     .save_user_preset(preset_name, &particle_life_settings)?;
+            }
+            SimulationType::SpaceColonization(_) => {
+                let space_colonization_settings: crate::simulations::space_colonization::settings::Settings =
+                    serde_json::from_value(settings.clone())
+                        .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+                self.space_colonization_preset_manager
+                    .save_user_preset(preset_name, &space_colonization_settings)?;
             }
             SimulationType::MainMenu(_) => {
                 return Err("Cannot save presets for Main Menu Background".into());
@@ -629,6 +694,13 @@ impl SimulationPresetManager {
                         .into(),
                 )
             }
+            SimulationType::SpaceColonization(_) => {
+                // Same issue here
+                Err(
+                    "Delete preset functionality needs to be implemented with mutable access"
+                        .into(),
+                )
+            }
             SimulationType::MainMenu(_) => {
                 unreachable!("No presets available for Main Menu Background")
             }
@@ -646,5 +718,9 @@ impl SimulationPresetManager {
 
     pub fn particle_life_preset_manager(&self) -> &ParticleLifePresetManager {
         &self.particle_life_preset_manager
+    }
+
+    pub fn space_colonization_preset_manager(&self) -> &SpaceColonizationPresetManager {
+        &self.space_colonization_preset_manager
     }
 }

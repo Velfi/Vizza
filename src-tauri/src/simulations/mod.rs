@@ -3,4 +3,5 @@ pub mod main_menu;
 pub mod particle_life;
 pub mod shared;
 pub mod slime_mold;
+pub mod space_colonization;
 pub mod traits;

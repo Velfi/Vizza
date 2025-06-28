@@ -180,6 +180,7 @@ fn main() {
             commands::start_slime_mold_simulation,
             commands::start_gray_scott_simulation,
             commands::start_particle_life_simulation,
+            commands::start_space_colonization_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
             commands::destroy_simulation,
@@ -236,6 +237,7 @@ fn main() {
             commands::handle_mouse_interaction_screen,
             commands::update_cursor_position_screen,
             commands::seed_random_noise,
+            commands::seed_space_colonization_noise,
             // Utility commands
             commands::check_gpu_context_ready,
             commands::toggle_gui,

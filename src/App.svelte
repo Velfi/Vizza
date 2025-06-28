@@ -5,8 +5,9 @@
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
   import GrayScottMode from './lib/GrayScottMode.svelte';
   import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
+  import SpaceColonizationMode from './lib/SpaceColonizationMode.svelte';
 
-  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life';
+  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life' | 'space-colonization';
   let currentMode: AppMode = 'menu';
 
   function navigateToMode(mode: AppMode) {
@@ -85,6 +86,8 @@
     <GrayScottMode on:back={returnToMenu} />
   {:else if currentMode === 'particle-life'}
     <ParticleLifeMode on:back={returnToMenu} />
+  {:else if currentMode === 'space-colonization'}
+    <SpaceColonizationMode on:back={returnToMenu} />
   {/if}
 </main>
 

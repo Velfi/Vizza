@@ -122,6 +122,29 @@ impl SimulationManager {
                 
                 Ok(())
             }
+            "space_colonization" => {
+                // Initialize Space Colonization simulation
+                let settings = crate::simulations::space_colonization::settings::Settings::default();
+                let simulation = crate::simulations::space_colonization::SpaceColonizationModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &self.lut_manager,
+                )?;
+
+                self.current_simulation = Some(SimulationType::SpaceColonization(simulation));
+                
+                // Apply the "Default" preset to ensure consistent initial state
+                if let Some(simulation) = &mut self.current_simulation {
+                    self.preset_manager
+                        .apply_preset(simulation, "Default", device, queue)
+                        .map_err(|e| format!("Failed to apply Default preset: {}", e))?;
+                    tracing::info!("Applied Default preset to Space Colonization simulation");
+                }
+                
+                Ok(())
+            }
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -137,7 +160,14 @@ impl SimulationManager {
         surface_view: &wgpu::TextureView,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.render_frame(device, queue, surface_view)?;
+            match simulation {
+                SimulationType::SpaceColonization(space_col) => {
+                    space_col.render_frame_with_lut(device, queue, surface_view, &self.lut_manager)?;
+                }
+                _ => {
+                    simulation.render_frame(device, queue, surface_view)?;
+                }
+            }
         }
         Ok(())
     }
@@ -225,6 +255,20 @@ impl SimulationManager {
                         simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
                     }
                 }
+                SimulationType::SpaceColonization(simulation) => {
+                    // Handle mouse release special case before camera transformation
+                    if screen_x == -9999.0 && screen_y == -9999.0 {
+                        println!("🌍 SpaceColonization mouse: RELEASE");
+                        simulation.handle_mouse_interaction(-9999.0, -9999.0, mouse_button, queue)?;
+                    } else {
+                        let camera = &simulation.camera;
+                        let screen = ScreenCoords::new(screen_x, screen_y);
+                        let world = camera.screen_to_world(screen);
+                        let world_x = world.x;
+                        let world_y = world.y;
+                        simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
+                    }
+                }
                 _ => (),
             }
         }
@@ -293,6 +337,14 @@ impl SimulationManager {
                     .particle_life_preset_manager()
                     .get_preset_names();
                 tracing::info!("Particle Life presets: {:?}", presets);
+                presets
+            }
+            "space_colonization" => {
+                let presets = self
+                    .preset_manager
+                    .space_colonization_preset_manager()
+                    .get_preset_names();
+                tracing::info!("Space Colonization presets: {:?}", presets);
                 presets
             }
             _ => {
@@ -408,6 +460,20 @@ impl SimulationManager {
                     // For particle life, use the existing update_setting method
                     simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
                 }
+                SimulationType::SpaceColonization(simulation) => {
+                    // For space colonization, load the LUT data and apply it directly
+                    let mut lut_data = self.lut_manager.get(lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.update_lut(&lut_data, queue);
+                    simulation.current_lut_name = lut_name.to_string();
+                    
+                    tracing::info!("LUT '{}' applied to space colonization simulation", lut_name);
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT changes not supported for main menu simulation");
@@ -465,6 +531,19 @@ impl SimulationManager {
                         !current_reversed,
                     )?;
                 }
+                SimulationType::SpaceColonization(simulation) => {
+                    // Toggle the reversed flag and reload the LUT
+                    simulation.lut_reversed = !simulation.lut_reversed;
+                    let mut lut_data = self.lut_manager.get(&simulation.current_lut_name)
+                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", simulation.current_lut_name, e).into()))?;
+                    
+                    if simulation.lut_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    simulation.update_lut(&lut_data, queue);
+                    tracing::info!("LUT reversed for space colonization simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
@@ -512,6 +591,10 @@ impl SimulationManager {
                         lut_reversed,
                     )?;
                     tracing::info!("Custom LUT applied to particle life simulation");
+                }
+                SimulationType::SpaceColonization(simulation) => {
+                    simulation.update_lut(lut_data, queue);
+                    tracing::info!("Custom LUT applied to space colonization simulation");
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
@@ -698,6 +781,22 @@ impl SimulationManager {
         Ok(())
     }
 
+    // Note: seed_space_colonization_noise is Space Colonization specific functionality
+    pub fn seed_space_colonization_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SpaceColonization(sim) => {
+                    sim.seed_noise(device, queue).map_err(|e| AppError::Simulation(e))?;
+                }
+                _ => {
+                    // Seed noise is only supported for Space Colonization simulation
+                    tracing::warn!("Seed noise is only supported for Space Colonization simulation");
+                }
+            }
+        }
+        Ok(())
+    }
+
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
         tracing::debug!(
@@ -744,6 +843,7 @@ impl SimulationManager {
                     Some(simulation.renderer.camera.get_state())
                 }
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::SpaceColonization(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
@@ -763,6 +863,9 @@ impl SimulationManager {
                     .camera
                     .set_smoothing_factor(smoothing_factor),
                 SimulationType::ParticleLife(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
+                SimulationType::SpaceColonization(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
@@ -786,6 +889,10 @@ impl SimulationManager {
                 SimulationType::ParticleLife(_simulation) => {
                     // No camera system for now
                     Some((screen_x, screen_y))
+                }
+                SimulationType::SpaceColonization(simulation) => {
+                    let world = simulation.camera.screen_to_world(screen);
+                    Some((world.x, world.y))
                 }
                 SimulationType::MainMenu(_) => None, // No camera for main menu background
             }
