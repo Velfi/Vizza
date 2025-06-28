@@ -589,7 +589,16 @@ impl SimulationManager {
 
     pub fn reset_agents(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.reset_runtime_state(device, queue)?;
+            match simulation {
+                SimulationType::SlimeMold(sim) => {
+                    // For slime mold, call the specific reset_agents method that repositions agents randomly
+                    sim.reset_agents(device, queue).map_err(|e| AppError::Simulation(e))?;
+                }
+                _ => {
+                    // For other simulations, use the generic reset_runtime_state
+                    simulation.reset_runtime_state(device, queue)?;
+                }
+            }
         }
         Ok(())
     }
