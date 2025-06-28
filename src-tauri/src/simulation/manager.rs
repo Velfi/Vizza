@@ -597,7 +597,10 @@ impl SimulationManager {
     pub fn reset_simulation(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                crate::simulations::traits::SimulationType::ParticleLife(sim) => {
+                SimulationType::GrayScott(sim) => {
+                    sim.reset();
+                }
+                SimulationType::ParticleLife(sim) => {
                     sim.reset_particles_gpu(device, queue)?;
                 }
                 _ => {
@@ -619,10 +622,18 @@ impl SimulationManager {
         Ok(())
     }
 
-    // Note: seed_random_noise is not in the Simulation trait, so we'll implement it per simulation type
+    // Note: seed_random_noise is Gray-Scott specific functionality
     pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.randomize_settings(device, queue)?;
+            match simulation {
+                SimulationType::GrayScott(sim) => {
+                    sim.seed_random_noise(device, queue).map_err(|e| AppError::Simulation(e))?;
+                }
+                _ => {
+                    // Seed random noise is only supported for Gray-Scott simulation
+                    tracing::warn!("Seed random noise is only supported for Gray-Scott simulation");
+                }
+            }
         }
         Ok(())
     }
