@@ -52,6 +52,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install Tauri CLI via cargo
+        run: cargo install tauri-cli --version "^2.0.0"
+
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -62,4 +65,5 @@ jobs:
           releaseBody: 'See the assets to download and install this version.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }} 
+          args: ${{ matrix.args }}
+          tauriScript: cargo tauri 
