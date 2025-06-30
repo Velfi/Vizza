@@ -38,7 +38,13 @@ pub struct SimSizeUniform {
 }
 
 impl SimSizeUniform {
-    pub fn new(width: u32, height: u32, decay_rate: f32, settings: &Settings) -> Self {
+    pub fn new(
+        width: u32, 
+        height: u32, 
+        decay_rate: f32, 
+        settings: &Settings,
+        position_generator: &crate::simulations::shared::SlimeMoldPositionGenerator,
+    ) -> Self {
         Self {
             width,
             height,
@@ -70,7 +76,7 @@ impl SimSizeUniform {
             gradient_size: settings.gradient_size,
             gradient_angle: settings.gradient_angle,
             random_seed: settings.random_seed,
-            position_generator: settings.position_generator.as_u32(),
+            position_generator: position_generator.as_u32(),
             _pad1: 0,
         }
     }
@@ -111,6 +117,7 @@ pub struct SlimeMoldModel {
     pub agent_count: usize,
     pub lut_reversed: bool,
     pub current_lut_name: String,
+    pub position_generator: crate::simulations::shared::SlimeMoldPositionGenerator,
 
     // Buffer size tracking for pool management
     pub current_trail_map_size: u64,
@@ -242,6 +249,7 @@ impl SlimeMoldModel {
             effective_height,
             settings.pheromone_decay_rate,
             &settings,
+            &crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         );
         let sim_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sim Size Uniform Buffer"),
@@ -352,6 +360,7 @@ impl SlimeMoldModel {
             cursor_buffer,
             cursor_size: 100.0,   // Default cursor size
             cursor_strength: 5.0, // Default cursor strength
+            position_generator: crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -607,6 +616,7 @@ impl SlimeMoldModel {
             effective_height,
             self.settings.pheromone_decay_rate,
             &self.settings,
+            &self.position_generator,
         );
         queue.write_buffer(
             &self.sim_size_buffer,
@@ -769,6 +779,7 @@ impl SlimeMoldModel {
             queue,
             self.display_texture.width(),
             self.display_texture.height(),
+            &self.position_generator,
         );
     }
 
@@ -803,6 +814,7 @@ impl SlimeMoldModel {
             self.current_height,
             self.settings.pheromone_decay_rate,
             &self.settings,
+            &self.position_generator,
         );
         queue.write_buffer(&self.sim_size_buffer, 0, bytemuck::cast_slice(&[sim_size]));
 
@@ -1013,7 +1025,7 @@ impl SlimeMoldModel {
                         "Spiral" => crate::simulations::shared::SlimeMoldPositionGenerator::Spiral,
                         _ => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
                     };
-                    self.settings.position_generator = generator;
+                    self.position_generator = generator;
                 }
             }
             _ => {
@@ -1028,6 +1040,7 @@ impl SlimeMoldModel {
             queue,
             self.display_texture.width(),
             self.display_texture.height(),
+            &self.position_generator,
         );
 
         Ok(())
@@ -1217,6 +1230,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "show_gui": self.show_gui,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
+            "position_generator": self.position_generator,
             "camera": {
                 "position": self.camera.position,
                 "zoom": self.camera.zoom
@@ -1493,12 +1507,14 @@ fn update_settings(
     queue: &wgpu::Queue,
     physical_width: u32,
     physical_height: u32,
+    position_generator: &crate::simulations::shared::SlimeMoldPositionGenerator,
 ) {
     let sim_size_uniform = SimSizeUniform::new(
         physical_width,
         physical_height,
         settings.pheromone_decay_rate,
         settings,
+        position_generator,
     );
     queue.write_buffer(
         sim_size_buffer,

@@ -5,16 +5,74 @@
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
   import GrayScottMode from './lib/GrayScottMode.svelte';
   import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
+  import HowToPlay from './lib/HowToPlay.svelte';
+  import Settings from './lib/Settings.svelte';
 
-  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life';
+  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life' | 'how-to-play' | 'settings';
   let currentMode: AppMode = 'menu';
+  let previousMode: AppMode | null = null;
+
+  // App settings for UI scaling
+  let appSettings: any = {
+    ui_scale: 1.0,
+    default_fps_limit: 60,
+    default_fps_limit_enabled: false,
+    window_width: 1200,
+    window_height: 800,
+    window_maximized: false,
+    auto_hide_ui: true,
+    auto_hide_delay: 3000,
+    default_camera_sensitivity: 1.0,
+  };
+
+  // Load app settings and apply UI scale
+  async function loadAppSettings() {
+    try {
+      const settings = await invoke('get_app_settings');
+      if (settings) {
+        appSettings = settings;
+        await applyUIScale(appSettings.ui_scale);
+      }
+    } catch (e) {
+      console.error('Failed to load app settings:', e);
+    }
+  }
+
+  // Apply UI scale using webview zoom
+  async function applyUIScale(scale: number) {
+    try {
+      // Use webview zoom instead of CSS scaling
+      await invoke('set_webview_zoom', { zoom_factor: scale });
+      console.log('Webview zoom applied:', scale);
+    } catch (e) {
+      console.error('Failed to apply webview zoom:', e);
+      // Fallback to CSS scaling if webview zoom fails
+      const root = document.documentElement;
+      root.style.fontSize = `${16 * scale}px`;
+      root.style.setProperty('--ui-scale', scale.toString());
+    }
+  }
 
   function navigateToMode(mode: AppMode) {
+    // Store the current mode as previous before navigating
+    // Always store the current mode as previous, regardless of what it is
+    previousMode = currentMode;
     currentMode = mode;
   }
 
   function returnToMenu() {
     currentMode = 'menu';
+    previousMode = null;
+  }
+
+  function goBack() {
+    if (previousMode) {
+      currentMode = previousMode;
+      previousMode = null;
+    } else {
+      // Fallback to menu if no previous mode
+      returnToMenu();
+    }
   }
 
   // Handle window resize events
@@ -64,6 +122,9 @@
   }
 
   onMount(() => {
+    // Load app settings first
+    loadAppSettings();
+    
     // Listen for resize events
     window.addEventListener('resize', debouncedResize);
     
@@ -80,11 +141,18 @@
   {#if currentMode === 'menu'}
     <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'slime-mold'}
-    <SlimeMoldMode on:back={returnToMenu} />
+    <SlimeMoldMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'gray-scott'}
-    <GrayScottMode on:back={returnToMenu} />
+    <GrayScottMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'particle-life'}
-    <ParticleLifeMode on:back={returnToMenu} />
+    <ParticleLifeMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+  {:else if currentMode === 'how-to-play'}
+    <HowToPlay on:back={goBack} />
+  {:else if currentMode === 'settings'}
+    <Settings on:back={goBack} on:settingsChanged={async (e) => {
+      appSettings = e.detail;
+      await applyUIScale(appSettings.ui_scale);
+    }} />
   {/if}
 </main>
 

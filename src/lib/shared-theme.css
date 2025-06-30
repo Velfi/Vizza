@@ -24,7 +24,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
+  padding: calc(1rem * var(--ui-scale));
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -32,8 +32,14 @@
   z-index: 20;
 }
 
+.left-controls {
+  display: flex;
+  align-items: center;
+  gap: calc(0.5rem * var(--ui-scale));
+}
+
 .back-button {
-  padding: 0.5rem 1rem;
+  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
@@ -41,6 +47,7 @@
   cursor: pointer;
   font-family: inherit;
   transition: all 0.3s ease;
+  font-size: calc(1em * var(--ui-scale));
 }
 
 .back-button:hover {
@@ -48,17 +55,34 @@
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+.hide-ui-button {
+  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.3s ease;
+  font-size: calc(1em * var(--ui-scale));
+}
+
+.hide-ui-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .status {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: calc(0.5rem * var(--ui-scale));
   color: rgba(255, 255, 255, 0.8);
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * var(--ui-scale));
 }
 
 .status-indicator {
-  width: 8px;
-  height: 8px;
+  width: calc(8px * var(--ui-scale));
+  height: calc(8px * var(--ui-scale));
   border-radius: 50%;
   background: #ff6b6b;
   transition: background-color 0.3s ease;
@@ -70,16 +94,16 @@
 
 .mouse-instructions {
   color: rgba(255, 255, 255, 0.7);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--ui-scale));
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: calc(0.25rem * var(--ui-scale));
 }
 
 /* ===== MAIN CONTROLS PANEL ===== */
 .simulation-controls {
-  padding: 1rem;
+  padding: calc(1rem * var(--ui-scale));
   max-width: 800px;
   margin: 0 auto;
   background: rgba(0, 0, 0, 1.0);
@@ -91,53 +115,58 @@
 fieldset {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  padding: calc(1rem * var(--ui-scale));
+  margin-bottom: calc(1rem * var(--ui-scale));
 }
 
 legend {
   font-weight: bold;
-  padding: 0 0.5rem;
+  padding: 0 calc(0.5rem * var(--ui-scale));
   color: rgba(255, 255, 255, 0.9);
+  font-size: calc(1em * var(--ui-scale));
 }
 
 .control-group {
-  margin-bottom: 1rem;
+  margin-bottom: calc(1rem * var(--ui-scale));
   display: flex;
-  gap: 1rem;
+  gap: calc(1rem * var(--ui-scale));
   align-items: center;
   flex-wrap: wrap;
 }
 
 label {
   display: block;
-  margin-bottom: 0.5rem;
+  margin-bottom: calc(0.5rem * var(--ui-scale));
   color: rgba(255, 255, 255, 0.8);
+  font-size: calc(1em * var(--ui-scale));
 }
 
 select {
   width: 100%;
-  padding: 0.5rem;
+  padding: calc(0.5rem * var(--ui-scale));
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.5);
   color: rgba(255, 255, 255, 0.9);
+  font-size: calc(1em * var(--ui-scale));
 }
 
 input[type="checkbox"] {
-  margin-right: 0.5rem;
+  margin-right: calc(0.5rem * var(--ui-scale));
+  transform: scale(var(--ui-scale));
 }
 
 /* ===== BUTTONS ===== */
 button {
-  padding: 0.5rem 1rem;
+  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  height: 35px;
+  height: calc(35px * var(--ui-scale));
   transition: all 0.2s ease;
+  font-size: calc(1em * var(--ui-scale));
 }
 
 button:hover {
@@ -315,5 +344,27 @@ button:disabled {
   
   button {
     padding: 0.4rem 0.8rem;
+  }
+}
+
+/* ===== AUTO-HIDING CONTROLS ===== */
+.controls.auto-hiding {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+  transform: translateY(-10px);
+}
+
+.controls.auto-hiding.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+}
+
+/* Responsive design for auto-hiding controls */
+@media (max-width: 600px) {
+  .controls.auto-hiding {
+    padding: 0.75rem;
   }
 } 

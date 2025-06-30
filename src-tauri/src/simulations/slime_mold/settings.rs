@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
-use crate::simulations::shared::SlimeMoldPositionGenerator;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -84,10 +83,6 @@ pub struct Settings {
     ///
     /// Defaults to 0.
     pub random_seed: u32,
-    /// Position generator for agent initialization.
-    ///
-    /// Defaults to Random.
-    pub position_generator: SlimeMoldPositionGenerator,
 }
 
 // Custom serialization for Range<f32>
@@ -140,7 +135,6 @@ impl Default for Settings {
             diffusion_frequency: 1,
             decay_frequency: 1,
             random_seed: 0,
-            position_generator: SlimeMoldPositionGenerator::Random,
         }
     }
 }
@@ -178,6 +172,5 @@ impl Settings {
         self.diffusion_frequency = 1;
         self.decay_frequency = 1;
         self.random_seed = rng.random();
-        self.position_generator = SlimeMoldPositionGenerator::Random;
     }
 }

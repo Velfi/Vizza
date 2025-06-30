@@ -877,7 +877,7 @@ impl ParticleLifeModel {
                 entry_point: Some("main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -2131,14 +2131,15 @@ impl Simulation for ParticleLifeModel {
             "type_generator" => {
                 if let Some(generator_str) = value.as_str() {
                     let generator = match generator_str {
+                        "Radial" => super::settings::TypeGenerator::Radial,
+                        "Polar" => super::settings::TypeGenerator::Polar,
+                        "StripesH" => super::settings::TypeGenerator::StripesH,
+                        "StripesV" => super::settings::TypeGenerator::StripesV,
                         "Random" => super::settings::TypeGenerator::Random,
-                        "Randomize10Percent" => super::settings::TypeGenerator::Randomize10Percent,
-                        "Slices" => super::settings::TypeGenerator::Slices,
-                        "Onion" => super::settings::TypeGenerator::Onion,
-                        "Rotate" => super::settings::TypeGenerator::Rotate,
-                        "Flip" => super::settings::TypeGenerator::Flip,
-                        "MoreOfFirst" => super::settings::TypeGenerator::MoreOfFirst,
-                        "KillStill" => super::settings::TypeGenerator::KillStill,
+                        "LineH" => super::settings::TypeGenerator::LineH,
+                        "LineV" => super::settings::TypeGenerator::LineV,
+                        "Spiral" => super::settings::TypeGenerator::Spiral,
+                        "Dithered" => super::settings::TypeGenerator::Dithered,
                         _ => super::settings::TypeGenerator::Random,
                     };
                     self.state.type_generator = generator;

@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use super::matrix_operations;
-use crate::simulations::shared::PositionGenerator;
 
 /// Settings for the Particle Life simulation that can be saved in presets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,14 +48,15 @@ pub struct Settings {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TypeGenerator {
-    Random,
-    Randomize10Percent,
-    Slices,
-    Onion,
-    Rotate,
-    Flip,
-    MoreOfFirst,
-    KillStill,
+    Radial,    // Change type based on distance from center
+    Polar,     // Change type based on orientation to center
+    StripesH,  // Horizontal stripes
+    StripesV,  // Vertical stripes
+    Random,    // Random distribution
+    LineH,     // Horizontal line
+    LineV,     // Vertical line
+    Spiral,    // Spiral pattern
+    Dithered,  // Dithered pattern
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

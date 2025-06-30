@@ -12,11 +12,25 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+
+  /* UI Scale custom property */
+  --ui-scale: 1;
 }
 
+/* Apply UI scaling to various elements */
+button, input, select, textarea {
+  font-size: calc(1em * var(--ui-scale));
+  padding: calc(0.6em * var(--ui-scale)) calc(1.2em * var(--ui-scale));
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-size: calc(1em * var(--ui-scale));
+}
+
+/* Scale spacing and sizes */
 .container {
   margin: 0;
-  padding-top: 10vh;
+  padding-top: calc(10vh * var(--ui-scale));
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -24,8 +38,8 @@
 }
 
 .logo {
-  height: 6em;
-  padding: 1.5em;
+  height: calc(6em * var(--ui-scale));
+  padding: calc(1.5em * var(--ui-scale));
   will-change: filter;
   transition: 0.75s;
 }

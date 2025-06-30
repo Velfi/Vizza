@@ -64,40 +64,40 @@ fn generate_centered_circle_position(seed: u32) -> vec2<f32> {
 
 fn generate_ring_position(seed: u32) -> vec2<f32> {
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale down for [0,1] space
-    return vec2<f32>(0.5 + cos(angle) * radius, 0.5 + sin(angle) * radius);
+    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Ring in [-1,1] space
+    return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
 }
 
 fn generate_rainbow_ring_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let angle = (0.3 * (random_f32(seed * 2u) - 0.5) * 2.0 + f32(type_id)) / f32(n_types) * 2.0 * 3.14159;
-    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale down for [0,1] space
-    return vec2<f32>(0.5 + cos(angle) * radius, 0.5 + sin(angle) * radius);
+    let radius = 0.35 + 0.01 * (random_f32(seed * 3u) - 0.5) * 2.0; // Ring in [-1,1] space
+    return vec2<f32>(cos(angle) * radius, sin(angle) * radius);
 }
 
 fn generate_color_battle_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let center_angle = f32(type_id) / f32(n_types) * 2.0 * 3.14159;
-    let center_radius = 0.25; // Scale down for [0,1] space
+    let center_radius = 0.25; // Scale for [-1,1] space
     let angle = random_f32(seed * 2u) * 2.0 * 3.14159;
-    let radius = random_f32(seed * 3u) * 0.05; // Scale down for [0,1] space
+    let radius = random_f32(seed * 3u) * 0.05; // Scale for [-1,1] space
     return vec2<f32>(
-        0.5 + center_radius * cos(center_angle) + cos(angle) * radius,
-        0.5 + center_radius * sin(center_angle) + sin(angle) * radius
+        center_radius * cos(center_angle) + cos(angle) * radius,
+        center_radius * sin(center_angle) + sin(angle) * radius
     );
 }
 
 fn generate_color_wheel_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
     let center_angle = f32(type_id) / f32(n_types) * 2.0 * 3.14159;
-    let center_radius = 0.15; // Scale down for [0,1] space
-    let individual_radius = 0.1; // Scale down for [0,1] space
+    let center_radius = 0.15; // Scale for [-1,1] space
+    let individual_radius = 0.1; // Scale for [-1,1] space
     return vec2<f32>(
-        0.5 + center_radius * cos(center_angle) + (random_f32(seed * 2u) - 0.5) * 2.0 * individual_radius,
-        0.5 + center_radius * sin(center_angle) + (random_f32(seed * 3u) - 0.5) * 2.0 * individual_radius
+        center_radius * cos(center_angle) + (random_f32(seed * 2u) - 0.5) * 2.0 * individual_radius,
+        center_radius * sin(center_angle) + (random_f32(seed * 3u) - 0.5) * 2.0 * individual_radius
     );
 }
 
 fn generate_line_position(seed: u32) -> vec2<f32> {
-    let x = random_f32(seed * 2u);
-    let y = 0.5 + (random_f32(seed * 3u) - 0.5) * 0.3; // Center around 0.5 with small spread
+    let x = random_f32(seed * 2u) * 2.0 - 1.0; // Full width in [-1,1]
+    let y = (random_f32(seed * 3u) - 0.5) * 0.3; // Center around 0 with small spread
     return vec2<f32>(x, y);
 }
 
@@ -105,9 +105,9 @@ fn generate_spiral_position(seed: u32) -> vec2<f32> {
     let max_rotations = 2.0;
     let f = random_f32(seed * 2u);
     let angle = max_rotations * 2.0 * 3.14159 * f;
-    let spread = 0.25 * min(f, 0.2); // Scale down for [0,1] space
-    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread; // Scale down for [0,1] space
-    return vec2<f32>(0.5 + radius * cos(angle), 0.5 + radius * sin(angle));
+    let spread = 0.25 * min(f, 0.2); // Spiral spread
+    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale for [-1,1] space
+    return vec2<f32>(radius * cos(angle), radius * sin(angle));
 }
 
 fn generate_rainbow_spiral_position(seed: u32, type_id: u32, n_types: u32) -> vec2<f32> {
@@ -116,51 +116,101 @@ fn generate_rainbow_spiral_position(seed: u32, type_id: u32, n_types: u32) -> ve
     var f = (f32(type_id + 1u) / f32(n_types + 2u) + type_spread * (random_f32(seed * 2u) - 0.5) * 2.0);
     f = clamp(f, 0.0, 1.0);
     let angle = max_rotations * 2.0 * 3.14159 * f;
-    let spread = 0.25 * min(f, 0.2); // Scale down for [0,1] space
-    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0 * spread; // Scale down for [0,1] space
-    return vec2<f32>(0.5 + radius * cos(angle), 0.5 + radius * sin(angle));
+    let spread = 0.25 * min(f, 0.2); // Spiral spread
+    let radius = 0.45 * f + spread * (random_f32(seed * 3u) - 0.5) * 2.0; // Scale for [-1,1] space
+    return vec2<f32>(radius * cos(angle), radius * sin(angle));
 }
 
 // Type generation functions
+fn generate_radial_type(position: vec2<f32>, n_types: u32) -> u32 {
+    let distance = length(position); // Distance from center (0,0)
+    let normalized_distance = clamp(distance / 1.414, 0.0, 1.0); // Normalize to [0,1], max distance is ~√2
+    return u32(normalized_distance * f32(n_types - 1u)) % n_types;
+}
+
+fn generate_polar_type(position: vec2<f32>, n_types: u32) -> u32 {
+    let angle = atan2(position.y, position.x); // Angle from center, range [-π, π]
+    let normalized_angle = (angle + 3.14159) / (2.0 * 3.14159); // Convert to [0,1]
+    return u32(normalized_angle * f32(n_types)) % n_types;
+}
+
+fn generate_stripes_h_type(position: vec2<f32>, n_types: u32) -> u32 {
+    let normalized_y = (position.y + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    return u32(normalized_y * f32(n_types)) % n_types;
+}
+
+fn generate_stripes_v_type(position: vec2<f32>, n_types: u32) -> u32 {
+    let normalized_x = (position.x + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    return u32(normalized_x * f32(n_types)) % n_types;
+}
+
 fn generate_random_type(seed: u32, n_types: u32) -> u32 {
-    return u32(random_f32(seed * 4u) * f32(n_types));
+    return u32(random_f32(seed * 4u) * f32(n_types)) % n_types;
 }
 
-fn generate_randomize_10_percent_type(seed: u32, current_type: u32, n_types: u32) -> u32 {
-    if (random_f32(seed * 4u) < 0.1) {
-        return generate_random_type(seed * 5u, n_types);
+fn generate_line_h_type(position: vec2<f32>, n_types: u32) -> u32 {
+    // Horizontal line in the middle, distribute other areas across remaining types
+    if (abs(position.y) < 0.1) {
+        return 0u; // Center line gets type 0
+    } else {
+        // Distribute upper and lower areas across remaining types
+        let region = select(1u, 2u, position.y > 0.0);
+        return region % n_types;
     }
-    return current_type;
 }
 
-fn generate_slices_type(position: vec2<f32>, n_types: u32) -> u32 {
-    let normalized_x = position.x; // Already in [0,1] range
-    return u32(normalized_x * f32(n_types));
-}
-
-fn generate_onion_type(position: vec2<f32>, n_types: u32) -> u32 {
-    let distance = length(position - vec2<f32>(0.5, 0.5)) * 2.0; // Distance from center, scale to 0..1 range
-    return u32(distance * f32(n_types));
-}
-
-fn generate_rotate_type(current_type: u32, n_types: u32) -> u32 {
-    return (current_type + 1u) % n_types;
-}
-
-fn generate_flip_type(current_type: u32, n_types: u32) -> u32 {
-    return n_types - 1u - current_type;
-}
-
-fn generate_more_of_first_type(seed: u32, n_types: u32) -> u32 {
-    let value = random_f32(seed * 4u) * random_f32(seed * 5u);
-    return u32(value * f32(n_types));
-}
-
-fn generate_kill_still_type(velocity: vec2<f32>, current_type: u32, n_types: u32) -> u32 {
-    if (length(velocity) < 0.01) {
-        return n_types - 1u;
+fn generate_line_v_type(position: vec2<f32>, n_types: u32) -> u32 {
+    // Vertical line in the middle, distribute other areas across remaining types
+    if (abs(position.x) < 0.1) {
+        return 0u; // Center line gets type 0
+    } else {
+        // Distribute left and right areas across remaining types
+        let region = select(1u, 2u, position.x > 0.0);
+        return region % n_types;
     }
-    return current_type;
+}
+
+fn generate_spiral_type(position: vec2<f32>, n_types: u32) -> u32 {
+    let distance = length(position);
+    let angle = atan2(position.y, position.x);
+    let spiral_value = distance + angle * 0.159; // 0.159 ≈ 1/(2π) for normalization
+    let normalized_spiral = fract(spiral_value * 2.0); // Create repeating spiral pattern
+    return u32(normalized_spiral * f32(n_types)) % n_types;
+}
+
+fn generate_dithered_type(position: vec2<f32>, seed: u32, n_types: u32) -> u32 {
+    // Create a multi-level dithered pattern that ensures all types are represented
+    let grid_size = 4.0; // Smaller grid for finer dithering
+    let grid_x = floor((position.x + 1.0) * grid_size);
+    let grid_y = floor((position.y + 1.0) * grid_size);
+    let grid_seed = u32(grid_x * 73.0 + grid_y * 37.0) + seed;
+    
+    // Use multiple random values to create better distribution
+    let rand1 = random_f32(grid_seed);
+    let rand2 = random_f32(grid_seed * 7u + 13u);
+    let rand3 = random_f32(grid_seed * 11u + 17u);
+    
+    // Create a base pattern that cycles through all types
+    let base_pattern = u32((grid_x + grid_y) * 3.0) % n_types;
+    
+    // Add position-based variation
+    let pos_influence = (position.x * position.y + 1.0) * 0.5; // [0,1]
+    let pos_type = u32(pos_influence * f32(n_types));
+    
+    // Combine multiple sources of randomness
+    let combined_random = (rand1 + rand2 + rand3) / 3.0;
+    let random_offset = u32(combined_random * f32(n_types));
+    
+    // Mix the patterns with varying weights based on position
+    let mix_factor = fract(position.x * 7.0 + position.y * 5.0);
+    
+    let final_type = select(
+        (base_pattern + random_offset) % n_types,
+        (pos_type + random_offset) % n_types,
+        mix_factor > 0.5
+    );
+    
+    return final_type;
 }
 
 @compute @workgroup_size(64, 1, 1)
@@ -221,33 +271,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Generate initial type based on generator
     var initial_type: u32;
     switch (init_params.type_generator) {
-        case 0u: { // Random
+        case 0u: { // Radial
+            initial_type = generate_radial_type(position, init_params.species_count);
+        }
+        case 1u: { // Polar
+            initial_type = generate_polar_type(position, init_params.species_count);
+        }
+        case 2u: { // StripesH
+            initial_type = generate_stripes_h_type(position, init_params.species_count);
+        }
+        case 3u: { // StripesV
+            initial_type = generate_stripes_v_type(position, init_params.species_count);
+        }
+        case 4u: { // Random
             initial_type = generate_random_type(seed, init_params.species_count);
         }
-        case 1u: { // Randomize10Percent
-            let base_type = index % init_params.species_count;
-            initial_type = generate_randomize_10_percent_type(seed, base_type, init_params.species_count);
+        case 5u: { // LineH
+            initial_type = generate_line_h_type(position, init_params.species_count);
         }
-        case 2u: { // Slices
-            initial_type = generate_slices_type(position, init_params.species_count);
+        case 6u: { // LineV
+            initial_type = generate_line_v_type(position, init_params.species_count);
         }
-        case 3u: { // Onion
-            initial_type = generate_onion_type(position, init_params.species_count);
+        case 7u: { // Spiral
+            initial_type = generate_spiral_type(position, init_params.species_count);
         }
-        case 4u: { // Rotate
-            let base_type = index % init_params.species_count;
-            initial_type = generate_rotate_type(base_type, init_params.species_count);
-        }
-        case 5u: { // Flip
-            let base_type = index % init_params.species_count;
-            initial_type = generate_flip_type(base_type, init_params.species_count);
-        }
-        case 6u: { // MoreOfFirst
-            initial_type = generate_more_of_first_type(seed, init_params.species_count);
-        }
-        case 7u: { // KillStill
-            let base_type = index % init_params.species_count;
-            initial_type = generate_kill_still_type(vec2<f32>(0.0, 0.0), base_type, init_params.species_count);
+        case 8u: { // Dithered
+            initial_type = generate_dithered_type(position, seed, init_params.species_count);
         }
         default: {
             initial_type = generate_random_type(seed, init_params.species_count);

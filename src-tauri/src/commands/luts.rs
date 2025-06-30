@@ -67,38 +67,6 @@ pub async fn toggle_lut_reversed(
 }
 
 #[tauri::command]
-pub async fn apply_custom_lut(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    lut_data: Vec<f32>,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    // Convert f32 values to u8 bytes (0-255 range)
-    let byte_data: Vec<u8> = lut_data
-        .iter()
-        .map(|&f| (f.clamp(0.0, 255.0)) as u8)
-        .collect();
-
-    // Create LutData from the byte data
-    let lut_data = LutData::from_bytes("custom_lut".to_string(), &byte_data)
-        .map_err(|e| format!("Failed to create LUT data: {}", e))?;
-
-    // Apply the custom LUT to any running simulation
-    match sim_manager.apply_custom_lut(&lut_data, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => {
-            tracing::info!("Custom LUT applied successfully");
-            Ok("Custom LUT applied successfully".to_string())
-        }
-        Err(e) => {
-            tracing::error!("Failed to apply custom LUT: {}", e);
-            Err(format!("Failed to apply custom LUT: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
 pub async fn save_custom_lut(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     name: String,

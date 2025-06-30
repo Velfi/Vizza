@@ -245,6 +245,12 @@ fn main() {
             commands::reset_trails,
             commands::reset_agents,
             commands::reset_simulation,
+            // App settings commands
+            commands::get_app_settings,
+            commands::save_app_settings,
+            commands::reset_app_settings,
+            commands::get_settings_file_path,
+            commands::set_webview_zoom,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

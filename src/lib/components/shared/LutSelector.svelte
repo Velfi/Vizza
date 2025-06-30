@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import Selector from '../inputs/Selector.svelte';
 
   export let available_luts: string[] = [];
   export let current_lut: string = '';
@@ -27,9 +28,8 @@
   // Note: Don't auto-select the first LUT when current_lut is empty,
   // let the parent component set the initial LUT from backend state
 
-  function handleSelect(event: Event) {
-    const select = event.target as HTMLSelectElement;
-    const selectedName = select.value;
+  function handleSelect({ detail }: { detail: { value: string } }) {
+    const selectedName = detail.value;
     console.log(`LutSelector: Selected ${selectedName}, was ${current_lut}`);
     current_lut = selectedName; // Update local state
     dispatch('select', { name: selectedName });
@@ -39,24 +39,6 @@
     reversed = !reversed;
     console.log(`LutSelector: Reversing to ${reversed}, current LUT: ${current_lut}`);
     dispatch('reverse', { reversed });
-  }
-
-  function cycleLutForward() {
-    if (available_luts.length === 0) return;
-    const currentIndex = available_luts.indexOf(current_lut);
-    const nextIndex = (currentIndex + 1) % available_luts.length;
-    const nextLut = available_luts[nextIndex];
-    current_lut = nextLut; // Update local state
-    dispatch('select', { name: nextLut });
-  }
-
-  function cycleLutBack() {
-    if (available_luts.length === 0) return;
-    const currentIndex = available_luts.indexOf(current_lut);
-    const prevIndex = (currentIndex - 1 + available_luts.length) % available_luts.length;
-    const prevLut = available_luts[prevIndex];
-    current_lut = prevLut; // Update local state
-    dispatch('select', { name: prevLut });
   }
 
   // Function to open gradient editor and apply initial gradient
@@ -290,17 +272,11 @@
 
 <div class="lut-selector">
   <div class="lut-controls">
-    <button type="button" class="control-btn" on:click={cycleLutBack}>◀</button>
-    <select 
-      value={current_lut}
+    <Selector
+      options={available_luts}
+      bind:value={current_lut}
       on:change={handleSelect}
-      class="lut-select"
-    >
-      {#each available_luts as lut}
-        <option value={lut}>{lut}</option>
-      {/each}
-    </select>
-    <button type="button" class="control-btn" on:click={cycleLutForward}>▶</button>
+    />
     <button type="button" class="control-btn reverse-btn" class:reversed on:click={handleReverse} title="Reverse LUT">
       Reverse
     </button>
@@ -316,9 +292,20 @@
 </div>
 
 {#if show_gradient_editor}
-  <div class="gradient-editor-dialog" on:click|self={closeGradientEditor}>
-    <div class="dialog-content gradient-editor-content" on:click|stopPropagation>
-      <h3>Custom LUT Editor</h3>
+  <div 
+    class="gradient-editor-dialog" 
+    role="dialog" 
+    aria-modal="true"
+    aria-labelledby="gradient-editor-title"
+    tabindex="-1"
+    on:click|self={closeGradientEditor}
+    on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
+  >
+    <div 
+      class="dialog-content gradient-editor-content" 
+      role="document"
+    >
+      <h3 id="gradient-editor-title">Custom LUT Editor</h3>
       
       <!-- LUT Name Input -->
       <div class="control-group">
@@ -337,19 +324,42 @@
         <div class="gradient-preview" 
              style="background: linear-gradient(to right, {gradientStops.map(stop => `${stop.color} ${stop.position * 100}%`).join(', ')})">
         </div>
-        <div class="gradient-stops-container"
-             on:click={(e) => {
-               const rect = e.currentTarget.getBoundingClientRect();
-               const position = (e.clientX - rect.left) / rect.width;
-               addGradientStop(position);
-             }}>
+        <div 
+          class="gradient-stops-container"
+          role="button"
+          tabindex="0"
+          aria-label="Gradient editor area - click to add color stops"
+          on:click={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const position = (e.clientX - rect.left) / rect.width;
+            addGradientStop(position);
+          }}
+          on:keydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              // Add a stop at the center if activated with keyboard
+              addGradientStop(0.5);
+            }
+          }}
+        >
           {#each gradientStops as stop, index}
-            <div class="gradient-stop" 
-                 class:selected={index === selectedStopIndex}
-                 class:dragging={isDragging && dragStopIndex === index}
-                 style="left: {stop.position * 100}%; background-color: {stop.color}"
-                 on:mousedown={(e) => handleStopMouseDown(e, index)}
-                 on:click|stopPropagation={() => selectedStopIndex = index}>
+            <div 
+              class="gradient-stop" 
+              class:selected={index === selectedStopIndex}
+              class:dragging={isDragging && dragStopIndex === index}
+              style="left: {stop.position * 100}%; background-color: {stop.color}"
+              role="button"
+              tabindex="0"
+              aria-label="Color stop {index + 1} at {Math.round(stop.position * 100)}% - click to select"
+              on:mousedown={(e) => handleStopMouseDown(e, index)}
+              on:click|stopPropagation={() => selectedStopIndex = index}
+              on:keydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  selectedStopIndex = index;
+                }
+              }}
+            >
               {#if gradientStops.length > 2}
                 <button class="remove-stop" 
                         on:click|stopPropagation={() => removeGradientStop(index)}>×</button>
@@ -430,19 +440,19 @@
 
   .control-btn {
     padding: 0.5rem;
-    border: 1px solid #ccc;
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    background: #f8f9fa;
-    color: #333;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
     font-size: 0.9rem;
     transition: all 0.2s ease;
   }
 
   .control-btn:hover {
-    background: #e9ecef;
-    border-color: #adb5bd;
-    color: #222;
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 1);
   }
 
   .control-btn.reverse-btn {
@@ -459,16 +469,6 @@
   .control-btn.gradient-btn {
     font-size: 1.2rem;
     padding: 0.5rem 0.75rem;
-  }
-
-  .lut-select {
-    min-width: 200px;
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    background: #f8f9fa;
-    color: #333;
-    font-size: 0.9rem;
   }
 
   /* Gradient Editor Dialog Styles */

@@ -165,11 +165,12 @@
 
 <style>
   .number-drag-container {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
+    width: 100%;
   }
 
   .step-button {
@@ -201,7 +202,10 @@
   }
 
   .number-drag-box {
-    display: inline-block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-grow: 1;
     padding: 0.4rem 0.8rem;
     background: transparent;
     border: none;
@@ -212,6 +216,7 @@
     color: rgba(255, 255, 255, 0.9);
     font-family: monospace;
     font-size: 0.9rem;
+    min-width: 0;
   }
 
   .number-drag-box:hover {

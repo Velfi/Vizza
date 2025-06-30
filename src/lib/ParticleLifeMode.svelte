@@ -2,11 +2,13 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import NumberDragBox from './components/NumberDragBox.svelte';
-  import LutSelector from './components/LutSelector.svelte';
-  import InteractivePhysicsDiagram from './components/InteractivePhysicsDiagram.svelte';
-  import CursorConfig from './components/CursorConfig.svelte';
-  import UiHiddenIndicator from './components/UiHiddenIndicator.svelte';
+  import NumberDragBox from './components/inputs/NumberDragBox.svelte';
+  import LutSelector from './components/shared/LutSelector.svelte';
+  import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
+  import CursorConfig from './components/shared/CursorConfig.svelte';
+  import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
+  import Selector from './components/inputs/Selector.svelte';
+  import ButtonSelect from './components/inputs/ButtonSelect.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
@@ -85,12 +87,15 @@
   let new_preset_name = '';
   let show_physics_diagram = false; // Toggle for expandable physics diagram section
   let fps_display = 0;
-  let physics_time_avg = 0;
   let isSimulationRunning = false;
   let isLoading = true;
   
   // Enhanced UI state
   let showUI = true;
+  
+  // Auto-hide functionality for controls when UI is hidden
+  let controlsVisible = true;
+  let hideTimeout: number | null = null;
   
   // Type distribution data
   let typeCounts: number[] = [];
@@ -154,7 +159,6 @@
 
   // Event listeners
   let unsubscribeFps: (() => void) | null = null;
-  let unsubscribePhysicsTime: (() => void) | null = null;
   let unsubscribeTypeCounts: (() => void) | null = null;
 
   // Reactive statement to ensure force matrix is always properly initialized
@@ -479,7 +483,15 @@
       const backendState = await invoke('get_current_state');
       if (backendState) {
         const oldParticleCount = state.particle_count;
-        state = { ...state, ...backendState };
+        
+        // Preserve UI-only state that shouldn't be overwritten by backend
+        const preservedState = {
+          type_generator: state.type_generator,
+          position_generator: state.position_generator,
+          matrix_generator: state.matrix_generator
+        };
+        
+        state = { ...state, ...backendState, ...preservedState };
         
         // Extract type distribution data
         if (backendState && typeof backendState === 'object' && 'type_counts' in backendState && Array.isArray(backendState.type_counts)) {
@@ -566,6 +578,11 @@
     try {
       await invoke('pause_simulation');
       isSimulationRunning = false;
+      // Ensure controls remain visible when paused
+      if (!showUI) {
+        showControls();
+        stopAutoHideTimer(); // Stop auto-hide when paused
+      }
       console.log('Simulation paused');
     } catch (e) {
       console.error('Failed to pause simulation:', e);
@@ -576,6 +593,10 @@
     try {
       await invoke('resume_simulation');
       isSimulationRunning = true;
+      // Restart auto-hide timer when resumed and UI is hidden
+      if (!showUI) {
+        startAutoHideTimer();
+      }
       console.log('Simulation resumed');
     } catch (e) {
       console.error('Failed to resume simulation:', e);
@@ -631,6 +652,55 @@
       console.log(`Matrix randomized using ${state.matrix_generator} generator`);
     } catch (e) {
       console.error('Failed to randomize matrix:', e);
+    }
+  }
+
+  async function regeneratePositions() {
+    try {
+      // Reset type distribution data to prevent stale data display
+      typeCounts = [];
+      totalParticles = 0;
+      
+      // Update the position generator setting and regenerate particles
+      await invoke('update_simulation_setting', { settingName: 'position_generator', value: state.position_generator });
+      
+      // Reset simulation to regenerate particles with new position generator
+      await invoke('reset_simulation');
+      
+      // Wait a bit for the backend to process the changes
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Sync state from backend to get updated type distribution
+      await syncSettingsFromBackend();
+      
+      console.log(`Positions regenerated using ${state.position_generator} generator`);
+    } catch (e) {
+      console.error('Failed to regenerate positions:', e);
+    }
+  }
+
+  async function regenerateTypes() {
+    try {
+      // Reset type distribution data to prevent stale data display
+      typeCounts = [];
+      totalParticles = 0;
+      
+      // Update the type generator setting and regenerate particles
+      await invoke('update_simulation_setting', { settingName: 'type_generator', value: state.type_generator });
+      
+      // Reset simulation to regenerate particles with new type generator
+      await invoke('reset_simulation');
+      
+      // Wait a bit for the backend to process the changes
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Sync state from backend to get updated type distribution
+      // The syncSettingsFromBackend now preserves our UI state
+      await syncSettingsFromBackend();
+      
+      console.log(`Types regenerated using ${state.type_generator} generator`);
+    } catch (e) {
+      console.error('Failed to regenerate types:', e);
     }
   }
 
@@ -860,15 +930,113 @@
       // Sync UI state with backend
       const isVisible = await invoke<boolean>('get_gui_state');
       showUI = isVisible;
+      
+      // Handle auto-hide when UI is hidden
+      if (!showUI) {
+        showControls();
+        startAutoHideTimer();
+      } else {
+        stopAutoHideTimer();
+        controlsVisible = true;
+      }
     } catch (err) {
       console.error('Failed to toggle backend GUI:', err);
+    }
+  }
+
+  // Auto-hide functionality
+  function startAutoHideTimer() {
+    stopAutoHideTimer();
+    hideTimeout = window.setTimeout(() => {
+      // Only hide controls if simulation is running and UI is hidden
+      if (isSimulationRunning && !showUI) {
+        controlsVisible = false;
+      }
+    }, 3000);
+  }
+
+  function stopAutoHideTimer() {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  }
+
+  function showControls() {
+    controlsVisible = true;
+  }
+
+  function handleUserInteraction() {
+    if (!showUI && !controlsVisible) {
+      showControls();
+      startAutoHideTimer();
+    } else if (!showUI && controlsVisible) {
+      startAutoHideTimer();
     }
   }
 
   // Lifecycle
   onMount(async () => {
     try {
-      // Start simulation automatically
+      // Set up event listeners BEFORE starting simulation to avoid race conditions
+      
+      // Set up FPS monitoring
+      try {
+        unsubscribeFps = await listen('fps-update', (event) => {
+          fps_display = event.payload as number;
+        });
+      } catch (e) {
+        console.error('Failed to set up FPS listener:', e);
+      }
+      
+
+      
+      // Set up type counts monitoring
+      try {
+        unsubscribeTypeCounts = await listen('type-counts-update', (event) => {
+          const data = event.payload as { counts: number[], total: number };
+          typeCounts = data.counts;
+          totalParticles = data.total;
+        });
+      } catch (e) {
+        console.error('Failed to set up type counts listener:', e);
+      }
+      
+      // Listen for simulation initialization event
+      try {
+        console.log('Registering simulation-initialized event listener...');
+        await listen('simulation-initialized', async () => {
+          console.log('Simulation initialized, syncing settings...');
+          await syncSettingsFromBackend();
+          await updateSpeciesColors();
+          isSimulationRunning = true;
+        });
+        console.log('Registered simulation-initialized event listener.');
+      } catch (e) {
+        console.error('Failed to set up simulation-initialized listener:', e);
+      }
+      
+      // Listen for simulation resumed event
+      try {
+        await listen('simulation-resumed', async () => {
+          console.log('Simulation resumed');
+          isSimulationRunning = true;
+        });
+      } catch (e) {
+        console.error('Failed to set up simulation-resumed listener:', e);
+      }
+      
+      // Set up keyboard listeners for camera control
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('keyup', handleKeyUp);
+
+      // Add event listeners for auto-hide functionality
+      const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+      events.forEach(event => {
+        window.addEventListener(event, handleUserInteraction, { passive: true });
+      });
+
+      // Now start simulation after event listeners are set up
       await startSimulation();
       
       // Load initial data
@@ -889,61 +1057,6 @@
       if (isSimulationRunning) {
         await updateSpeciesColors();
       }
-      
-      // Set up FPS monitoring
-      try {
-        unsubscribeFps = await listen('fps-update', (event) => {
-          fps_display = event.payload as number;
-        });
-      } catch (e) {
-        console.error('Failed to set up FPS listener:', e);
-      }
-      
-      // Set up physics time monitoring
-      try {
-        unsubscribePhysicsTime = await listen('physics-time-update', (event) => {
-          physics_time_avg = event.payload as number;
-        });
-      } catch (e) {
-        console.error('Failed to set up physics time listener:', e);
-      }
-      
-      // Set up type counts monitoring
-      try {
-        unsubscribeTypeCounts = await listen('type-counts-update', (event) => {
-          const data = event.payload as { counts: number[], total: number };
-          typeCounts = data.counts;
-          totalParticles = data.total;
-        });
-      } catch (e) {
-        console.error('Failed to set up type counts listener:', e);
-      }
-      
-      // Listen for simulation initialization event
-      try {
-        await listen('simulation-initialized', async () => {
-          console.log('Simulation initialized, syncing settings...');
-          await syncSettingsFromBackend();
-          await updateSpeciesColors();
-          isSimulationRunning = true;
-        });
-      } catch (e) {
-        console.error('Failed to set up simulation-initialized listener:', e);
-      }
-
-      // Listen for simulation resumed event
-      try {
-        await listen('simulation-resumed', async () => {
-          console.log('Simulation resumed');
-          isSimulationRunning = true;
-        });
-      } catch (e) {
-        console.error('Failed to set up simulation-resumed listener:', e);
-      }
-      
-      // Set up keyboard listeners for camera control
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('keyup', handleKeyUp);
     } catch (e) {
       console.error('Failed to initialize simulation:', e);
     } finally {
@@ -959,15 +1072,21 @@
     if (unsubscribeFps) {
       unsubscribeFps();
     }
-    if (unsubscribePhysicsTime) {
-      unsubscribePhysicsTime();
-    }
     if (unsubscribeTypeCounts) {
       unsubscribeTypeCounts();
     }
     
     document.removeEventListener('keydown', handleKeyDown);
     document.removeEventListener('keyup', handleKeyUp);
+    
+    // Remove auto-hide event listeners
+    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    events.forEach(event => {
+      window.removeEventListener(event, handleUserInteraction);
+    });
+    
+    // Stop auto-hide timer
+    stopAutoHideTimer();
     
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
@@ -986,29 +1105,7 @@
     }
   }
 
-  // Reactive statement to update species colors when LUT changes
-  $: if (isSimulationRunning && (state.current_lut || state.lut_reversed !== undefined)) {
-    // Add a small delay to ensure backend has processed the LUT change
-    setTimeout(() => {
-      updateSpeciesColors();
-    }, 50);
-  }
 
-  // Reactive statement to update species colors when species count changes
-  $: if (isSimulationRunning && settings.species_count) {
-    // Add a small delay to ensure backend has processed the species count change
-    setTimeout(() => {
-      updateSpeciesColors();
-    }, 100);
-  }
-
-  // Reactive statement to update species colors when simulation starts
-  $: if (isSimulationRunning && !isLoading) {
-    // Update colors when simulation starts
-    setTimeout(() => {
-      updateSpeciesColors();
-    }, 200);
-  }
 
   async function updateLut(lutName: string) {
     try {
@@ -1222,6 +1319,7 @@
       console.error('Failed to clear trail texture:', e);
     }
   }
+
 </script>
 
 <div class="simulation-container">
@@ -1234,36 +1332,56 @@
       </div>
     </div>
   {:else if isSimulationRunning}
-    {#if showUI}
-    <div class="controls">
-      <button class="back-button" on:click={() => dispatch('back')}>
-        ← Back to Menu
-      </button>
-      
-      <div class="status">
-        <span class="status-indicator" class:running={isSimulationRunning}></span>
-        Particle Life Simulation {isSimulationRunning ? 'Running' : 'Paused'}
-      </div>
-      
-      <div class="mouse-instructions">
-        <span>🖱️ Left click: Attract | Right click: Repel</span>
-        <span>📹 WASD/Arrows: Pan | Q/E or Mouse wheel: Zoom</span>
-      </div>
-    </div>
-    {:else}
-    <!-- UI Hidden Indicator -->
-    <UiHiddenIndicator {showUI} on:toggle={toggleBackendGui} />
-    {/if}
+    <SimulationControlBar
+      running={isSimulationRunning}
+      loading={isLoading}
+      {showUI}
+      currentFps={fps_display}
+      simulationName="Particle Life"
+      {controlsVisible}
+      on:back={() => dispatch('back')}
+      on:toggleUI={toggleBackendGui}
+      on:pause={pauseSimulation}
+      on:resume={resumeSimulation}
+      on:userInteraction={handleUserInteraction}
+    />
 
     <!-- Main UI Controls Panel -->
     {#if showUI}
     <div class="simulation-controls">
     <form on:submit|preventDefault>
-      <!-- FPS Display & Status -->
+
+
+      <!-- Interaction Controls -->
       <fieldset>
-        <legend>Status</legend>
-        <div class="control-group">
-          <span>Running at {fps_display.toFixed(0)} FPS | Physics: {physics_time_avg.toFixed(2)}ms</span>
+        <legend>Interaction Controls</legend>
+        <div class="interaction-controls-grid">
+          <div class="interaction-help">
+            <div class="control-group">
+              <span>🖱️ Left click: Attract | Right click: Repel</span>
+            </div>
+            <div class="control-group">
+              <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+                📖 Camera Controls
+              </button>
+            </div>
+          </div>
+          <div class="cursor-config">
+            <CursorConfig
+              cursorSize={state.cursor_size}
+              cursorStrength={state.cursor_strength}
+              sizeMin={0.05}
+              sizeMax={1.0}
+              sizeStep={0.05}
+              strengthMin={0}
+              strengthMax={20}
+              strengthStep={0.5}
+              sizePrecision={2}
+              strengthPrecision={1}
+              on:sizechange={(e) => updateCursorSize(e.detail)}
+              on:strengthchange={(e) => updateCursorStrength(e.detail)}
+            />
+          </div>
         </div>
       </fieldset>
 
@@ -1272,82 +1390,83 @@
         <legend>Controls</legend>
         <div class="control-group">
           <button type="button" on:click={resetSimulation}>🔄 Reset Particles</button>
-          <button type="button" on:click={resumeSimulation} disabled={isSimulationRunning}>▶ Resume</button>
-          <button type="button" on:click={pauseSimulation} disabled={!isSimulationRunning}>⏸ Pause</button>
           <div class="matrix-controls">
-            <button type="button" on:click={async () => {
-              await randomizeMatrix();
-            }}>🎲 Randomize Matrix</button>
-            <select 
-              id="matrix-generator"
-              bind:value={state.matrix_generator}
-              on:change={(e) => updateMatrixGenerator((e.target as HTMLSelectElement).value)}
-            >
-              <option value="Random">Random</option>
-              <option value="Symmetry">Symmetry</option>
-              <option value="Chains">Chains</option>
-              <option value="Chains2">Chains2</option>
-              <option value="Chains3">Chains3</option>
-              <option value="Snakes">Snakes</option>
-              <option value="Zero">Zero</option>
-              <option value="PredatorPrey">PredatorPrey</option>
-              <option value="Symbiosis">Symbiosis</option>
-              <option value="Territorial">Territorial</option>
-              <option value="Magnetic">Magnetic</option>
-              <option value="Crystal">Crystal</option>
-              <option value="Wave">Wave</option>
-              <option value="Hierarchy">Hierarchy</option>
-              <option value="Clique">Clique</option>
-              <option value="AntiClique">AntiClique</option>
-              <option value="Fibonacci">Fibonacci</option>
-              <option value="Prime">Prime</option>
-              <option value="Fractal">Fractal</option>
-              <option value="RockPaperScissors">RockPaperScissors</option>
-              <option value="Cooperation">Cooperation</option>
-              <option value="Competition">Competition</option>
-            </select>
+            <ButtonSelect
+              value={state.matrix_generator}
+              buttonText="Regenerate Matrix"
+              placeholder="Select matrix generator..."
+              options={[
+                { value: 'Random', label: 'Random' },
+                { value: 'Symmetry', label: 'Symmetry' },
+                { value: 'Chains', label: 'Chains' },
+                { value: 'Chains2', label: 'Chains2' },
+                { value: 'Chains3', label: 'Chains3' },
+                { value: 'Snakes', label: 'Snakes' },
+                { value: 'Zero', label: 'Zero' },
+                { value: 'PredatorPrey', label: 'PredatorPrey' },
+                { value: 'Symbiosis', label: 'Symbiosis' },
+                { value: 'Territorial', label: 'Territorial' },
+                { value: 'Magnetic', label: 'Magnetic' },
+                { value: 'Crystal', label: 'Crystal' },
+                { value: 'Wave', label: 'Wave' },
+                { value: 'Hierarchy', label: 'Hierarchy' },
+                { value: 'Clique', label: 'Clique' },
+                { value: 'AntiClique', label: 'AntiClique' },
+                { value: 'Fibonacci', label: 'Fibonacci' },
+                { value: 'Prime', label: 'Prime' },
+                { value: 'Fractal', label: 'Fractal' },
+                { value: 'RockPaperScissors', label: 'RockPaperScissors' },
+                { value: 'Cooperation', label: 'Cooperation' },
+                { value: 'Competition', label: 'Competition' }
+              ]}
+              on:change={({ detail }) => updateMatrixGenerator(detail.value)}
+              on:buttonclick={async () => {
+                await randomizeMatrix();
+              }}
+            />
           </div>
           <div class="generator-controls">
             <div class="generator-control">
-              <label for="position-generator">Position:</label>
-              <select 
-                id="position-generator"
+              <ButtonSelect
                 value={state.position_generator}
-                on:change={(e) => {
-                  updatePositionGenerator((e.target as HTMLSelectElement).value);
+                buttonText="Regenerate Positions"
+                placeholder="Select position generator..."
+                options={[
+                  { value: 'Random', label: 'Random' },
+                  { value: 'Center', label: 'Center' },
+                  { value: 'UniformCircle', label: 'UniformCircle' },
+                  { value: 'CenteredCircle', label: 'CenteredCircle' },
+                  { value: 'Ring', label: 'Ring' },
+                  { value: 'Line', label: 'Line' },
+                  { value: 'Spiral', label: 'Spiral' },
+                ]}
+                on:change={({ detail }) => updatePositionGenerator(detail.value)}
+                on:buttonclick={async () => {
+                  await regeneratePositions();
                 }}
-              >
-                <option value="Random">Random</option>
-                <option value="Center">Center</option>
-                <option value="UniformCircle">Uniform Circle</option>
-                <option value="CenteredCircle">Centered Circle</option>
-                <option value="Ring">Ring</option>
-                <option value="RainbowRing">Rainbow Ring</option>
-                <option value="ColorBattle">Color Battle</option>
-                <option value="ColorWheel">Color Wheel</option>
-                <option value="Line">Line</option>
-                <option value="Spiral">Spiral</option>
-                <option value="RainbowSpiral">Rainbow Spiral</option>
-              </select>
+              />
             </div>
             <div class="generator-control">
-              <label for="type-generator">Type:</label>
-              <select 
-                id="type-generator"
+              <ButtonSelect
                 value={state.type_generator}
-                on:change={(e) => {
-                  updateTypeGenerator((e.target as HTMLSelectElement).value);
+                buttonText="Regenerate Types"
+                placeholder="Select type generator..."
+                options={[
+                  { value: 'Radial', label: 'Radial' },
+                  { value: 'Polar', label: 'Polar' },
+                  { value: 'StripesH', label: 'Stripes H' },
+                  { value: 'StripesV', label: 'Stripes V' },
+                  { value: 'Random', label: 'Random' },
+                  { value: 'LineH', label: 'Line H' },
+                  { value: 'LineV', label: 'Line V' },
+                  { value: 'Spiral', label: 'Spiral' },
+                  { value: 'Dithered', label: 'Dithered' }
+                ]}
+                on:change={({ detail }) => updateTypeGenerator(detail.value)}
+                on:buttonclick={async () => {
+                  await regenerateTypes();
                 }}
-              >
-                <option value="Random">Random</option>
-                <option value="Randomize10Percent">Randomize 10%</option>
-                <option value="Slices">Slices</option>
-                <option value="Onion">Onion</option>
-                <option value="Rotate">Rotate</option>
-                <option value="Flip">Flip</option>
-                <option value="MoreOfFirst">More of First</option>
-                <option value="KillStill">Kill Still</option>
-              </select>
+              />
             </div>
           </div>
         </div>
@@ -1356,27 +1475,12 @@
       <fieldset>
         <legend>Presets</legend>
         <div class="control-group">
-          <div class="preset-controls">
-            <button type="button" on:click={async () => {
-              const currentIndex = available_presets.indexOf(current_preset);
-              const newIndex = currentIndex > 0 ? currentIndex - 1 : available_presets.length - 1;
-              if (available_presets[newIndex]) await updatePreset(available_presets[newIndex]);
-            }}>◀</button>
-            <select 
-              bind:value={current_preset}
-              on:change={(e) => updatePreset((e.target as HTMLSelectElement).value)}
-            >
-              <option value="">Select Preset...</option>
-              {#each available_presets as preset}
-                <option value={preset}>{preset}</option>
-              {/each}
-            </select>
-            <button type="button" on:click={async () => {
-              const currentIndex = available_presets.indexOf(current_preset);
-              const newIndex = currentIndex < available_presets.length - 1 ? currentIndex + 1 : 0;
-              if (available_presets[newIndex]) await updatePreset(available_presets[newIndex]);
-            }}>▶</button>
-          </div>
+          <Selector
+            options={available_presets}
+            bind:value={current_preset}
+            placeholder="Select Preset..."
+            on:change={({ detail }) => updatePreset(detail.value)}
+          />
         </div>
         <div class="preset-actions">
           <button type="button" on:click={() => show_save_preset_dialog = true}>Save Current Settings</button>
@@ -1652,34 +1756,22 @@
         </div>
       </fieldset>
 
-      <!-- Mouse Interaction -->
-      <CursorConfig
-        cursorSize={state.cursor_size}
-        cursorStrength={state.cursor_strength}
-        sizeMin={0.05}
-        sizeMax={1.0}
-        sizeStep={0.05}
-        strengthMin={0}
-        strengthMax={20}
-        strengthStep={0.5}
-        sizePrecision={2}
-        strengthPrecision={1}
-        on:sizechange={(e) => updateCursorSize(e.detail)}
-        on:strengthchange={(e) => updateCursorStrength(e.detail)}
-      />
-
       <!-- Display Settings -->
       <fieldset>
         <legend>Display Settings</legend>
         <div class="display-controls-grid">
           <div class="control-group">
-            <label for="colorModeSelector">Background Mode</label>
-            <select id="colorModeSelector" bind:value={state.color_mode} on:change={(e) => updateColorMode((e.target as HTMLSelectElement).value)}>
-              <option value="Lut">Color Scheme (LUT)</option>
-              <option value="Gray18">Gray 18%</option>
-              <option value="White">White</option>
-              <option value="Black">Black</option>
-            </select>
+            <Selector
+              options={[
+                'Lut',
+                'Gray18',
+                'White',
+                'Black'
+              ]}
+              bind:value={state.color_mode}
+              label="Background Mode"
+              on:change={({ detail }) => updateColorMode(detail.value)}
+            />
           </div>
           <div class="control-group">
             <label for="lutSelector">Color Scheme</label>
@@ -1748,9 +1840,20 @@
 
   <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
-    <div class="dialog-backdrop" on:click={() => show_save_preset_dialog = false}>
-      <div class="dialog" on:click|stopPropagation>
-        <h3>Save Preset</h3>
+    <div 
+      class="dialog-backdrop" 
+      role="dialog" 
+      aria-modal="true"
+      aria-labelledby="save-preset-title"
+      tabindex="-1"
+      on:click={() => show_save_preset_dialog = false}
+      on:keydown={(e) => e.key === 'Escape' && (show_save_preset_dialog = false)}
+    >
+      <div 
+        class="dialog" 
+        role="document"
+      >
+        <h3 id="save-preset-title">Save Preset</h3>
         <input 
           type="text" 
           placeholder="Enter preset name..."
@@ -1836,63 +1939,6 @@
     font-size: 1rem;
   }
 
-  .controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    position: relative;
-    z-index: 20;
-  }
-
-  .mouse-instructions {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .back-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-  }
-
-  .back-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .status {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.9rem;
-  }
-
-  .status-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #ff6b6b;
-    transition: background-color 0.3s ease;
-  }
-
-  .status-indicator.running {
-    background: #51cf66;
-  }
-
   .simulation-controls {
     padding: 1rem;
     max-width: 800px;
@@ -1929,10 +1975,7 @@
     align-items: center;
   }
 
-  .matrix-controls select {
-    flex: 1;
-    min-width: 150px;
-  }
+
 
   .matrix-controls button {
     white-space: nowrap;
@@ -1948,19 +1991,10 @@
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-direction: column;
   }
 
-  .generator-control label {
-    margin: 0;
-    white-space: nowrap;
-    font-size: 0.9rem;
-    color: rgba(255, 255, 255, 0.8);
-  }
 
-  .generator-control select {
-    flex: 1;
-    min-width: 120px;
-  }
 
   label {
     display: block;
@@ -1968,28 +2002,13 @@
     color: rgba(255, 255, 255, 0.8);
   }
 
-  select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.5);
-    color: rgba(255, 255, 255, 0.9);
-  }
+
 
   input[type="checkbox"] {
     margin-right: 0.5rem;
   }
 
-  .preset-controls {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
 
-  .preset-controls select {
-    flex: 1;
-  }
 
   .preset-actions {
     display: flex;
@@ -2300,100 +2319,22 @@
     font-size: 0.75rem;
   }
 
-  .physics-controls-grid {
+  .interaction-controls-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: 1fr 1fr;
     gap: 1rem;
+    align-items: start;
   }
 
-  /* Responsive matrix sizing for larger species counts */
-  @media (max-width: 1200px) {
-    .force-matrix {
-      grid-template-columns: 35px repeat(var(--species-count), 50px);
-      grid-template-rows: 35px repeat(var(--species-count), 50px);
-    }
-    
-    .matrix-cell {
-      width: 50px;
-      height: 50px;
-    }
-    
-    .col-label, .row-label {
-      font-size: 0.75rem;
-    }
-  }
-
-  @media (max-width: 900px) {
-    .force-matrix {
-      grid-template-columns: 30px repeat(var(--species-count), 40px);
-      grid-template-rows: 30px repeat(var(--species-count), 40px);
-    }
-    
-    .matrix-cell {
-      width: 40px;
-      height: 40px;
-    }
-    
-    .col-label, .row-label {
-      font-size: 0.7rem;
-    }
-  }
-
-  @media (max-width: 600px) {
-    .matrix-and-setup-container {
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    .force-matrix {
-      grid-template-columns: 25px repeat(var(--species-count), 35px);
-      grid-template-rows: 25px repeat(var(--species-count), 35px);
-    }
-    
-    .matrix-cell {
-      width: 35px;
-      height: 35px;
-    }
-    
-    .col-label, .row-label {
-      font-size: 0.65rem;
-    }
-  }
-
-  /* Dialog Styles */
-  .dialog-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+  .interaction-help {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .dialog {
-    background: white;
-    padding: 2rem;
-    border-radius: 8px;
-    min-width: 300px;
-  }
-
-  .dialog h3 {
-    margin-top: 0;
-  }
-
-  .dialog input {
-    width: 100%;
-    margin: 1rem 0;
-  }
-
-  .dialog-buttons {
-    display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .cursor-config {
+    display: flex;
+    flex-direction: column;
   }
 
   /* Mouse overlay for camera interaction */
@@ -2431,36 +2372,6 @@
     transform: translateY(0);
   }
 
-  /* UI Hidden Indicator Styles */
-  .ui-hidden-indicator {
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 4px;
-    padding: 0.5rem 1rem;
-    color: white;
-    z-index: 1000;
-  }
 
-  .ui-hidden-content {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
 
-  .ui-toggle-button {
-    padding: 0.25rem 0.5rem;
-    background: rgba(255, 255, 255, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-radius: 4px;
-    color: white;
-    cursor: pointer;
-    transition: all 0.3s ease;
-  }
-
-  .ui-toggle-button:hover {
-    background: rgba(255, 255, 255, 0.4);
-    border-color: rgba(255, 255, 255, 0.6);
-  }
 </style>

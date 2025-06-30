@@ -28,8 +28,7 @@
   }
 </script>
 
-<fieldset>
-  <legend>Mouse Interaction</legend>
+<div class="cursor-config">
   <div class="control-group">
     <label for="cursorSize">Cursor Size</label>
     <input 
@@ -57,24 +56,16 @@
     />
     <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
   </div>
-</fieldset>
+</div>
 
 <style>
-  fieldset {
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  legend {
-    font-weight: bold;
-    padding: 0 0.5rem;
-    color: rgba(255, 255, 255, 0.9);
+  .cursor-config {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
 
   .control-group {
-    margin-bottom: 1rem;
     display: flex;
     gap: 1rem;
     align-items: center;
