@@ -1,3 +1,55 @@
+<div class="number-drag-container">
+  {#if showButtons}
+    <button
+      class="step-button decrement"
+      on:click={decrement}
+      disabled={min !== undefined && value <= min}
+      title="Decrease value"
+    >
+      -
+    </button>
+  {/if}
+
+  <div
+    class="number-drag-box"
+    class:dragging={isDragging}
+    class:editing={isEditing}
+    on:mousedown={handleMouseDown}
+    on:dblclick={handleDoubleClick}
+    role="spinbutton"
+    tabindex="0"
+  >
+    {#if isEditing}
+      <input
+        bind:this={inputElement}
+        type="number"
+        value={displayValue}
+        {min}
+        {max}
+        {step}
+        on:keydown={handleInputKeyDown}
+        on:blur={handleInputBlur}
+        class="drag-box-input"
+      />
+    {:else}
+      <span class="value-display">
+        {displayValue}{#if unit}<span class="unit">{unit}</span>{/if}
+      </span>
+    {/if}
+  </div>
+
+  {#if showButtons}
+    <button
+      class="step-button increment"
+      on:click={increment}
+      disabled={max !== undefined && value >= max}
+      title="Increase value"
+    >
+      +
+    </button>
+  {/if}
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
@@ -30,27 +82,27 @@
 
   function handleMouseDown(event: MouseEvent) {
     if (isEditing) return;
-    
+
     isDragging = true;
     dragStartX = event.clientX;
     dragStartValue = value;
-    
+
     event.preventDefault();
-    
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }
 
   function handleMouseMove(event: MouseEvent) {
     if (!isDragging) return;
-    
+
     // Prevent any focus changes during dragging
     event.preventDefault();
-    
+
     const deltaX = event.clientX - dragStartX;
     const deltaValue = (deltaX / 100) * step;
     const newValue = clamp(dragStartValue + deltaValue);
-    
+
     if (newValue !== value) {
       value = newValue;
       dispatch('change', value);
@@ -61,7 +113,7 @@
     isDragging = false;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
-    
+
     // Prevent focus changes after dragging
     event.preventDefault();
     event.stopPropagation();
@@ -110,58 +162,6 @@
 
   $: displayValue = formatValue(value);
 </script>
-
-<div class="number-drag-container">
-  {#if showButtons}
-    <button 
-      class="step-button decrement"
-      on:click={decrement}
-      disabled={min !== undefined && value <= min}
-      title="Decrease value"
-    >
-      -
-    </button>
-  {/if}
-  
-  <div 
-    class="number-drag-box"
-    class:dragging={isDragging}
-    class:editing={isEditing}
-    on:mousedown={handleMouseDown}
-    on:dblclick={handleDoubleClick}
-    role="spinbutton"
-    tabindex="0"
-  >
-    {#if isEditing}
-      <input
-        bind:this={inputElement}
-        type="number"
-        value={displayValue}
-        {min}
-        {max}
-        {step}
-        on:keydown={handleInputKeyDown}
-        on:blur={handleInputBlur}
-        class="drag-box-input"
-      />
-    {:else}
-      <span class="value-display">
-        {displayValue}{#if unit}<span class="unit">{unit}</span>{/if}
-      </span>
-    {/if}
-  </div>
-  
-  {#if showButtons}
-    <button 
-      class="step-button increment"
-      on:click={increment}
-      disabled={max !== undefined && value >= max}
-      title="Increase value"
-    >
-      +
-    </button>
-  {/if}
-</div>
 
 <style>
   .number-drag-container {

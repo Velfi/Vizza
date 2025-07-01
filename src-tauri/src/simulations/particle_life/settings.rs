@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::matrix_operations;
+use serde::{Deserialize, Serialize};
 
 /// Settings for the Particle Life simulation that can be saved in presets
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,15 +48,15 @@ pub struct Settings {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TypeGenerator {
-    Radial,    // Change type based on distance from center
-    Polar,     // Change type based on orientation to center
-    StripesH,  // Horizontal stripes
-    StripesV,  // Vertical stripes
-    Random,    // Random distribution
-    LineH,     // Horizontal line
-    LineV,     // Vertical line
-    Spiral,    // Spiral pattern
-    Dithered,  // Dithered pattern
+    Radial,   // Change type based on distance from center
+    Polar,    // Change type based on orientation to center
+    StripesH, // Horizontal stripes
+    StripesV, // Vertical stripes
+    Random,   // Random distribution
+    LineH,    // Horizontal line
+    LineV,    // Vertical line
+    Spiral,   // Spiral pattern
+    Dithered, // Dithered pattern
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,14 +177,15 @@ impl Settings {
                 // Symmetric matrix with random strength variations
                 let base_strength = rng.random_range(0.3..0.8);
                 let variation = rng.random_range(0.1..0.4);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in i..self.species_count as usize {
                         let value: f32 = if i == j {
                             rng.random_range(-0.3..-0.05) // Self-repulsion varies
                         } else {
                             let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
-                            sign * rng.random_range(0.2..base_strength) + rng.random_range(-variation..variation)
+                            sign * rng.random_range(0.2..base_strength)
+                                + rng.random_range(-variation..variation)
                         };
                         self.force_matrix[i][j] = value.clamp(-1.0, 1.0);
                         if i != j {
@@ -198,7 +199,7 @@ impl Settings {
                 let chain_strength = rng.random_range(0.3..0.7);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let background_strength = rng.random_range(-0.2..0.1);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -206,7 +207,8 @@ impl Settings {
                         } else if (i as i32 - j as i32).abs() == 1 {
                             self.force_matrix[i][j] = chain_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
@@ -216,7 +218,7 @@ impl Settings {
                 let near_strength = rng.random_range(0.2..0.6);
                 let far_strength = rng.random_range(-0.3..0.1);
                 let self_repulsion = rng.random_range(-0.4..-0.1);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -236,7 +238,7 @@ impl Settings {
                 let decay_rate: f32 = rng.random_range(0.6..0.9);
                 let base_strength = rng.random_range(0.3..0.6);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -256,17 +258,19 @@ impl Settings {
                 let end_connection_strength = rng.random_range(0.1..0.4);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let background_strength = rng.random_range(-0.1..0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else if i == 0 && j == (self.species_count as usize) - 1 {
-                            self.force_matrix[i][j] = end_connection_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                end_connection_strength + rng.random_range(-0.1..0.1);
                         } else if (i as i32 - j as i32).abs() == 1 {
                             self.force_matrix[i][j] = snake_strength + rng.random_range(-0.1..0.1);
                         } else {
-                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
@@ -300,7 +304,7 @@ impl Settings {
                 let symbiosis_strength = rng.random_range(0.3..0.7);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let background_strength = rng.random_range(-0.1..0.1);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -311,7 +315,8 @@ impl Settings {
                             self.force_matrix[i][j] = strength;
                             self.force_matrix[j][i] = strength;
                         } else {
-                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
@@ -320,13 +325,14 @@ impl Settings {
                 // Territorial: strong self-repulsion, varied repulsion from others
                 let self_repulsion = rng.random_range(-0.9..-0.5);
                 let other_repulsion_base = rng.random_range(-0.5..-0.1);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = other_repulsion_base + rng.random_range(-0.2..0.2);
+                            self.force_matrix[i][j] =
+                                other_repulsion_base + rng.random_range(-0.2..0.2);
                         }
                     }
                 }
@@ -337,17 +343,19 @@ impl Settings {
                 let attraction_strength = rng.random_range(0.2..0.6);
                 let repulsion_strength = rng.random_range(-0.6..-0.2);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else if (i % 2 == 0) == (j % 2 == 0) {
                             // Same "charge" (both even or both odd) - attraction with variation
-                            self.force_matrix[i][j] = attraction_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                attraction_strength + rng.random_range(-0.1..0.1);
                         } else {
                             // Different "charge" - repulsion with variation
-                            self.force_matrix[i][j] = repulsion_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                repulsion_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -358,7 +366,7 @@ impl Settings {
                 let self_repulsion = rng.random_range(-0.4..-0.1);
                 let background_strength = rng.random_range(-0.2..0.05);
                 let lattice_variation = rng.random_range(0.05..0.2);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -368,9 +376,11 @@ impl Settings {
                             || (j == 0 && i == (self.species_count as usize) - 1)
                         {
                             // Neighbors in crystal lattice - strong attraction with variation
-                            self.force_matrix[i][j] = lattice_strength + rng.random_range(-lattice_variation..lattice_variation);
+                            self.force_matrix[i][j] = lattice_strength
+                                + rng.random_range(-lattice_variation..lattice_variation);
                         } else {
-                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                background_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -381,7 +391,7 @@ impl Settings {
                 let frequency = rng.random_range(0.5..2.0);
                 let phase = rng.random_range(0.0..std::f32::consts::PI * 2.0);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -401,17 +411,20 @@ impl Settings {
                 let hierarchy_strength = rng.random_range(0.2..0.5);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let background_strength = rng.random_range(-0.05..0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else if i < j {
                             // Higher species attracts lower ones with variation
-                            self.force_matrix[i][j] = hierarchy_strength + rng.random_range(-0.1..0.1);
-                            self.force_matrix[j][i] = background_strength + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                hierarchy_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[j][i] =
+                                background_strength + rng.random_range(-0.05..0.05);
                         } else {
-                            self.force_matrix[i][j] = background_strength + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                background_strength + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
@@ -422,7 +435,7 @@ impl Settings {
                 let clique_strength = rng.random_range(0.3..0.7);
                 let between_clique_strength = rng.random_range(-0.4..-0.1);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -432,7 +445,8 @@ impl Settings {
                             self.force_matrix[i][j] = clique_strength + rng.random_range(-0.1..0.1);
                         } else {
                             // Different clique - repulsion with variation
-                            self.force_matrix[i][j] = between_clique_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                between_clique_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -443,17 +457,19 @@ impl Settings {
                 let within_clique_strength = rng.random_range(-0.7..-0.3);
                 let between_clique_strength = rng.random_range(0.2..0.5);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else if (i / group_size) == (j / group_size) {
                             // Same clique - strong repulsion with variation
-                            self.force_matrix[i][j] = within_clique_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                within_clique_strength + rng.random_range(-0.1..0.1);
                         } else {
                             // Different clique - attraction with variation
-                            self.force_matrix[i][j] = between_clique_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                between_clique_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -477,7 +493,8 @@ impl Settings {
                         } else {
                             let fib_value = fib[i.min(j)];
                             let max_fib = *fib.iter().max().unwrap_or(&1) as f32;
-                            let base_force = (fib_value as f32 / max_fib) * scale_factor + base_offset;
+                            let base_force =
+                                (fib_value as f32 / max_fib) * scale_factor + base_offset;
                             let variation = rng.random_range(-0.1..0.1);
                             self.force_matrix[i][j] = (base_force + variation).clamp(-0.8, 0.8);
                         }
@@ -509,13 +526,16 @@ impl Settings {
                             self.force_matrix[i][j] = self_repulsion;
                         } else if is_prime(i) && is_prime(j) {
                             // Both prime - strong attraction with variation
-                            self.force_matrix[i][j] = prime_attraction + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                prime_attraction + rng.random_range(-0.1..0.1);
                         } else if is_prime(i) || is_prime(j) {
                             // One prime - moderate attraction with variation
-                            self.force_matrix[i][j] = mixed_attraction + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                mixed_attraction + rng.random_range(-0.1..0.1);
                         } else {
                             // Neither prime - weak repulsion with variation
-                            self.force_matrix[i][j] = non_prime_repulsion + rng.random_range(-0.05..0.05);
+                            self.force_matrix[i][j] =
+                                non_prime_repulsion + rng.random_range(-0.05..0.05);
                         }
                     }
                 }
@@ -526,7 +546,7 @@ impl Settings {
                 let frequency = rng.random_range(1.0..3.0);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let base_offset = rng.random_range(-0.1..0.1);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
@@ -535,7 +555,8 @@ impl Settings {
                             let distance = (i as f32 - j as f32).abs();
                             let normalized_distance = distance / (self.species_count as f32);
                             let scale = (normalized_distance * frequency).log2().max(0.0);
-                            let force = (scale * std::f32::consts::PI).sin() * scale_factor + base_offset;
+                            let force =
+                                (scale * std::f32::consts::PI).sin() * scale_factor + base_offset;
                             let variation = rng.random_range(-0.1..0.1);
                             self.force_matrix[i][j] = (force + variation).clamp(-0.8, 0.8);
                         }
@@ -567,13 +588,14 @@ impl Settings {
                 // Cooperation: all species have weak mutual attraction with random variations
                 let cooperation_strength = rng.random_range(0.1..0.4);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = cooperation_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                cooperation_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }
@@ -582,13 +604,14 @@ impl Settings {
                 // Competition: all species have weak mutual repulsion with random variations
                 let competition_strength = rng.random_range(-0.4..-0.1);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
-                
+
                 for i in 0..self.species_count as usize {
                     for j in 0..self.species_count as usize {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            self.force_matrix[i][j] = competition_strength + rng.random_range(-0.1..0.1);
+                            self.force_matrix[i][j] =
+                                competition_strength + rng.random_range(-0.1..0.1);
                         }
                     }
                 }

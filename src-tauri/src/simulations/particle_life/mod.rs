@@ -1,11 +1,11 @@
+pub mod matrix_operations;
 pub mod settings;
 pub mod shaders;
 pub mod simulation;
-pub mod matrix_operations;
 
 pub use simulation::ParticleLifeModel;
 
-use crate::simulation::preset_manager::{Preset, ParticleLifePresetManager};
+use crate::simulation::preset_manager::{ParticleLifePresetManager, Preset};
 
 /// Initialize Particle Life presets with built-in configurations
 pub fn init_presets(preset_manager: &mut ParticleLifePresetManager) {

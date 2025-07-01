@@ -1,31 +1,31 @@
 .matrix-cell .number-drag-container {
-    height: 60px;
-    width: 60px;
-    padding: 0;
-    justify-content: center;
-    align-items: center;
-    display: flex;
-    background: none;
-    outline: 1px solid rgb(0, 0, 0);
-    text-shadow: 0 0 2px rgb(0, 0, 0);
+  height: 60px;
+  width: 60px;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+  display: flex;
+  background: none;
+  outline: 1px solid rgb(0, 0, 0);
+  text-shadow: 0 0 2px rgb(0, 0, 0);
 }
 
 .matrix-cell .number-drag-container .number-drag-box {
-    background: none;
+  background: none;
 }
 
 @media (max-width: 1200px) {
-    .matrix-cell .number-drag-container {
-        height: 50px;
-        width: 50px;
-    }
+  .matrix-cell .number-drag-container {
+    height: 50px;
+    width: 50px;
+  }
 }
 
 @media (max-width: 900px) {
-    .matrix-cell .number-drag-container {
-        height: 40px;
-        width: 40px;
-    }
+  .matrix-cell .number-drag-container {
+    height: 40px;
+    width: 40px;
+  }
 }
 
 /* Particle Life Mode Specific Styles */
@@ -45,7 +45,7 @@
     grid-template-columns: 1fr;
     gap: 0.5rem;
   }
-  
+
   .icon-btn {
     width: 28px;
     height: 28px;
@@ -58,7 +58,7 @@
     grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
   }
-  
+
   .icon-btn {
     width: 24px;
     height: 24px;
@@ -168,15 +168,14 @@
     right: 5px;
     padding: 0.5rem 0.75rem;
   }
-  
+
   .ui-hidden-content {
     font-size: 0.8rem;
     gap: 0.5rem;
   }
-  
+
   .ui-toggle-button {
     padding: 0.3rem 0.6rem;
     font-size: 0.8rem;
   }
 }
-

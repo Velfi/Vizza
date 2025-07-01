@@ -1,3 +1,18 @@
+<div
+  class="ui-hidden-indicator"
+  class:visible={isVisible}
+  on:click={handleInteraction}
+  on:mouseenter={handleInteraction}
+>
+  <div class="ui-hidden-content">
+    <span>UI Hidden - Press <kbd>/</kbd> to toggle</span>
+    <button class="ui-toggle-button" on:click={toggleUI}>Show UI</button>
+  </div>
+  <div class="progress-bar">
+    <div class="progress-fill" style="width: {progressPercent}%"></div>
+  </div>
+</div>
+
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { createEventDispatcher } from 'svelte';
@@ -16,7 +31,7 @@
 
   // Set up event listeners immediately
   const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
-  
+
   const handleEvent = () => {
     lastInteractionTime = Date.now();
     wasAutoHidden = false; // Reset auto-hidden flag
@@ -27,7 +42,7 @@
   };
 
   // Add event listeners
-  events.forEach(event => {
+  events.forEach((event) => {
     document.addEventListener(event, handleEvent, { passive: true });
   });
 
@@ -36,16 +51,16 @@
     if (progressInterval) {
       clearInterval(progressInterval);
     }
-    
+
     const startTime = Date.now();
-    
+
     progressInterval = window.setInterval(() => {
       const currentTime = Date.now();
       const elapsed = currentTime - startTime;
       const remaining = Math.max(0, autoHideDelay - elapsed);
-      
+
       progressPercent = (remaining / autoHideDelay) * 100;
-      
+
       if (remaining <= 0) {
         stopProgressTimer();
       }
@@ -85,7 +100,7 @@
     if (hideTimeout) {
       clearTimeout(hideTimeout);
     }
-    
+
     hideTimeout = window.setTimeout(() => {
       // Only hide if no interaction in the last 5 seconds
       const timeSinceLastInteraction = Date.now() - lastInteractionTime;
@@ -131,29 +146,19 @@
 
   onDestroy(() => {
     // Remove event listeners
-    events.forEach(event => {
+    events.forEach((event) => {
       document.removeEventListener(event, handleEvent);
     });
-    
+
     if (hideTimeout) {
       clearTimeout(hideTimeout);
     }
-    
+
     if (progressInterval) {
       clearInterval(progressInterval);
     }
   });
 </script>
-
-<div class="ui-hidden-indicator" class:visible={isVisible} on:click={handleInteraction} on:mouseenter={handleInteraction}>
-  <div class="ui-hidden-content">
-    <span>UI Hidden - Press <kbd>/</kbd> to toggle</span>
-    <button class="ui-toggle-button" on:click={toggleUI}>Show UI</button>
-  </div>
-  <div class="progress-bar">
-    <div class="progress-fill" style="width: {progressPercent}%"></div>
-  </div>
-</div>
 
 <style>
   /* UI Hidden Indicator Styles */
@@ -169,7 +174,9 @@
     z-index: 1000;
     backdrop-filter: blur(4px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    transition:
+      opacity 0.3s ease,
+      transform 0.3s ease;
     cursor: pointer;
     opacity: 0;
     pointer-events: none;
@@ -249,15 +256,15 @@
       right: 5px;
       padding: 0.5rem 0.75rem;
     }
-    
+
     .ui-hidden-content {
       font-size: 0.8rem;
       gap: 0.5rem;
     }
-    
+
     .ui-toggle-button {
       padding: 0.3rem 0.6rem;
       font-size: 0.8rem;
     }
   }
-</style> 
+</style>

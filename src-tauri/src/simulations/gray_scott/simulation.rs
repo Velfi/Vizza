@@ -575,7 +575,8 @@ impl GrayScottModel {
                     let distance = ((dx * dx + dy * dy) as f32).sqrt();
                     if distance <= radius as f32 {
                         let index = (py * self.width as i32 + px) as usize;
-                        let factor = (1.0 - (distance / radius as f32)) * self.settings.cursor_strength;
+                        let factor =
+                            (1.0 - (distance / radius as f32)) * self.settings.cursor_strength;
 
                         let uv_pair = if mouse_button == 0 {
                             // Left mouse button: seed the reaction with higher V concentration

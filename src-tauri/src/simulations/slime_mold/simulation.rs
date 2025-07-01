@@ -39,9 +39,9 @@ pub struct SimSizeUniform {
 
 impl SimSizeUniform {
     pub fn new(
-        width: u32, 
-        height: u32, 
-        decay_rate: f32, 
+        width: u32,
+        height: u32,
+        decay_rate: f32,
         settings: &Settings,
         position_generator: &crate::simulations::shared::SlimeMoldPositionGenerator,
     ) -> Self {
@@ -141,7 +141,7 @@ pub struct SlimeMoldModel {
     pub cursor_world_x: f32,
     pub cursor_world_y: f32,
     pub cursor_buffer: wgpu::Buffer, // buffer for CursorParams
-    
+
     // Cursor configuration (runtime state, not saved in presets)
     pub cursor_size: f32,
     pub cursor_strength: f32,
@@ -1018,8 +1018,12 @@ impl SlimeMoldModel {
                     let generator = match generator_str {
                         "Random" => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
                         "Center" => crate::simulations::shared::SlimeMoldPositionGenerator::Center,
-                        "UniformCircle" => crate::simulations::shared::SlimeMoldPositionGenerator::UniformCircle,
-                        "CenteredCircle" => crate::simulations::shared::SlimeMoldPositionGenerator::CenteredCircle,
+                        "UniformCircle" => {
+                            crate::simulations::shared::SlimeMoldPositionGenerator::UniformCircle
+                        }
+                        "CenteredCircle" => {
+                            crate::simulations::shared::SlimeMoldPositionGenerator::CenteredCircle
+                        }
                         "Ring" => crate::simulations::shared::SlimeMoldPositionGenerator::Ring,
                         "Line" => crate::simulations::shared::SlimeMoldPositionGenerator::Line,
                         "Spiral" => crate::simulations::shared::SlimeMoldPositionGenerator::Spiral,
@@ -1313,7 +1317,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         } else {
             0 // middle click or other = no interaction
         };
-        
+
         let (sim_x, sim_y) = if cursor_mode == 0 {
             (0.0, 0.0)
         } else {
@@ -1324,16 +1328,16 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             let sim_y = ((1.0 - world_y) * 0.5) * self.current_height as f32; // Flip Y axis
             (sim_x, sim_y)
         };
-        
+
         self.cursor_active_mode = cursor_mode;
         self.cursor_world_x = sim_x;
         self.cursor_world_y = sim_y;
-        
+
         tracing::debug!(
             "Slime mold cursor interaction: world=({:.3}, {:.3}), sim=({:.1}, {:.1}), mode={}, dimensions={}x{}",
             world_x, world_y, sim_x, sim_y, cursor_mode, self.current_width, self.current_height
         );
-        
+
         self.update_cursor_params(queue);
         Ok(())
     }

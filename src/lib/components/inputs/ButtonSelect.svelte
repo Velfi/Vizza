@@ -1,3 +1,15 @@
+<div class="button-select">
+  <button type="button" class="action-button" on:click={handleButtonClick}>
+    {buttonText}
+  </button>
+  <select class="select-dropdown" {value} on:change={handleSelectChange}>
+    <option value="" disabled>{placeholder}</option>
+    {#each options as option}
+      <option value={option.value}>{option.label}</option>
+    {/each}
+  </select>
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
@@ -10,7 +22,7 @@
 
   function handleButtonClick() {
     // Find the current option and trigger its button action if it exists
-    const currentOption = options.find(opt => opt.value === value);
+    const currentOption = options.find((opt) => opt.value === value);
     if (currentOption?.buttonAction) {
       dispatch('buttonclick', { action: currentOption.buttonAction, value: currentOption.value });
     } else {
@@ -24,26 +36,6 @@
     dispatch('change', { value: newValue });
   }
 </script>
-
-<div class="button-select">
-  <button 
-    type="button" 
-    class="action-button"
-    on:click={handleButtonClick}
-  >
-    {buttonText}
-  </button>
-  <select 
-    class="select-dropdown"
-    {value}
-    on:change={handleSelectChange}
-  >
-    <option value="" disabled>{placeholder}</option>
-    {#each options as option}
-      <option value={option.value}>{option.label}</option>
-    {/each}
-  </select>
-</div>
 
 <style>
   .button-select {
@@ -113,4 +105,4 @@
     height: 2.5rem;
     box-sizing: border-box;
   }
-</style> 
+</style>

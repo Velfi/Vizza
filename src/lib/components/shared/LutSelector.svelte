@@ -1,3 +1,160 @@
+<div class="lut-selector">
+  <div class="lut-controls">
+    <Selector options={available_luts} bind:value={current_lut} on:change={handleSelect} />
+    <button
+      type="button"
+      class="control-btn reverse-btn"
+      class:reversed
+      on:click={handleReverse}
+      title="Reverse LUT"
+    >
+      Reverse
+    </button>
+    <button
+      type="button"
+      class="control-btn gradient-btn"
+      on:click={openGradientEditor}
+      title="Create Custom LUT"
+    >
+      🎨
+    </button>
+  </div>
+</div>
+
+{#if show_gradient_editor}
+  <div
+    class="gradient-editor-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="gradient-editor-title"
+    tabindex="-1"
+    on:click|self={closeGradientEditor}
+    on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
+  >
+    <div class="dialog-content gradient-editor-content" role="document">
+      <h3 id="gradient-editor-title">Custom LUT Editor</h3>
+
+      <!-- LUT Name Input -->
+      <div class="control-group">
+        <label for="customLutName">LUT Name</label>
+        <input
+          type="text"
+          id="customLutName"
+          bind:value={custom_lut_name}
+          placeholder="Enter LUT name..."
+          class="text-input"
+        />
+      </div>
+
+      <!-- Gradient Preview -->
+      <div class="gradient-preview-container">
+        <div
+          class="gradient-preview"
+          style="background: linear-gradient(to right, {gradientStops
+            .map((stop) => `${stop.color} ${stop.position * 100}%`)
+            .join(', ')})"
+        ></div>
+        <div
+          class="gradient-stops-container"
+          role="button"
+          tabindex="0"
+          aria-label="Gradient editor area - click to add color stops"
+          on:click={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const position = (e.clientX - rect.left) / rect.width;
+            addGradientStop(position);
+          }}
+          on:keydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              // Add a stop at the center if activated with keyboard
+              addGradientStop(0.5);
+            }
+          }}
+        >
+          {#each gradientStops as stop, index}
+            <div
+              class="gradient-stop"
+              class:selected={index === selectedStopIndex}
+              class:dragging={isDragging && dragStopIndex === index}
+              style="left: {stop.position * 100}%; background-color: {stop.color}"
+              role="button"
+              tabindex="0"
+              aria-label="Color stop {index + 1} at {Math.round(
+                stop.position * 100
+              )}% - click to select"
+              on:mousedown={(e) => handleStopMouseDown(e, index)}
+              on:click|stopPropagation={() => (selectedStopIndex = index)}
+              on:keydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  selectedStopIndex = index;
+                }
+              }}
+            >
+              {#if gradientStops.length > 2}
+                <button
+                  class="remove-stop"
+                  on:click|stopPropagation={() => removeGradientStop(index)}>×</button
+                >
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Selected Stop Controls -->
+      {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
+        <div class="stop-controls">
+          <h4>Color Stop {selectedStopIndex + 1}</h4>
+          <div class="control-row">
+            <div class="control-group">
+              <label for="stopColor">Color</label>
+              <input
+                type="color"
+                id="stopColor"
+                value={gradientStops[selectedStopIndex].color}
+                on:input={(e) => {
+                  const color = (e.target as HTMLInputElement).value;
+                  updateStopColor(selectedStopIndex, color);
+                }}
+                class="color-input"
+              />
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Instructions -->
+      <div class="gradient-instructions">
+        <p><strong>Instructions:</strong></p>
+        <ul>
+          <li>Click on the gradient to add new color stops</li>
+          <li>Click on a color stop to select it</li>
+          <li>Use the controls below to adjust position and color</li>
+          <li>Click × on a stop to remove it (minimum 2 stops required)</li>
+          <li>Changes apply to the simulation in real-time</li>
+        </ul>
+      </div>
+
+      <!-- Dialog Actions -->
+      <div class="dialog-actions">
+        <button
+          type="button"
+          class="primary-button"
+          on:click={saveCustomLut}
+          disabled={!custom_lut_name.trim()}
+        >
+          💾 Save LUT
+        </button>
+        <button type="button" class="secondary-button" on:click={closeGradientEditor}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -17,7 +174,7 @@
   let custom_lut_name = '';
   let gradientStops = [
     { position: 0, color: '#000000' },
-    { position: 1, color: '#ffffff' }
+    { position: 1, color: '#ffffff' },
   ];
   let selectedStopIndex = -1;
   let isDragging = false;
@@ -45,7 +202,7 @@
   async function openGradientEditor() {
     original_lut_name = current_lut; // Store the original LUT name
     show_gradient_editor = true;
-    
+
     // Apply the initial gradient preview immediately
     await updateGradientPreview();
   }
@@ -54,7 +211,7 @@
   async function closeGradientEditor() {
     show_gradient_editor = false;
     custom_lut_name = '';
-    
+
     // Restore the original LUT
     try {
       await invoke('apply_lut_by_name', { lutName: original_lut_name });
@@ -131,22 +288,20 @@
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      
+
       // Use the stored container reference and recalculate rect if needed
       const rect = container.getBoundingClientRect();
       const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      
+
       // Update the stop position
       gradientStops[dragStopIndex].position = position;
-      
+
       // Re-sort stops by position and update the array to trigger reactivity
       gradientStops = [...gradientStops].sort((a, b) => a.position - b.position);
-      
+
       // Update the drag index to match the new position
-      dragStopIndex = gradientStops.findIndex(stop => 
-        Math.abs(stop.position - position) < 0.001
-      );
-      
+      dragStopIndex = gradientStops.findIndex((stop) => Math.abs(stop.position - position) < 0.001);
+
       updateGradientPreview();
     };
 
@@ -170,7 +325,7 @@
         const t = i / 255;
         let leftStop = gradientStops[0];
         let rightStop = gradientStops[gradientStops.length - 1];
-        
+
         // Find the correct stops to interpolate between
         if (t <= gradientStops[0].position) {
           // Before first stop - use first stop color
@@ -190,12 +345,12 @@
             }
           }
         }
-        
+
         // Calculate interpolation factor, handling edge cases
         const positionDiff = rightStop.position - leftStop.position;
         const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
         const interpolatedColor = interpolateColor(leftStop.color, rightStop.color, interp_t);
-        
+
         const r = parseInt(interpolatedColor.slice(1, 3), 16);
         const g = parseInt(interpolatedColor.slice(3, 5), 16);
         const b = parseInt(interpolatedColor.slice(5, 7), 16);
@@ -204,7 +359,7 @@
         bArr.push(b);
       }
       const lutData = [...rArr, ...gArr, ...bArr];
-      
+
       await invoke('update_gradient_preview', { lutData });
     } catch (e) {
       console.error('Failed to update gradient preview:', e);
@@ -222,7 +377,7 @@
         const t = i / 255;
         let leftStop = gradientStops[0];
         let rightStop = gradientStops[gradientStops.length - 1];
-        
+
         // Find the correct stops to interpolate between
         if (t <= gradientStops[0].position) {
           // Before first stop - use first stop color
@@ -242,7 +397,7 @@
             }
           }
         }
-        
+
         // Calculate interpolation factor, handling edge cases
         const positionDiff = rightStop.position - leftStop.position;
         const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
@@ -255,9 +410,9 @@
         bArr.push(b);
       }
       const lutData = [...rArr, ...gArr, ...bArr];
-      await invoke('save_custom_lut', { 
+      await invoke('save_custom_lut', {
         name: custom_lut_name,
-        lut_data: lutData
+        lut_data: lutData,
       });
       // Close the editor without restoring the original LUT
       show_gradient_editor = false;
@@ -269,161 +424,6 @@
     }
   }
 </script>
-
-<div class="lut-selector">
-  <div class="lut-controls">
-    <Selector
-      options={available_luts}
-      bind:value={current_lut}
-      on:change={handleSelect}
-    />
-    <button type="button" class="control-btn reverse-btn" class:reversed on:click={handleReverse} title="Reverse LUT">
-      Reverse
-    </button>
-    <button 
-      type="button"
-      class="control-btn gradient-btn"
-      on:click={openGradientEditor}
-      title="Create Custom LUT"
-    >
-      🎨
-    </button>
-  </div>
-</div>
-
-{#if show_gradient_editor}
-  <div 
-    class="gradient-editor-dialog" 
-    role="dialog" 
-    aria-modal="true"
-    aria-labelledby="gradient-editor-title"
-    tabindex="-1"
-    on:click|self={closeGradientEditor}
-    on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
-  >
-    <div 
-      class="dialog-content gradient-editor-content" 
-      role="document"
-    >
-      <h3 id="gradient-editor-title">Custom LUT Editor</h3>
-      
-      <!-- LUT Name Input -->
-      <div class="control-group">
-        <label for="customLutName">LUT Name</label>
-        <input 
-          type="text" 
-          id="customLutName"
-          bind:value={custom_lut_name}
-          placeholder="Enter LUT name..."
-          class="text-input"
-        />
-      </div>
-
-      <!-- Gradient Preview -->
-      <div class="gradient-preview-container">
-        <div class="gradient-preview" 
-             style="background: linear-gradient(to right, {gradientStops.map(stop => `${stop.color} ${stop.position * 100}%`).join(', ')})">
-        </div>
-        <div 
-          class="gradient-stops-container"
-          role="button"
-          tabindex="0"
-          aria-label="Gradient editor area - click to add color stops"
-          on:click={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const position = (e.clientX - rect.left) / rect.width;
-            addGradientStop(position);
-          }}
-          on:keydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              // Add a stop at the center if activated with keyboard
-              addGradientStop(0.5);
-            }
-          }}
-        >
-          {#each gradientStops as stop, index}
-            <div 
-              class="gradient-stop" 
-              class:selected={index === selectedStopIndex}
-              class:dragging={isDragging && dragStopIndex === index}
-              style="left: {stop.position * 100}%; background-color: {stop.color}"
-              role="button"
-              tabindex="0"
-              aria-label="Color stop {index + 1} at {Math.round(stop.position * 100)}% - click to select"
-              on:mousedown={(e) => handleStopMouseDown(e, index)}
-              on:click|stopPropagation={() => selectedStopIndex = index}
-              on:keydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  selectedStopIndex = index;
-                }
-              }}
-            >
-              {#if gradientStops.length > 2}
-                <button class="remove-stop" 
-                        on:click|stopPropagation={() => removeGradientStop(index)}>×</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Selected Stop Controls -->
-      {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
-        <div class="stop-controls">
-          <h4>Color Stop {selectedStopIndex + 1}</h4>
-          <div class="control-row">
-            <div class="control-group">
-              <label for="stopColor">Color</label>
-              <input 
-                type="color" 
-                id="stopColor"
-                value={gradientStops[selectedStopIndex].color}
-                on:input={(e) => {
-                  const color = (e.target as HTMLInputElement).value;
-                  updateStopColor(selectedStopIndex, color);
-                }}
-                class="color-input"
-              />
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <!-- Instructions -->
-      <div class="gradient-instructions">
-        <p><strong>Instructions:</strong></p>
-        <ul>
-          <li>Click on the gradient to add new color stops</li>
-          <li>Click on a color stop to select it</li>
-          <li>Use the controls below to adjust position and color</li>
-          <li>Click × on a stop to remove it (minimum 2 stops required)</li>
-          <li>Changes apply to the simulation in real-time</li>
-        </ul>
-      </div>
-
-      <!-- Dialog Actions -->
-      <div class="dialog-actions">
-        <button 
-          type="button"
-          class="primary-button"
-          on:click={saveCustomLut}
-          disabled={!custom_lut_name.trim()}
-        >
-          💾 Save LUT
-        </button>
-        <button 
-          type="button"
-          class="secondary-button"
-          on:click={closeGradientEditor}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  </div>
-{/if} 
 
 <style>
   .lut-selector {
@@ -730,4 +730,4 @@
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
   }
-</style> 
+</style>

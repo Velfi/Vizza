@@ -1,3 +1,37 @@
+<div class="agent-count-input">
+  <div class="input-container">
+    <input
+      type="number"
+      value={inputValue}
+      {min}
+      {max}
+      step="0.1"
+      class="count-input"
+      class:invalid={!isValid}
+      on:input={handleInput}
+      on:keydown={handleKeyDown}
+      on:focus={handleFocus}
+      on:blur={handleBlur}
+      disabled={isUpdating}
+      placeholder="Enter agent count..."
+    />
+    <button
+      class="update-button"
+      class:updating={isUpdating}
+      disabled={!isValid || isUpdating}
+      on:click={handleUpdate}
+    >
+      {isUpdating ? 'Updating...' : 'Update'}
+    </button>
+  </div>
+
+  {#if !isValid && errorMessage}
+    <div class="error-message">
+      {errorMessage}
+    </div>
+  {/if}
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
@@ -18,7 +52,7 @@
     }
 
     const numValue = parseFloat(val);
-    
+
     if (isNaN(numValue)) {
       return { valid: false, message: 'Must be a valid number' };
     }
@@ -42,7 +76,7 @@
     const target = event.target as HTMLInputElement;
     inputValue = target.value;
     userIsEditing = true;
-    
+
     const validation = validateInput(inputValue);
     isValid = validation.valid;
     errorMessage = validation.message;
@@ -50,7 +84,7 @@
 
   async function handleUpdate() {
     const validation = validateInput(inputValue);
-    
+
     if (!validation.valid || validation.numValue === undefined) {
       isValid = false;
       errorMessage = validation.message;
@@ -58,7 +92,7 @@
     }
 
     isUpdating = true;
-    
+
     try {
       dispatch('update', validation.numValue);
       value = validation.numValue;
@@ -93,7 +127,7 @@
   // Update input when value prop changes externally
   // But don't reset if the user is currently editing the input
   let userIsEditing = false;
-  
+
   $: if (value.toString() !== inputValue && !isUpdating && !userIsEditing) {
     inputValue = value.toString();
     const validation = validateInput(inputValue);
@@ -101,40 +135,6 @@
     errorMessage = validation.message;
   }
 </script>
-
-<div class="agent-count-input">
-  <div class="input-container">
-    <input
-      type="number"
-      value={inputValue}
-      {min}
-      {max}
-      step="0.1"
-      class="count-input"
-      class:invalid={!isValid}
-      on:input={handleInput}
-      on:keydown={handleKeyDown}
-      on:focus={handleFocus}
-      on:blur={handleBlur}
-      disabled={isUpdating}
-      placeholder="Enter agent count..."
-    />
-    <button 
-      class="update-button"
-      class:updating={isUpdating}
-      disabled={!isValid || isUpdating}
-      on:click={handleUpdate}
-    >
-      {isUpdating ? 'Updating...' : 'Update'}
-    </button>
-  </div>
-  
-  {#if !isValid && errorMessage}
-    <div class="error-message">
-      {errorMessage}
-    </div>
-  {/if}
-</div>
 
 <style>
   .agent-count-input {
@@ -223,7 +223,7 @@
     margin: 0;
   }
 
-  .count-input[type=number] {
+  .count-input[type='number'] {
     -moz-appearance: textfield;
   }
 </style>

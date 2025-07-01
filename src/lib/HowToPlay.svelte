@@ -1,23 +1,8 @@
-<script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import './shared-theme.css';
-
-  const dispatch = createEventDispatcher();
-
-  function goBack() {
-    dispatch('back');
-  }
-</script>
-
 <div class="how-to-play-container">
   <div class="controls">
-    <button class="back-button" on:click={goBack}>
-      ← Back
-    </button>
-    
-    <div class="title">
-      How To Play
-    </div>
+    <button class="back-button" on:click={goBack}> ← Back </button>
+
+    <div class="title">How To Play</div>
   </div>
 
   <div class="content">
@@ -78,6 +63,17 @@
     </div>
   </div>
 </div>
+
+<script lang="ts">
+  import { createEventDispatcher } from 'svelte';
+  import './shared-theme.css';
+
+  const dispatch = createEventDispatcher();
+
+  function goBack() {
+    dispatch('back');
+  }
+</script>
 
 <style>
   .how-to-play-container {
@@ -200,30 +196,30 @@
     .content {
       padding: 0.5rem;
     }
-    
+
     .grid-container {
       grid-template-columns: 1fr;
       gap: 0.75rem;
     }
-    
+
     .camera-controls,
     .simulation-controls {
       grid-column: span 1;
     }
-    
+
     .control-item {
       flex-direction: column;
       align-items: flex-start;
       gap: 0.3rem;
     }
-    
+
     .key {
       min-width: auto;
       width: fit-content;
     }
-    
+
     .section {
       padding: 0.75rem;
     }
   }
-</style> 
+</style>

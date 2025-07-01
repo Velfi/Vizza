@@ -71,10 +71,10 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::SlimeMold(simulation));
-                
+
                 // Automatically unpause after successful initialization
                 self.resume();
-                
+
                 Ok(())
             }
             "gray_scott" => {
@@ -92,10 +92,10 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::GrayScott(simulation));
-                
+
                 // Automatically unpause after successful initialization
                 self.resume();
-                
+
                 Ok(())
             }
             "particle_life" => {
@@ -113,7 +113,7 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::ParticleLife(simulation));
-                
+
                 // Apply the "Default" preset to ensure consistent initial state
                 if let Some(simulation) = &mut self.current_simulation {
                     self.preset_manager
@@ -121,10 +121,10 @@ impl SimulationManager {
                         .map_err(|e| format!("Failed to apply Default preset: {}", e))?;
                     tracing::info!("Applied Default preset to Particle Life simulation");
                 }
-                
+
                 // Automatically unpause after successful initialization
                 self.resume();
-                
+
                 Ok(())
             }
             _ => Err("Unknown simulation type".into()),
@@ -199,48 +199,73 @@ impl SimulationManager {
                     let camera = &simulation.renderer.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
-                    
+
                     // Convert world coordinates [-1,1] to texture coordinates [0,1]
                     // Gray-Scott simulation expects texture coordinates in [0,1] range
                     let texture_x = (world.x + 1.0) * 0.5;
                     let texture_y = (world.y + 1.0) * 0.5;
-                    
+
                     tracing::debug!(
                         "Gray-Scott mouse interaction: screen=({:.2}, {:.2}), world=({:.3}, {:.3}), texture=({:.3}, {:.3}), button={}",
                         screen_x, screen_y, world.x, world.y, texture_x, texture_y, mouse_button
                     );
-                    
-                    simulation.handle_mouse_interaction(texture_x, texture_y, mouse_button, queue)?;
+
+                    simulation.handle_mouse_interaction(
+                        texture_x,
+                        texture_y,
+                        mouse_button,
+                        queue,
+                    )?;
                 }
                 SimulationType::ParticleLife(simulation) => {
                     // Handle mouse release special case before camera transformation
                     if screen_x == -9999.0 && screen_y == -9999.0 {
                         println!("🌍 ParticleLife mouse: RELEASE");
-                        simulation.handle_mouse_interaction(-9999.0, -9999.0, mouse_button, queue)?;
+                        simulation.handle_mouse_interaction(
+                            -9999.0,
+                            -9999.0,
+                            mouse_button,
+                            queue,
+                        )?;
                     } else {
                         let camera = &simulation.camera;
                         let screen = ScreenCoords::new(screen_x, screen_y);
                         let world = camera.screen_to_world(screen);
-                        
+
                         // Particles now live in [-1,1] world space, so use world coordinates directly
                         let particle_x = world.x;
                         let particle_y = world.y;
-                        
-                        simulation.handle_mouse_interaction(particle_x, particle_y, mouse_button, queue)?;
+
+                        simulation.handle_mouse_interaction(
+                            particle_x,
+                            particle_y,
+                            mouse_button,
+                            queue,
+                        )?;
                     }
                 }
                 SimulationType::SlimeMold(simulation) => {
                     // Handle mouse release special case before camera transformation
                     if screen_x == -9999.0 && screen_y == -9999.0 {
                         println!("🌍 SlimeMold mouse: RELEASE");
-                        simulation.handle_mouse_interaction(-9999.0, -9999.0, mouse_button, queue)?;
+                        simulation.handle_mouse_interaction(
+                            -9999.0,
+                            -9999.0,
+                            mouse_button,
+                            queue,
+                        )?;
                     } else {
                         let camera = &simulation.camera;
                         let screen = ScreenCoords::new(screen_x, screen_y);
                         let world = camera.screen_to_world(screen);
                         let world_x = world.x;
                         let world_y = world.y;
-                        simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
+                        simulation.handle_mouse_interaction(
+                            world_x,
+                            world_y,
+                            mouse_button,
+                            queue,
+                        )?;
                     }
                 }
                 _ => (),
@@ -337,11 +362,15 @@ impl SimulationManager {
     }
 
     pub fn get_current_settings(&self) -> Option<serde_json::Value> {
-        self.current_simulation.as_ref().map(|simulation| simulation.get_settings())
+        self.current_simulation
+            .as_ref()
+            .map(|simulation| simulation.get_settings())
     }
 
     pub fn get_current_state(&self) -> Option<serde_json::Value> {
-        self.current_simulation.as_ref().map(|simulation| simulation.get_state())
+        self.current_simulation
+            .as_ref()
+            .map(|simulation| simulation.get_state())
     }
 
     pub fn toggle_gui(&mut self) {
@@ -374,30 +403,36 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
                     // For slime mold, load the LUT data and apply it directly
-                    let mut lut_data = self.lut_manager.get(lut_name)
-                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", lut_name, e).into()))?;
-                    
+                    let mut lut_data = self.lut_manager.get(lut_name).map_err(|e| {
+                        AppError::Simulation(
+                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
+                        )
+                    })?;
+
                     if simulation.lut_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     simulation.update_lut(&lut_data, queue);
                     simulation.current_lut_name = lut_name.to_string();
-                    
+
                     tracing::info!("LUT '{}' applied to slime mold simulation", lut_name);
                 }
                 SimulationType::GrayScott(simulation) => {
                     // For Gray-Scott, load the LUT data and apply it to the renderer
-                    let mut lut_data = self.lut_manager.get(lut_name)
-                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", lut_name, e).into()))?;
-                    
+                    let mut lut_data = self.lut_manager.get(lut_name).map_err(|e| {
+                        AppError::Simulation(
+                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
+                        )
+                    })?;
+
                     if simulation.lut_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     simulation.renderer.update_lut(&lut_data, queue);
                     simulation.current_lut_name = lut_name.to_string();
-                    
+
                     tracing::info!("LUT '{}' applied to Gray-Scott simulation", lut_name);
                 }
                 SimulationType::ParticleLife(simulation) => {
@@ -423,26 +458,46 @@ impl SimulationManager {
                 SimulationType::SlimeMold(simulation) => {
                     // Toggle the reversed flag and reload the LUT
                     simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data = self.lut_manager.get(&simulation.current_lut_name)
-                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", simulation.current_lut_name, e).into()))?;
-                    
+                    let mut lut_data =
+                        self.lut_manager
+                            .get(&simulation.current_lut_name)
+                            .map_err(|e| {
+                                AppError::Simulation(
+                                    format!(
+                                        "Failed to load LUT '{}': {}",
+                                        simulation.current_lut_name, e
+                                    )
+                                    .into(),
+                                )
+                            })?;
+
                     if simulation.lut_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     simulation.update_lut(&lut_data, queue);
                     tracing::info!("LUT reversed for slime mold simulation");
                 }
                 SimulationType::GrayScott(simulation) => {
                     // Toggle the reversed flag and reload the LUT
                     simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data = self.lut_manager.get(&simulation.current_lut_name)
-                        .map_err(|e| AppError::Simulation(format!("Failed to load LUT '{}': {}", simulation.current_lut_name, e).into()))?;
-                    
+                    let mut lut_data =
+                        self.lut_manager
+                            .get(&simulation.current_lut_name)
+                            .map_err(|e| {
+                                AppError::Simulation(
+                                    format!(
+                                        "Failed to load LUT '{}': {}",
+                                        simulation.current_lut_name, e
+                                    )
+                                    .into(),
+                                )
+                            })?;
+
                     if simulation.lut_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     simulation.renderer.update_lut(&lut_data, queue);
                     tracing::info!("LUT reversed for Gray-Scott simulation");
                 }
@@ -491,14 +546,19 @@ impl SimulationManager {
                     // For particle life, we need to temporarily store the custom LUT in the manager
                     // since the particle life update_lut method expects a LUT name, not LutData directly
                     let temp_lut_name = "gradient_preview";
-                    
+
                     // Store the custom LUT temporarily in the LUT manager
-                    self.lut_manager.save_custom(temp_lut_name, lut_data)
-                        .map_err(|e| AppError::Simulation(format!("Failed to store temporary LUT: {}", e).into()))?;
-                    
+                    self.lut_manager
+                        .save_custom(temp_lut_name, lut_data)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!("Failed to store temporary LUT: {}", e).into(),
+                            )
+                        })?;
+
                     let color_mode = simulation.state.color_mode;
                     let lut_reversed = simulation.state.lut_reversed;
-                    
+
                     simulation.update_lut(
                         device,
                         queue,
@@ -515,7 +575,9 @@ impl SimulationManager {
                 }
             }
         } else {
-            return Err(AppError::Simulation("No simulation is currently running".into()));
+            return Err(AppError::Simulation(
+                "No simulation is currently running".into(),
+            ));
         }
         Ok(())
     }
@@ -551,7 +613,7 @@ impl SimulationManager {
                             let view = output
                                 .texture
                                 .create_view(&wgpu::TextureViewDescriptor::default());
-                            
+
                             let render_result = if is_paused.load(Ordering::Relaxed) {
                                 // When paused, render without updating simulation state
                                 sim_manager.render_paused(&gpu_ctx.device, &gpu_ctx.queue, &view)
@@ -559,7 +621,7 @@ impl SimulationManager {
                                 // When running, render normally with simulation updates
                                 sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view)
                             };
-                            
+
                             if render_result.is_ok() {
                                 output.present();
                             }
@@ -624,7 +686,8 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(sim) => {
                     // For slime mold, call the specific reset_agents method that repositions agents randomly
-                    sim.reset_agents(device, queue).map_err(AppError::Simulation)?;
+                    sim.reset_agents(device, queue)
+                        .map_err(AppError::Simulation)?;
                 }
                 _ => {
                     // For other simulations, use the generic reset_runtime_state
@@ -668,7 +731,8 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::GrayScott(sim) => {
-                    sim.seed_random_noise(device, queue).map_err(AppError::Simulation)?;
+                    sim.seed_random_noise(device, queue)
+                        .map_err(AppError::Simulation)?;
                 }
                 _ => {
                     // Seed random noise is only supported for Gray-Scott simulation
@@ -758,10 +822,9 @@ impl SimulationManager {
                 SimulationType::SlimeMold(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
-                SimulationType::GrayScott(simulation) => simulation
-                    .renderer
-                    .camera
-                    .set_sensitivity(sensitivity),
+                SimulationType::GrayScott(simulation) => {
+                    simulation.renderer.camera.set_sensitivity(sensitivity)
+                }
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
@@ -769,5 +832,4 @@ impl SimulationManager {
             }
         }
     }
-
 }

@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Position generator types that can be used by different simulations
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum PositionGenerator {
     #[default]
     Random,
@@ -19,8 +18,7 @@ pub enum PositionGenerator {
 }
 
 /// Position generator types specifically for slime mold (single agent type)
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum SlimeMoldPositionGenerator {
     #[default]
     Random,
@@ -31,8 +29,6 @@ pub enum SlimeMoldPositionGenerator {
     Line,
     Spiral,
 }
-
-
 
 impl PositionGenerator {
     /// Convert to u32 for GPU shader compatibility
@@ -158,4 +154,4 @@ impl SlimeMoldPositionGenerator {
             SlimeMoldPositionGenerator::Spiral,
         ]
     }
-} 
+}

@@ -1,3 +1,184 @@
+<div class="settings-container">
+  <div class="settings-header">
+    <button class="back-button" on:click={() => dispatch('back')}> ← Back to Menu </button>
+    <h1>App Settings</h1>
+    <div class="header-actions">
+      <button class="save-button" class:loading={saving} on:click={saveSettings} disabled={saving}>
+        {saving ? 'Saving...' : '💾 Save'}
+      </button>
+      <button class="reset-button" on:click={resetSettings}> 🔄 Reset to Defaults </button>
+    </div>
+  </div>
+
+  {#if lastSaved}
+    <div class="save-status">
+      Last saved: {lastSaved}
+    </div>
+  {/if}
+
+  {#if loading}
+    <div class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <p>Loading settings...</p>
+      </div>
+    </div>
+  {/if}
+
+  <div class="settings-content">
+    <form on:submit|preventDefault>
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Enable FPS Limiter:</span>
+            <input
+              type="checkbox"
+              bind:checked={settings.default_fps_limit_enabled}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Limit:</span>
+            <NumberDragBox
+              bind:value={settings.default_fps_limit}
+              min={1}
+              max={1200}
+              step={1}
+              precision={0}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">UI Scale:</span>
+            <NumberDragBox
+              bind:value={settings.ui_scale}
+              min={0.5}
+              max={2.0}
+              step={0.1}
+              precision={1}
+              on:change={() => {
+                applyUIScale();
+                scheduleAutoSave();
+              }}
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Window Settings -->
+      <fieldset>
+        <legend>Window Settings</legend>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Default Window Width:</span>
+            <NumberDragBox
+              bind:value={settings.window_width}
+              min={800}
+              max={3840}
+              step={50}
+              precision={0}
+              on:change={() => {
+                applyWindowSettings();
+                scheduleAutoSave();
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Default Window Height:</span>
+            <NumberDragBox
+              bind:value={settings.window_height}
+              min={600}
+              max={2160}
+              step={50}
+              precision={0}
+              on:change={() => {
+                applyWindowSettings();
+                scheduleAutoSave();
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Start Maximized:</span>
+            <input
+              type="checkbox"
+              bind:checked={settings.window_maximized}
+              on:change={() => {
+                // Only save the setting, don't apply it to current window
+                // This setting only affects future app launches
+                scheduleAutoSave();
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Current Size:</span>
+            <button
+              class="capture-size-button"
+              on:click={captureCurrentWindowSize}
+              title="Set default window size to current window size"
+            >
+              📏 Use Current Size
+            </button>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- UI Behavior Settings -->
+      <fieldset>
+        <legend>UI Behavior</legend>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Auto-hide UI:</span>
+            <input
+              type="checkbox"
+              bind:checked={settings.auto_hide_ui}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Auto-hide Delay (ms):</span>
+            <NumberDragBox
+              bind:value={settings.auto_hide_delay}
+              min={1000}
+              max={10000}
+              step={500}
+              precision={0}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Menu Position:</span>
+            <select bind:value={settings.menu_position} on:change={() => scheduleAutoSave()}>
+              <option value="left">Left</option>
+              <option value="middle">Middle</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Camera Settings -->
+      <fieldset>
+        <legend>Camera Settings</legend>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Camera Sensitivity:</span>
+            <NumberDragBox
+              bind:value={settings.default_camera_sensitivity}
+              min={0.1}
+              max={5.0}
+              step={0.1}
+              precision={1}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
+        </div>
+      </fieldset>
+    </form>
+  </div>
+</div>
+
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -11,18 +192,18 @@
     // Display Settings
     default_fps_limit: 60,
     default_fps_limit_enabled: false,
-    
+
     // Window Settings
     window_width: 1200,
     window_height: 800,
     window_maximized: false,
-    
+
     // UI Settings
     ui_scale: 1.0,
     auto_hide_ui: true,
     auto_hide_delay: 3000,
     menu_position: 'middle',
-    
+
     // Camera Settings
     default_camera_sensitivity: 1.0,
   };
@@ -66,7 +247,9 @@
 
   // Reset settings to defaults
   async function resetSettings() {
-    if (confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')) {
+    if (
+      confirm('Are you sure you want to reset all settings to defaults? This cannot be undone.')
+    ) {
       try {
         await invoke('reset_app_settings');
         await loadSettings(); // Reload the default settings
@@ -101,12 +284,14 @@
   // Capture current window size and set as default
   async function captureCurrentWindowSize() {
     try {
-      const currentSize = await invoke<{width: number, height: number, maximized: boolean}>('get_current_window_size');
+      const currentSize = await invoke<{ width: number; height: number; maximized: boolean }>(
+        'get_current_window_size'
+      );
       settings.window_width = currentSize.width;
       settings.window_height = currentSize.height;
       // Don't change the maximized setting - only capture the size
       // settings.window_maximized = currentSize.maximized;
-      
+
       // Save the settings immediately
       await saveSettings();
       console.log('Current window size captured and saved');
@@ -118,7 +303,7 @@
   // Apply UI scale immediately when changed
   async function applyUIScale() {
     try {
-              await invoke('set_webview_zoom', { zoomFactor: settings.ui_scale });
+      await invoke('set_webview_zoom', { zoomFactor: settings.ui_scale });
       console.log('UI scale applied immediately:', settings.ui_scale);
     } catch (e) {
       console.error('Failed to apply UI scale:', e);
@@ -129,199 +314,6 @@
     loadSettings();
   });
 </script>
-
-<div class="settings-container">
-  <div class="settings-header">
-    <button class="back-button" on:click={() => dispatch('back')}>
-      ← Back to Menu
-    </button>
-    <h1>App Settings</h1>
-    <div class="header-actions">
-      <button 
-        class="save-button" 
-        class:loading={saving}
-        on:click={saveSettings}
-        disabled={saving}
-      >
-        {saving ? 'Saving...' : '💾 Save'}
-      </button>
-      <button class="reset-button" on:click={resetSettings}>
-        🔄 Reset to Defaults
-      </button>
-    </div>
-  </div>
-
-  {#if lastSaved}
-    <div class="save-status">
-      Last saved: {lastSaved}
-    </div>
-  {/if}
-
-  {#if loading}
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <p>Loading settings...</p>
-      </div>
-    </div>
-  {/if}
-
-  <div class="settings-content">
-    <form on:submit|preventDefault>
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        <div class="settings-grid">
-            <div class="setting-item">
-                <span class="setting-label">Enable FPS Limiter:</span>
-                <input 
-                type="checkbox" 
-                bind:checked={settings.default_fps_limit_enabled}
-                on:change={() => scheduleAutoSave()}
-                />
-            </div>
-          <div class="setting-item">
-            <span class="setting-label">Limit:</span>
-            <NumberDragBox 
-              bind:value={settings.default_fps_limit}
-              min={1}
-              max={1200}
-              step={1}
-              precision={0}
-              on:change={() => scheduleAutoSave()}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">UI Scale:</span>
-            <NumberDragBox 
-              bind:value={settings.ui_scale}
-              min={0.5}
-              max={2.0}
-              step={0.1}
-              precision={1}
-              on:change={() => {
-                applyUIScale();
-                scheduleAutoSave();
-              }}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Window Settings -->
-      <fieldset>
-        <legend>Window Settings</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Default Window Width:</span>
-            <NumberDragBox 
-              bind:value={settings.window_width}
-              min={800}
-              max={3840}
-              step={50}
-              precision={0}
-              on:change={() => {
-                applyWindowSettings();
-                scheduleAutoSave();
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Default Window Height:</span>
-            <NumberDragBox 
-              bind:value={settings.window_height}
-              min={600}
-              max={2160}
-              step={50}
-              precision={0}
-              on:change={() => {
-                applyWindowSettings();
-                scheduleAutoSave();
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Start Maximized:</span>
-            <input 
-              type="checkbox" 
-              bind:checked={settings.window_maximized}
-              on:change={() => {
-                // Only save the setting, don't apply it to current window
-                // This setting only affects future app launches
-                scheduleAutoSave();
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Current Size:</span>
-            <button 
-              class="capture-size-button"
-              on:click={captureCurrentWindowSize}
-              title="Set default window size to current window size"
-            >
-              📏 Use Current Size
-            </button>
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- UI Behavior Settings -->
-      <fieldset>
-        <legend>UI Behavior</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Auto-hide UI:</span>
-            <input 
-              type="checkbox" 
-              bind:checked={settings.auto_hide_ui}
-              on:change={() => scheduleAutoSave()}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Auto-hide Delay (ms):</span>
-            <NumberDragBox 
-              bind:value={settings.auto_hide_delay}
-              min={1000}
-              max={10000}
-              step={500}
-              precision={0}
-              on:change={() => scheduleAutoSave()}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Menu Position:</span>
-            <select 
-              bind:value={settings.menu_position}
-              on:change={() => scheduleAutoSave()}
-            >
-              <option value="left">Left</option>
-              <option value="middle">Middle</option>
-              <option value="right">Right</option>
-            </select>
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Camera Settings -->
-      <fieldset>
-        <legend>Camera Settings</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Camera Sensitivity:</span>
-            <NumberDragBox 
-              bind:value={settings.default_camera_sensitivity}
-              min={0.1}
-              max={5.0}
-              step={0.1}
-              precision={1}
-              on:change={() => scheduleAutoSave()}
-            />
-          </div>
-        </div>
-      </fieldset>
-    </form>
-  </div>
-</div>
 
 <style>
   .settings-container {
@@ -453,8 +445,12 @@
   }
 
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   .settings-content {
@@ -496,7 +492,7 @@
     font-size: 1em;
   }
 
-  .setting-item input[type="checkbox"] {
+  .setting-item input[type='checkbox'] {
     width: auto;
     margin: 0;
   }
@@ -571,4 +567,4 @@
       padding: 0;
     }
   }
-</style> 
+</style>

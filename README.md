@@ -23,6 +23,7 @@ Multi-species particle simulation where different types of particles interact ba
 ## Development
 
 Built with:
+
 - **Frontend**: Svelte 5 + TypeScript
 - **Backend**: Rust with Tauri
 - **Graphics**: WebGPU for GPU-accelerated rendering
@@ -31,15 +32,18 @@ Built with:
 ## Getting Started
 
 ### Prerequisites
+
 - Node.js 18+
 - Rust toolchain
 
 ### Development
+
 ```bash
 cargo tauri dev
 ```
 
 ### Build
+
 ```bash
 cargo tauri build
 ```

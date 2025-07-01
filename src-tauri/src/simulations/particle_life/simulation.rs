@@ -56,8 +56,8 @@ pub struct ForceRandomizeParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct FadeUniforms {
-    pub background_color: [f32; 4],  // RGBA background color
-    pub fade_alpha: f32,             // Alpha for fading effect
+    pub background_color: [f32; 4], // RGBA background color
+    pub fade_alpha: f32,            // Alpha for fading effect
     pub _pad1: f32,
     pub _pad2: f32,
     pub _pad3: f32,
@@ -76,16 +76,16 @@ pub struct SimParams {
     pub width: f32,
     pub height: f32,
     pub random_seed: u32,
-    pub dt: f32, // Time step for simulation
-    pub beta: f32, // Transition point between repulsion and attraction zones
+    pub dt: f32,       // Time step for simulation
+    pub beta: f32,     // Transition point between repulsion and attraction zones
     pub cursor_x: f32, // Cursor position in world coordinates
     pub cursor_y: f32,
-    pub cursor_size: f32, // Cursor interaction radius
-    pub cursor_strength: f32, // Cursor force strength
+    pub cursor_size: f32,        // Cursor interaction radius
+    pub cursor_strength: f32,    // Cursor force strength
     pub cursor_active: u32, // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     pub brownian_motion: f32, // Brownian motion strength (0.0-1.0)
     pub traces_enabled: u32, // Whether particle traces are enabled
-    pub trace_fade: f32, // Trace fade factor (0.0-1.0)
+    pub trace_fade: f32,    // Trace fade factor (0.0-1.0)
     pub edge_fade_strength: f32, // Edge fade strength
     _pad1: u32,
     _pad2: u32,
@@ -346,10 +346,14 @@ impl ParticleLifeModel {
 
         // Use a proper default LUT name instead of hardcoding
         let default_lut_name = "MATPLOTLIB_nipy_spectral";
-        
+
         // Get LUT and calculate colors first
-        let lut = lut_manager.get(default_lut_name)
-            .map_err(|e| SimulationError::InitializationFailed(format!("Failed to load default LUT '{}': {}", default_lut_name, e)))?;
+        let lut = lut_manager.get(default_lut_name).map_err(|e| {
+            SimulationError::InitializationFailed(format!(
+                "Failed to load default LUT '{}': {}",
+                default_lut_name, e
+            ))
+        })?;
 
         // Create LUT buffer
         let (lut_colors, current_lut_name) = if color_mode == ColorMode::Lut {
@@ -359,19 +363,19 @@ impl ParticleLifeModel {
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
-            
+
             // Reorder colors: put background color at the end, species colors at the beginning
             // This way the GPU can use colors[0..species_count] for species and colors[species_count] for background
             let mut reordered_colors = Vec::with_capacity(settings.species_count as usize + 1);
-            
+
             // First, add all species colors (skip the first color which is background)
             for color in colors.iter().skip(1) {
                 reordered_colors.push(*color);
             }
-            
+
             // Then add the background color at the end
             reordered_colors.push(colors[0]);
-            
+
             tracing::trace!(
                 "Constructor LUT mode: got {} equidistant colors for {} species (reordered)",
                 reordered_colors.len(),
@@ -449,7 +453,8 @@ impl ParticleLifeModel {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let lut_data_u32 = state.species_colors
+        let lut_data_u32 = state
+            .species_colors
             .iter()
             .flat_map(|&[r, g, b, a]| [r, g, b, a])
             .collect::<Vec<_>>();
@@ -821,18 +826,16 @@ impl ParticleLifeModel {
         let lut_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Species Colors Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
+                    count: None,
+                }],
             });
 
         let render_bind_group_layout = lut_bind_group_layout.clone();
@@ -931,7 +934,8 @@ impl ParticleLifeModel {
         });
 
         // Upload LUT colors to texture
-        let lut_data: Vec<u8> = state.species_colors
+        let lut_data: Vec<u8> = state
+            .species_colors
             .iter()
             .flat_map(|&[r, g, b, a]| {
                 [
@@ -1000,22 +1004,16 @@ impl ParticleLifeModel {
 
         // Upload initial species colors to GPU buffer
         let species_colors_bytes = bytemuck::cast_slice(&species_colors_data);
-        queue.write_buffer(
-            &species_colors_buffer,
-            0,
-            species_colors_bytes,
-        );
+        queue.write_buffer(&species_colors_buffer, 0, species_colors_bytes);
 
         // Create initial species colors bind group
         let lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Species Colors Bind Group"),
             layout: &render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: species_colors_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: species_colors_buffer.as_entire_binding(),
+            }],
         });
 
         // Create camera
@@ -1042,19 +1040,20 @@ impl ParticleLifeModel {
             source: wgpu::ShaderSource::Wgsl(shaders::FADE_FRAGMENT_SHADER.into()),
         });
 
-        let fade_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Fade Bind Group Layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let fade_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Fade Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
 
         let fade_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Fade Pipeline Layout"),
@@ -1145,27 +1144,28 @@ impl ParticleLifeModel {
         });
 
         // Blit pipeline to copy trail texture to surface
-        let blit_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Blit Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let blit_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blit Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
 
         let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Blit Pipeline Layout"),
@@ -1195,7 +1195,8 @@ impl ParticleLifeModel {
                 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
                     return textureSample(trail_texture, trail_sampler, input.uv);
                 }
-                "#.into()
+                "#
+                .into(),
             ),
         });
 
@@ -1326,12 +1327,22 @@ impl ParticleLifeModel {
 
         // Initialize trail texture with background color
         let background_color = match color_mode {
-            ColorMode::Gray18 => wgpu::Color { r: 0.18, g: 0.18, b: 0.18, a: 1.0 },
+            ColorMode::Gray18 => wgpu::Color {
+                r: 0.18,
+                g: 0.18,
+                b: 0.18,
+                a: 1.0,
+            },
             ColorMode::White => wgpu::Color::WHITE,
             ColorMode::Black => wgpu::Color::BLACK,
             ColorMode::Lut => {
                 if let Some(&[r, g, b, a]) = result.state.species_colors.last() {
-                    wgpu::Color { r: r.into(), g: g.into(), b: b.into(), a: a.into() }
+                    wgpu::Color {
+                        r: r.into(),
+                        g: g.into(),
+                        b: b.into(),
+                        a: a.into(),
+                    }
                 } else {
                     wgpu::Color::BLACK
                 }
@@ -1350,15 +1361,16 @@ impl ParticleLifeModel {
             &self.settings,
             &self.state,
         );
-        
+
         // Override with stored cursor values if cursor is active
         sim_params.cursor_x = self.cursor_world_x;
         sim_params.cursor_y = self.cursor_world_y;
         sim_params.cursor_active = self.cursor_active_mode;
         if self.cursor_active_mode > 0 {
-            sim_params.cursor_strength = self.state.cursor_strength * self.settings.max_force * 10.0;
+            sim_params.cursor_strength =
+                self.state.cursor_strength * self.settings.max_force * 10.0;
         }
-        
+
         queue.write_buffer(
             &self.sim_params_buffer,
             0,
@@ -1525,8 +1537,7 @@ impl ParticleLifeModel {
 
             // Dispatch with enough workgroups to cover the species matrix
             let workgroup_size = 8;
-            let num_workgroups =
-                self.settings.species_count.div_ceil(workgroup_size);
+            let num_workgroups = self.settings.species_count.div_ceil(workgroup_size);
             compute_pass.dispatch_workgroups(num_workgroups, num_workgroups, 1);
         }
 
@@ -1580,21 +1591,22 @@ impl ParticleLifeModel {
                 message: "LUT name is empty but LUT color mode is enabled".to_string(),
             });
         }
-        
-        let mut lut = lut_manager.get(lut_name)
+
+        let mut lut = lut_manager
+            .get(lut_name)
             .map_err(|e| SimulationError::InvalidSetting {
                 setting_name: "lut_name".to_string(),
                 message: format!("Failed to load LUT '{}': {}", lut_name, e),
             })?;
-        
+
         if lut_reversed {
             lut = lut.reversed();
         }
-        
+
         // Compute species colors based on color mode
         let species_count = self.settings.species_count as usize;
         let mut species_colors = Vec::with_capacity(species_count);
-        
+
         if color_mode == ColorMode::Lut {
             // Get species_count + 1 equidistant stops for LUT mode (first for background, rest for species)
             let lut_colors = lut
@@ -1602,22 +1614,22 @@ impl ParticleLifeModel {
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
-            
+
             // Reorder colors: put background color at the end, species colors at the beginning
             // This way the GPU can use colors[0..species_count] for species and colors[species_count] for background
             let mut reordered_colors = Vec::with_capacity(species_count + 1);
-            
+
             // First, add all species colors (skip the first color which is background)
             for color in lut_colors.iter().skip(1) {
                 reordered_colors.push(*color);
             }
-            
+
             // Then add the background color at the end
             reordered_colors.push(lut_colors[0]);
-            
+
             // Store reordered colors (species first, background last)
             species_colors = reordered_colors;
-            
+
             tracing::debug!(
                 "LUT mode: stored {} colors ({} species + background) from LUT",
                 species_colors.len(),
@@ -1630,13 +1642,16 @@ impl ParticleLifeModel {
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
-            
+
             // Direct mapping for non-LUT mode
             for species_index in 0..species_count {
-                let color = lut_colors.get(species_index).copied().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+                let color = lut_colors
+                    .get(species_index)
+                    .copied()
+                    .unwrap_or([0.0, 0.0, 0.0, 1.0]);
                 species_colors.push(color);
             }
-            
+
             tracing::debug!(
                 "Non-LUT mode: got {} colors for {} species",
                 species_colors.len(),
@@ -1672,7 +1687,7 @@ impl ParticleLifeModel {
         // In LUT mode, we have species_count + 1 colors (background + species)
         // In non-LUT mode, we have species_count colors
         let total_colors = self.state.species_colors.len();
-        
+
         // Prepare species colors data (pad to 9 colors to accommodate LUT mode)
         let mut species_colors_data = [[0.0f32, 0.0f32, 0.0f32, 1.0f32]; 9];
         for (i, &color) in self.state.species_colors.iter().enumerate().take(9) {
@@ -1681,22 +1696,16 @@ impl ParticleLifeModel {
 
         // Upload species colors to GPU buffer
         let species_colors_bytes = bytemuck::cast_slice(&species_colors_data);
-        queue.write_buffer(
-            &self.species_colors_buffer,
-            0,
-            species_colors_bytes,
-        );
+        queue.write_buffer(&self.species_colors_buffer, 0, species_colors_bytes);
 
         // Update species colors bind group
         self.lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Species Colors Bind Group"),
             layout: &self.render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.species_colors_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.species_colors_buffer.as_entire_binding(),
+            }],
         });
 
         tracing::debug!(
@@ -1714,9 +1723,19 @@ impl ParticleLifeModel {
     }
 
     /// Update fade uniforms for trace rendering
-    fn update_fade_uniforms(&self, queue: &Arc<Queue>, background_color: wgpu::Color, fade_alpha: f32) {
+    fn update_fade_uniforms(
+        &self,
+        queue: &Arc<Queue>,
+        background_color: wgpu::Color,
+        fade_alpha: f32,
+    ) {
         let fade_uniforms = FadeUniforms {
-            background_color: [background_color.r as f32, background_color.g as f32, background_color.b as f32, background_color.a as f32],
+            background_color: [
+                background_color.r as f32,
+                background_color.g as f32,
+                background_color.b as f32,
+                background_color.a as f32,
+            ],
             fade_alpha,
             _pad1: 0.0,
             _pad2: 0.0,
@@ -1731,25 +1750,31 @@ impl ParticleLifeModel {
     }
 
     /// Clear the trail texture with the background color
-    pub fn clear_trail_texture(&self, device: &Arc<Device>, queue: &Arc<Queue>, background_color: wgpu::Color) {
+    pub fn clear_trail_texture(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        background_color: wgpu::Color,
+    ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Clear Trail Texture Encoder"),
         });
-{
-        let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Clear Trail Texture Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.trail_texture_view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(background_color),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });}
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Trail Texture Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.trail_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(background_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
 
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -1786,12 +1811,22 @@ impl Simulation for ParticleLifeModel {
 
         // Determine background color based on color mode
         let background_color = match self.state.color_mode {
-            ColorMode::Gray18 => wgpu::Color { r: 0.18, g: 0.18, b: 0.18, a: 1.0 },
+            ColorMode::Gray18 => wgpu::Color {
+                r: 0.18,
+                g: 0.18,
+                b: 0.18,
+                a: 1.0,
+            },
             ColorMode::White => wgpu::Color::WHITE,
             ColorMode::Black => wgpu::Color::BLACK,
             ColorMode::Lut => {
                 if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
-                    wgpu::Color { r: r.into(), g: g.into(), b: b.into(), a: a.into() }
+                    wgpu::Color {
+                        r: r.into(),
+                        g: g.into(),
+                        b: b.into(),
+                        a: a.into(),
+                    }
                 } else {
                     wgpu::Color::BLACK
                 }
@@ -1802,20 +1837,21 @@ impl Simulation for ParticleLifeModel {
         {
             if self.state.traces_enabled {
                 // When trails are enabled, render to trail texture first
-                let mut trail_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Static Trail Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.trail_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // Preserve previous trail content
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut trail_render_pass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Static Trail Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.trail_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load, // Preserve previous trail content
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
                 // For static rendering, don't add new trails - just render existing particles
                 trail_render_pass.set_pipeline(&self.render_pipeline);
@@ -1828,26 +1864,26 @@ impl Simulation for ParticleLifeModel {
                 drop(trail_render_pass);
 
                 // Then blit trail texture to surface
-                let mut surface_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Static Surface Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: surface_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(background_color), // Clear surface
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut surface_render_pass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Static Surface Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: surface_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(background_color), // Clear surface
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
                 // Blit trail texture to surface
                 surface_render_pass.set_pipeline(&self.blit_pipeline);
                 surface_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
                 surface_render_pass.draw(0..3, 0..1); // Fullscreen triangle
-                
             } else {
                 // When trails are disabled, render directly to surface
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1924,8 +1960,7 @@ impl Simulation for ParticleLifeModel {
                 compute_pass.set_bind_group(0, &self.compute_bind_group, &[]);
 
                 let workgroup_size = 64;
-                let num_workgroups =
-                    self.state.particle_count.div_ceil(workgroup_size);
+                let num_workgroups = self.state.particle_count.div_ceil(workgroup_size);
                 tracing::debug!(
                     "Compute dispatch: particle_count={}, num_workgroups={}, buffer_size={}",
                     self.state.particle_count,
@@ -1974,20 +2009,21 @@ impl Simulation for ParticleLifeModel {
 
             if self.state.traces_enabled {
                 // When trails are enabled, render to trail texture first
-                let mut trail_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Trail Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.trail_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // Preserve previous trail content
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut trail_render_pass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Trail Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.trail_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load, // Preserve previous trail content
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
                 // First, apply fade effect if trace_fade < 1.0
                 if self.state.trace_fade < 1.0 {
@@ -1995,10 +2031,10 @@ impl Simulation for ParticleLifeModel {
                     // Use exponential scaling for more natural fading
                     let fade_factor = 1.0 - self.state.trace_fade;
                     let fade_alpha = (fade_factor * fade_factor * 0.3).clamp(0.002, 0.3);
-                    
+
                     // Update fade uniforms with background color and fade alpha
                     self.update_fade_uniforms(queue, background_color, fade_alpha);
-                    
+
                     // Render fade quad to create fading effect
                     trail_render_pass.set_pipeline(&self.fade_pipeline);
                     trail_render_pass.set_bind_group(0, &self.fade_bind_group, &[]);
@@ -2016,26 +2052,26 @@ impl Simulation for ParticleLifeModel {
                 drop(trail_render_pass);
 
                 // Then blit trail texture to surface
-                let mut surface_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Surface Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: surface_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(background_color), // Clear surface
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut surface_render_pass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Surface Render Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: surface_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(background_color), // Clear surface
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
                 // Blit trail texture to surface
                 surface_render_pass.set_pipeline(&self.blit_pipeline);
                 surface_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
                 surface_render_pass.draw(0..3, 0..1); // Fullscreen triangle
-                
             } else {
                 // When trails are disabled, render directly to surface
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2402,31 +2438,36 @@ impl Simulation for ParticleLifeModel {
         // Determine cursor mode based on mouse_button and handle mouse release
         let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
             0 // mouse release - turn off cursor interaction
-        } else if mouse_button == 0 { 
+        } else if mouse_button == 0 {
             1 // left click = attract
         } else if mouse_button == 2 {
             2 // right click = repel
         } else {
             0 // middle click or other = no interaction
         };
-        
+
         // Store coordinates directly - conversion is handled in the manager
         let (sim_x, sim_y) = if cursor_mode == 0 {
             (0.0, 0.0) // Don't matter when cursor is inactive
         } else {
             (world_x, world_y)
         };
-        
+
         // Store cursor values in the model
         self.cursor_active_mode = cursor_mode;
         self.cursor_world_x = sim_x;
         self.cursor_world_y = sim_y;
-        
+
         tracing::debug!(
             world_x = sim_x,
             world_y = sim_y,
             cursor_mode = cursor_mode,
-            cursor_mode_name = match cursor_mode { 0 => "inactive", 1 => "attract", 2 => "repel", _ => "unknown" },
+            cursor_mode_name = match cursor_mode {
+                0 => "inactive",
+                1 => "attract",
+                2 => "repel",
+                _ => "unknown",
+            },
             cursor_size = self.state.cursor_size,
             cursor_strength = self.state.cursor_strength,
             scaled_strength = self.state.cursor_strength * self.settings.max_force * 10.0,
@@ -2434,7 +2475,7 @@ impl Simulation for ParticleLifeModel {
             sim_height = self.height,
             "Mouse interaction updated"
         );
-        
+
         // Update sim params immediately with new cursor values
         let mut sim_params = SimParams::new(
             self.width,
@@ -2443,22 +2484,23 @@ impl Simulation for ParticleLifeModel {
             &self.settings,
             &self.state,
         );
-        
+
         // Override with cursor values
         sim_params.cursor_x = sim_x;
         sim_params.cursor_y = sim_y;
         sim_params.cursor_active = cursor_mode;
         if cursor_mode > 0 {
-            sim_params.cursor_strength = self.state.cursor_strength * self.settings.max_force * 10.0;
+            sim_params.cursor_strength =
+                self.state.cursor_strength * self.settings.max_force * 10.0;
         }
-        
+
         // Upload to GPU immediately
         queue.write_buffer(
             &self.sim_params_buffer,
             0,
             bytemuck::cast_slice(&[sim_params]),
         );
-        
+
         Ok(())
     }
 
@@ -2492,11 +2534,16 @@ impl Simulation for ParticleLifeModel {
         Ok(())
     }
 
-    fn apply_settings(&mut self, settings: Value, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn apply_settings(
+        &mut self,
+        settings: Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             let old_species_count = self.settings.species_count;
             self.settings = new_settings;
-            
+
             // Upload the entire force matrix when applying new settings
             let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
             queue.write_buffer(
@@ -2504,7 +2551,7 @@ impl Simulation for ParticleLifeModel {
                 0,
                 bytemuck::cast_slice(&force_matrix_data),
             );
-            
+
             // Update LUT if species count changed
             if self.settings.species_count != old_species_count {
                 let current_lut_name = self.state.current_lut_name.clone();

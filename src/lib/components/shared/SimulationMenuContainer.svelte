@@ -1,32 +1,40 @@
+{#if showUI}
+  <div class={containerClass}>
+    <div class="simulation-controls">
+      <slot />
+    </div>
+  </div>
+{/if}
+
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  
+
   export let position: string = 'middle'; // 'left', 'middle', 'right'
   export let showUI: boolean = true;
-  
+
   $: containerClass = `simulation-menu-container ${position}`;
-  
+
   // Apply body classes for left/right positioning
   onMount(() => {
     updateBodyClass();
   });
-  
+
   onDestroy(() => {
     // Clean up body classes
     document.body.classList.remove('menu-left', 'menu-right');
   });
-  
+
   $: {
     // Update body class when position changes
     if (typeof document !== 'undefined') {
       updateBodyClass();
     }
   }
-  
+
   function updateBodyClass() {
     // Remove existing menu classes
     document.body.classList.remove('menu-left', 'menu-right');
-    
+
     // Add new class based on position
     if (position === 'left') {
       document.body.classList.add('menu-left');
@@ -35,14 +43,6 @@
     }
   }
 </script>
-
-{#if showUI}
-  <div class={containerClass}>
-    <div class="simulation-controls">
-      <slot />
-    </div>
-  </div>
-{/if}
 
 <style>
   .simulation-menu-container {
@@ -120,4 +120,4 @@
     align-items: stretch;
     gap: 0.5rem;
   }
-</style> 
+</style>

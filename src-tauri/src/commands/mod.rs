@@ -1,3 +1,4 @@
+pub mod app_settings;
 pub mod camera;
 pub mod interaction;
 pub mod luts;
@@ -8,9 +9,9 @@ pub mod settings;
 pub mod simulation;
 pub mod slime_mold;
 pub mod utility;
-pub mod app_settings;
 
 // Re-export all command functions for easy access
+pub use app_settings::*;
 pub use camera::*;
 pub use interaction::*;
 pub use luts::*;
@@ -21,4 +22,3 @@ pub use settings::*;
 pub use simulation::*;
 pub use slime_mold::*;
 pub use utility::*;
-pub use app_settings::*;

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+target/
+src-tauri/target/
+*.config.js
+*.config.ts
+package-lock.json 

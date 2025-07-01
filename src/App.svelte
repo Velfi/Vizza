@@ -1,3 +1,38 @@
+<main>
+  {#if currentMode === 'menu'}
+    <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
+  {:else if currentMode === 'slime-mold'}
+    <SlimeMoldMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
+  {:else if currentMode === 'gray-scott'}
+    <GrayScottMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
+  {:else if currentMode === 'particle-life'}
+    <ParticleLifeMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
+  {:else if currentMode === 'how-to-play'}
+    <HowToPlay on:back={goBack} />
+  {:else if currentMode === 'settings'}
+    <Settings
+      on:back={goBack}
+      on:settingsChanged={async (e) => {
+        appSettings = e.detail;
+        await applyUIScale(appSettings.ui_scale);
+        await applyCameraSensitivity(appSettings.default_camera_sensitivity);
+      }}
+    />
+  {/if}
+</main>
+
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -8,7 +43,13 @@
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
 
-  type AppMode = 'menu' | 'slime-mold' | 'gray-scott' | 'particle-life' | 'how-to-play' | 'settings';
+  type AppMode =
+    | 'menu'
+    | 'slime-mold'
+    | 'gray-scott'
+    | 'particle-life'
+    | 'how-to-play'
+    | 'settings';
   let currentMode: AppMode = 'menu';
   let previousMode: AppMode | null = null;
 
@@ -103,12 +144,14 @@
       const logicalHeight = window.innerHeight;
       const physicalWidth = Math.round(logicalWidth * devicePixelRatio);
       const physicalHeight = Math.round(logicalHeight * devicePixelRatio);
-      
-      console.log(`Resize: Logical ${logicalWidth}x${logicalHeight}, Physical ${physicalWidth}x${physicalHeight}, DPR ${devicePixelRatio}`);
-      
-      await invoke('handle_window_resize', { 
-        width: physicalWidth, 
-        height: physicalHeight
+
+      console.log(
+        `Resize: Logical ${logicalWidth}x${logicalHeight}, Physical ${physicalWidth}x${physicalHeight}, DPR ${devicePixelRatio}`
+      );
+
+      await invoke('handle_window_resize', {
+        width: physicalWidth,
+        height: physicalHeight,
       });
     } catch (e) {
       console.error('Failed to handle window resize:', e);
@@ -117,12 +160,12 @@
 
   function debouncedResize() {
     const now = Date.now();
-    
+
     // Clear existing timeout
     if (resizeTimeout) {
       clearTimeout(resizeTimeout);
     }
-    
+
     // Debounce rapid resize events
     if (now - lastResizeTime < resizeDebounceDelay) {
       resizeTimeout = setTimeout(() => {
@@ -139,10 +182,10 @@
   onMount(() => {
     // Load app settings first
     loadAppSettings();
-    
+
     // Listen for resize events
     window.addEventListener('resize', debouncedResize);
-    
+
     // Send initial size
     debouncedResize();
 
@@ -152,43 +195,11 @@
   });
 </script>
 
-<main>
-  {#if currentMode === 'menu'}
-    <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
-  {:else if currentMode === 'slime-mold'}
-    <SlimeMoldMode 
-      menuPosition={appSettings.menu_position}
-      on:back={goBack} 
-      on:navigate={(e) => navigateToMode(e.detail)} 
-    />
-  {:else if currentMode === 'gray-scott'}
-    <GrayScottMode 
-      menuPosition={appSettings.menu_position}
-      on:back={goBack} 
-      on:navigate={(e) => navigateToMode(e.detail)} 
-    />
-  {:else if currentMode === 'particle-life'}
-    <ParticleLifeMode 
-      menuPosition={appSettings.menu_position}
-      on:back={goBack} 
-      on:navigate={(e) => navigateToMode(e.detail)} 
-    />
-  {:else if currentMode === 'how-to-play'}
-    <HowToPlay on:back={goBack} />
-  {:else if currentMode === 'settings'}
-    <Settings on:back={goBack} on:settingsChanged={async (e) => {
-      appSettings = e.detail;
-      await applyUIScale(appSettings.ui_scale);
-      await applyCameraSensitivity(appSettings.default_camera_sensitivity);
-    }} />
-  {/if}
-</main>
-
 <style>
   :global(body) {
     margin: 0;
     padding: 0;
-    font-family: "Zelda Sans", Inter, Avenir, Helvetica, Arial, sans-serif;
+    font-family: 'Zelda Sans', Inter, Avenir, Helvetica, Arial, sans-serif;
     font-size: 16px;
     line-height: 24px;
     font-weight: 400;
@@ -201,4 +212,4 @@
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
   }
-</style> 
+</style>

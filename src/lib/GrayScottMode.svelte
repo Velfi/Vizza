@@ -1,3 +1,271 @@
+<div class="simulation-container">
+  <!-- Mouse interaction overlay -->
+  <div
+    class="mouse-overlay"
+    on:mousedown={handleMouseEvent}
+    on:mousemove={handleMouseEvent}
+    on:mouseup={handleMouseEvent}
+    on:mouseleave={handleMouseEvent}
+    on:contextmenu={handleMouseEvent}
+    on:wheel={handleMouseEvent}
+    role="button"
+    tabindex="0"
+  ></div>
+
+  <!-- Loading Screen -->
+  {#if loading}
+    <div class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <h2>Starting Simulation...</h2>
+        <p>Initializing GPU resources</p>
+      </div>
+    </div>
+  {/if}
+
+  <SimulationControlBar
+    {running}
+    {loading}
+    {showUI}
+    {currentFps}
+    simulationName="Gray-Scott"
+    {controlsVisible}
+    on:back={returnToMenu}
+    on:toggleUI={toggleBackendGui}
+    on:pause={stopSimulation}
+    on:resume={resumeSimulation}
+    on:userInteraction={handleUserInteraction}
+  />
+
+  <SimulationMenuContainer position={menuPosition} {showUI}>
+    <form on:submit|preventDefault>
+      <!-- Preset Controls -->
+      <fieldset>
+        <legend>Presets</legend>
+        <div class="control-group">
+          <Selector
+            options={available_presets}
+            bind:value={current_preset}
+            placeholder="Select preset..."
+            on:change={({ detail }) => updatePreset(detail.value)}
+          />
+        </div>
+        <div class="preset-actions">
+          <button type="button" on:click={() => (show_save_preset_dialog = true)}>
+            Save Current Settings
+          </button>
+        </div>
+      </fieldset>
+
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="control-group">
+          <LutSelector
+            {available_luts}
+            current_lut={lut_name}
+            reversed={lut_reversed}
+            on:select={({ detail }) => updateLut(detail.name)}
+            on:reverse={() => updateLutReversed()}
+          />
+        </div>
+      </fieldset>
+
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="interaction-controls-grid">
+          <div class="interaction-help">
+            <div class="control-group">
+              <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
+            </div>
+            <div class="control-group">
+              <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+                📖 Camera Controls
+              </button>
+            </div>
+          </div>
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
+            <CursorConfig
+              cursorSize={settings.cursor_size}
+              cursorStrength={settings.cursor_strength}
+              sizeMin={5}
+              sizeMax={50}
+              sizeStep={1}
+              strengthMin={0.1}
+              strengthMax={2.0}
+              strengthStep={0.1}
+              sizePrecision={0}
+              strengthPrecision={1}
+              on:sizechange={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'cursor_size',
+                    value: e.detail,
+                  });
+                } catch (err) {
+                  console.error('Failed to update cursor size:', err);
+                }
+              }}
+              on:strengthchange={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'cursor_strength',
+                    value: e.detail,
+                  });
+                } catch (err) {
+                  console.error('Failed to update cursor strength:', err);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Settings -->
+      <fieldset>
+        <legend>Settings</legend>
+        <div class="control-group">
+          <button
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('reset_simulation');
+                console.log('Simulation reset successfully');
+              } catch (e) {
+                console.error('Failed to reset simulation:', e);
+              }
+            }}>🔄 Reset Simulation</button
+          >
+          <button
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('randomize_settings');
+                await syncSettingsFromBackend(); // Sync UI with new random settings
+                console.log('Settings randomized successfully');
+              } catch (e) {
+                console.error('Failed to randomize settings:', e);
+              }
+            }}>🎲 Randomize Settings</button
+          >
+          <button
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('seed_random_noise');
+                console.log('Random noise seeded successfully');
+              } catch (e) {
+                console.error('Failed to seed random noise:', e);
+              }
+            }}>🌱 Seed Noise</button
+          >
+        </div>
+      </fieldset>
+
+      <!-- Reaction-Diffusion -->
+      <fieldset>
+        <legend>
+          <button
+            type="button"
+            class="toggle-button"
+            on:click={() => (show_physics_diagram = !show_physics_diagram)}
+          >
+            {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion
+          </button>
+        </legend>
+
+        {#if show_physics_diagram}
+          <GrayScottDiagram
+            feedRate={settings.feed_rate}
+            killRate={settings.kill_rate}
+            diffusionRateU={settings.diffusion_rate_u}
+            diffusionRateV={settings.diffusion_rate_v}
+            timestep={settings.timestep}
+            on:update={async (e) => {
+              console.log('GrayScottDiagram update event:', e.detail);
+              try {
+                // Update local settings first for immediate UI feedback
+                const settingName = e.detail.setting;
+                const value = e.detail.value;
+
+                // Update the local settings object to match the backend
+                if (settingName in settings) {
+                  settings = { ...settings, [settingName]: value };
+                }
+
+                await invoke('update_simulation_setting', {
+                  settingName: settingName,
+                  value: value,
+                });
+                console.log('Backend invoked for', settingName, value);
+              } catch (err) {
+                console.error(`Failed to update ${e.detail.setting}:`, err);
+                // On error, sync from backend to restore correct state
+                await syncSettingsFromBackend();
+              }
+            }}
+          />
+        {/if}
+      </fieldset>
+
+      <!-- Nutrient Pattern Settings -->
+      <fieldset>
+        <legend>Nutrient Pattern</legend>
+        <div class="control-group">
+          <Selector
+            options={[
+              'Uniform',
+              'Checkerboard',
+              'Diagonal Gradient',
+              'Radial Gradient',
+              'Vertical Stripes',
+              'Horizontal Stripes',
+              'Enhanced Noise',
+              'Wave Function',
+              'Cosine Grid',
+            ]}
+            bind:value={settings.nutrient_pattern}
+            label="Pattern Type"
+            on:change={({ detail }) => updateNutrientPattern(detail.value)}
+          />
+        </div>
+        <div class="control-group">
+          <label for="nutrientPatternReversed">Reverse Pattern</label>
+          <input
+            type="checkbox"
+            id="nutrientPatternReversed"
+            bind:checked={settings.nutrient_pattern_reversed}
+            on:change={(e: Event) => {
+              const target = e.target as HTMLInputElement;
+              if (target) {
+                updateNutrientPatternReversed(target.checked);
+              }
+            }}
+          />
+        </div>
+      </fieldset>
+    </form>
+  </SimulationMenuContainer>
+
+  <!-- Save Preset Dialog -->
+  {#if show_save_preset_dialog}
+    <div class="dialog-backdrop">
+      <div class="dialog">
+        <h3>Save Current Settings</h3>
+        <input type="text" bind:value={new_preset_name} placeholder="Enter preset name" />
+        <div class="dialog-buttons">
+          <button type="button" on:click={savePreset}>Save</button>
+          <button type="button" on:click={() => (show_save_preset_dialog = false)}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+</div>
+
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -55,20 +323,18 @@
 
   // UI state
   let show_physics_diagram = false;
-  
+
   // LUT state (runtime, not saved in presets)
   let lut_name = '';
   let lut_reversed = false;
-  
+
   // Auto-hide functionality for controls when UI is hidden
   let controlsVisible = true;
   let hideTimeout: number | null = null;
-  
+
   // Cursor hiding functionality
   let cursorHidden = false;
   let cursorHideTimeout: number | null = null;
-
-
 
   async function updateLutReversed() {
     try {
@@ -90,8 +356,6 @@
     }
   }
 
-
-
   async function savePreset() {
     try {
       await invoke('save_preset', { preset_name: new_preset_name });
@@ -112,7 +376,7 @@
 
   async function startSimulation() {
     if (running || loading) return;
-    
+
     loading = true;
 
     try {
@@ -129,7 +393,7 @@
 
   async function resumeSimulation() {
     if (running || loading) return;
-    
+
     try {
       // Just restart the render loop without recreating the simulation
       await invoke('resume_simulation');
@@ -142,14 +406,14 @@
 
   async function stopSimulation() {
     running = false;
-    
+
     try {
       // Just pause the render loop, don't destroy simulation
       await invoke('pause_simulation');
-      
+
       // Reset FPS
       currentFps = 0;
-      
+
       // Immediately render a frame to show the triangle instead of last simulation frame
       await invoke('render_frame');
     } catch (e) {
@@ -159,14 +423,14 @@
 
   async function destroySimulation() {
     running = false;
-    
+
     try {
       // Actually destroy the simulation completely
       await invoke('destroy_simulation');
-      
+
       // Reset FPS
       currentFps = 0;
-      
+
       // Render a frame to show the triangle
       await invoke('render_frame');
     } catch (e) {
@@ -183,10 +447,14 @@
   let initialPresetApplied = false;
   async function loadAvailablePresets() {
     try {
-      available_presets = await invoke('get_presets_for_simulation_type', { simulationType: 'gray_scott' });
+      available_presets = await invoke('get_presets_for_simulation_type', {
+        simulationType: 'gray_scott',
+      });
       // Only apply initial preset once on first load, not on subsequent calls
       if (available_presets.length > 0 && !current_preset && !initialPresetApplied) {
-        current_preset = available_presets.includes('Undulating') ? 'Undulating' : available_presets[0];
+        current_preset = available_presets.includes('Undulating')
+          ? 'Undulating'
+          : available_presets[0];
         // Apply the initial preset to the simulation
         await invoke('apply_preset', { presetName: current_preset });
         initialPresetApplied = true;
@@ -210,25 +478,28 @@
   async function syncSettingsFromBackend() {
     try {
       const currentSettings = await invoke('get_current_settings');
-      const currentState = await invoke('get_current_state') as { current_lut_name: string; lut_reversed: boolean } | null;
-      
+      const currentState = (await invoke('get_current_state')) as {
+        current_lut_name: string;
+        lut_reversed: boolean;
+      } | null;
+
       if (currentSettings) {
         // Log the sync for debugging
         console.log('Syncing settings from backend:', {
           before: { ...settings },
           backend: currentSettings,
-          currentPreset: current_preset
+          currentPreset: current_preset,
         });
-        
+
         // Update the settings object with current backend values
         settings = {
           ...settings,
-          ...currentSettings
+          ...currentSettings,
         };
-        
+
         console.log('Settings after sync:', { ...settings });
       }
-      
+
       if (currentState) {
         // Update LUT-related settings from state
         lut_name = currentState.current_lut_name;
@@ -244,7 +515,7 @@
   let fpsUpdateUnlisten: (() => void) | null = null;
 
   // Simple panning state
-  let pressedKeys = new Set<string>();
+  const pressedKeys = new Set<string>();
 
   // Mouse drag state
   let isMouseDown = false;
@@ -259,7 +530,19 @@
       randomizeSimulation();
     } else {
       // Allow camera controls even when simulation is paused
-      const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+      const cameraKeys = [
+        'w',
+        'a',
+        's',
+        'd',
+        'arrowup',
+        'arrowdown',
+        'arrowleft',
+        'arrowright',
+        'q',
+        'e',
+        'c',
+      ];
       if (cameraKeys.includes(event.key.toLowerCase())) {
         event.preventDefault();
         pressedKeys.add(event.key.toLowerCase());
@@ -268,7 +551,19 @@
   }
 
   function handleKeyup(event: KeyboardEvent) {
-    const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
+    const cameraKeys = [
+      'w',
+      'a',
+      's',
+      'd',
+      'arrowup',
+      'arrowdown',
+      'arrowleft',
+      'arrowright',
+      'q',
+      'e',
+      'c',
+    ];
     if (cameraKeys.includes(event.key.toLowerCase())) {
       pressedKeys.delete(event.key.toLowerCase());
     }
@@ -340,7 +635,7 @@
   // Add a function to fetch the latest camera state from the backend
   async function fetchCameraState() {
     try {
-      const cam = await invoke('get_camera_state') as {
+      const cam = (await invoke('get_camera_state')) as {
         position: number[];
         zoom: number;
         viewport_width: number;
@@ -395,9 +690,9 @@
   // Add missing functions for nutrient pattern updates
   async function updateNutrientPattern(value: string) {
     try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'nutrient_pattern', 
-        value: value 
+      await invoke('update_simulation_setting', {
+        settingName: 'nutrient_pattern',
+        value: value,
       });
     } catch (err) {
       console.error('Failed to update nutrient pattern:', err);
@@ -406,9 +701,9 @@
 
   async function updateNutrientPatternReversed(value: boolean) {
     try {
-      await invoke('update_simulation_setting', { 
-        settingName: 'nutrient_pattern_reversed', 
-        value: value 
+      await invoke('update_simulation_setting', {
+        settingName: 'nutrient_pattern_reversed',
+        value: value,
       });
     } catch (err) {
       console.error('Failed to update nutrient pattern reversed:', err);
@@ -417,9 +712,9 @@
 
   async function sendCursorToBackend(screenX: number, screenY: number) {
     try {
-      await invoke('update_cursor_position_screen', { 
-        screenX, 
-        screenY 
+      await invoke('update_cursor_position_screen', {
+        screenX,
+        screenY,
       });
     } catch (err) {
       console.error('Failed to update cursor position:', err);
@@ -430,16 +725,16 @@
   async function handleMouseEvent(event: MouseEvent | WheelEvent) {
     const isWheelEvent = event instanceof WheelEvent;
     const isMouseEvent = event instanceof MouseEvent;
-    
+
     // Early return if simulation is not running (except for wheel events which can still zoom)
     if (!running && !isWheelEvent) {
       console.log('Mouse event ignored - simulation not running');
       return;
     }
-    
+
     // Prevent default for all events
     event.preventDefault();
-    
+
     // Get cursor position
     const cursorX = event.clientX;
     const cursorY = event.clientY;
@@ -449,73 +744,77 @@
     const physicalCursorX = cursorX * devicePixelRatio;
     const physicalCursorY = cursorY * devicePixelRatio;
 
-    console.log(`Mouse event: ${event.type}, running: ${running}, cursor: (${cursorX}, ${cursorY}), physical: (${physicalCursorX}, ${physicalCursorY})`);
+    console.log(
+      `Mouse event: ${event.type}, running: ${running}, cursor: (${cursorX}, ${cursorY}), physical: (${physicalCursorX}, ${physicalCursorY})`
+    );
 
     // Handle wheel events (zoom) - allow even when paused
     if (isWheelEvent) {
       const wheelEvent = event as WheelEvent;
-      
+
       // Send cursor position to backend (use physical pixels)
       await sendCursorToBackend(physicalCursorX, physicalCursorY);
-      
+
       // Normalize wheel delta (make it smaller for smoother zooming)
       const normalizedDelta = wheelEvent.deltaY * 0.01;
-      
+
       // Zoom towards cursor position
       await zoomCameraToCursor(normalizedDelta, physicalCursorX, physicalCursorY);
     }
-    
+
     // Handle mouse events
     if (isMouseEvent) {
       const mouseEvent = event as MouseEvent;
-      
+
       // Send cursor position to backend (use physical pixels)
       await sendCursorToBackend(physicalCursorX, physicalCursorY);
-      
+
       // Handle mouse down (start of drag) - only when running
       if (mouseEvent.type === 'mousedown' && running) {
         isMouseDown = true;
         lastMouseButton = mouseEvent.button;
-        
+
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            mouseButton: mouseEvent.button
+            mouseButton: mouseEvent.button,
           });
-          console.log(`Mouse interaction: button ${mouseEvent.button} at (${physicalCursorX}, ${physicalCursorY})`);
+          console.log(
+            `Mouse interaction: button ${mouseEvent.button} at (${physicalCursorX}, ${physicalCursorY})`
+          );
         } catch (err) {
           console.error('Failed to handle mouse interaction:', err);
         }
       }
-      
+
       // Handle mouse move during drag - only when running
       if (mouseEvent.type === 'mousemove' && isMouseDown && running) {
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            mouseButton: lastMouseButton
+            mouseButton: lastMouseButton,
           });
         } catch (err) {
           console.error('Failed to handle mouse drag interaction:', err);
         }
       }
-      
+
       // Handle mouse up (end of drag) - always handle
       if (mouseEvent.type === 'mouseup') {
         console.log('Mouse up');
         isMouseDown = false;
         lastMouseButton = -1;
       }
-      
+
       // Handle mouse leave (end of drag if mouse leaves window) - always handle
       if (mouseEvent.type === 'mouseleave') {
         console.log('Mouse leave');
         isMouseDown = false;
         lastMouseButton = -1;
       }
-      
+
       // Handle context menu (right click) - always prevent
       if (mouseEvent.type === 'contextmenu') {
         console.log('Context menu prevented');
@@ -533,7 +832,7 @@
       // Sync UI state with backend
       const isVisible = await invoke<boolean>('get_gui_state');
       showUI = isVisible;
-      
+
       // Handle auto-hide when UI is hidden
       if (!showUI) {
         showControls();
@@ -630,18 +929,18 @@
     // Add keyboard event listeners
     window.addEventListener('keydown', handleKeydown);
     window.addEventListener('keyup', handleKeyup);
-    
+
     // Add event listeners for auto-hide functionality
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
-    events.forEach(event => {
+    events.forEach((event) => {
       window.addEventListener(event, handleUserInteraction, { passive: true });
     });
-    
+
     // Start camera update loop immediately so camera controls work even when paused
     if (animationFrameId === null) {
       animationFrameId = requestAnimationFrame(updateCamera);
     }
-    
+
     // Listen for simulation initialization event
     listen('simulation-initialized', async () => {
       console.log('Simulation initialized, syncing settings...');
@@ -649,10 +948,10 @@
       await loadAvailablePresets();
       await loadAvailableLuts();
       await syncSettingsFromBackend();
-      
+
       // Fetch initial camera state to get correct viewport dimensions
       await fetchCameraState();
-      
+
       // Initialize cursor position to center of screen so golden crosshair is visible
       const centerX = window.innerWidth / 2;
       const centerY = window.innerHeight / 2;
@@ -660,7 +959,7 @@
       const physicalCenterX = centerX * devicePixelRatio;
       const physicalCenterY = centerY * devicePixelRatio;
       sendCursorToBackend(physicalCenterX, physicalCenterY);
-      
+
       // Seed random noise to start with interesting patterns
       try {
         await invoke('seed_random_noise');
@@ -668,12 +967,12 @@
       } catch (e) {
         console.error('Failed to seed initial random noise:', e);
       }
-      
+
       // Now that simulation is fully initialized, set running to true
       loading = false;
       running = true;
       console.log('Simulation is now running and ready for mouse interaction');
-    }).then(unlisten => {
+    }).then((unlisten) => {
       simulationInitializedUnlisten = unlisten;
     });
 
@@ -682,17 +981,17 @@
       console.log('Simulation resumed');
       running = true;
       currentFps = 0;
-    }).then(unlisten => {
+    }).then((unlisten) => {
       simulationResumedUnlisten = unlisten;
     });
 
     // Listen for FPS updates from backend
     listen('fps-update', (event) => {
       currentFps = event.payload as number;
-    }).then(unlisten => {
+    }).then((unlisten) => {
       fpsUpdateUnlisten = unlisten;
     });
-    
+
     // Then start simulation
     startSimulation();
 
@@ -705,26 +1004,26 @@
     // Remove keyboard event listeners
     window.removeEventListener('keydown', handleKeydown);
     window.removeEventListener('keyup', handleKeyup);
-    
+
     // Remove auto-hide event listeners
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
-    events.forEach(event => {
+    events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
-    
+
     // Stop auto-hide timer
     stopAutoHideTimer();
-    
+
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
-    
+
     // Cancel animation frame
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
     }
-    
+
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
     }
@@ -737,272 +1036,9 @@
   });
 </script>
 
-<div class="simulation-container">
-  <!-- Mouse interaction overlay -->
-  <div 
-    class="mouse-overlay"
-    on:mousedown={handleMouseEvent}
-    on:mousemove={handleMouseEvent}
-    on:mouseup={handleMouseEvent}
-    on:mouseleave={handleMouseEvent}
-    on:contextmenu={handleMouseEvent}
-    on:wheel={handleMouseEvent}
-    role="button"
-    tabindex="0"
-  ></div>
-
-  <!-- Loading Screen -->
-  {#if loading}
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <h2>Starting Simulation...</h2>
-        <p>Initializing GPU resources</p>
-      </div>
-    </div>
-  {/if}
-
-  <SimulationControlBar
-    {running}
-    {loading}
-    {showUI}
-    currentFps={currentFps}
-    simulationName="Gray-Scott"
-    {controlsVisible}
-    on:back={returnToMenu}
-    on:toggleUI={toggleBackendGui}
-    on:pause={stopSimulation}
-    on:resume={resumeSimulation}
-    on:userInteraction={handleUserInteraction}
-  />
-
-  <SimulationMenuContainer position={menuPosition} {showUI}>
-    <form on:submit|preventDefault>
-      <!-- Preset Controls -->
-      <fieldset>
-        <legend>Presets</legend>
-        <div class="control-group">
-          <Selector
-            options={available_presets}
-            bind:value={current_preset}
-            placeholder="Select preset..."
-            on:change={({ detail }) => updatePreset(detail.value)}
-          />
-        </div>
-        <div class="preset-actions">
-          <button type="button" on:click={() => show_save_preset_dialog = true}>
-            Save Current Settings
-          </button>
-        </div>
-      </fieldset>
-
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        <div class="control-group">
-          <LutSelector
-            {available_luts}
-            current_lut={lut_name}
-            reversed={lut_reversed}
-            on:select={({ detail }) => updateLut(detail.name)}
-            on:reverse={() => updateLutReversed()}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Controls -->
-      <fieldset>
-        <legend>Controls</legend>
-        <div class="interaction-controls-grid">
-          <div class="interaction-help">
-            <div class="control-group">
-              <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
-            </div>
-            <div class="control-group">
-              <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-                📖 Camera Controls
-              </button>
-            </div>
-          </div>
-          <div class="cursor-settings">
-            <div class="cursor-settings-header">
-              <span>🎯 Cursor Settings</span>
-            </div>
-            <CursorConfig
-              cursorSize={settings.cursor_size}
-              cursorStrength={settings.cursor_strength}
-              sizeMin={5}
-              sizeMax={50}
-              sizeStep={1}
-              strengthMin={0.1}
-              strengthMax={2.0}
-              strengthStep={0.1}
-              sizePrecision={0}
-              strengthPrecision={1}
-              on:sizechange={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'cursor_size', 
-                    value: e.detail 
-                  });
-                } catch (err) {
-                  console.error('Failed to update cursor size:', err);
-                }
-              }}
-              on:strengthchange={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'cursor_strength', 
-                    value: e.detail 
-                  });
-                } catch (err) {
-                  console.error('Failed to update cursor strength:', err);
-                }
-              }}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Settings -->
-      <fieldset>
-        <legend>Settings</legend>
-        <div class="control-group">
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('reset_simulation');
-              console.log('Simulation reset successfully');
-            } catch (e) {
-              console.error('Failed to reset simulation:', e);
-            }
-          }}>🔄 Reset Simulation</button>
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('randomize_settings');
-              await syncSettingsFromBackend(); // Sync UI with new random settings
-              console.log('Settings randomized successfully');
-            } catch (e) {
-              console.error('Failed to randomize settings:', e);
-            }
-          }}>🎲 Randomize Settings</button>
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('seed_random_noise');
-              console.log('Random noise seeded successfully');
-            } catch (e) {
-              console.error('Failed to seed random noise:', e);
-            }
-          }}>🌱 Seed Noise</button>
-        </div>
-      </fieldset>
-
-      <!-- Reaction-Diffusion -->
-      <fieldset>
-        <legend>
-          <button 
-            type="button" 
-            class="toggle-button"
-            on:click={() => show_physics_diagram = !show_physics_diagram}
-          >
-            {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion
-          </button>
-        </legend>
-        
-        {#if show_physics_diagram}
-          <GrayScottDiagram 
-            feedRate={settings.feed_rate}
-            killRate={settings.kill_rate}
-            diffusionRateU={settings.diffusion_rate_u}
-            diffusionRateV={settings.diffusion_rate_v}
-            timestep={settings.timestep}
-            on:update={async (e) => {
-              console.log('GrayScottDiagram update event:', e.detail);
-              try {
-                // Update local settings first for immediate UI feedback
-                const settingName = e.detail.setting;
-                const value = e.detail.value;
-                
-                // Update the local settings object to match the backend
-                if (settingName in settings) {
-                  settings = { ...settings, [settingName]: value };
-                }
-                
-                await invoke('update_simulation_setting', { 
-                  settingName: settingName, 
-                  value: value 
-                });
-                console.log('Backend invoked for', settingName, value);
-              } catch (err) {
-                console.error(`Failed to update ${e.detail.setting}:`, err);
-                // On error, sync from backend to restore correct state
-                await syncSettingsFromBackend();
-              }
-            }}
-          />
-        {/if}
-      </fieldset>
-
-      <!-- Nutrient Pattern Settings -->
-      <fieldset>
-        <legend>Nutrient Pattern</legend>
-        <div class="control-group">
-          <Selector
-            options={[
-              'Uniform',
-              'Checkerboard',
-              'Diagonal Gradient',
-              'Radial Gradient',
-              'Vertical Stripes',
-              'Horizontal Stripes',
-              'Enhanced Noise',
-              'Wave Function',
-              'Cosine Grid'
-            ]}
-            bind:value={settings.nutrient_pattern}
-            label="Pattern Type"
-            on:change={({ detail }) => updateNutrientPattern(detail.value)}
-          />
-        </div>
-        <div class="control-group">
-          <label for="nutrientPatternReversed">Reverse Pattern</label>
-          <input 
-            type="checkbox" 
-            id="nutrientPatternReversed"
-            bind:checked={settings.nutrient_pattern_reversed}
-            on:change={(e: Event) => {
-              const target = e.target as HTMLInputElement;
-              if (target) {
-                updateNutrientPatternReversed(target.checked);
-              }
-            }}
-          />
-        </div>
-      </fieldset>
-    </form>
-  </SimulationMenuContainer>
-
-  <!-- Save Preset Dialog -->
-  {#if show_save_preset_dialog}
-    <div class="dialog-backdrop">
-      <div class="dialog">
-        <h3>Save Current Settings</h3>
-        <input 
-          type="text" 
-          bind:value={new_preset_name}
-          placeholder="Enter preset name"
-        />
-        <div class="dialog-buttons">
-          <button type="button" on:click={savePreset}>Save</button>
-          <button type="button" on:click={() => show_save_preset_dialog = false}>Cancel</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-</div>
-
 <style>
   /* Gray-Scott specific styles (if any) */
-  
+
   .interaction-controls-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1064,12 +1100,4 @@
   .toggle-button:hover {
     color: #60a5fa;
   }
-
-  .diagram-content {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: #1f2937;
-    border-radius: 0.5rem;
-    border: 1px solid #374151;
-  }
-</style> 
+</style>

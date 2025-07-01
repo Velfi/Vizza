@@ -38,7 +38,8 @@
   gap: 0.5rem;
 }
 
-.back-button, .hide-ui-button {
+.back-button,
+.hide-ui-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -148,7 +149,7 @@ body.menu-right {
     padding-left: 0;
     padding-right: 0;
   }
-  
+
   /* Reset border styles for mobile */
   .simulation-menu-container.left,
   .simulation-menu-container.right {
@@ -197,7 +198,7 @@ select {
   font-size: 1em;
 }
 
-input[type="checkbox"] {
+input[type='checkbox'] {
   margin-right: 0.5rem;
   transform: scale(var(--ui-scale));
 }
@@ -341,8 +342,12 @@ button:disabled {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .loading-content h2 {
@@ -386,11 +391,11 @@ button:disabled {
   .simulation-controls {
     padding: 0.5rem;
   }
-  
+
   fieldset {
     padding: 0.5rem;
   }
-  
+
   button {
     padding: 0.4rem 0.8rem;
   }
@@ -408,7 +413,9 @@ button:disabled {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
-  transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+  transition:
+    opacity 0.3s ease-in-out,
+    transform 0.3s ease-in-out;
 }
 
 /* Responsive design for auto-hiding controls */
@@ -416,4 +423,4 @@ button:disabled {
   .controls.auto-hiding {
     padding: 0.75rem;
   }
-} 
+}

@@ -1,3 +1,65 @@
+<!-- Control bar for when UI is visible -->
+{#if showUI}
+  <div class="controls">
+    <div class="left-controls">
+      <button class="back-button" on:click={handleBackClick}> ← Back to Menu </button>
+      <button class="hide-ui-button" on:click={handleToggleUI}> 👁 Hide UI </button>
+    </div>
+
+    <div class="center-controls">
+      <button class="pause-resume-button" class:running on:click={handlePauseResume}>
+        {running ? '⏸ Pause' : '▶ Resume'}
+      </button>
+      <span class="status-text">
+        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+      </span>
+    </div>
+
+    <div class="right-controls">
+      <span class="info-text">
+        {simulationName} at {currentFps} FPS
+      </span>
+    </div>
+  </div>
+{:else}
+  <!-- Auto-hiding controls when UI is hidden -->
+  <div
+    class="controls auto-hiding"
+    class:visible={controlsVisible}
+    on:click={handleUserInteraction}
+    on:mouseenter={handleUserInteraction}
+    on:keydown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleUserInteraction();
+      }
+    }}
+    role="button"
+    tabindex="0"
+    aria-label="Auto-hiding control bar - interact to show controls"
+  >
+    <div class="left-controls">
+      <button class="back-button" on:click={handleBackClick}> ← Back to Menu </button>
+      <button class="hide-ui-button" on:click={handleToggleUI}> 👁 Show UI </button>
+    </div>
+
+    <div class="center-controls">
+      <button class="pause-resume-button" class:running on:click={handlePauseResume}>
+        {running ? '⏸ Pause' : '▶ Resume'}
+      </button>
+      <span class="status-text">
+        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+      </span>
+    </div>
+
+    <div class="right-controls">
+      <span class="info-text">
+        {simulationName} at {currentFps} FPS
+      </span>
+    </div>
+  </div>
+{/if}
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
@@ -31,84 +93,6 @@
     dispatch('userInteraction');
   }
 </script>
-
-<!-- Control bar for when UI is visible -->
-{#if showUI}
-  <div class="controls">
-    <div class="left-controls">
-      <button class="back-button" on:click={handleBackClick}>
-        ← Back to Menu
-      </button>
-      <button class="hide-ui-button" on:click={handleToggleUI}>
-        👁 Hide UI
-      </button>
-    </div>
-    
-    <div class="center-controls">
-      <button 
-        class="pause-resume-button" 
-        class:running
-        on:click={handlePauseResume}
-      >
-        {running ? '⏸ Pause' : '▶ Resume'}
-      </button>
-      <span class="status-text">
-        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
-      </span>
-    </div>
-    
-    <div class="right-controls">
-      <span class="info-text">
-          {simulationName} at {currentFps} FPS
-      </span>
-    </div>
-  </div>
-{:else}
-  <!-- Auto-hiding controls when UI is hidden -->
-  <div 
-    class="controls auto-hiding" 
-    class:visible={controlsVisible} 
-    on:click={handleUserInteraction} 
-    on:mouseenter={handleUserInteraction}
-    on:keydown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleUserInteraction();
-      }
-    }}
-    role="button"
-    tabindex="0"
-    aria-label="Auto-hiding control bar - interact to show controls"
-  >
-    <div class="left-controls">
-      <button class="back-button" on:click={handleBackClick}>
-        ← Back to Menu
-      </button>
-      <button class="hide-ui-button" on:click={handleToggleUI}>
-        👁 Show UI
-      </button>
-    </div>
-    
-    <div class="center-controls">
-      <button 
-        class="pause-resume-button" 
-        class:running
-        on:click={handlePauseResume}
-      >
-        {running ? '⏸ Pause' : '▶ Resume'}
-      </button>
-      <span class="status-text">
-        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
-      </span>
-    </div>
-    
-    <div class="right-controls">
-      <span class="info-text">
-          {simulationName} at {currentFps} FPS
-      </span>
-    </div>
-  </div>
-{/if}
 
 <style>
   .controls {
@@ -201,23 +185,23 @@
       height: 70px;
       padding: 0.75rem;
     }
-    
+
     .left-controls,
     .center-controls,
     .right-controls {
       gap: 0.25rem;
     }
-    
+
     .back-button,
     .hide-ui-button,
     .pause-resume-button {
       padding: 0.25rem 0.5rem;
       font-size: 0.875rem;
     }
-    
+
     .status-text,
     .info-text {
       font-size: 0.8rem;
     }
   }
-</style> 
+</style>

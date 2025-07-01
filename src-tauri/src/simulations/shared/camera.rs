@@ -101,7 +101,7 @@ impl Camera {
             buffer,
             uniform_data,
             smoothing_factor: 0.15, // Smooth camera movement
-            sensitivity: 1.0, // Default sensitivity
+            sensitivity: 1.0,       // Default sensitivity
         })
     }
 

@@ -1,8 +1,42 @@
+<div class="cursor-config">
+  <div class="control-group">
+    <div class="control-header">
+      <label for="cursorSize">Size</label>
+      <span class="range-value">{cursorSize.toFixed(sizePrecision)}</span>
+    </div>
+    <input
+      type="range"
+      id="cursorSize"
+      value={cursorSize}
+      min={sizeMin}
+      max={sizeMax}
+      step={sizeStep}
+      on:input={handleSizeChange}
+    />
+  </div>
+
+  <div class="control-group">
+    <div class="control-header">
+      <label for="cursorStrength">Strength</label>
+      <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
+    </div>
+    <input
+      type="range"
+      id="cursorStrength"
+      value={cursorStrength}
+      min={strengthMin}
+      max={strengthMax}
+      step={strengthStep}
+      on:input={handleStrengthChange}
+    />
+  </div>
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  
+
   const dispatch = createEventDispatcher();
-  
+
   // Props
   export let cursorSize: number = 0.5;
   export let cursorStrength: number = 1.0;
@@ -14,53 +48,19 @@
   export let strengthStep: number = 0.5;
   export let sizePrecision: number = 2;
   export let strengthPrecision: number = 1;
-  
+
   function handleSizeChange(event: Event) {
     const value = parseFloat((event.target as HTMLInputElement).value);
     cursorSize = value;
     dispatch('sizechange', value);
   }
-  
+
   function handleStrengthChange(event: Event) {
     const value = parseFloat((event.target as HTMLInputElement).value);
     cursorStrength = value;
     dispatch('strengthchange', value);
   }
 </script>
-
-<div class="cursor-config">
-  <div class="control-group">
-    <div class="control-header">
-      <label for="cursorSize">Size</label>
-      <span class="range-value">{cursorSize.toFixed(sizePrecision)}</span>
-    </div>
-    <input 
-      type="range" 
-      id="cursorSize"
-      value={cursorSize}
-      min={sizeMin}
-      max={sizeMax}
-      step={sizeStep}
-      on:input={handleSizeChange}
-    />
-  </div>
-  
-  <div class="control-group">
-    <div class="control-header">
-      <label for="cursorStrength">Strength</label>
-      <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
-    </div>
-    <input 
-      type="range" 
-      id="cursorStrength"
-      value={cursorStrength}
-      min={strengthMin}
-      max={strengthMax}
-      step={strengthStep}
-      on:input={handleStrengthChange}
-    />
-  </div>
-</div>
 
 <style>
   .cursor-config {
@@ -93,7 +93,7 @@
     flex-shrink: 0;
   }
 
-  input[type="range"] {
+  input[type='range'] {
     width: 100%;
     height: 6px;
     border-radius: 3px;
@@ -103,7 +103,7 @@
     appearance: none;
   }
 
-  input[type="range"]::-webkit-slider-thumb {
+  input[type='range']::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 16px;
@@ -115,7 +115,7 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   }
 
-  input[type="range"]::-moz-range-thumb {
+  input[type='range']::-moz-range-thumb {
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -125,12 +125,12 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   }
 
-  input[type="range"]:hover::-webkit-slider-thumb {
+  input[type='range']:hover::-webkit-slider-thumb {
     background: #7c82ff;
     transform: scale(1.1);
   }
 
-  input[type="range"]:hover::-moz-range-thumb {
+  input[type='range']:hover::-moz-range-thumb {
     background: #7c82ff;
     transform: scale(1.1);
   }
@@ -172,16 +172,16 @@
       min-width: 35px;
     }
 
-    input[type="range"] {
+    input[type='range'] {
       height: 5px;
     }
 
-    input[type="range"]::-webkit-slider-thumb {
+    input[type='range']::-webkit-slider-thumb {
       width: 14px;
       height: 14px;
     }
 
-    input[type="range"]::-moz-range-thumb {
+    input[type='range']::-moz-range-thumb {
       width: 14px;
       height: 14px;
     }
@@ -203,4 +203,4 @@
       align-self: flex-end;
     }
   }
-</style> 
+</style>

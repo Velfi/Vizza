@@ -226,8 +226,9 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
-            SimulationType::GrayScott(simulation) => simulation
-                .render_frame(device, queue, surface_view),
+            SimulationType::GrayScott(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
             SimulationType::ParticleLife(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
@@ -247,8 +248,9 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
-            SimulationType::GrayScott(simulation) => simulation
-                .render_frame_static(device, queue, surface_view),
+            SimulationType::GrayScott(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
             SimulationType::ParticleLife(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
@@ -416,10 +418,18 @@ impl Simulation for SimulationType {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::SlimeMold(simulation) => simulation.apply_settings(settings, device, queue),
-            SimulationType::GrayScott(simulation) => simulation.apply_settings(settings, device, queue),
-            SimulationType::ParticleLife(simulation) => simulation.apply_settings(settings, device, queue),
-            SimulationType::MainMenu(simulation) => simulation.apply_settings(settings, device, queue),
+            SimulationType::SlimeMold(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
         }
     }
 

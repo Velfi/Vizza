@@ -277,7 +277,13 @@ impl PresetManagerType {
         }
     }
 
-    fn get_preset_settings_for_simulation(&self, preset_name: &str, simulation: &mut SimulationType, device: &Arc<Device>, queue: &Arc<Queue>) -> PresetResult<()> {
+    fn get_preset_settings_for_simulation(
+        &self,
+        preset_name: &str,
+        simulation: &mut SimulationType,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> PresetResult<()> {
         match (self, simulation) {
             (PresetManagerType::SlimeMold(manager), SimulationType::SlimeMold(sim)) => {
                 if let Some(settings) = manager.get_preset_settings(preset_name) {
@@ -343,9 +349,18 @@ impl SimulationPresetManager {
         crate::simulations::particle_life::init_presets(&mut particle_life_preset_manager);
 
         let mut managers = HashMap::new();
-        managers.insert("slime_mold".to_string(), PresetManagerType::SlimeMold(slime_mold_preset_manager));
-        managers.insert("gray_scott".to_string(), PresetManagerType::GrayScott(gray_scott_preset_manager));
-        managers.insert("particle_life".to_string(), PresetManagerType::ParticleLife(particle_life_preset_manager));
+        managers.insert(
+            "slime_mold".to_string(),
+            PresetManagerType::SlimeMold(slime_mold_preset_manager),
+        );
+        managers.insert(
+            "gray_scott".to_string(),
+            PresetManagerType::GrayScott(gray_scott_preset_manager),
+        );
+        managers.insert(
+            "particle_life".to_string(),
+            PresetManagerType::ParticleLife(particle_life_preset_manager),
+        );
 
         Self { managers }
     }
@@ -359,19 +374,19 @@ impl SimulationPresetManager {
         }
     }
 
-
-
     pub fn get_available_presets(&self, simulation_type: &SimulationType) -> Vec<String> {
         let sim_name = Self::get_simulation_type_name(simulation_type);
-        
+
         if sim_name == "main_menu" {
             return vec![]; // No presets for main menu background
         }
 
-        let presets = self.managers.get(sim_name)
+        let presets = self
+            .managers
+            .get(sim_name)
             .map(|manager| manager.as_any_preset_manager().get_preset_names())
             .unwrap_or_default();
-            
+
         tracing::info!("{} presets: {:?}", sim_name, presets);
         presets
     }
@@ -384,7 +399,7 @@ impl SimulationPresetManager {
         queue: &Arc<Queue>,
     ) -> PresetResult<()> {
         let sim_name = Self::get_simulation_type_name(simulation);
-        
+
         if sim_name == "main_menu" {
             return Err("No presets available for Main Menu Background".into());
         }
@@ -403,13 +418,15 @@ impl SimulationPresetManager {
         settings: &serde_json::Value,
     ) -> PresetResult<()> {
         let sim_name = Self::get_simulation_type_name(simulation);
-        
+
         if sim_name == "main_menu" {
             return Err("Cannot save presets for Main Menu Background".into());
         }
 
         if let Some(manager) = self.managers.get(sim_name) {
-            manager.as_any_preset_manager().save_user_preset_json(preset_name, settings)
+            manager
+                .as_any_preset_manager()
+                .save_user_preset_json(preset_name, settings)
         } else {
             Err(format!("No preset manager found for simulation type: {}", sim_name).into())
         }
@@ -421,13 +438,15 @@ impl SimulationPresetManager {
         preset_name: &str,
     ) -> PresetResult<()> {
         let sim_name = Self::get_simulation_type_name(simulation_type);
-        
+
         if sim_name == "main_menu" {
             return Err("Cannot delete presets for Main Menu Background".into());
         }
 
         if let Some(manager) = self.managers.get_mut(sim_name) {
-            manager.as_any_preset_manager_mut().delete_user_preset(preset_name)?;
+            manager
+                .as_any_preset_manager_mut()
+                .delete_user_preset(preset_name)?;
             tracing::info!("Deleted {} preset '{}'", sim_name, preset_name);
             Ok(())
         } else {
@@ -437,7 +456,8 @@ impl SimulationPresetManager {
 
     // Getter methods for accessing the specific preset managers
     pub fn get_manager(&self, sim_name: &str) -> Option<&dyn AnyPresetManager> {
-        self.managers.get(sim_name).map(|m| m.as_any_preset_manager())
+        self.managers
+            .get(sim_name)
+            .map(|m| m.as_any_preset_manager())
     }
 }
-

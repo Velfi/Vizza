@@ -140,15 +140,19 @@ pub async fn get_current_lut_colors(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<Vec<Vec<u8>>, String> {
     let sim_manager = manager.lock().await;
-    
+
     if let Some(SimulationType::ParticleLife(simulation)) = &sim_manager.current_simulation {
         let species_colors = &simulation.state.species_colors;
         let mut colors = Vec::with_capacity(species_colors.len());
 
         for &[r, g, b, _a] in species_colors {
-            colors.push(vec![(r * 255.0).round() as u8, (g * 255.0).round() as u8, (b * 255.0).round() as u8]);
+            colors.push(vec![
+                (r * 255.0).round() as u8,
+                (g * 255.0).round() as u8,
+                (b * 255.0).round() as u8,
+            ]);
         }
-        
+
         Ok(colors)
     } else {
         Err("No particle life simulation running".to_string())

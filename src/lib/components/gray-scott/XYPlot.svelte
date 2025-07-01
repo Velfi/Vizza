@@ -1,6 +1,19 @@
+<div class="xy-plot-container" bind:this={container}>
+  <h3 class="plot-title">{title}</h3>
+  <canvas
+    bind:this={canvas}
+    class="xy-plot"
+    on:pointerdown={handlePointerDown}
+    on:pointermove={handlePointerMove}
+    on:pointerup={handlePointerUp}
+    aria-label="Interactive XY plot with draggable parameter handle"
+  >
+  </canvas>
+</div>
+
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  
+
   export let xValue: number = 0;
   export let yValue: number = 0;
   export let xRange: { min: number; max: number } = { min: 0, max: 1 };
@@ -31,10 +44,10 @@
   // Internal state
   let internalXValue = xValue;
   let internalYValue = yValue;
-  let lastInternalUpdate = { x: 0, y: 0 };
+  const lastInternalUpdate = { x: 0, y: 0 };
 
   // Handle position
-  let handle = { x: 0, y: 0 };
+  const handle = { x: 0, y: 0 };
 
   // Plot dimensions
   let plotSize: number;
@@ -45,7 +58,7 @@
     plotSize = Math.min(width - 2 * margin, height - 2 * margin);
     plotX = (width - plotSize) / 2;
     plotY = margin;
-    
+
     if (canvas) {
       canvas.width = width;
       canvas.height = height;
@@ -101,7 +114,7 @@
     ctx.strokeStyle = '#374151';
     ctx.lineWidth = 1;
     ctx.setLineDash([2, 2]);
-    
+
     // Vertical grid lines
     for (let i = 1; i < 10; i++) {
       const x = plotX + (i / 10) * plotSize;
@@ -110,7 +123,7 @@
       ctx.lineTo(x, plotY + plotSize);
       ctx.stroke();
     }
-    
+
     // Horizontal grid lines
     for (let i = 1; i < 10; i++) {
       const gridY = plotY + (i / 10) * plotSize;
@@ -131,7 +144,7 @@
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(xLabel, plotX + plotSize / 2, plotY + plotSize + 20);
-    
+
     ctx.save();
     ctx.translate(plotX - 15, plotY + plotSize / 2);
     ctx.rotate(-Math.PI / 2);
@@ -170,14 +183,13 @@
 
   // Check if point is in plot area
   function isInPlot(x: number, y: number): boolean {
-    return x >= plotX && x <= plotX + plotSize && 
-           y >= plotY && y <= plotY + plotSize;
+    return x >= plotX && x <= plotX + plotSize && y >= plotY && y <= plotY + plotSize;
   }
 
   // Handle mouse/touch events
   function handlePointerDown(event: PointerEvent) {
     event.preventDefault();
-    
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -191,26 +203,26 @@
 
   function handlePointerMove(event: PointerEvent) {
     if (!isDragging) return;
-    
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    
+
     // Throttle updates to prevent feedback loops
     const now = Date.now();
     if (now - lastUpdateTime < updateThrottle) {
       return;
     }
     lastUpdateTime = now;
-    
+
     const newXValue = Math.max(xRange.min, Math.min(xRange.max, fromCanvasX(x)));
     const newYValue = Math.max(yRange.min, Math.min(yRange.max, fromCanvasY(y)));
-    
+
     internalXValue = newXValue;
     internalYValue = newYValue;
     lastInternalUpdate.x = newXValue;
     lastInternalUpdate.y = newYValue;
-    
+
     dispatch('update', { x: newXValue, y: newYValue });
     draw();
   }
@@ -223,12 +235,20 @@
   }
 
   // Sync with external props when they change
-  $: if (xValue !== internalXValue && !isDragging && Math.abs(xValue - lastInternalUpdate.x) > 0.0001) {
+  $: if (
+    xValue !== internalXValue &&
+    !isDragging &&
+    Math.abs(xValue - lastInternalUpdate.x) > 0.0001
+  ) {
     internalXValue = xValue;
     draw();
   }
-  
-  $: if (yValue !== internalYValue && !isDragging && Math.abs(yValue - lastInternalUpdate.y) > 0.0001) {
+
+  $: if (
+    yValue !== internalYValue &&
+    !isDragging &&
+    Math.abs(yValue - lastInternalUpdate.y) > 0.0001
+  ) {
     internalYValue = yValue;
     draw();
   }
@@ -244,39 +264,26 @@
   // Initialize on mount
   onMount(() => {
     ctx = canvas.getContext('2d')!;
-    
+
     // Initialize internal values from props
     internalXValue = xValue;
     internalYValue = yValue;
-    
+
     // Set up resize observer
     const resizeObserver = new ResizeObserver(() => {
       handleResize();
     });
-    
+
     if (container) {
       resizeObserver.observe(container);
       handleResize();
     }
-    
+
     return () => {
       resizeObserver.disconnect();
     };
   });
 </script>
-
-<div class="xy-plot-container" bind:this={container}>
-  <h3 class="plot-title">{title}</h3>
-  <canvas 
-    bind:this={canvas}
-    class="xy-plot"
-    on:pointerdown={handlePointerDown}
-    on:pointermove={handlePointerMove}
-    on:pointerup={handlePointerUp}
-    aria-label="Interactive XY plot with draggable parameter handle"
-  >
-  </canvas>
-</div>
 
 <style>
   .xy-plot-container {
@@ -285,7 +292,7 @@
     margin: 0;
     padding: 0;
   }
-  
+
   .plot-title {
     margin: 0 0 0.5rem 0;
     color: #ffffff;
@@ -293,7 +300,7 @@
     font-weight: 500;
     text-align: center;
   }
-  
+
   .xy-plot {
     border: 1px solid #374151;
     border-radius: 0.5rem;
@@ -303,4 +310,4 @@
     height: auto;
     max-width: 100%;
   }
-</style> 
+</style>

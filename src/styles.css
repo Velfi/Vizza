@@ -18,12 +18,20 @@
 }
 
 /* Apply UI scaling to various elements */
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font-size: calc(1em * var(--ui-scale));
   padding: calc(0.6em * var(--ui-scale)) calc(1.2em * var(--ui-scale));
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-size: calc(1em * var(--ui-scale));
 }
 

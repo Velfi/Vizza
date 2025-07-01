@@ -5,7 +5,7 @@ pub mod simulation;
 
 pub use simulation::GrayScottModel;
 
-use crate::simulation::preset_manager::{Preset, GrayScottPresetManager};
+use crate::simulation::preset_manager::{GrayScottPresetManager, Preset};
 
 /// Initialize Gray-Scott presets with built-in configurations
 pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {

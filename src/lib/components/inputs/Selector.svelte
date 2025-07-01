@@ -1,19 +1,58 @@
+<div class="selector">
+  {#if label}
+    <label for={id || 'selector'}>
+      {label}
+    </label>
+  {/if}
+
+  <div class="selector-controls">
+    <button
+      type="button"
+      class="control-btn left-btn"
+      on:click={cycleBack}
+      disabled={disabled || options.length === 0}
+      title="Previous option"
+    >
+      ◀
+    </button>
+
+    <select {id} {value} {placeholder} {disabled} on:change={handleSelect} class="selector-select">
+      {#if placeholder && !options.includes(value)}
+        <option value="" disabled>{placeholder}</option>
+      {/if}
+      {#each options as option}
+        <option value={option}>{option}</option>
+      {/each}
+    </select>
+
+    <button
+      type="button"
+      class="control-btn right-btn"
+      on:click={cycleForward}
+      disabled={disabled || options.length === 0}
+      title="Next option"
+    >
+      ▶
+    </button>
+  </div>
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
   /**
    * Selector Component
-   * 
+   *
    * A reusable component that implements the arrow-button + select box pattern:
    * ⬅️ SelectBox ➡️
-   * 
+   *
    * Features:
    * - Left/right arrow buttons to cycle through options
    * - Dropdown select for direct selection
    * - Optional label
    * - Disabled state support
    * - Placeholder text support
-   * 
+   *
    * Usage:
    * <Selector
    *   options={['Option 1', 'Option 2', 'Option 3']}
@@ -59,52 +98,6 @@
     dispatch('change', { value: selectedValue });
   }
 </script>
-
-<div class="selector">
-  {#if label}
-    <label for={id || 'selector'}>
-      {label}
-    </label>
-  {/if}
-  
-  <div class="selector-controls">
-    <button 
-      type="button" 
-      class="control-btn left-btn"
-      on:click={cycleBack}
-      disabled={disabled || options.length === 0}
-      title="Previous option"
-    >
-      ◀
-    </button>
-    
-    <select 
-      {id}
-      {value}
-      {placeholder}
-      {disabled}
-      on:change={handleSelect}
-      class="selector-select"
-    >
-      {#if placeholder && !options.includes(value)}
-        <option value="" disabled>{placeholder}</option>
-      {/if}
-      {#each options as option}
-        <option value={option}>{option}</option>
-      {/each}
-    </select>
-    
-    <button 
-      type="button" 
-      class="control-btn right-btn"
-      on:click={cycleForward}
-      disabled={disabled || options.length === 0}
-      title="Next option"
-    >
-      ▶
-    </button>
-  </div>
-</div>
 
 <style>
   .selector {
@@ -212,4 +205,4 @@
     height: 35px;
     box-sizing: border-box;
   }
-</style> 
+</style>
