@@ -1,11 +1,12 @@
 [package]
 name = "Vizzy"
-version = "0.1.0"
-description = "A Tauri App"
+version = "0.2.0"
+description = "A desktop application featuring interactive simulations built with Tauri, Svelte, and WebGPU."
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"
 repository = "https://github.com/Velfi/vizzy"
 edition = "2021"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
