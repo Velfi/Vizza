@@ -8,10 +8,13 @@
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
   import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
+  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
+
+  export let menuPosition: string = 'middle';
 
   // Simulation state
   let settings = {
@@ -197,6 +200,10 @@
   // Auto-hide functionality for controls when UI is hidden
   let controlsVisible = true;
   let hideTimeout: number | null = null;
+  
+  // Cursor hiding functionality
+  let cursorHidden = false;
+  let cursorHideTimeout: number | null = null;
 
   async function startSimulation() {
     if (running || loading) return;
@@ -412,9 +419,13 @@
       // Handle auto-hide when UI is hidden
       if (!showUI) {
         showControls();
+        showCursor();
         startAutoHideTimer();
+        startCursorHideTimer();
       } else {
         stopAutoHideTimer();
+        stopCursorHideTimer();
+        showCursor();
         controlsVisible = true;
       }
     } catch (err) {
@@ -427,6 +438,10 @@
     stopAutoHideTimer();
     hideTimeout = window.setTimeout(() => {
       controlsVisible = false;
+      // Also hide cursor when controls are hidden
+      if (!showUI) {
+        hideCursor();
+      }
     }, 3000);
   }
 
@@ -441,12 +456,46 @@
     controlsVisible = true;
   }
 
+  // Cursor hiding functionality
+  function hideCursor() {
+    if (!cursorHidden) {
+      document.body.style.cursor = 'none';
+      cursorHidden = true;
+    }
+  }
+
+  function showCursor() {
+    if (cursorHidden) {
+      document.body.style.cursor = '';
+      cursorHidden = false;
+    }
+  }
+
+  function startCursorHideTimer() {
+    stopCursorHideTimer();
+    cursorHideTimeout = window.setTimeout(() => {
+      if (!showUI && !controlsVisible) {
+        hideCursor();
+      }
+    }, 2000); // Hide cursor 2 seconds after last interaction
+  }
+
+  function stopCursorHideTimer() {
+    if (cursorHideTimeout) {
+      clearTimeout(cursorHideTimeout);
+      cursorHideTimeout = null;
+    }
+  }
+
   function handleUserInteraction() {
     if (!showUI && !controlsVisible) {
       showControls();
+      showCursor();
       startAutoHideTimer();
     } else if (!showUI && controlsVisible) {
+      showCursor();
       startAutoHideTimer();
+      startCursorHideTimer();
     }
   }
 
@@ -676,6 +725,10 @@
     // Stop auto-hide timer
     stopAutoHideTimer();
     
+    // Stop cursor hide timer and restore cursor
+    stopCursorHideTimer();
+    showCursor();
+    
     // Cancel animation frame
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
@@ -742,9 +795,7 @@
     on:userInteraction={handleUserInteraction}
   />
 
-  {#if showUI}
-    <!-- Simulation Controls -->
-    <div class="simulation-controls">
+  <SimulationMenuContainer position={menuPosition} {showUI}>
     <form on:submit|preventDefault>
 
       <!-- 2. Preset Controls -->
@@ -823,9 +874,9 @@
         </div>
       </fieldset>
 
-      <!-- Interaction Controls -->
+      <!-- Controls -->
       <fieldset>
-        <legend>Interaction Controls</legend>
+        <legend>Controls</legend>
         <div class="interaction-controls-grid">
           <div class="interaction-help">
             <div class="control-group">
@@ -837,7 +888,10 @@
               </button>
             </div>
           </div>
-          <div class="cursor-config">
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
             <CursorConfig
               cursorSize={cursorSize}
               cursorStrength={cursorStrength}
@@ -856,360 +910,206 @@
         </div>
       </fieldset>
 
-      <!-- 4. Controls (Randomize) -->
+      <!-- Combined Settings -->
       <fieldset>
-        <legend>Controls</legend>
-        <div class="control-group">
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('randomize_settings');
-              await syncSettingsFromBackend(); // Sync UI with new random settings
-              console.log('Settings randomized successfully');
-            } catch (e) {
-              console.error('Failed to randomize settings:', e);
-            }
-          }}>🎲 Randomize Settings</button>
-          <button type="button" on:click={async () => {
-            try {
-              await invoke('reset_trails');
-              console.log('Trails reset successfully');
-            } catch (e) {
-              console.error('Failed to reset trails:', e);
-            }
-          }}>🧹 Clear Trails</button>
-        </div>
-        <div class="control-group">
-          <label for="positionGenerator" class="visually-hidden">Agent Position Generator</label>
-          <ButtonSelect
-            bind:value={position_generator}
-            options={[
-              { value: 'Random', label: 'Random', buttonAction: 'randomize' },
-              { value: 'Center', label: 'Center', buttonAction: 'randomize' },
-              { value: 'UniformCircle', label: 'Uniform Circle', buttonAction: 'randomize' },
-              { value: 'CenteredCircle', label: 'Centered Circle', buttonAction: 'randomize' },
-              { value: 'Ring', label: 'Ring', buttonAction: 'randomize' },
-              { value: 'Line', label: 'Line', buttonAction: 'randomize' },
-              { value: 'Spiral', label: 'Spiral', buttonAction: 'randomize' }
-            ]}
-            buttonText="Reset Agents"
-            placeholder="Select position generator..."
-            on:change={async (e) => {
+        <legend>Settings</legend>
+        
+        <!-- General Settings -->
+        <div class="settings-section">
+          <div class="control-group">
+            <button type="button" on:click={async () => {
               try {
-                await invoke('update_simulation_setting', { 
-                  settingName: 'position_generator', 
-                  value: e.detail.value
-                });
-                await syncSettingsFromBackend();
-              } catch (err) {
-                console.error('Failed to update position generator:', err);
+                await invoke('randomize_settings');
+                await syncSettingsFromBackend(); // Sync UI with new random settings
+                console.log('Settings randomized successfully');
+              } catch (e) {
+                console.error('Failed to randomize settings:', e);
               }
-            }}
-            on:buttonclick={async () => {
+            }}>🎲 Randomize Settings</button>
+            <button type="button" on:click={async () => {
               try {
-                await invoke('reset_agents');
-                await invoke('reset_trails'); // Also reset trails to make agent redistribution visible
-                console.log('Agents randomized via ButtonSelect');
-              } catch (err) {
-                console.error('Failed to randomize agents:', err);
+                await invoke('reset_trails');
+                console.log('Trails reset successfully');
+              } catch (e) {
+                console.error('Failed to reset trails:', e);
               }
-            }}
-          />
-        </div>
-      </fieldset>
-
-      <!-- 5. Pheromone Settings -->
-      <fieldset>
-        <legend>Pheromone Settings</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Decay Rate:</span>
-            <NumberDragBox 
-              bind:value={settings.pheromone_decay_rate}
-              min={0}
-              max={10000}
-              step={1}
-              precision={2}
-              unit="%"
+            }}>🧹 Clear Trails</button>
+          </div>
+          <div class="control-group">
+            <label for="positionGenerator" class="visually-hidden">Agent Position Generator</label>
+            <ButtonSelect
+              bind:value={position_generator}
+              options={[
+                { value: 'Random', label: 'Random', buttonAction: 'randomize' },
+                { value: 'Center', label: 'Center', buttonAction: 'randomize' },
+                { value: 'UniformCircle', label: 'Uniform Circle', buttonAction: 'randomize' },
+                { value: 'CenteredCircle', label: 'Centered Circle', buttonAction: 'randomize' },
+                { value: 'Ring', label: 'Ring', buttonAction: 'randomize' },
+                { value: 'Line', label: 'Line', buttonAction: 'randomize' },
+                { value: 'Spiral', label: 'Spiral', buttonAction: 'randomize' }
+              ]}
+              buttonText="Reset Agents"
+              placeholder="Select position generator..."
               on:change={async (e) => {
                 try {
                   await invoke('update_simulation_setting', { 
-                    settingName: 'pheromone_decay_rate', 
-                    value: e.detail 
+                    settingName: 'position_generator', 
+                    value: e.detail.value
                   });
+                  await syncSettingsFromBackend();
                 } catch (err) {
-                  console.error('Failed to update pheromone decay rate:', err);
+                  console.error('Failed to update position generator:', err);
                 }
               }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Deposition Rate:</span>
-            <NumberDragBox 
-              bind:value={settings.pheromone_deposition_rate}
-              min={0}
-              max={100}
-              step={1}
-              precision={2}
-              unit="%"
-              on:change={async (e) => {
+              on:buttonclick={async () => {
                 try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'pheromone_deposition_rate', 
-                    value: e.detail 
-                  });
+                  await invoke('reset_agents');
+                  await invoke('reset_trails'); // Also reset trails to make agent redistribution visible
+                  console.log('Agents randomized via ButtonSelect');
                 } catch (err) {
-                  console.error('Failed to update pheromone deposition rate:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Diffusion Rate:</span>
-            <NumberDragBox 
-              bind:value={settings.pheromone_diffusion_rate}
-              min={0}
-              max={100}
-              step={1}
-              precision={2}
-              unit="%"
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'pheromone_diffusion_rate', 
-                    value: e.detail 
-                  });
-                } catch (err) {
-                  console.error('Failed to update pheromone diffusion rate:', err);
+                  console.error('Failed to randomize agents:', err);
                 }
               }}
             />
           </div>
         </div>
-      </fieldset>
 
-      <!-- 6. Agent Settings -->
-      <fieldset>
-        <legend>Agent Settings</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Agent Count (millions):</span>
-            <AgentCountInput 
-              value={agent_count_millions}
-              min={0}
-              max={100}
-              on:update={async (e) => {
-                try {
-                  await updateAgentCount(e.detail);
-                  console.log(`Agent count updated to ${e.detail} million`);
-                } catch (err) {
-                  console.error('Failed to update agent count:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Min Speed:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_speed_min}
-              min={0}
-              max={500}
-              step={10}
-              precision={1}
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_speed_min', 
-                    value: e.detail 
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update min speed:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Max Speed:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_speed_max}
-              min={0}
-              max={500}
-              step={10}
-              precision={1}
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_speed_max', 
-                    value: e.detail 
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update max speed:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Turn Rate:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_turn_rate}
-              min={0}
-              max={360}
-              step={1}
-              precision={0}
-              unit="°"
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_turn_rate', 
-                    value: (e.detail * Math.PI) / 180 // Convert degrees to radians
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update turn rate:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Jitter:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_jitter}
-              min={0}
-              max={5}
-              step={0.01}
-              precision={2}
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_jitter', 
-                    value: e.detail 
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update agent jitter:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Sensor Angle:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_sensor_angle}
-              min={0}
-              max={180}
-              step={1}
-              precision={0}
-              unit="°"
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_sensor_angle', 
-                    value: (e.detail * Math.PI) / 180 // Convert degrees to radians
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update sensor angle:', err);
-                }
-              }}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Sensor Distance:</span>
-            <NumberDragBox 
-              bind:value={settings.agent_sensor_distance}
-              min={0}
-              max={500}
-              step={1}
-              precision={0}
-              on:change={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', { 
-                    settingName: 'agent_sensor_distance', 
-                    value: e.detail 
-                  });
-                  await syncSettingsFromBackend();
-                } catch (err) {
-                  console.error('Failed to update sensor distance:', err);
-                }
-              }}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- 7. Gradient Settings -->
-      <fieldset>
-        <legend>Gradient Settings</legend>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Gradient Type:</span>
-            <select 
-              id="gradientType"
-              bind:value={settings.gradient_type}
-              on:change={handleGradientType}
-            >
-              <option value="disabled">Disabled</option>
-              <option value="radial">Radial</option>
-              <option value="linear">Linear</option>
-              <option value="spiral">Spiral</option>
-            </select>
-          </div>
-          {#if settings.gradient_type !== 'disabled'}
+        <!-- Pheromone Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Pheromone</h3>
+          <div class="settings-grid">
             <div class="setting-item">
-              <span class="setting-label">Center X:</span>
-              <input 
-                type="number" 
-                id="gradientCenterX" 
-                min="0" 
-                max="100" 
-                step="1" 
-                bind:value={gradient_center_x_percent}
-                on:change={(e: Event) => {
-                  const value = parseFloat((e.target as HTMLInputElement).value);
-                  updateGradientCenterX(value);
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Center Y:</span>
-              <input 
-                type="number" 
-                id="gradientCenterY" 
-                min="0" 
-                max="100" 
-                step="1" 
-                bind:value={gradient_center_y_percent}
-                on:change={(e: Event) => {
-                  const value = parseFloat((e.target as HTMLInputElement).value);
-                  updateGradientCenterY(value);
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Size:</span>
+              <span class="setting-label">Decay Rate:</span>
               <NumberDragBox 
-                bind:value={settings.gradient_size}
-                min={0.1}
-                max={2}
-                step={0.01}
+                bind:value={settings.pheromone_decay_rate}
+                min={0}
+                max={10000}
+                step={1}
                 precision={2}
+                unit="%"
                 on:change={async (e) => {
                   try {
                     await invoke('update_simulation_setting', { 
-                      settingName: 'gradient_size', 
+                      settingName: 'pheromone_decay_rate', 
                       value: e.detail 
                     });
                   } catch (err) {
-                    console.error('Failed to update gradient size:', err);
+                    console.error('Failed to update pheromone decay rate:', err);
                   }
                 }}
               />
             </div>
             <div class="setting-item">
-              <span class="setting-label">Angle:</span>
+              <span class="setting-label">Deposition Rate:</span>
               <NumberDragBox 
-                bind:value={settings.gradient_angle}
+                bind:value={settings.pheromone_deposition_rate}
+                min={0}
+                max={100}
+                step={1}
+                precision={2}
+                unit="%"
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'pheromone_deposition_rate', 
+                      value: e.detail 
+                    });
+                  } catch (err) {
+                    console.error('Failed to update pheromone deposition rate:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Diffusion Rate:</span>
+              <NumberDragBox 
+                bind:value={settings.pheromone_diffusion_rate}
+                min={0}
+                max={100}
+                step={1}
+                precision={2}
+                unit="%"
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'pheromone_diffusion_rate', 
+                      value: e.detail 
+                    });
+                  } catch (err) {
+                    console.error('Failed to update pheromone diffusion rate:', err);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Agent</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Agent Count (millions):</span>
+              <AgentCountInput 
+                value={agent_count_millions}
+                min={0}
+                max={100}
+                on:update={async (e) => {
+                  try {
+                    await updateAgentCount(e.detail);
+                    console.log(`Agent count updated to ${e.detail} million`);
+                  } catch (err) {
+                    console.error('Failed to update agent count:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Min Speed:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_speed_min}
+                min={0}
+                max={500}
+                step={10}
+                precision={1}
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'agent_speed_min', 
+                      value: e.detail 
+                    });
+                    await syncSettingsFromBackend();
+                  } catch (err) {
+                    console.error('Failed to update min speed:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Max Speed:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_speed_max}
+                min={0}
+                max={500}
+                step={10}
+                precision={1}
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'agent_speed_max', 
+                      value: e.detail 
+                    });
+                    await syncSettingsFromBackend();
+                  } catch (err) {
+                    console.error('Failed to update max speed:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Turn Rate:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_turn_rate}
                 min={0}
                 max={360}
                 step={1}
@@ -1218,21 +1118,178 @@
                 on:change={async (e) => {
                   try {
                     await invoke('update_simulation_setting', { 
-                      settingName: 'gradient_angle', 
-                      value: e.detail 
+                      settingName: 'agent_turn_rate', 
+                      value: (e.detail * Math.PI) / 180 // Convert degrees to radians
                     });
+                    await syncSettingsFromBackend();
                   } catch (err) {
-                    console.error('Failed to update gradient angle:', err);
+                    console.error('Failed to update turn rate:', err);
                   }
                 }}
               />
             </div>
-          {/if}
+            <div class="setting-item">
+              <span class="setting-label">Jitter:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_jitter}
+                min={0}
+                max={5}
+                step={0.01}
+                precision={2}
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'agent_jitter', 
+                      value: e.detail 
+                    });
+                    await syncSettingsFromBackend();
+                  } catch (err) {
+                    console.error('Failed to update agent jitter:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Sensor Angle:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_sensor_angle}
+                min={0}
+                max={180}
+                step={1}
+                precision={0}
+                unit="°"
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'agent_sensor_angle', 
+                      value: (e.detail * Math.PI) / 180 // Convert degrees to radians
+                    });
+                    await syncSettingsFromBackend();
+                  } catch (err) {
+                    console.error('Failed to update sensor angle:', err);
+                  }
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Sensor Distance:</span>
+              <NumberDragBox 
+                bind:value={settings.agent_sensor_distance}
+                min={0}
+                max={500}
+                step={1}
+                precision={0}
+                on:change={async (e) => {
+                  try {
+                    await invoke('update_simulation_setting', { 
+                      settingName: 'agent_sensor_distance', 
+                      value: e.detail 
+                    });
+                    await syncSettingsFromBackend();
+                  } catch (err) {
+                    console.error('Failed to update sensor distance:', err);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Gradient Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Gradient</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Gradient Type:</span>
+              <select 
+                id="gradientType"
+                bind:value={settings.gradient_type}
+                on:change={handleGradientType}
+              >
+                <option value="disabled">Disabled</option>
+                <option value="radial">Radial</option>
+                <option value="linear">Linear</option>
+                <option value="spiral">Spiral</option>
+              </select>
+            </div>
+            {#if settings.gradient_type !== 'disabled'}
+              <div class="setting-item">
+                <span class="setting-label">Center X:</span>
+                <input 
+                  type="number" 
+                  id="gradientCenterX" 
+                  min="0" 
+                  max="100" 
+                  step="1" 
+                  bind:value={gradient_center_x_percent}
+                  on:change={(e: Event) => {
+                    const value = parseFloat((e.target as HTMLInputElement).value);
+                    updateGradientCenterX(value);
+                  }}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Center Y:</span>
+                <input 
+                  type="number" 
+                  id="gradientCenterY" 
+                  min="0" 
+                  max="100" 
+                  step="1" 
+                  bind:value={gradient_center_y_percent}
+                  on:change={(e: Event) => {
+                    const value = parseFloat((e.target as HTMLInputElement).value);
+                    updateGradientCenterY(value);
+                  }}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Size:</span>
+                <NumberDragBox 
+                  bind:value={settings.gradient_size}
+                  min={0.1}
+                  max={2}
+                  step={0.01}
+                  precision={2}
+                  on:change={async (e) => {
+                    try {
+                      await invoke('update_simulation_setting', { 
+                        settingName: 'gradient_size', 
+                        value: e.detail 
+                      });
+                    } catch (err) {
+                      console.error('Failed to update gradient size:', err);
+                    }
+                  }}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Angle:</span>
+                <NumberDragBox 
+                  bind:value={settings.gradient_angle}
+                  min={0}
+                  max={360}
+                  step={1}
+                  precision={0}
+                  unit="°"
+                  on:change={async (e) => {
+                    try {
+                      await invoke('update_simulation_setting', { 
+                        settingName: 'gradient_angle', 
+                        value: e.detail 
+                      });
+                    } catch (err) {
+                      console.error('Failed to update gradient angle:', err);
+                    }
+                  }}
+                />
+              </div>
+            {/if}
+          </div>
         </div>
       </fieldset>
     </form>
-    </div>
-  {/if}
+  </SimulationMenuContainer>
 </div>
 
 <style>
@@ -1299,14 +1356,7 @@
 
 
 
-  .simulation-controls {
-    padding: 1rem;
-    max-width: 800px;
-    margin: 0 auto;
-    background: rgba(0, 0, 0, 1.0);
-    position: relative;
-    z-index: 20;
-  }
+
 
   fieldset {
     border: 1px solid #ccc;
@@ -1358,9 +1408,37 @@
     gap: 0.5rem;
   }
 
-  .cursor-config {
+  .cursor-settings {
     display: flex;
     flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings-header {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0;
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+
+    .interaction-help {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings-header {
+      font-size: 0.85rem;
+    }
   }
 
   .mouse-overlay {
@@ -1420,5 +1498,34 @@
     white-space: nowrap;
     clip-path: inset(100%);
     clip: rect(0 0 0 0);
+  }
+
+  /* Settings section styling */
+  .settings-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .settings-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 0.75rem 0;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .section-separator {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    );
+    margin: 1.5rem 0;
   }
 </style>

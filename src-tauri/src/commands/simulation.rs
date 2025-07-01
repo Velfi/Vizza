@@ -151,7 +151,7 @@ pub async fn pause_simulation(
 ) -> Result<String, String> {
     tracing::info!("pause_simulation called");
     let sim_manager = manager.lock().await;
-    sim_manager.stop_render_loop();
+    sim_manager.pause();
     Ok("Simulation paused".to_string())
 }
 
@@ -165,12 +165,8 @@ pub async fn resume_simulation(
     let sim_manager = manager.lock().await;
 
     if sim_manager.is_running() {
-        // Start the backend render loop
-        sim_manager.start_render_loop(
-            app.clone(),
-            gpu_context.inner().clone(),
-            manager.inner().clone(),
-        );
+        // Resume the simulation (render loop continues)
+        sim_manager.resume();
 
         // Emit event to notify frontend that simulation is resumed
         if let Err(e) = app.emit("simulation-resumed", ()) {

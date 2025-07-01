@@ -1188,6 +1188,64 @@ impl Drop for SlimeMoldModel {
 }
 
 impl crate::simulations::traits::Simulation for SlimeMoldModel {
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()> {
+        // Update camera for smooth movement
+        self.camera.update(0.016); // Assume 60 FPS for now
+        self.camera.upload_to_gpu(queue);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Slime Mold Static Render Encoder"),
+        });
+
+        // Skip compute passes for simulation - just render current state
+
+        // First render to display texture
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Slime Mold Static Display Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
+            let (workgroups_x, workgroups_y) = self
+                .workgroup_config
+                .workgroups_2d(self.display_texture.width(), self.display_texture.height());
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        // Then render display texture to surface with 3x3 instanced rendering
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Slime Mold Static Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            // Always use 3x3 instanced rendering
+            render_pass.set_pipeline(&self.pipeline_manager.render_3x3_pipeline);
+            render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
     fn render_frame(
         &mut self,
         device: &Arc<Device>,

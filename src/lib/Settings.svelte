@@ -21,6 +21,7 @@
     ui_scale: 1.0,
     auto_hide_ui: true,
     auto_hide_delay: 3000,
+    menu_position: 'middle',
     
     // Camera Settings
     default_camera_sensitivity: 1.0,
@@ -87,10 +88,37 @@
     }, 1000); // Auto-save after 1 second of no changes
   }
 
+  // Apply window settings immediately when changed
+  async function applyWindowSettings() {
+    try {
+      await invoke('apply_window_settings');
+      console.log('Window settings applied immediately');
+    } catch (e) {
+      console.error('Failed to apply window settings:', e);
+    }
+  }
+
+  // Capture current window size and set as default
+  async function captureCurrentWindowSize() {
+    try {
+      const currentSize = await invoke<{width: number, height: number, maximized: boolean}>('get_current_window_size');
+      settings.window_width = currentSize.width;
+      settings.window_height = currentSize.height;
+      // Don't change the maximized setting - only capture the size
+      // settings.window_maximized = currentSize.maximized;
+      
+      // Save the settings immediately
+      await saveSettings();
+      console.log('Current window size captured and saved');
+    } catch (e) {
+      console.error('Failed to capture current window size:', e);
+    }
+  }
+
   // Apply UI scale immediately when changed
   async function applyUIScale() {
     try {
-      await invoke('set_webview_zoom', { zoom_factor: settings.ui_scale });
+              await invoke('set_webview_zoom', { zoomFactor: settings.ui_scale });
       console.log('UI scale applied immediately:', settings.ui_scale);
     } catch (e) {
       console.error('Failed to apply UI scale:', e);
@@ -192,7 +220,10 @@
               max={3840}
               step={50}
               precision={0}
-              on:change={() => scheduleAutoSave()}
+              on:change={() => {
+                applyWindowSettings();
+                scheduleAutoSave();
+              }}
             />
           </div>
           <div class="setting-item">
@@ -203,7 +234,10 @@
               max={2160}
               step={50}
               precision={0}
-              on:change={() => scheduleAutoSave()}
+              on:change={() => {
+                applyWindowSettings();
+                scheduleAutoSave();
+              }}
             />
           </div>
           <div class="setting-item">
@@ -211,8 +245,22 @@
             <input 
               type="checkbox" 
               bind:checked={settings.window_maximized}
-              on:change={() => scheduleAutoSave()}
+              on:change={() => {
+                // Only save the setting, don't apply it to current window
+                // This setting only affects future app launches
+                scheduleAutoSave();
+              }}
             />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Current Size:</span>
+            <button 
+              class="capture-size-button"
+              on:click={captureCurrentWindowSize}
+              title="Set default window size to current window size"
+            >
+              📏 Use Current Size
+            </button>
           </div>
         </div>
       </fieldset>
@@ -239,6 +287,17 @@
               precision={0}
               on:change={() => scheduleAutoSave()}
             />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Menu Position:</span>
+            <select 
+              bind:value={settings.menu_position}
+              on:change={() => scheduleAutoSave()}
+            >
+              <option value="left">Left</option>
+              <option value="middle">Middle</option>
+              <option value="right">Right</option>
+            </select>
           </div>
         </div>
       </fieldset>
@@ -269,7 +328,7 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.8);
     color: rgba(255, 255, 255, 0.87);
   }
 
@@ -278,8 +337,9 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
+    background-color: rgb(255 255 255 / 30%);
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 
@@ -439,6 +499,58 @@
   .setting-item input[type="checkbox"] {
     width: auto;
     margin: 0;
+  }
+
+  .setting-item select {
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.9);
+    font-family: inherit;
+    font-size: 0.875rem;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.6)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 1rem;
+    padding-right: 2rem;
+  }
+
+  .setting-item select:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .setting-item select:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .setting-item select option {
+    background: #2a2a2a;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .capture-size-button {
+    padding: 0.5rem 1rem;
+    background: rgba(100, 149, 237, 0.2);
+    border: 1px solid rgba(100, 149, 237, 0.4);
+    border-radius: 4px;
+    color: #6495ed;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.3s ease;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .capture-size-button:hover {
+    background: rgba(100, 149, 237, 0.3);
+    border-color: rgba(100, 149, 237, 0.6);
   }
 
   /* Responsive design */

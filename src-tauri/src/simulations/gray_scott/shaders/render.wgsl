@@ -71,6 +71,7 @@ struct SimulationParams {
     kill_rate: f32,
     delta_u: f32,
     delta_v: f32,
+    timestep: f32,
     width: u32,
     height: u32,
     nutrient_pattern: u32,

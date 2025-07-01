@@ -62,6 +62,8 @@ pub struct Camera {
     uniform_data: CameraUniform,
     /// Smoothing factor for camera movement (0.0 = no smoothing, 1.0 = instant)
     smoothing_factor: f32,
+    /// Camera sensitivity multiplier for pan and zoom operations
+    sensitivity: f32,
 }
 
 impl Camera {
@@ -99,6 +101,7 @@ impl Camera {
             buffer,
             uniform_data,
             smoothing_factor: 0.15, // Smooth camera movement
+            sensitivity: 1.0, // Default sensitivity
         })
     }
 
@@ -157,9 +160,13 @@ impl Camera {
     pub fn pan(&mut self, delta_x: f32, delta_y: f32) {
         let pan_speed = 0.1 / self.zoom; // Pan speed depends on zoom level
 
+        // Apply sensitivity to the pan movement
+        let adjusted_delta_x = delta_x * self.sensitivity;
+        let adjusted_delta_y = delta_y * self.sensitivity;
+
         // Update target position instead of current position
-        self.target_position[0] += delta_x * pan_speed;
-        self.target_position[1] += delta_y * pan_speed;
+        self.target_position[0] += adjusted_delta_x * pan_speed;
+        self.target_position[1] += adjusted_delta_y * pan_speed;
 
         // Clamp target position to reasonable bounds for [-1,1] world space
         // Allow movement within [-2.0, 2.0] to provide some margin around the [-1,1] space
@@ -167,9 +174,12 @@ impl Camera {
         self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
         tracing::debug!(
-            "Camera pan: delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2})",
+            "Camera pan: delta=({:.2}, {:.2}), sensitivity={:.2}, adjusted_delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2})",
             delta_x,
             delta_y,
+            self.sensitivity,
+            adjusted_delta_x,
+            adjusted_delta_y,
             self.target_position[0],
             self.target_position[1]
         );
@@ -177,7 +187,9 @@ impl Camera {
 
     /// Update zoom level (zooms to center of viewport)
     pub fn zoom(&mut self, delta: f32) {
-        let zoom_factor = 1.0 + delta * 0.3;
+        // Apply sensitivity to the zoom movement
+        let adjusted_delta = delta * self.sensitivity;
+        let zoom_factor = 1.0 + adjusted_delta * 0.3;
         let new_zoom = self.target_zoom * zoom_factor;
         let clamped_zoom = new_zoom.clamp(0.1, 50.0);
 
@@ -193,8 +205,10 @@ impl Camera {
             self.target_position[1] = center_world_y;
 
             tracing::debug!(
-                "Camera zoom: delta={:.2}, target_zoom={:.2}",
+                "Camera zoom: delta={:.2}, sensitivity={:.2}, adjusted_delta={:.2}, target_zoom={:.2}",
                 delta,
+                self.sensitivity,
+                adjusted_delta,
                 clamped_zoom
             );
         }
@@ -354,5 +368,16 @@ impl Camera {
     /// Get the target zoom level
     pub fn get_target_zoom(&self) -> f32 {
         self.target_zoom
+    }
+
+    /// Set the camera sensitivity
+    pub fn set_sensitivity(&mut self, sensitivity: f32) {
+        self.sensitivity = sensitivity.clamp(0.1, 5.0);
+        tracing::debug!("Camera sensitivity set to: {}", self.sensitivity);
+    }
+
+    /// Get the current camera sensitivity
+    pub fn get_sensitivity(&self) -> f32 {
+        self.sensitivity
     }
 }

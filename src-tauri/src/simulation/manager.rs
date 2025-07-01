@@ -23,11 +23,15 @@ pub struct SimulationManager {
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
+    pub is_paused: Arc<AtomicBool>,
     pub start_time: Instant,
 }
 
 impl SimulationManager {
     pub fn new() -> Self {
+        // Simulations start paused to prevent race conditions between initialization
+        // and render loop startup. They are automatically unpaused after successful
+        // initialization to ensure all GPU resources and state are ready.
         Self {
             current_simulation: None,
             preset_manager: SimulationPresetManager::new(),
@@ -36,6 +40,7 @@ impl SimulationManager {
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
+            is_paused: Arc::new(AtomicBool::new(true)), // Start paused to avoid race condition
             start_time: Instant::now(),
         }
     }
@@ -77,6 +82,10 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::SlimeMold(simulation));
+                
+                // Automatically unpause after successful initialization
+                self.resume();
+                
                 Ok(())
             }
             "gray_scott" => {
@@ -94,6 +103,10 @@ impl SimulationManager {
                 )?;
 
                 self.current_simulation = Some(SimulationType::GrayScott(simulation));
+                
+                // Automatically unpause after successful initialization
+                self.resume();
+                
                 Ok(())
             }
             "particle_life" => {
@@ -120,6 +133,9 @@ impl SimulationManager {
                     tracing::info!("Applied Default preset to Particle Life simulation");
                 }
                 
+                // Automatically unpause after successful initialization
+                self.resume();
+                
                 Ok(())
             }
             _ => Err("Unknown simulation type".into()),
@@ -138,6 +154,19 @@ impl SimulationManager {
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             simulation.render_frame(device, queue, surface_view)?;
+        }
+        Ok(())
+    }
+
+    pub fn render_paused(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &wgpu::TextureView,
+    ) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            // Render the current frame without updating simulation state
+            simulation.render_frame_static(device, queue, surface_view)?;
         }
         Ok(())
     }
@@ -233,6 +262,18 @@ impl SimulationManager {
 
     pub fn is_running(&self) -> bool {
         self.current_simulation.is_some()
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.is_paused.load(Ordering::Relaxed)
+    }
+
+    pub fn pause(&self) {
+        self.is_paused.store(true, Ordering::Relaxed);
+    }
+
+    pub fn resume(&self) {
+        self.is_paused.store(false, Ordering::Relaxed);
     }
 
     pub fn get_status(&self) -> String {
@@ -556,6 +597,7 @@ impl SimulationManager {
         let render_loop_running = self.render_loop_running.clone();
         let fps_limit_enabled = self.fps_limit_enabled.clone();
         let fps_limit = self.fps_limit.clone();
+        let is_paused = self.is_paused.clone();
 
         render_loop_running.store(true, Ordering::Relaxed);
 
@@ -566,7 +608,7 @@ impl SimulationManager {
             while render_loop_running.load(Ordering::Relaxed) {
                 let frame_start = Instant::now();
 
-                // Render frame (only if simulation is running)
+                // Render frame (continue rendering even when paused to show camera changes)
                 {
                     let mut sim_manager = manager.lock().await;
                     let gpu_ctx = gpu_context.lock().await;
@@ -576,10 +618,16 @@ impl SimulationManager {
                             let view = output
                                 .texture
                                 .create_view(&wgpu::TextureViewDescriptor::default());
-                            if sim_manager
-                                .render(&gpu_ctx.device, &gpu_ctx.queue, &view)
-                                .is_ok()
-                            {
+                            
+                            let render_result = if is_paused.load(Ordering::Relaxed) {
+                                // When paused, render without updating simulation state
+                                sim_manager.render_paused(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                            } else {
+                                // When running, render normally with simulation updates
+                                sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                            };
+                            
+                            if render_result.is_ok() {
                                 output.present();
                             }
                         }
@@ -764,6 +812,25 @@ impl SimulationManager {
                     .set_smoothing_factor(smoothing_factor),
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
+                SimulationType::MainMenu(_) => {} // No camera for main menu background
+            }
+        }
+    }
+
+    /// Set the camera sensitivity for the active simulation
+    pub fn set_camera_sensitivity(&mut self, sensitivity: f32) {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::SlimeMold(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
+                }
+                SimulationType::GrayScott(simulation) => simulation
+                    .renderer
+                    .camera
+                    .set_sensitivity(sensitivity),
+                SimulationType::ParticleLife(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
             }

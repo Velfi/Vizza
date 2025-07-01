@@ -7,12 +7,15 @@
   import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
+  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
   const dispatch = createEventDispatcher();
+
+  export let menuPosition: string = 'middle';
 
   interface Settings {
     species_count: number;
@@ -76,7 +79,7 @@
     matrix_generator: 'Random',
     current_lut: '',
     lut_reversed: false,
-    color_mode: 'Lut',
+    color_mode: 'LUT',
   };
 
   // UI state
@@ -96,6 +99,10 @@
   // Auto-hide functionality for controls when UI is hidden
   let controlsVisible = true;
   let hideTimeout: number | null = null;
+  
+  // Cursor hiding functionality
+  let cursorHidden = false;
+  let cursorHideTimeout: number | null = null;
   
   // Type distribution data
   let typeCounts: number[] = [];
@@ -122,7 +129,7 @@
 
         // In LUT mode, the first color is the background color, so we skip it
         // In non-LUT mode, all colors are species colors
-        const isLutMode = state.color_mode === 'Lut';
+        const isLutMode = state.color_mode === 'LUT';
         const endIndex = isLutMode ? settings.species_count : colors.length;
         const colorsToProcess = colors.slice(0, endIndex);
 
@@ -707,12 +714,6 @@
   // Camera controls
   let pressedKeys = new Set<string>();
   let animationFrameId: number | null = null;
-  
-  // Camera movement batching for smoother panning
-  let accumulatedDeltaX = 0;
-  let accumulatedDeltaY = 0;
-  let lastCameraUpdate = 0;
-  const CAMERA_UPDATE_INTERVAL = 16; // ~60 FPS
 
   function handleKeyDown(event: KeyboardEvent) {
     if (event.key === '/') {
@@ -721,15 +722,11 @@
       return;
     }
     
-    // Handle camera controls
+    // Handle camera controls - allow camera controls even when simulation is paused
     const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
     if (cameraKeys.includes(event.key.toLowerCase())) {
       event.preventDefault();
       pressedKeys.add(event.key.toLowerCase());
-      
-      if (animationFrameId === null) {
-        animationFrameId = requestAnimationFrame(processCameraMovement);
-      }
     }
   }
 
@@ -737,30 +734,22 @@
     const cameraKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', 'c'];
     if (cameraKeys.includes(event.key.toLowerCase())) {
       pressedKeys.delete(event.key.toLowerCase());
-      
-      if (pressedKeys.size === 0 && animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-        
-        // Send any remaining accumulated movement
-        if (accumulatedDeltaX !== 0 || accumulatedDeltaY !== 0) {
-          sendCameraMovement(accumulatedDeltaX, accumulatedDeltaY);
-          accumulatedDeltaX = 0;
-          accumulatedDeltaY = 0;
-        }
-        
-        invoke('stop_camera_pan').catch(e => 
-          console.error('Failed to stop camera pan:', e)
-        );
-      }
     }
   }
 
-  async function sendCameraMovement(deltaX: number, deltaY: number) {
+  async function panCamera(deltaX: number, deltaY: number) {
     try {
-      await invoke('pan_camera', { deltaX: deltaX * 0.1, deltaY: -deltaY * 0.1 });
+      await invoke('pan_camera', { deltaX, deltaY });
     } catch (e) {
       console.error('Failed to pan camera:', e);
+    }
+  }
+
+  async function zoomCamera(delta: number) {
+    try {
+      await invoke('zoom_camera', { delta });
+    } catch (e) {
+      console.error('Failed to zoom camera:', e);
     }
   }
 
@@ -772,54 +761,51 @@
     }
   }
 
-  async function processCameraMovement(timestamp: number) {
+  // Camera update loop for smooth movement - runs continuously even when paused
+  function updateCamera() {
+    // Allow camera movement even when simulation is paused
+    const panAmount = 0.1;
+    let moved = false;
     let deltaX = 0;
     let deltaY = 0;
-    let zoomDelta = 0;
-    
-    if (pressedKeys.has('arrowleft') || pressedKeys.has('a')) deltaX -= 1;
-    if (pressedKeys.has('arrowright') || pressedKeys.has('d')) deltaX += 1;
-    if (pressedKeys.has('arrowup') || pressedKeys.has('w')) deltaY -= 1;
-    if (pressedKeys.has('arrowdown') || pressedKeys.has('s')) deltaY += 1;
-    
-    // Q/E for zoom in/out
-    if (pressedKeys.has('q')) zoomDelta -= 1;
-    if (pressedKeys.has('e')) zoomDelta += 1;
-    
-    // C for camera reset
+
+    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+      deltaY += panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+      deltaY -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+      deltaX -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+      deltaX += panAmount;
+      moved = true;
+    }
+
+    // Apply combined movement if any keys are pressed
+    if (moved) {
+      panCamera(deltaX, deltaY);
+    }
+
+    if (pressedKeys.has('q')) {
+      zoomCamera(-0.05);
+      moved = true;
+    }
+    if (pressedKeys.has('e')) {
+      zoomCamera(0.05);
+      moved = true;
+    }
     if (pressedKeys.has('c')) {
       resetCamera();
+      moved = true;
     }
-    
-    // Accumulate camera movement
-    if (deltaX !== 0 || deltaY !== 0) {
-      accumulatedDeltaX += deltaX;
-      accumulatedDeltaY += deltaY;
-      
-      // Send accumulated movement at regular intervals
-      if (timestamp - lastCameraUpdate >= CAMERA_UPDATE_INTERVAL) {
-        if (accumulatedDeltaX !== 0 || accumulatedDeltaY !== 0) {
-          await sendCameraMovement(accumulatedDeltaX, accumulatedDeltaY);
-          accumulatedDeltaX = 0;
-          accumulatedDeltaY = 0;
-          lastCameraUpdate = timestamp;
-        }
-      }
-    }
-    
-    if (zoomDelta !== 0) {
-      try {
-        await invoke('zoom_camera', { delta: zoomDelta * 0.05 });
-      } catch (e) {
-        console.error('Failed to zoom camera:', e);
-      }
-    }
-    
-    if (pressedKeys.size > 0) {
-      animationFrameId = requestAnimationFrame(processCameraMovement);
-    } else {
-      animationFrameId = null;
-    }
+
+    // Always schedule the next frame to keep the loop running
+    animationFrameId = requestAnimationFrame(updateCamera);
   }
 
   let isMousePressed = false;
@@ -839,7 +825,7 @@
           cursorY: wheelEvent.clientY
         });
       } catch (e) {
-        console.error('Failed to zoom camera:', e);
+        console.error('Failed to zoom camera to cursor:', e);
       }
     } else if (event.type === 'mousedown') {
       const mouseEvent = event as MouseEvent;
@@ -934,9 +920,13 @@
       // Handle auto-hide when UI is hidden
       if (!showUI) {
         showControls();
+        showCursor();
         startAutoHideTimer();
+        startCursorHideTimer();
       } else {
         stopAutoHideTimer();
+        stopCursorHideTimer();
+        showCursor();
         controlsVisible = true;
       }
     } catch (err) {
@@ -951,6 +941,8 @@
       // Only hide controls if simulation is running and UI is hidden
       if (isSimulationRunning && !showUI) {
         controlsVisible = false;
+        // Also hide cursor when controls are hidden
+        hideCursor();
       }
     }, 3000);
   }
@@ -966,12 +958,46 @@
     controlsVisible = true;
   }
 
+  // Cursor hiding functionality
+  function hideCursor() {
+    if (!cursorHidden) {
+      document.body.style.cursor = 'none';
+      cursorHidden = true;
+    }
+  }
+
+  function showCursor() {
+    if (cursorHidden) {
+      document.body.style.cursor = '';
+      cursorHidden = false;
+    }
+  }
+
+  function startCursorHideTimer() {
+    stopCursorHideTimer();
+    cursorHideTimeout = window.setTimeout(() => {
+      if (!showUI && !controlsVisible) {
+        hideCursor();
+      }
+    }, 2000); // Hide cursor 2 seconds after last interaction
+  }
+
+  function stopCursorHideTimer() {
+    if (cursorHideTimeout) {
+      clearTimeout(cursorHideTimeout);
+      cursorHideTimeout = null;
+    }
+  }
+
   function handleUserInteraction() {
     if (!showUI && !controlsVisible) {
       showControls();
+      showCursor();
       startAutoHideTimer();
     } else if (!showUI && controlsVisible) {
+      showCursor();
       startAutoHideTimer();
+      startCursorHideTimer();
     }
   }
 
@@ -1029,6 +1055,11 @@
       // Set up keyboard listeners for camera control
       document.addEventListener('keydown', handleKeyDown);
       document.addEventListener('keyup', handleKeyUp);
+
+      // Start camera update loop immediately so camera controls work even when paused
+      if (animationFrameId === null) {
+        animationFrameId = requestAnimationFrame(updateCamera);
+      }
 
       // Add event listeners for auto-hide functionality
       const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -1088,8 +1119,14 @@
     // Stop auto-hide timer
     stopAutoHideTimer();
     
+    // Stop cursor hide timer and restore cursor
+    stopCursorHideTimer();
+    showCursor();
+    
+    // Stop camera update loop
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
     }
   });
 
@@ -1331,7 +1368,7 @@
         <p>Initializing GPU resources and starting simulation</p>
       </div>
     </div>
-  {:else if isSimulationRunning}
+  {:else}
     <SimulationControlBar
       running={isSimulationRunning}
       loading={isLoading}
@@ -1347,14 +1384,92 @@
     />
 
     <!-- Main UI Controls Panel -->
-    {#if showUI}
-    <div class="simulation-controls">
+    <SimulationMenuContainer position={menuPosition} {showUI}>
     <form on:submit|preventDefault>
 
-
-      <!-- Interaction Controls -->
+      <!-- Presets -->
       <fieldset>
-        <legend>Interaction Controls</legend>
+        <legend>Presets</legend>
+        <div class="control-group">
+          <Selector
+            options={available_presets}
+            bind:value={current_preset}
+            placeholder="Select Preset..."
+            on:change={({ detail }) => updatePreset(detail.value)}
+          />
+        </div>
+        <div class="preset-actions">
+          <button type="button" on:click={() => show_save_preset_dialog = true}>Save Current Settings</button>
+        </div>
+      </fieldset>
+
+            <!-- Display Settings -->
+            <fieldset>
+              <legend>Display Settings</legend>
+              <div class="display-controls-grid">
+                <div class="control-group">
+                  <Selector
+                    options={[
+                      'LUT',
+                      'Gray18',
+                      'White',
+                      'Black'
+                    ]}
+                    bind:value={state.color_mode}
+                    label="Background Mode"
+                    on:change={({ detail }) => updateColorMode(detail.value)}
+                  />
+                </div>
+                <div class="control-group">
+                  <label for="lutSelector">Color Scheme</label>
+                  <LutSelector 
+                    bind:available_luts 
+                    bind:current_lut={state.current_lut}
+                    bind:reversed={state.lut_reversed}
+                    on:select={(e) => updateLut(e.detail.name)}
+                    on:reverse={(e) => updateLutReversed(e.detail.reversed)}
+                  />
+                </div>
+                <div class="control-group">
+                  <label>
+                    <input 
+                      type="checkbox" 
+                      checked={state.traces_enabled}
+                      on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
+                    />
+                    Enable Particle Traces
+                  </label>
+                </div>
+                {#if state.traces_enabled}
+                  <div class="control-group">
+                    <label for="traceFade">Trace Fade</label>
+                    <input 
+                      type="range" 
+                      id="traceFade"
+                      value={state.trace_fade}
+                      min="0" 
+                      max="1" 
+                      step="0.01"
+                      on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
+                    />
+                    <span class="range-value">{state.trace_fade.toFixed(2)}</span>
+                  </div>
+                  <div class="control-group">
+                    <button 
+                      class="clear-trails-button"
+                      on:click={clearTrails}
+                      title="Clear all particle trails"
+                    >
+                      Clear Trails
+                    </button>
+                  </div>
+                {/if}
+              </div>
+            </fieldset>
+
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
         <div class="interaction-controls-grid">
           <div class="interaction-help">
             <div class="control-group">
@@ -1366,7 +1481,10 @@
               </button>
             </div>
           </div>
-          <div class="cursor-config">
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
             <CursorConfig
               cursorSize={state.cursor_size}
               cursorStrength={state.cursor_strength}
@@ -1385,12 +1503,11 @@
         </div>
       </fieldset>
 
-      <!-- Quick Controls -->
+      <!-- Settings -->
       <fieldset>
-        <legend>Controls</legend>
+        <legend>Settings</legend>
         <div class="control-group">
-          <button type="button" on:click={resetSimulation}>🔄 Reset Particles</button>
-          <div class="matrix-controls">
+          <button type="button" on:click={resetSimulation}>Regenerate Particles</button>
             <ButtonSelect
               value={state.matrix_generator}
               buttonText="Regenerate Matrix"
@@ -1424,9 +1541,6 @@
                 await randomizeMatrix();
               }}
             />
-          </div>
-          <div class="generator-controls">
-            <div class="generator-control">
               <ButtonSelect
                 value={state.position_generator}
                 buttonText="Regenerate Positions"
@@ -1445,8 +1559,6 @@
                   await regeneratePositions();
                 }}
               />
-            </div>
-            <div class="generator-control">
               <ButtonSelect
                 value={state.type_generator}
                 buttonText="Regenerate Types"
@@ -1467,36 +1579,9 @@
                   await regenerateTypes();
                 }}
               />
-            </div>
-          </div>
         </div>
-      </fieldset>
-      <!-- Presets -->
-      <fieldset>
-        <legend>Presets</legend>
-        <div class="control-group">
-          <Selector
-            options={available_presets}
-            bind:value={current_preset}
-            placeholder="Select Preset..."
-            on:change={({ detail }) => updatePreset(detail.value)}
-          />
-        </div>
-        <div class="preset-actions">
-          <button type="button" on:click={() => show_save_preset_dialog = true}>Save Current Settings</button>
-        </div>
-      </fieldset>
-
-      <!-- Interaction Matrix and Particle Setup -->
-      <fieldset>
-        <legend>Interaction Matrix & Particle Setup</legend>
-
         
         <div class="control-group">
-          <div class="matrix-info">
-            <p>Click and drag to edit values.</p>
-          </div>
-
           <label for="particleCount">Particle Count</label>
           <NumberDragBox
             value={state.particle_count}
@@ -1518,8 +1603,13 @@
           />
         </div>
 
+        <!-- Interaction Matrix -->
+        <div class="control-group">
+          <div class="matrix-info">
+            <p>Click and drag to edit values.</p>
+          </div>
+        </div>
 
-        
         <div class="matrix-and-setup-container">
           <div class="matrix-section">
             <div class="force-matrix" style="--species-count: {settings.species_count}">
@@ -1572,7 +1662,6 @@
             </div>
             
             <!-- Matrix Transformation Controls -->
-            <div class="matrix-scaling-controls">
               <div class="icon-button-pair">
                 <button 
                   type="button" 
@@ -1700,9 +1789,7 @@
               </div>
             </div>
           </div>
-        </div>
       </fieldset>
-
 
       <!-- Physics Equation Visualization -->
       <fieldset>
@@ -1756,87 +1843,8 @@
         </div>
       </fieldset>
 
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        <div class="display-controls-grid">
-          <div class="control-group">
-            <Selector
-              options={[
-                'Lut',
-                'Gray18',
-                'White',
-                'Black'
-              ]}
-              bind:value={state.color_mode}
-              label="Background Mode"
-              on:change={({ detail }) => updateColorMode(detail.value)}
-            />
-          </div>
-          <div class="control-group">
-            <label for="lutSelector">Color Scheme</label>
-            <LutSelector 
-              bind:available_luts 
-              bind:current_lut={state.current_lut}
-              bind:reversed={state.lut_reversed}
-              on:select={(e) => updateLut(e.detail.name)}
-              on:reverse={(e) => updateLutReversed(e.detail.reversed)}
-            />
-          </div>
-          <div class="control-group">
-            <label>
-              <input 
-                type="checkbox" 
-                checked={state.traces_enabled}
-                on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
-              />
-              Enable Particle Traces
-            </label>
-          </div>
-          {#if state.traces_enabled}
-            <div class="control-group">
-              <label for="traceFade">Trace Fade</label>
-              <input 
-                type="range" 
-                id="traceFade"
-                value={state.trace_fade}
-                min="0" 
-                max="1" 
-                step="0.01"
-                on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
-              />
-              <span class="range-value">{state.trace_fade.toFixed(2)}</span>
-            </div>
-            <div class="control-group">
-              <button 
-                class="clear-trails-button"
-                on:click={clearTrails}
-                title="Clear all particle trails"
-              >
-                Clear Trails
-              </button>
-            </div>
-          {/if}
-          
-          <div class="control-group">
-            <label for="edgeFade">Edge Fade</label>
-            <input 
-              type="range" 
-              id="edgeFade"
-              value={state.edge_fade_strength}
-              min="0" 
-              max="1" 
-              step="0.05"
-              on:input={(e) => updateEdgeFadeStrength(parseFloat((e.target as HTMLInputElement).value))}
-            />
-            <span class="range-value">{state.edge_fade_strength.toFixed(2)}</span>
-          </div>
-        </div>
-      </fieldset>
-
     </form>
-    </div>
-    {/if}
+    </SimulationMenuContainer>
 
   <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
@@ -1873,7 +1881,7 @@
     </div>
   {/if}
   
-  <!-- Mouse overlay for camera interaction (only when simulation is running) -->
+  <!-- Mouse overlay for camera interaction -->
   <div 
     class="mouse-overlay"
     on:mousedown={handleMouseEvent}
@@ -1939,14 +1947,7 @@
     font-size: 1rem;
   }
 
-  .simulation-controls {
-    padding: 1rem;
-    max-width: 800px;
-    margin: 0 auto;
-    background: rgba(0, 0, 0, 1.0);
-    position: relative;
-    z-index: 20;
-  }
+
 
   fieldset {
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -2332,9 +2333,37 @@
     gap: 0.5rem;
   }
 
-  .cursor-config {
+  .cursor-settings {
     display: flex;
     flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings-header {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0;
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+
+    .interaction-help {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings-header {
+      font-size: 0.85rem;
+    }
   }
 
   /* Mouse overlay for camera interaction */

@@ -63,7 +63,6 @@
   
   <img class="logo" src={logo} alt="Vizzy" />
   <h1>Vizzy</h1>
-  <p>Select a simulation:</p>
   
   <div class="simulation-grid">
     <button 
@@ -71,7 +70,6 @@
       on:click={() => selectSimulation('how-to-play')}
     >
       <h3>How To Play</h3>
-      <p>Controls and tips</p>
     </button>
 
     <button 
@@ -116,7 +114,7 @@
     justify-content: center;
     min-height: 100vh;
     text-align: center;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.8);
   }
 
   .logo {
@@ -126,14 +124,9 @@
 
   h1 {
     font-size: 3rem;
-    margin-bottom: 1rem;
+    margin-top: 0;
+    margin-bottom: 4rem;
     color: rgba(255, 255, 255, 0.87);
-  }
-
-  p {
-    font-size: 1.2rem;
-    margin-bottom: 2rem;
-    color: rgba(255, 255, 255, 0.7);
   }
 
   .simulation-grid {
@@ -208,8 +201,6 @@
     background: rgba(100, 108, 255, 0.25);
     border-color: rgba(100, 108, 255, 0.5);
   }
-
-
 
   .menu-header {
     position: absolute;

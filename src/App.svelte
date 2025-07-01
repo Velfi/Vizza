@@ -22,6 +22,7 @@
     window_maximized: false,
     auto_hide_ui: true,
     auto_hide_delay: 3000,
+    menu_position: 'middle',
     default_camera_sensitivity: 1.0,
   };
 
@@ -32,6 +33,10 @@
       if (settings) {
         appSettings = settings;
         await applyUIScale(appSettings.ui_scale);
+        // Apply camera sensitivity
+        await applyCameraSensitivity(appSettings.default_camera_sensitivity);
+        // Apply window settings on startup (including maximized state)
+        await invoke('apply_window_settings_on_startup');
       }
     } catch (e) {
       console.error('Failed to load app settings:', e);
@@ -42,7 +47,7 @@
   async function applyUIScale(scale: number) {
     try {
       // Use webview zoom instead of CSS scaling
-      await invoke('set_webview_zoom', { zoom_factor: scale });
+      await invoke('set_webview_zoom', { zoomFactor: scale });
       console.log('Webview zoom applied:', scale);
     } catch (e) {
       console.error('Failed to apply webview zoom:', e);
@@ -50,6 +55,16 @@
       const root = document.documentElement;
       root.style.fontSize = `${16 * scale}px`;
       root.style.setProperty('--ui-scale', scale.toString());
+    }
+  }
+
+  // Apply camera sensitivity
+  async function applyCameraSensitivity(sensitivity: number) {
+    try {
+      await invoke('set_camera_sensitivity', { sensitivity });
+      console.log('Camera sensitivity applied:', sensitivity);
+    } catch (e) {
+      console.error('Failed to apply camera sensitivity:', e);
     }
   }
 
@@ -141,17 +156,30 @@
   {#if currentMode === 'menu'}
     <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'slime-mold'}
-    <SlimeMoldMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+    <SlimeMoldMode 
+      menuPosition={appSettings.menu_position}
+      on:back={goBack} 
+      on:navigate={(e) => navigateToMode(e.detail)} 
+    />
   {:else if currentMode === 'gray-scott'}
-    <GrayScottMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+    <GrayScottMode 
+      menuPosition={appSettings.menu_position}
+      on:back={goBack} 
+      on:navigate={(e) => navigateToMode(e.detail)} 
+    />
   {:else if currentMode === 'particle-life'}
-    <ParticleLifeMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+    <ParticleLifeMode 
+      menuPosition={appSettings.menu_position}
+      on:back={goBack} 
+      on:navigate={(e) => navigateToMode(e.detail)} 
+    />
   {:else if currentMode === 'how-to-play'}
     <HowToPlay on:back={goBack} />
   {:else if currentMode === 'settings'}
     <Settings on:back={goBack} on:settingsChanged={async (e) => {
       appSettings = e.detail;
       await applyUIScale(appSettings.ui_scale);
+      await applyCameraSensitivity(appSettings.default_camera_sensitivity);
     }} />
   {/if}
 </main>

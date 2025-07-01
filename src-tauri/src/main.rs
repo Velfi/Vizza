@@ -223,6 +223,7 @@ fn main() {
             commands::get_camera_state,
             commands::stop_camera_pan,
             commands::set_camera_smoothing,
+            commands::set_camera_sensitivity,
             // Settings commands
             commands::update_simulation_setting,
             commands::get_current_settings,
@@ -251,6 +252,9 @@ fn main() {
             commands::reset_app_settings,
             commands::get_settings_file_path,
             commands::set_webview_zoom,
+            commands::apply_window_settings,
+            commands::apply_window_settings_on_startup,
+            commands::get_current_window_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -116,11 +116,16 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    position: relative;
-    z-index: 20;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    height: 80px;
+    box-sizing: border-box;
   }
 
   .left-controls {
@@ -192,7 +197,8 @@
 
   /* Responsive design for auto-hiding controls */
   @media (max-width: 600px) {
-    .controls.auto-hiding {
+    .controls {
+      height: 70px;
       padding: 0.75rem;
     }
     

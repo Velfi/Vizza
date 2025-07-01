@@ -24,8 +24,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: calc(1rem * var(--ui-scale));
-  background: rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   position: relative;
@@ -35,11 +35,17 @@
 .left-controls {
   display: flex;
   align-items: center;
-  gap: calc(0.5rem * var(--ui-scale));
+  gap: 0.5rem;
+}
+
+.back-button, .hide-ui-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .back-button {
-  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
@@ -47,7 +53,7 @@
   cursor: pointer;
   font-family: inherit;
   transition: all 0.3s ease;
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 .back-button:hover {
@@ -56,7 +62,7 @@
 }
 
 .hide-ui-button {
-  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
@@ -64,7 +70,7 @@
   cursor: pointer;
   font-family: inherit;
   transition: all 0.3s ease;
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 .hide-ui-button:hover {
@@ -75,14 +81,14 @@
 .status {
   display: flex;
   align-items: center;
-  gap: calc(0.5rem * var(--ui-scale));
+  gap: 0.5rem;
   color: rgba(255, 255, 255, 0.8);
-  font-size: calc(0.9rem * var(--ui-scale));
+  font-size: 0.9rem;
 }
 
 .status-indicator {
-  width: calc(8px * var(--ui-scale));
-  height: calc(8px * var(--ui-scale));
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #ff6b6b;
   transition: background-color 0.3s ease;
@@ -94,79 +100,122 @@
 
 .mouse-instructions {
   color: rgba(255, 255, 255, 0.7);
-  font-size: calc(0.8rem * var(--ui-scale));
+  font-size: 0.8rem;
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: calc(0.25rem * var(--ui-scale));
+  gap: 0.25rem;
 }
 
 /* ===== MAIN CONTROLS PANEL ===== */
-.simulation-controls {
-  padding: calc(1rem * var(--ui-scale));
-  max-width: 800px;
-  margin: 0 auto;
-  background: rgba(0, 0, 0, 1.0);
-  position: relative;
-  z-index: 20;
+/* This is now handled by SimulationMenuContainer component */
+
+/* Add body padding for left/right positioned menus */
+body.menu-left {
+  padding-left: 800px;
+}
+
+body.menu-right {
+  padding-right: 800px;
+}
+
+/* Enhanced transparent menu styling */
+.simulation-menu-container {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.simulation-menu-container.left {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+}
+
+.simulation-menu-container.right {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  border-bottom: none;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+}
+
+@media (max-width: 1024px) {
+  body.menu-left,
+  body.menu-right {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  
+  /* Reset border styles for mobile */
+  .simulation-menu-container.left,
+  .simulation-menu-container.right {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+  }
 }
 
 /* ===== FORM ELEMENTS ===== */
 fieldset {
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
-  padding: calc(1rem * var(--ui-scale));
-  margin-bottom: calc(1rem * var(--ui-scale));
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
 
 legend {
   font-weight: bold;
-  padding: 0 calc(0.5rem * var(--ui-scale));
+  padding: 0 0.5rem;
   color: rgba(255, 255, 255, 0.9);
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 .control-group {
-  margin-bottom: calc(1rem * var(--ui-scale));
+  margin-bottom: 1rem;
   display: flex;
-  gap: calc(1rem * var(--ui-scale));
+  gap: 1rem;
   align-items: center;
   flex-wrap: wrap;
 }
 
 label {
   display: block;
-  margin-bottom: calc(0.5rem * var(--ui-scale));
+  margin-bottom: 0.5rem;
   color: rgba(255, 255, 255, 0.8);
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 select {
   width: 100%;
-  padding: calc(0.5rem * var(--ui-scale));
+  padding: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.5);
   color: rgba(255, 255, 255, 0.9);
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 input[type="checkbox"] {
-  margin-right: calc(0.5rem * var(--ui-scale));
+  margin-right: 0.5rem;
   transform: scale(var(--ui-scale));
 }
 
 /* ===== BUTTONS ===== */
 button {
-  padding: calc(0.5rem * var(--ui-scale)) calc(1rem * var(--ui-scale));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
-  height: calc(35px * var(--ui-scale));
+  height: 35px;
   transition: all 0.2s ease;
-  font-size: calc(1em * var(--ui-scale));
+  font-size: 1em;
 }
 
 button:hover {
@@ -216,7 +265,7 @@ button:disabled {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
   justify-content: center;

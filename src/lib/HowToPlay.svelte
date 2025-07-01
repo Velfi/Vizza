@@ -61,9 +61,9 @@
         </div>
       </div>
 
-      <!-- General Controls -->
-      <div class="section general-controls">
-        <h2>🎮 General Controls</h2>
+      <!-- Simulation Controls -->
+      <div class="section simulation-controls">
+        <h2>🎮 Simulation Controls</h2>
         <div class="controls-grid">
           <div class="control-item">
             <span class="key">/</span>
@@ -93,7 +93,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
@@ -192,7 +192,7 @@
     grid-column: span 1;
   }
 
-  .general-controls {
+  .simulation-controls {
     grid-column: span 1;
   }
 
@@ -207,7 +207,7 @@
     }
     
     .camera-controls,
-    .general-controls {
+    .simulation-controls {
       grid-column: span 1;
     }
     

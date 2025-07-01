@@ -30,7 +30,10 @@
 
 <div class="cursor-config">
   <div class="control-group">
-    <label for="cursorSize">Cursor Size</label>
+    <div class="control-header">
+      <label for="cursorSize">Size</label>
+      <span class="range-value">{cursorSize.toFixed(sizePrecision)}</span>
+    </div>
     <input 
       type="range" 
       id="cursorSize"
@@ -40,11 +43,13 @@
       step={sizeStep}
       on:input={handleSizeChange}
     />
-    <span class="range-value">{cursorSize.toFixed(sizePrecision)}</span>
   </div>
   
   <div class="control-group">
-    <label for="cursorStrength">Cursor Strength</label>
+    <div class="control-header">
+      <label for="cursorStrength">Strength</label>
+      <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
+    </div>
     <input 
       type="range" 
       id="cursorStrength"
@@ -54,7 +59,6 @@
       step={strengthStep}
       on:input={handleStrengthChange}
     />
-    <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
   </div>
 </div>
 
@@ -62,33 +66,141 @@
   .cursor-config {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .control-group {
     display: flex;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .control-header {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   label {
-    display: block;
-    margin-bottom: 0.5rem;
     color: rgba(255, 255, 255, 0.8);
-    min-width: 120px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    flex-shrink: 0;
   }
 
   input[type="range"] {
-    flex: 1;
-    min-width: 150px;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #646cff;
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #646cff;
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  input[type="range"]:hover::-webkit-slider-thumb {
+    background: #7c82ff;
+    transform: scale(1.1);
+  }
+
+  input[type="range"]:hover::-moz-range-thumb {
+    background: #7c82ff;
+    transform: scale(1.1);
   }
 
   .range-value {
     color: rgba(255, 255, 255, 0.8);
     font-family: monospace;
-    font-size: 0.9rem;
-    min-width: 60px;
-    text-align: right;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    min-width: 40px;
+    text-align: center;
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .cursor-config {
+      gap: 0.5rem;
+      padding: 0.4rem;
+    }
+
+    .control-group {
+      gap: 0.2rem;
+    }
+
+    .control-header {
+      gap: 0.3rem;
+    }
+
+    label {
+      font-size: 0.8rem;
+    }
+
+    .range-value {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.3rem;
+      min-width: 35px;
+    }
+
+    input[type="range"] {
+      height: 5px;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      width: 14px;
+      height: 14px;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+    }
+  }
+
+  /* Very small screens */
+  @media (max-width: 480px) {
+    .cursor-config {
+      padding: 0.3rem;
+    }
+
+    .control-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.2rem;
+    }
+
+    .range-value {
+      align-self: flex-end;
+    }
   }
 </style> 

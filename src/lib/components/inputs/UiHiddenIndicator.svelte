@@ -161,7 +161,7 @@
     position: fixed;
     top: 10px;
     right: 10px;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.8);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     padding: 0.75rem 1rem;

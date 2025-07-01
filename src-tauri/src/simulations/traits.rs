@@ -17,6 +17,14 @@ pub trait Simulation {
         surface_view: &TextureView,
     ) -> SimulationResult<()>;
 
+    /// Render a static frame without updating simulation state (for paused mode)
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()>;
+
     /// Handle window resize events
     fn resize(
         &mut self,
@@ -226,6 +234,28 @@ impl Simulation for SimulationType {
             }
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
+            }
+        }
+    }
+
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()> {
+        match self {
+            SimulationType::SlimeMold(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
+            SimulationType::GrayScott(simulation) => simulation
+                .render_frame_static(device, queue, surface_view)
+                .map_err(|e| e.into()),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
             }
         }
     }

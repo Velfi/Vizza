@@ -1755,6 +1755,130 @@ impl ParticleLifeModel {
 }
 
 impl Simulation for ParticleLifeModel {
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()> {
+        // Calculate delta time for smooth camera movement
+        let current_time = std::time::Instant::now();
+        let delta_time = current_time
+            .duration_since(self.last_frame_time)
+            .as_secs_f32();
+        self.last_frame_time = current_time;
+
+        // Clamp delta time to prevent large jumps (e.g., when tab is inactive)
+        let delta_time = delta_time.min(1.0 / 30.0); // Max 30 FPS equivalent
+
+        // Update camera with smoothing using actual delta time
+        self.camera.update(delta_time);
+
+        // Update camera
+        self.camera.upload_to_gpu(queue);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Particle Life Static Render Encoder"),
+        });
+
+        // Skip compute pass - just render current particle positions
+
+        // Determine background color based on color mode
+        let background_color = match self.state.color_mode {
+            ColorMode::Gray18 => wgpu::Color { r: 0.18, g: 0.18, b: 0.18, a: 1.0 },
+            ColorMode::White => wgpu::Color::WHITE,
+            ColorMode::Black => wgpu::Color::BLACK,
+            ColorMode::Lut => {
+                if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
+                    wgpu::Color { r: r.into(), g: g.into(), b: b.into(), a: a.into() }
+                } else {
+                    wgpu::Color::BLACK
+                }
+            }
+        };
+
+        // Render pass - draw particles at their current positions
+        {
+            if self.state.traces_enabled {
+                // When trails are enabled, render to trail texture first
+                let mut trail_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Static Trail Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.trail_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load, // Preserve previous trail content
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                // For static rendering, don't add new trails - just render existing particles
+                trail_render_pass.set_pipeline(&self.render_pipeline);
+                trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+                trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+                trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+
+                let instance_count = self.state.particle_count as u32 * 9;
+                trail_render_pass.draw(0..6, 0..instance_count);
+                drop(trail_render_pass);
+
+                // Then blit trail texture to surface
+                let mut surface_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Static Surface Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: surface_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(background_color), // Clear surface
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                // Blit trail texture to surface
+                surface_render_pass.set_pipeline(&self.blit_pipeline);
+                surface_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
+                surface_render_pass.draw(0..3, 0..1); // Fullscreen triangle
+                
+            } else {
+                // When trails are disabled, render directly to surface
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Static Direct Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: surface_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(background_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                // Render particles directly to surface
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+
+                let instance_count = self.state.particle_count as u32 * 9;
+                render_pass.draw(0..6, 0..instance_count);
+            }
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
     fn render_frame(
         &mut self,
         device: &Arc<Device>,
@@ -2187,7 +2311,7 @@ impl Simulation for ParticleLifeModel {
                         "Gray18" => ColorMode::Gray18,
                         "White" => ColorMode::White,
                         "Black" => ColorMode::Black,
-                        "Lut" => ColorMode::Lut,
+                        "LUT" => ColorMode::Lut,
                         _ => ColorMode::Lut,
                     };
                     // Update LUT with new color mode

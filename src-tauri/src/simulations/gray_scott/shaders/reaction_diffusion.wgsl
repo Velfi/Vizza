@@ -3,6 +3,7 @@ struct SimulationParams {
     kill_rate: f32,
     delta_u: f32,
     delta_v: f32,
+    timestep: f32,
     width: u32,
     height: u32,
     nutrient_pattern: u32,
@@ -189,8 +190,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.u);
     let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.v;
     
-    let new_u = clamp(uv.u + delta_u, 0.0, 1.0);
-    let new_v = clamp(uv.v + delta_v, 0.0, 1.0);
+    let new_u = clamp(uv.u + delta_u * params.timestep, 0.0, 1.0);
+    let new_v = clamp(uv.v + delta_v * params.timestep, 0.0, 1.0);
     
     uvs_out[idx] = UVPair(new_u, new_v);
 } 

@@ -17,6 +17,7 @@ pub struct SimulationParams {
     pub kill_rate: f32,
     pub delta_u: f32,
     pub delta_v: f32,
+    pub timestep: f32,
     pub width: u32,
     pub height: u32,
     pub nutrient_pattern: u32,
@@ -126,6 +127,7 @@ impl GrayScottModel {
             kill_rate: settings.kill_rate,
             delta_u: settings.diffusion_rate_u,
             delta_v: settings.diffusion_rate_v,
+            timestep: settings.timestep,
             width,
             height,
             nutrient_pattern: settings.nutrient_pattern as u32,
@@ -282,6 +284,7 @@ impl GrayScottModel {
             kill_rate: self.settings.kill_rate,
             delta_u: self.settings.diffusion_rate_u,
             delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
             width: self.width,
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
@@ -435,6 +438,7 @@ impl GrayScottModel {
             kill_rate: self.settings.kill_rate,
             delta_u: self.settings.diffusion_rate_u,
             delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
             width: self.width,
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
@@ -507,6 +511,7 @@ impl GrayScottModel {
             kill_rate: self.settings.kill_rate,
             delta_u: self.settings.diffusion_rate_u,
             delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
             width: self.width,
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
@@ -656,6 +661,28 @@ impl GrayScottModel {
 }
 
 impl crate::simulations::traits::Simulation for GrayScottModel {
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()> {
+        // Calculate delta time
+        let now = std::time::Instant::now();
+        let delta_time = now.duration_since(self.last_frame_time).as_secs_f32();
+        self.last_frame_time = now;
+
+        // Update camera for smooth movement
+        self.renderer.camera.update(delta_time);
+
+        // Skip compute pass - just render current state
+        // Render the current state - pass the current buffer (which contains the latest results)
+        let current_buffer = &self.uvs_buffers[self.current_buffer];
+        self.renderer
+            .render(surface_view, current_buffer, &self.params_buffer)
+            .map_err(|e| SimulationError::Gpu(Box::new(e)))
+    }
+
     fn render_frame(
         &mut self,
         device: &Arc<Device>,

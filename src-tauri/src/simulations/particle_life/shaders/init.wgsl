@@ -125,7 +125,7 @@ fn generate_rainbow_spiral_position(seed: u32, type_id: u32, n_types: u32) -> ve
 fn generate_radial_type(position: vec2<f32>, n_types: u32) -> u32 {
     let distance = length(position); // Distance from center (0,0)
     let normalized_distance = clamp(distance / 1.414, 0.0, 1.0); // Normalize to [0,1], max distance is ~√2
-    return u32(normalized_distance * f32(n_types - 1u)) % n_types;
+    return u32(normalized_distance * f32(n_types)) % n_types;
 }
 
 fn generate_polar_type(position: vec2<f32>, n_types: u32) -> u32 {
@@ -154,8 +154,9 @@ fn generate_line_h_type(position: vec2<f32>, n_types: u32) -> u32 {
         return 0u; // Center line gets type 0
     } else {
         // Distribute upper and lower areas across remaining types
-        let region = select(1u, 2u, position.y > 0.0);
-        return region % n_types;
+        let normalized_y = (position.y + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+        let region_type = u32(normalized_y * f32(n_types - 1u)) + 1u; // Use types 1 to n_types-1
+        return region_type % n_types;
     }
 }
 
@@ -165,8 +166,9 @@ fn generate_line_v_type(position: vec2<f32>, n_types: u32) -> u32 {
         return 0u; // Center line gets type 0
     } else {
         // Distribute left and right areas across remaining types
-        let region = select(1u, 2u, position.x > 0.0);
-        return region % n_types;
+        let normalized_x = (position.x + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+        let region_type = u32(normalized_x * f32(n_types - 1u)) + 1u; // Use types 1 to n_types-1
+        return region_type % n_types;
     }
 }
 
@@ -179,38 +181,30 @@ fn generate_spiral_type(position: vec2<f32>, n_types: u32) -> u32 {
 }
 
 fn generate_dithered_type(position: vec2<f32>, seed: u32, n_types: u32) -> u32 {
-    // Create a multi-level dithered pattern that ensures all types are represented
-    let grid_size = 4.0; // Smaller grid for finer dithering
-    let grid_x = floor((position.x + 1.0) * grid_size);
-    let grid_y = floor((position.y + 1.0) * grid_size);
-    let grid_seed = u32(grid_x * 73.0 + grid_y * 37.0) + seed;
+    // Create bold color bands that blend at the edges (classic web JPEG style)
     
-    // Use multiple random values to create better distribution
-    let rand1 = random_f32(grid_seed);
-    let rand2 = random_f32(grid_seed * 7u + 13u);
-    let rand3 = random_f32(grid_seed * 11u + 17u);
+    let distance = length(position);
+    let angle = atan2(position.y, position.x);
     
-    // Create a base pattern that cycles through all types
-    let base_pattern = u32((grid_x + grid_y) * 3.0) % n_types;
+    // Create bold radial bands
+    let band_value = distance * f32(n_types);
+    let base_band = u32(floor(band_value));
     
-    // Add position-based variation
-    let pos_influence = (position.x * position.y + 1.0) * 0.5; // [0,1]
-    let pos_type = u32(pos_influence * f32(n_types));
+    // Add blending at edges using noise
+    let noise_seed = u32((position.x + 1.0) * 1000.0) + u32((position.y + 1.0) * 1000.0) + seed;
+    let noise = random_f32(noise_seed);
     
-    // Combine multiple sources of randomness
-    let combined_random = (rand1 + rand2 + rand3) / 3.0;
-    let random_offset = u32(combined_random * f32(n_types));
+    // Calculate how close we are to the next band boundary
+    let band_fraction = fract(band_value);
     
-    // Mix the patterns with varying weights based on position
-    let mix_factor = fract(position.x * 7.0 + position.y * 5.0);
+    // Blend between bands at edges (within 20% of band boundaries)
+    if (band_fraction > 0.8 && noise > 0.5) {
+        return (base_band + 1u) % n_types;
+    } else if (band_fraction < 0.2 && noise < 0.5) {
+        return (base_band + n_types - 1u) % n_types;
+    }
     
-    let final_type = select(
-        (base_pattern + random_offset) % n_types,
-        (pos_type + random_offset) % n_types,
-        mix_factor > 0.5
-    );
-    
-    return final_type;
+    return base_band % n_types;
 }
 
 @compute @workgroup_size(64, 1, 1)

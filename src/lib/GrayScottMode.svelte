@@ -6,10 +6,13 @@
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import GrayScottDiagram from './components/gray-scott/GrayScottDiagram.svelte';
   import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
+  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
+
+  export let menuPosition: string = 'middle';
 
   interface Settings {
     feed_rate: number;
@@ -60,6 +63,10 @@
   // Auto-hide functionality for controls when UI is hidden
   let controlsVisible = true;
   let hideTimeout: number | null = null;
+  
+  // Cursor hiding functionality
+  let cursorHidden = false;
+  let cursorHideTimeout: number | null = null;
 
 
 
@@ -530,9 +537,13 @@
       // Handle auto-hide when UI is hidden
       if (!showUI) {
         showControls();
+        showCursor();
         startAutoHideTimer();
+        startCursorHideTimer();
       } else {
         stopAutoHideTimer();
+        stopCursorHideTimer();
+        showCursor();
         controlsVisible = true;
       }
     } catch (err) {
@@ -545,6 +556,10 @@
     stopAutoHideTimer();
     hideTimeout = window.setTimeout(() => {
       controlsVisible = false;
+      // Also hide cursor when controls are hidden
+      if (!showUI) {
+        hideCursor();
+      }
     }, 3000);
   }
 
@@ -559,12 +574,46 @@
     controlsVisible = true;
   }
 
+  // Cursor hiding functionality
+  function hideCursor() {
+    if (!cursorHidden) {
+      document.body.style.cursor = 'none';
+      cursorHidden = true;
+    }
+  }
+
+  function showCursor() {
+    if (cursorHidden) {
+      document.body.style.cursor = '';
+      cursorHidden = false;
+    }
+  }
+
+  function startCursorHideTimer() {
+    stopCursorHideTimer();
+    cursorHideTimeout = window.setTimeout(() => {
+      if (!showUI && !controlsVisible) {
+        hideCursor();
+      }
+    }, 2000); // Hide cursor 2 seconds after last interaction
+  }
+
+  function stopCursorHideTimer() {
+    if (cursorHideTimeout) {
+      clearTimeout(cursorHideTimeout);
+      cursorHideTimeout = null;
+    }
+  }
+
   function handleUserInteraction() {
     if (!showUI && !controlsVisible) {
       showControls();
+      showCursor();
       startAutoHideTimer();
     } else if (!showUI && controlsVisible) {
+      showCursor();
       startAutoHideTimer();
+      startCursorHideTimer();
     }
   }
 
@@ -666,6 +715,10 @@
     // Stop auto-hide timer
     stopAutoHideTimer();
     
+    // Stop cursor hide timer and restore cursor
+    stopCursorHideTimer();
+    showCursor();
+    
     // Cancel animation frame
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
@@ -723,22 +776,43 @@
     on:userInteraction={handleUserInteraction}
   />
 
-  {#if showUI}
-
-    <!-- Main UI Controls Panel -->
-    <div class="simulation-controls">
+  <SimulationMenuContainer position={menuPosition} {showUI}>
     <form on:submit|preventDefault>
-      <!-- Status -->
+      <!-- Preset Controls -->
       <fieldset>
-        <legend>Status</legend>
+        <legend>Presets</legend>
         <div class="control-group">
-          <span>Running at {currentFps} FPS</span>
+          <Selector
+            options={available_presets}
+            bind:value={current_preset}
+            placeholder="Select preset..."
+            on:change={({ detail }) => updatePreset(detail.value)}
+          />
+        </div>
+        <div class="preset-actions">
+          <button type="button" on:click={() => show_save_preset_dialog = true}>
+            Save Current Settings
+          </button>
         </div>
       </fieldset>
 
-      <!-- Interaction Controls -->
+      <!-- Display Settings -->
       <fieldset>
-        <legend>Interaction Controls</legend>
+        <legend>Display Settings</legend>
+        <div class="control-group">
+          <LutSelector
+            {available_luts}
+            current_lut={lut_name}
+            reversed={lut_reversed}
+            on:select={({ detail }) => updateLut(detail.name)}
+            on:reverse={() => updateLutReversed()}
+          />
+        </div>
+      </fieldset>
+
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
         <div class="interaction-controls-grid">
           <div class="interaction-help">
             <div class="control-group">
@@ -750,7 +824,10 @@
               </button>
             </div>
           </div>
-          <div class="cursor-config">
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
             <CursorConfig
               cursorSize={settings.cursor_size}
               cursorStrength={settings.cursor_strength}
@@ -787,41 +864,9 @@
         </div>
       </fieldset>
 
-      <!-- Preset Controls -->
+      <!-- Settings -->
       <fieldset>
-        <legend>Presets</legend>
-        <div class="control-group">
-          <Selector
-            options={available_presets}
-            bind:value={current_preset}
-            placeholder="Select preset..."
-            on:change={({ detail }) => updatePreset(detail.value)}
-          />
-        </div>
-        <div class="preset-actions">
-          <button type="button" on:click={() => show_save_preset_dialog = true}>
-            Save Current Settings
-          </button>
-        </div>
-      </fieldset>
-
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        <div class="control-group">
-          <LutSelector
-            {available_luts}
-            current_lut={lut_name}
-            reversed={lut_reversed}
-            on:select={({ detail }) => updateLut(detail.name)}
-            on:reverse={() => updateLutReversed()}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Simulation Controls -->
-      <fieldset>
-        <legend>Controls</legend>
+        <legend>Settings</legend>
         <div class="control-group">
           <button type="button" on:click={async () => {
             try {
@@ -851,7 +896,7 @@
         </div>
       </fieldset>
 
-      <!-- Reaction-Diffusion Settings -->
+      <!-- Reaction-Diffusion -->
       <fieldset>
         <legend>
           <button 
@@ -859,43 +904,41 @@
             class="toggle-button"
             on:click={() => show_physics_diagram = !show_physics_diagram}
           >
-            {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion Settings
+            {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion
           </button>
         </legend>
         
         {#if show_physics_diagram}
-          <div class="diagram-content">
-            <GrayScottDiagram 
-              feedRate={settings.feed_rate}
-              killRate={settings.kill_rate}
-              diffusionRateU={settings.diffusion_rate_u}
-              diffusionRateV={settings.diffusion_rate_v}
-              timestep={settings.timestep}
-              on:update={async (e) => {
-                console.log('GrayScottDiagram update event:', e.detail);
-                try {
-                  // Update local settings first for immediate UI feedback
-                  const settingName = e.detail.setting;
-                  const value = e.detail.value;
-                  
-                  // Update the local settings object to match the backend
-                  if (settingName in settings) {
-                    settings = { ...settings, [settingName]: value };
-                  }
-                  
-                  await invoke('update_simulation_setting', { 
-                    settingName: settingName, 
-                    value: value 
-                  });
-                  console.log('Backend invoked for', settingName, value);
-                } catch (err) {
-                  console.error(`Failed to update ${e.detail.setting}:`, err);
-                  // On error, sync from backend to restore correct state
-                  await syncSettingsFromBackend();
+          <GrayScottDiagram 
+            feedRate={settings.feed_rate}
+            killRate={settings.kill_rate}
+            diffusionRateU={settings.diffusion_rate_u}
+            diffusionRateV={settings.diffusion_rate_v}
+            timestep={settings.timestep}
+            on:update={async (e) => {
+              console.log('GrayScottDiagram update event:', e.detail);
+              try {
+                // Update local settings first for immediate UI feedback
+                const settingName = e.detail.setting;
+                const value = e.detail.value;
+                
+                // Update the local settings object to match the backend
+                if (settingName in settings) {
+                  settings = { ...settings, [settingName]: value };
                 }
-              }}
-            />
-          </div>
+                
+                await invoke('update_simulation_setting', { 
+                  settingName: settingName, 
+                  value: value 
+                });
+                console.log('Backend invoked for', settingName, value);
+              } catch (err) {
+                console.error(`Failed to update ${e.detail.setting}:`, err);
+                // On error, sync from backend to restore correct state
+                await syncSettingsFromBackend();
+              }
+            }}
+          />
         {/if}
       </fieldset>
 
@@ -936,8 +979,7 @@
         </div>
       </fieldset>
     </form>
-    </div>
-  {/if}
+  </SimulationMenuContainer>
 
   <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
@@ -974,9 +1016,37 @@
     gap: 0.5rem;
   }
 
-  .cursor-config {
+  .cursor-settings {
     display: flex;
     flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings-header {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0;
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+
+    .interaction-help {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings-header {
+      font-size: 0.85rem;
+    }
   }
 
   .toggle-button {

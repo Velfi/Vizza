@@ -97,3 +97,15 @@ pub async fn set_camera_smoothing(
     tracing::debug!("Camera smoothing factor set to: {}", smoothing_factor);
     Ok("Camera smoothing factor updated".to_string())
 }
+
+#[tauri::command]
+pub async fn set_camera_sensitivity(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    sensitivity: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+
+    sim_manager.set_camera_sensitivity(sensitivity);
+    tracing::debug!("Camera sensitivity set to: {}", sensitivity);
+    Ok("Camera sensitivity updated".to_string())
+}

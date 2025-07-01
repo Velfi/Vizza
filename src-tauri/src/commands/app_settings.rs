@@ -20,6 +20,7 @@ pub struct AppSettings {
     pub ui_scale: f32,
     pub auto_hide_ui: bool,
     pub auto_hide_delay: u32,
+    pub menu_position: String,
     
     // Camera Settings
     pub default_camera_sensitivity: f32,
@@ -41,6 +42,7 @@ impl Default for AppSettings {
             ui_scale: 1.0,
             auto_hide_ui: true,
             auto_hide_delay: 3000,
+            menu_position: "middle".to_string(),
             
             // Camera Settings
             default_camera_sensitivity: 1.0,
@@ -148,4 +150,84 @@ pub async fn set_webview_zoom(app: tauri::AppHandle, zoom_factor: f64) -> Result
     
     tracing::info!("Webview zoom factor set to: {}", zoom_factor);
     Ok("Zoom factor set successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn apply_window_settings(app: tauri::AppHandle) -> Result<String, String> {
+    // Load current settings
+    let settings = get_app_settings().await?;
+    
+    // Get the main window
+    let window = app.get_webview_window("main")
+        .ok_or("Main window not found")?;
+    
+    // Apply window size only (not maximized state)
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: settings.window_width as f64,
+        height: settings.window_height as f64,
+    }))
+    .map_err(|e| format!("Failed to set window size: {}", e))?;
+    
+    tracing::info!("Window size applied: {}x{}", 
+        settings.window_width, settings.window_height);
+    Ok("Window size applied successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn apply_window_settings_on_startup(app: tauri::AppHandle) -> Result<String, String> {
+    // Load current settings
+    let settings = get_app_settings().await?;
+    
+    // Get the main window
+    let window = app.get_webview_window("main")
+        .ok_or("Main window not found")?;
+    
+    // Apply window size
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: settings.window_width as f64,
+        height: settings.window_height as f64,
+    }))
+    .map_err(|e| format!("Failed to set window size: {}", e))?;
+    
+    // Apply maximized state (only on startup)
+    if settings.window_maximized {
+        window.maximize()
+            .map_err(|e| format!("Failed to maximize window: {}", e))?;
+    }
+    
+    tracing::info!("Window settings applied on startup: {}x{}, maximized: {}", 
+        settings.window_width, settings.window_height, settings.window_maximized);
+    Ok("Window settings applied successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn get_current_window_size(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    // Get the main window
+    let window = app.get_webview_window("main")
+        .ok_or("Main window not found")?;
+    
+    // Get current window size in logical pixels
+    let size = window.inner_size()
+        .map_err(|e| format!("Failed to get window size: {}", e))?;
+    
+    // Convert physical pixels to logical pixels
+    let scale_factor = window.scale_factor()
+        .map_err(|e| format!("Failed to get scale factor: {}", e))?;
+    
+    let logical_width = (size.width as f64 / scale_factor) as u32;
+    let logical_height = (size.height as f64 / scale_factor) as u32;
+    
+    // Get current maximized state
+    let is_maximized = window.is_maximized()
+        .map_err(|e| format!("Failed to get maximized state: {}", e))?;
+    
+    let result = serde_json::json!({
+        "width": logical_width,
+        "height": logical_height,
+        "maximized": is_maximized
+    });
+    
+    tracing::info!("Current window size: {}x{} (logical), {}x{} (physical), scale: {}", 
+        logical_width, logical_height, size.width, size.height, scale_factor);
+    Ok(result)
 } 

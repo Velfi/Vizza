@@ -168,6 +168,43 @@ impl MainMenuModel {
 }
 
 impl Simulation for MainMenuModel {
+    fn render_frame_static(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> SimulationResult<()> {
+        // For static rendering, just render with current time (don't advance animation)
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Main Menu Background Static Encoder"),
+        });
+
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main Menu Background Static Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.time_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Draw 6 vertices for the full-screen quad
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
     fn render_frame(
         &mut self,
         device: &Arc<Device>,
