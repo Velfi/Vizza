@@ -20,7 +20,7 @@ pub async fn update_simulation_setting(
         &gpu_ctx.queue,
     ) {
         Ok(_) => {
-            tracing::info!("Setting '{}' updated to {:?}", setting_name, value);
+            tracing::debug!("Setting '{}' updated to {:?}", setting_name, value);
             Ok(format!("Setting '{}' updated successfully", setting_name))
         }
         Err(e) => {
@@ -64,7 +64,7 @@ pub async fn randomize_settings(
 
     match sim_manager.randomize_settings(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
-            tracing::info!("Settings randomized successfully");
+            tracing::debug!("Settings randomized successfully");
             Ok("Settings randomized successfully".to_string())
         }
         Err(e) => {

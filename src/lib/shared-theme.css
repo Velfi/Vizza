@@ -108,18 +108,6 @@
   gap: 0.25rem;
 }
 
-/* ===== MAIN CONTROLS PANEL ===== */
-/* This is now handled by SimulationMenuContainer component */
-
-/* Add body padding for left/right positioned menus */
-body.menu-left {
-  padding-left: 800px;
-}
-
-body.menu-right {
-  padding-right: 800px;
-}
-
 /* Enhanced transparent menu styling */
 .simulation-menu-container {
   border: 1px solid rgba(255, 255, 255, 0.1);

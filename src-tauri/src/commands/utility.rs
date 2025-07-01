@@ -24,7 +24,7 @@ pub async fn toggle_gui(
         "hidden"
     };
 
-    tracing::info!("GUI toggled to {}", state);
+    tracing::debug!("GUI toggled to {}", state);
     Ok(format!("GUI toggled to {}", state))
 }
 
@@ -46,10 +46,10 @@ pub async fn set_fps_limit(
     sim_manager.set_fps_limit(enabled, limit);
 
     if enabled {
-        tracing::info!("FPS limit set to {}", limit);
+        tracing::debug!("FPS limit set to {}", limit);
         Ok(format!("FPS limit set to {}", limit))
     } else {
-        tracing::info!("FPS limit disabled");
+        tracing::debug!("FPS limit disabled");
         Ok("FPS limit disabled".to_string())
     }
 }

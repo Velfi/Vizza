@@ -105,7 +105,7 @@ pub async fn save_app_settings(settings: AppSettings) -> Result<String, String> 
     // Write to file
     match fs::write(&settings_path, toml_content) {
         Ok(_) => {
-            tracing::info!("App settings saved successfully to {:?}", settings_path);
+            tracing::debug!("App settings saved successfully to {:?}", settings_path);
             Ok("Settings saved successfully".to_string())
         }
         Err(e) => {
@@ -126,7 +126,7 @@ pub async fn reset_app_settings() -> Result<String, String> {
         }
     }
 
-    tracing::info!("App settings reset to defaults");
+    tracing::debug!("App settings reset to defaults");
     Ok("Settings reset to defaults".to_string())
 }
 
@@ -148,7 +148,7 @@ pub async fn set_webview_zoom(app: tauri::AppHandle, zoom_factor: f64) -> Result
         .set_zoom(zoom_factor)
         .map_err(|e| format!("Failed to set zoom factor: {}", e))?;
 
-    tracing::info!("Webview zoom factor set to: {}", zoom_factor);
+    tracing::debug!("Webview zoom factor set to: {}", zoom_factor);
     Ok("Zoom factor set successfully".to_string())
 }
 
@@ -170,7 +170,7 @@ pub async fn apply_window_settings(app: tauri::AppHandle) -> Result<String, Stri
         }))
         .map_err(|e| format!("Failed to set window size: {}", e))?;
 
-    tracing::info!(
+    tracing::debug!(
         "Window size applied: {}x{}",
         settings.window_width,
         settings.window_height
@@ -203,7 +203,7 @@ pub async fn apply_window_settings_on_startup(app: tauri::AppHandle) -> Result<S
             .map_err(|e| format!("Failed to maximize window: {}", e))?;
     }
 
-    tracing::info!(
+    tracing::debug!(
         "Window settings applied on startup: {}x{}, maximized: {}",
         settings.window_width,
         settings.window_height,
@@ -243,7 +243,7 @@ pub async fn get_current_window_size(app: tauri::AppHandle) -> Result<serde_json
         "maximized": is_maximized
     });
 
-    tracing::info!(
+    tracing::debug!(
         "Current window size: {}x{} (logical), {}x{} (physical), scale: {}",
         logical_width,
         logical_height,

@@ -10,7 +10,7 @@ pub async fn start_slime_mold_simulation(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("start_slime_mold_simulation called");
+    tracing::debug!("start_slime_mold_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -57,7 +57,7 @@ pub async fn start_particle_life_simulation(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("start_particle_life_simulation called");
+    tracing::debug!("start_particle_life_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -104,7 +104,7 @@ pub async fn start_gray_scott_simulation(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("start_gray_scott_simulation called");
+    tracing::debug!("start_gray_scott_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -149,7 +149,7 @@ pub async fn start_gray_scott_simulation(
 pub async fn pause_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
-    tracing::info!("pause_simulation called");
+    tracing::debug!("pause_simulation called");
     let sim_manager = manager.lock().await;
     sim_manager.pause();
     Ok("Simulation paused".to_string())
@@ -160,7 +160,7 @@ pub async fn resume_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::info!("resume_simulation called");
+    tracing::debug!("resume_simulation called");
     let sim_manager = manager.lock().await;
 
     if sim_manager.is_running() {
@@ -182,7 +182,7 @@ pub async fn resume_simulation(
 pub async fn destroy_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
-    tracing::info!("destroy_simulation called");
+    tracing::debug!("destroy_simulation called");
     let mut sim_manager = manager.lock().await;
     sim_manager.stop_simulation();
     sim_manager.stop_render_loop();
@@ -203,7 +203,7 @@ pub async fn scale_force_matrix(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     scale_factor: f32,
 ) -> Result<String, String> {
-    tracing::info!("scale_force_matrix called with factor: {}", scale_factor);
+    tracing::debug!("scale_force_matrix called with factor: {}", scale_factor);
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -228,7 +228,7 @@ pub async fn scale_force_matrix(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix scaled by factor: {}", scale_factor);
+        tracing::debug!("Force matrix scaled by factor: {}", scale_factor);
         Ok(format!("Force matrix scaled by factor: {}", scale_factor))
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -240,7 +240,7 @@ pub async fn flip_force_matrix_horizontal(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("flip_force_matrix_horizontal called");
+    tracing::debug!("flip_force_matrix_horizontal called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -265,7 +265,7 @@ pub async fn flip_force_matrix_horizontal(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix flipped horizontally");
+        tracing::debug!("Force matrix flipped horizontally");
         Ok("Force matrix flipped horizontally".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -277,7 +277,7 @@ pub async fn flip_force_matrix_vertical(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("flip_force_matrix_vertical called");
+    tracing::debug!("flip_force_matrix_vertical called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -302,7 +302,7 @@ pub async fn flip_force_matrix_vertical(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix flipped vertically");
+        tracing::debug!("Force matrix flipped vertically");
         Ok("Force matrix flipped vertically".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -314,7 +314,7 @@ pub async fn rotate_force_matrix_clockwise(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("rotate_force_matrix_clockwise called");
+    tracing::debug!("rotate_force_matrix_clockwise called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -339,7 +339,7 @@ pub async fn rotate_force_matrix_clockwise(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix rotated clockwise");
+        tracing::debug!("Force matrix rotated clockwise");
         Ok("Force matrix rotated clockwise".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -351,7 +351,7 @@ pub async fn rotate_force_matrix_counterclockwise(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("rotate_force_matrix_counterclockwise called");
+    tracing::debug!("rotate_force_matrix_counterclockwise called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -376,7 +376,7 @@ pub async fn rotate_force_matrix_counterclockwise(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix rotated counterclockwise");
+        tracing::debug!("Force matrix rotated counterclockwise");
         Ok("Force matrix rotated counterclockwise".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -388,7 +388,7 @@ pub async fn shift_force_matrix_left(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("shift_force_matrix_left called");
+    tracing::debug!("shift_force_matrix_left called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -413,7 +413,7 @@ pub async fn shift_force_matrix_left(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix shifted left");
+        tracing::debug!("Force matrix shifted left");
         Ok("Force matrix shifted left".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -425,7 +425,7 @@ pub async fn shift_force_matrix_right(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("shift_force_matrix_right called");
+    tracing::debug!("shift_force_matrix_right called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -450,7 +450,7 @@ pub async fn shift_force_matrix_right(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix shifted right");
+        tracing::debug!("Force matrix shifted right");
         Ok("Force matrix shifted right".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -462,7 +462,7 @@ pub async fn shift_force_matrix_up(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("shift_force_matrix_up called");
+    tracing::debug!("shift_force_matrix_up called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -487,7 +487,7 @@ pub async fn shift_force_matrix_up(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix shifted up");
+        tracing::debug!("Force matrix shifted up");
         Ok("Force matrix shifted up".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -499,7 +499,7 @@ pub async fn shift_force_matrix_down(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("shift_force_matrix_down called");
+    tracing::debug!("shift_force_matrix_down called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -524,7 +524,7 @@ pub async fn shift_force_matrix_down(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix shifted down");
+        tracing::debug!("Force matrix shifted down");
         Ok("Force matrix shifted down".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -536,7 +536,7 @@ pub async fn clear_trail_texture(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("clear_trail_texture called");
+    tracing::debug!("clear_trail_texture called");
     let sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -580,7 +580,7 @@ pub async fn clear_trail_texture(
                     background_color,
                 );
 
-                tracing::info!("Trail texture cleared successfully");
+                tracing::debug!("Trail texture cleared successfully");
                 Ok("Trail texture cleared".to_string())
             }
             _ => Err(
@@ -597,7 +597,7 @@ pub async fn zero_force_matrix(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("zero_force_matrix called");
+    tracing::debug!("zero_force_matrix called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -622,7 +622,7 @@ pub async fn zero_force_matrix(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix set to zero");
+        tracing::debug!("Force matrix set to zero");
         Ok("Force matrix set to zero".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
@@ -634,7 +634,7 @@ pub async fn flip_force_matrix_sign(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::info!("flip_force_matrix_sign called");
+    tracing::debug!("flip_force_matrix_sign called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -659,7 +659,7 @@ pub async fn flip_force_matrix_sign(
         // Recreate bind groups that use this buffer
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
-        tracing::info!("Force matrix signs flipped");
+        tracing::debug!("Force matrix signs flipped");
         Ok("Force matrix signs flipped".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
