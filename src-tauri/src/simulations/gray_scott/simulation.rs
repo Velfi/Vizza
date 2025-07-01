@@ -663,8 +663,8 @@ impl GrayScottModel {
 impl crate::simulations::traits::Simulation for GrayScottModel {
     fn render_frame_static(
         &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Calculate delta time
@@ -772,7 +772,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         let new_settings: Settings =
-            serde_json::from_value(settings).map_err(|e| SimulationError::Serialization(e))?;
+            serde_json::from_value(settings).map_err(SimulationError::Serialization)?;
         self.update_settings(new_settings, queue);
         Ok(())
     }

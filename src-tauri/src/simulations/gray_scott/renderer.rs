@@ -15,7 +15,6 @@ pub struct Renderer {
     height: u32,
     settings: Settings,
     lut_buffer: wgpu::Buffer,
-    render_pipeline: wgpu::RenderPipeline,
     render_3x3_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group_layout: wgpu::BindGroupLayout,
@@ -110,55 +109,10 @@ impl Renderer {
             push_constant_ranges: &[],
         });
 
-        // Create shader
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Render Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render.wgsl").into()),
-        });
-
         // Create 3x3 shader
         let shader_3x3 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Render 3x3 Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render_3x3.wgsl").into()),
-        });
-
-        // Create render pipeline
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
         });
 
         // Create 3x3 render pipeline
@@ -208,7 +162,6 @@ impl Renderer {
             height,
             settings,
             lut_buffer,
-            render_pipeline,
             render_3x3_pipeline,
             bind_group_layout,
             camera_bind_group_layout,

@@ -24,7 +24,6 @@ pub struct SimulationManager {
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
     pub is_paused: Arc<AtomicBool>,
-    pub start_time: Instant,
 }
 
 impl SimulationManager {
@@ -41,22 +40,12 @@ impl SimulationManager {
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
             is_paused: Arc::new(AtomicBool::new(true)), // Start paused to avoid race condition
-            start_time: Instant::now(),
         }
-    }
-
-    pub fn get_time(&self) -> f32 {
-        self.start_time.elapsed().as_secs_f32()
     }
 
     /// Get immutable reference to current simulation
     pub fn simulation(&self) -> Option<&SimulationType> {
         self.current_simulation.as_ref()
-    }
-
-    /// Get mutable reference to current simulation
-    pub fn simulation_mut(&mut self) -> Option<&mut SimulationType> {
-        self.current_simulation.as_mut()
     }
 
     pub async fn start_simulation(
@@ -264,10 +253,6 @@ impl SimulationManager {
         self.current_simulation.is_some()
     }
 
-    pub fn is_paused(&self) -> bool {
-        self.is_paused.load(Ordering::Relaxed)
-    }
-
     pub fn pause(&self) {
         self.is_paused.store(true, Ordering::Relaxed);
     }
@@ -311,35 +296,13 @@ impl SimulationManager {
     }
 
     pub fn get_presets_for_simulation_type(&self, simulation_type: &str) -> Vec<String> {
-        match simulation_type {
-            "slime_mold" => {
-                let presets = self
-                    .preset_manager
-                    .slime_mold_preset_manager()
-                    .get_preset_names();
-                tracing::info!("Slime mold presets: {:?}", presets);
-                presets
-            }
-            "gray_scott" => {
-                let presets = self
-                    .preset_manager
-                    .gray_scott_preset_manager()
-                    .get_preset_names();
-                tracing::info!("Gray-Scott presets: {:?}", presets);
-                presets
-            }
-            "particle_life" => {
-                let presets = self
-                    .preset_manager
-                    .particle_life_preset_manager()
-                    .get_preset_names();
-                tracing::info!("Particle Life presets: {:?}", presets);
-                presets
-            }
-            _ => {
-                tracing::warn!("Unknown simulation type: {}", simulation_type);
-                vec![]
-            }
+        if let Some(manager) = self.preset_manager.get_manager(simulation_type) {
+            let presets = manager.get_preset_names();
+            tracing::info!("{} presets: {:?}", simulation_type, presets);
+            presets
+        } else {
+            tracing::warn!("Unknown simulation type: {}", simulation_type);
+            vec![]
         }
     }
 
@@ -352,7 +315,7 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             self.preset_manager
                 .apply_preset(simulation, preset_name, device, queue)
-                .map_err(|e| AppError::Preset(e))?;
+                .map_err(AppError::Preset)?;
             simulation.reset_runtime_state(device, queue)?;
         }
         Ok(())
@@ -374,19 +337,11 @@ impl SimulationManager {
     }
 
     pub fn get_current_settings(&self) -> Option<serde_json::Value> {
-        if let Some(simulation) = &self.current_simulation {
-            Some(simulation.get_settings())
-        } else {
-            None
-        }
+        self.current_simulation.as_ref().map(|simulation| simulation.get_settings())
     }
 
     pub fn get_current_state(&self) -> Option<serde_json::Value> {
-        if let Some(simulation) = &self.current_simulation {
-            Some(simulation.get_state())
-        } else {
-            None
-        }
+        self.current_simulation.as_ref().map(|simulation| simulation.get_state())
     }
 
     pub fn toggle_gui(&mut self) {
@@ -565,28 +520,6 @@ impl SimulationManager {
         Ok(())
     }
 
-    /// Update LUT for particle life simulation
-    pub fn update_particle_life_lut(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        color_mode: ColorMode,
-        lut_name: Option<&str>,
-        lut_reversed: bool,
-    ) -> AppResult<()> {
-        if let Some(SimulationType::ParticleLife(simulation)) = &mut self.current_simulation {
-            simulation.update_lut(
-                device,
-                queue,
-                &self.lut_manager,
-                color_mode,
-                lut_name,
-                lut_reversed,
-            )?;
-        }
-        Ok(())
-    }
-
     // Render loop management
     pub fn start_render_loop(
         &self,
@@ -691,7 +624,7 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(sim) => {
                     // For slime mold, call the specific reset_agents method that repositions agents randomly
-                    sim.reset_agents(device, queue).map_err(|e| AppError::Simulation(e))?;
+                    sim.reset_agents(device, queue).map_err(AppError::Simulation)?;
                 }
                 _ => {
                     // For other simulations, use the generic reset_runtime_state
@@ -735,7 +668,7 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::GrayScott(sim) => {
-                    sim.seed_random_noise(device, queue).map_err(|e| AppError::Simulation(e))?;
+                    sim.seed_random_noise(device, queue).map_err(AppError::Simulation)?;
                 }
                 _ => {
                     // Seed random noise is only supported for Gray-Scott simulation
@@ -837,27 +770,4 @@ impl SimulationManager {
         }
     }
 
-    /// Convert screen coordinates to world coordinates using the active camera
-    pub fn screen_to_world(&self, screen_x: f32, screen_y: f32) -> Option<(f32, f32)> {
-        let screen = ScreenCoords::new(screen_x, screen_y);
-        if let Some(simulation) = &self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    let world = simulation.camera.screen_to_world(screen);
-                    Some((world.x, world.y))
-                }
-                SimulationType::GrayScott(simulation) => {
-                    let world = simulation.renderer.camera.screen_to_world(screen);
-                    Some((world.x, world.y))
-                }
-                SimulationType::ParticleLife(_simulation) => {
-                    // No camera system for now
-                    Some((screen_x, screen_y))
-                }
-                SimulationType::MainMenu(_) => None, // No camera for main menu background
-            }
-        } else {
-            None
-        }
-    }
 }

@@ -158,7 +158,6 @@ pub async fn pause_simulation(
 #[tauri::command]
 pub async fn resume_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
     tracing::info!("resume_simulation called");

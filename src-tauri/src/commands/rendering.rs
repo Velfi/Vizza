@@ -33,11 +33,11 @@ pub async fn render_frame(
     match result {
         Ok(_) => {
             surface_texture.present();
-            return Ok(());
+            Ok(())
         }
         Err(e) => {
             tracing::error!("Failed to render main menu background: {}", e);
-            return Err(format!("Failed to render main menu background: {}", e));
+            Err(format!("Failed to render main menu background: {}", e))
         }
     }
 }
@@ -72,11 +72,11 @@ pub async fn render_single_frame(
     match result {
         Ok(_) => {
             surface_texture.present();
-            return Ok(());
+            Ok(())
         }
         Err(e) => {
             tracing::error!("Failed to render main menu background: {}", e);
-            return Err(format!("Failed to render main menu background: {}", e));
+            Err(format!("Failed to render main menu background: {}", e))
         }
     }
 }

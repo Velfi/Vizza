@@ -1,7 +1,5 @@
-use serde_json;
 use std::io;
 use std::path::PathBuf;
-use wgpu;
 
 /// Main error type for the application
 #[derive(Debug, thiserror::Error)]

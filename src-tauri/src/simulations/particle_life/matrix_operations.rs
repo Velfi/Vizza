@@ -1,30 +1,27 @@
 /// Matrix operations for the Particle Life simulation
 /// This module contains all the matrix transformation operations that can be applied
 /// to the force interaction matrix.
-
 /// Scale all matrix values by a given factor
-pub fn scale_force_matrix(force_matrix: &mut Vec<Vec<f32>>, scale_factor: f32) {
-    for i in 0..force_matrix.len() {
-        for j in 0..force_matrix[i].len() {
-            force_matrix[i][j] = (force_matrix[i][j] * scale_factor).clamp(-1.0, 1.0);
+pub fn scale_force_matrix(force_matrix: &mut [Vec<f32>], scale_factor: f32) {
+    for row in force_matrix {
+        for element in row {
+            *element = (*element * scale_factor).clamp(-1.0, 1.0);
         }
     }
 }
 
 /// Flip the matrix horizontally
-pub fn flip_horizontal(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn flip_horizontal(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
-    for i in 0..n {
+    for row in force_matrix.iter_mut().take(n) {
         for j in 0..n/2 {
-            let temp = force_matrix[i][j];
-            force_matrix[i][j] = force_matrix[i][n - 1 - j];
-            force_matrix[i][n - 1 - j] = temp;
+            row.swap(j, n - 1 - j);
         }
     }
 }
 
 /// Flip the matrix vertically
-pub fn flip_vertical(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn flip_vertical(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
     for i in 0..n/2 {
         for j in 0..n {
@@ -36,6 +33,7 @@ pub fn flip_vertical(force_matrix: &mut Vec<Vec<f32>>) {
 }
 
 /// Rotate the matrix clockwise (90 degrees)
+#[allow(clippy::needless_range_loop)]
 pub fn rotate_clockwise(force_matrix: &mut Vec<Vec<f32>>) {
     let n = force_matrix.len();
     let mut new_matrix = vec![vec![0.0; n]; n];
@@ -51,6 +49,7 @@ pub fn rotate_clockwise(force_matrix: &mut Vec<Vec<f32>>) {
 }
 
 /// Rotate the matrix counterclockwise (90 degrees)
+#[allow(clippy::needless_range_loop)]
 pub fn rotate_counterclockwise(force_matrix: &mut Vec<Vec<f32>>) {
     let n = force_matrix.len();
     let mut new_matrix = vec![vec![0.0; n]; n];
@@ -66,31 +65,31 @@ pub fn rotate_counterclockwise(force_matrix: &mut Vec<Vec<f32>>) {
 }
 
 /// Shift the force matrix left (circular shift of columns)
-pub fn shift_left(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn shift_left(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
-    for i in 0..n {
-        let temp = force_matrix[i][0];
+    for row in force_matrix.iter_mut().take(n) {
+        let temp = row[0];
         for j in 0..n-1 {
-            force_matrix[i][j] = force_matrix[i][j + 1];
+            row[j] = row[j + 1];
         }
-        force_matrix[i][n - 1] = temp;
+        row[n - 1] = temp;
     }
 }
 
 /// Shift the force matrix right (circular shift of columns)
-pub fn shift_right(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn shift_right(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
-    for i in 0..n {
-        let temp = force_matrix[i][n - 1];
+    for row in force_matrix.iter_mut().take(n) {
+        let temp = row[n - 1];
         for j in (1..n).rev() {
-            force_matrix[i][j] = force_matrix[i][j - 1];
+            row[j] = row[j - 1];
         }
-        force_matrix[i][0] = temp;
+        row[0] = temp;
     }
 }
 
 /// Shift the force matrix up (circular shift of rows)
-pub fn shift_up(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn shift_up(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
     let temp_row = force_matrix[0].clone();
     for i in 0..n-1 {
@@ -100,7 +99,7 @@ pub fn shift_up(force_matrix: &mut Vec<Vec<f32>>) {
 }
 
 /// Shift the force matrix down (circular shift of rows)
-pub fn shift_down(force_matrix: &mut Vec<Vec<f32>>) {
+pub fn shift_down(force_matrix: &mut [Vec<f32>]) {
     let n = force_matrix.len();
     let temp_row = force_matrix[n - 1].clone();
     for i in (1..n).rev() {
@@ -110,19 +109,19 @@ pub fn shift_down(force_matrix: &mut Vec<Vec<f32>>) {
 }
 
 /// Set all matrix values to zero
-pub fn zero_matrix(force_matrix: &mut Vec<Vec<f32>>) {
-    for i in 0..force_matrix.len() {
-        for j in 0..force_matrix[i].len() {
-            force_matrix[i][j] = 0.0;
+pub fn zero_matrix(force_matrix: &mut [Vec<f32>]) {
+    for row in force_matrix {
+        for element in row {
+            *element = 0.0;
         }
     }
 }
 
 /// Flip the sign of all matrix values (multiply by -1)
-pub fn flip_sign(force_matrix: &mut Vec<Vec<f32>>) {
-    for i in 0..force_matrix.len() {
-        for j in 0..force_matrix[i].len() {
-            force_matrix[i][j] = -force_matrix[i][j];
+pub fn flip_sign(force_matrix: &mut [Vec<f32>]) {
+    for row in force_matrix {
+        for element in row {
+            *element = -*element;
         }
     }
 }

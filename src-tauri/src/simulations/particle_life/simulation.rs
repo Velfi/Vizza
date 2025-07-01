@@ -310,8 +310,8 @@ impl ParticleLifeModel {
         let mut type_counts = vec![base_count; species_count as usize];
 
         // Distribute remainder particles among the first few species
-        for i in 0..remainder as usize {
-            type_counts[i] += 1;
+        for type_count in type_counts.iter_mut().take(remainder as usize) {
+            *type_count += 1;
         }
 
         type_counts
@@ -330,6 +330,7 @@ impl ParticleLifeModel {
         flattened
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -364,8 +365,8 @@ impl ParticleLifeModel {
             let mut reordered_colors = Vec::with_capacity(settings.species_count as usize + 1);
             
             // First, add all species colors (skip the first color which is background)
-            for i in 1..colors.len() {
-                reordered_colors.push(colors[i]);
+            for color in colors.iter().skip(1) {
+                reordered_colors.push(*color);
             }
             
             // Then add the background color at the end
@@ -1404,7 +1405,7 @@ impl ParticleLifeModel {
             init_pass.set_bind_group(0, &self.init_bind_group, &[]);
 
             let workgroup_size = 64;
-            let num_workgroups = (self.state.particle_count + workgroup_size - 1) / workgroup_size;
+            let num_workgroups = self.state.particle_count.div_ceil(workgroup_size);
             init_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
         }
 
@@ -1525,8 +1526,8 @@ impl ParticleLifeModel {
             // Dispatch with enough workgroups to cover the species matrix
             let workgroup_size = 8;
             let num_workgroups =
-                (self.settings.species_count + workgroup_size - 1) / workgroup_size;
-            compute_pass.dispatch_workgroups(num_workgroups as u32, num_workgroups as u32, 1);
+                self.settings.species_count.div_ceil(workgroup_size);
+            compute_pass.dispatch_workgroups(num_workgroups, num_workgroups, 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1607,8 +1608,8 @@ impl ParticleLifeModel {
             let mut reordered_colors = Vec::with_capacity(species_count + 1);
             
             // First, add all species colors (skip the first color which is background)
-            for i in 1..lut_colors.len() {
-                reordered_colors.push(lut_colors[i]);
+            for color in lut_colors.iter().skip(1) {
+                reordered_colors.push(*color);
             }
             
             // Then add the background color at the end
@@ -1924,7 +1925,7 @@ impl Simulation for ParticleLifeModel {
 
                 let workgroup_size = 64;
                 let num_workgroups =
-                    (self.state.particle_count + workgroup_size - 1) / workgroup_size;
+                    self.state.particle_count.div_ceil(workgroup_size);
                 tracing::debug!(
                     "Compute dispatch: particle_count={}, num_workgroups={}, buffer_size={}",
                     self.state.particle_count,

@@ -74,6 +74,7 @@ impl NoiseSeedCompute {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn seed_noise(
         &self,
         device: &Arc<Device>,

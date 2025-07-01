@@ -996,14 +996,14 @@ impl SlimeMoldModel {
             }
             "cursor_size" => {
                 if let Some(size) = value.as_f64() {
-                    self.cursor_size = (size as f32).max(10.0).min(500.0); // Clamp to reasonable range
+                    self.cursor_size = (size as f32).clamp(10.0, 500.0); // Clamp to reasonable range
                     self.update_cursor_params(queue);
                     return Ok(()); // Return early to avoid updating GPU uniforms unnecessarily
                 }
             }
             "cursor_strength" => {
                 if let Some(strength) = value.as_f64() {
-                    self.cursor_strength = (strength as f32).max(0.0).min(50.0); // Clamp to reasonable range
+                    self.cursor_strength = (strength as f32).clamp(0.0, 50.0); // Clamp to reasonable range
                     self.update_cursor_params(queue);
                     return Ok(()); // Return early to avoid updating GPU uniforms unnecessarily
                 }
@@ -1454,6 +1454,7 @@ fn create_agent_buffer_pooled(
     buffer_pool.get_buffer(device, Some("Agent Buffer"), size, usage)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_agent_buffer_with_scaling(
     buffer_pool: &mut BufferPool,
     device: &wgpu::Device,
@@ -1581,6 +1582,7 @@ fn update_settings(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scale_trail_map_data(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -1635,8 +1637,8 @@ fn scale_trail_map_data(
             let new_trail_data: &mut [f32] = bytemuck::cast_slice_mut(&mut write_buffer_slice);
 
             // Initialize new buffer with zeros
-            for i in 0..new_trail_data.len() {
-                new_trail_data[i] = 0.0;
+            for element in new_trail_data.iter_mut() {
+                *element = 0.0;
             }
 
             // Scale old data to new dimensions using nearest neighbor sampling
@@ -1714,8 +1716,8 @@ fn scale_trail_map_data(
             let new_trail_data: &mut [f32] = bytemuck::cast_slice_mut(&mut write_buffer_slice);
 
             // Initialize new buffer with zeros
-            for i in 0..new_trail_data.len() {
-                new_trail_data[i] = 0.0;
+            for element in new_trail_data.iter_mut() {
+                *element = 0.0;
             }
 
             // Scale old data to new dimensions using nearest neighbor sampling

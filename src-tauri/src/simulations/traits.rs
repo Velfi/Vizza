@@ -227,8 +227,7 @@ impl Simulation for SimulationType {
                 simulation.render_frame(device, queue, surface_view)
             }
             SimulationType::GrayScott(simulation) => simulation
-                .render_frame(device, queue, surface_view)
-                .map_err(|e| e.into()),
+                .render_frame(device, queue, surface_view),
             SimulationType::ParticleLife(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
@@ -249,8 +248,7 @@ impl Simulation for SimulationType {
                 simulation.render_frame_static(device, queue, surface_view)
             }
             SimulationType::GrayScott(simulation) => simulation
-                .render_frame_static(device, queue, surface_view)
-                .map_err(|e| e.into()),
+                .render_frame_static(device, queue, surface_view),
             SimulationType::ParticleLife(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
