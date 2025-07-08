@@ -19,6 +19,11 @@
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
+  {:else if currentMode === 'ecosystem'}
+    <EcosystemMode
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
   {:else if currentMode === 'how-to-play'}
     <HowToPlay on:back={goBack} />
   {:else if currentMode === 'settings'}
@@ -40,6 +45,7 @@
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
   import GrayScottMode from './lib/GrayScottMode.svelte';
   import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
+  import EcosystemMode from './lib/EcosystemMode.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
 
@@ -48,6 +54,7 @@
     | 'slime-mold'
     | 'gray-scott'
     | 'particle-life'
+    | 'ecosystem'
     | 'how-to-play'
     | 'settings';
   let currentMode: AppMode = 'menu';

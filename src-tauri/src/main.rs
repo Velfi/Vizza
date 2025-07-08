@@ -180,6 +180,7 @@ fn main() {
             commands::start_slime_mold_simulation,
             commands::start_gray_scott_simulation,
             commands::start_particle_life_simulation,
+            commands::start_ecosystem_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
             commands::destroy_simulation,

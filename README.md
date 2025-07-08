@@ -20,6 +20,10 @@ Reaction-diffusion simulation that models chemical reactions. Creates organic-lo
 
 Multi-species particle simulation where different types of particles interact based on attraction and repulsion rules. Observe how simple rules create complex emergent behaviors.
 
+### Ecosystem
+
+Artificial life simulation featuring agents with neural networks, chemical sensing, and evolutionary behavior. Watch as digital creatures evolve, learn, and interact through chemotaxis in a dynamic environment.
+
 ## Development
 
 Built with:

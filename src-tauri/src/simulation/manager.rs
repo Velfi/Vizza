@@ -127,6 +127,25 @@ impl SimulationManager {
 
                 Ok(())
             }
+            "ecosystem" => {
+                // Initialize Ecosystem simulation
+                let settings = crate::simulations::ecosystem::settings::Settings::default();
+                let simulation = crate::simulations::ecosystem::simulation::EcosystemModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings.agent_count,
+                    settings,
+                    &self.lut_manager,
+                )?;
+
+                self.current_simulation = Some(SimulationType::Ecosystem(simulation));
+
+                // Automatically unpause after successful initialization
+                self.resume();
+
+                Ok(())
+            }
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -439,6 +458,10 @@ impl SimulationManager {
                     // For particle life, use the existing update_setting method
                     simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
                 }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("LUT changes not yet implemented for ecosystem simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT changes not supported for main menu simulation");
@@ -516,6 +539,10 @@ impl SimulationManager {
                         !current_reversed,
                     )?;
                 }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("LUT reversal not yet implemented for ecosystem simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
@@ -568,6 +595,10 @@ impl SimulationManager {
                         lut_reversed,
                     )?;
                     tracing::info!("Custom LUT applied to particle life simulation");
+                }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("Custom LUT not yet implemented for ecosystem simulation");
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
@@ -707,6 +738,9 @@ impl SimulationManager {
                 SimulationType::ParticleLife(sim) => {
                     sim.reset_particles_gpu(device, queue)?;
                 }
+                SimulationType::Ecosystem(_sim) => {
+                    simulation.reset_runtime_state(device, queue)?;
+                }
                 _ => {
                     simulation.reset_runtime_state(device, queue)?;
                 }
@@ -789,6 +823,7 @@ impl SimulationManager {
                     Some(simulation.renderer.camera.get_state())
                 }
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::Ecosystem(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
@@ -810,6 +845,9 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
+                SimulationType::Ecosystem(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
             }
         }
@@ -826,6 +864,9 @@ impl SimulationManager {
                     simulation.renderer.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::ParticleLife(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
+                }
+                SimulationType::Ecosystem(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background

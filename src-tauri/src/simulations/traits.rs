@@ -133,6 +133,7 @@ pub enum SimulationType {
     SlimeMold(crate::simulations::slime_mold::SlimeMoldModel),
     GrayScott(crate::simulations::gray_scott::GrayScottModel),
     ParticleLife(crate::simulations::particle_life::ParticleLifeModel),
+    Ecosystem(crate::simulations::ecosystem::EcosystemModel),
     MainMenu(crate::simulations::main_menu::MainMenuModel),
 }
 
@@ -187,6 +188,18 @@ impl SimulationType {
                 )?;
                 Ok(SimulationType::ParticleLife(simulation))
             }
+            "ecosystem" => {
+                let settings = crate::simulations::ecosystem::settings::Settings::default();
+                let simulation = crate::simulations::ecosystem::EcosystemModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    1000, // Default agent count
+                    settings,
+                    lut_manager,
+                )?;
+                Ok(SimulationType::Ecosystem(simulation))
+            }
             "main_menu" => {
                 let simulation = crate::simulations::main_menu::MainMenuModel::new(
                     device,
@@ -210,6 +223,7 @@ impl SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.reset_runtime_state(device, queue)
             }
+            SimulationType::Ecosystem(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
@@ -230,6 +244,9 @@ impl Simulation for SimulationType {
                 simulation.render_frame(device, queue, surface_view)
             }
             SimulationType::ParticleLife(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
+            SimulationType::Ecosystem(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
             SimulationType::MainMenu(simulation) => {
@@ -254,6 +271,9 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
+            SimulationType::Ecosystem(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
@@ -272,6 +292,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.resize(device, queue, new_config)
             }
+            SimulationType::Ecosystem(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
         }
     }
@@ -293,6 +314,9 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
             }
+            SimulationType::Ecosystem(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
             }
@@ -304,6 +328,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.get_settings(),
             SimulationType::GrayScott(simulation) => simulation.get_settings(),
             SimulationType::ParticleLife(simulation) => simulation.get_settings(),
+            SimulationType::Ecosystem(simulation) => simulation.get_settings(),
             SimulationType::MainMenu(simulation) => simulation.get_settings(),
         }
     }
@@ -313,6 +338,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.get_state(),
             SimulationType::GrayScott(simulation) => simulation.get_state(),
             SimulationType::ParticleLife(simulation) => simulation.get_state(),
+            SimulationType::Ecosystem(simulation) => simulation.get_state(),
             SimulationType::MainMenu(simulation) => simulation.get_state(),
         }
     }
@@ -334,6 +360,9 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
+            SimulationType::Ecosystem(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
             }
@@ -345,6 +374,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::GrayScott(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::ParticleLife(simulation) => simulation.pan_camera(delta_x, delta_y),
+            SimulationType::Ecosystem(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::MainMenu(simulation) => simulation.pan_camera(delta_x, delta_y),
         }
     }
@@ -354,6 +384,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
             SimulationType::GrayScott(simulation) => simulation.zoom_camera(delta),
             SimulationType::ParticleLife(simulation) => simulation.zoom_camera(delta),
+            SimulationType::Ecosystem(simulation) => simulation.zoom_camera(delta),
             SimulationType::MainMenu(simulation) => simulation.zoom_camera(delta),
         }
     }
@@ -369,6 +400,9 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
+            SimulationType::Ecosystem(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
@@ -380,6 +414,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
             SimulationType::GrayScott(simulation) => simulation.reset_camera(),
             SimulationType::ParticleLife(simulation) => simulation.reset_camera(),
+            SimulationType::Ecosystem(simulation) => simulation.reset_camera(),
             SimulationType::MainMenu(simulation) => simulation.reset_camera(),
         }
     }
@@ -389,6 +424,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.get_camera_state(),
             SimulationType::GrayScott(simulation) => simulation.get_camera_state(),
             SimulationType::ParticleLife(simulation) => simulation.get_camera_state(),
+            SimulationType::Ecosystem(simulation) => simulation.get_camera_state(),
             SimulationType::MainMenu(simulation) => simulation.get_camera_state(),
         }
     }
@@ -398,6 +434,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.save_preset(preset_name),
             SimulationType::GrayScott(simulation) => simulation.save_preset(preset_name),
             SimulationType::ParticleLife(simulation) => simulation.save_preset(preset_name),
+            SimulationType::Ecosystem(simulation) => simulation.save_preset(preset_name),
             SimulationType::MainMenu(simulation) => simulation.save_preset(preset_name),
         }
     }
@@ -407,6 +444,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::GrayScott(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::ParticleLife(simulation) => simulation.load_preset(preset_name, queue),
+            SimulationType::Ecosystem(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::MainMenu(simulation) => simulation.load_preset(preset_name, queue),
         }
     }
@@ -427,6 +465,9 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.apply_settings(settings, device, queue)
             }
+            SimulationType::Ecosystem(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.apply_settings(settings, device, queue)
             }
@@ -444,6 +485,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.reset_runtime_state(device, queue)
             }
+            SimulationType::Ecosystem(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
@@ -453,6 +495,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.toggle_gui(),
             SimulationType::GrayScott(simulation) => simulation.toggle_gui(),
             SimulationType::ParticleLife(simulation) => simulation.toggle_gui(),
+            SimulationType::Ecosystem(simulation) => simulation.toggle_gui(),
             SimulationType::MainMenu(simulation) => simulation.toggle_gui(),
         }
     }
@@ -462,6 +505,7 @@ impl Simulation for SimulationType {
             SimulationType::SlimeMold(simulation) => simulation.is_gui_visible(),
             SimulationType::GrayScott(simulation) => simulation.is_gui_visible(),
             SimulationType::ParticleLife(simulation) => simulation.is_gui_visible(),
+            SimulationType::Ecosystem(simulation) => simulation.is_gui_visible(),
             SimulationType::MainMenu(simulation) => simulation.is_gui_visible(),
         }
     }
@@ -477,6 +521,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => {
                 simulation.randomize_settings(device, queue)
             }
+            SimulationType::Ecosystem(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
         }
     }

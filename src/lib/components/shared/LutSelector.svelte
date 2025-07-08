@@ -28,11 +28,10 @@
     aria-modal="true"
     aria-labelledby="gradient-editor-title"
     tabindex="-1"
-    on:click|self={closeGradientEditor}
     on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
   >
     <div class="dialog-content gradient-editor-content" role="document">
-      <h3 id="gradient-editor-title">Custom LUT Editor</h3>
+      <h3 id="gradient-editor-title">Color Scheme Editor</h3>
 
       <!-- LUT Name Input -->
       <div class="control-group">
@@ -41,7 +40,7 @@
           type="text"
           id="customLutName"
           bind:value={custom_lut_name}
-          placeholder="Enter LUT name..."
+          placeholder="MYNAME_anewcolorscheme"
           class="text-input"
         />
       </div>
@@ -53,13 +52,10 @@
           style="background: linear-gradient(to right, {gradientStops
             .map((stop) => `${stop.color} ${stop.position * 100}%`)
             .join(', ')})"
-        ></div>
-        <div
-          class="gradient-stops-container"
           role="button"
           tabindex="0"
-          aria-label="Gradient editor area - click to add color stops"
-          on:click={(e) => {
+          aria-label="Gradient preview - double-click to add color stops"
+          on:dblclick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const position = (e.clientX - rect.left) / rect.width;
             addGradientStop(position);
@@ -77,6 +73,7 @@
               class="gradient-stop"
               class:selected={index === selectedStopIndex}
               class:dragging={isDragging && dragStopIndex === index}
+              class:no-transition={isAddingStop}
               style="left: {stop.position * 100}%; background-color: {stop.color}"
               role="button"
               tabindex="0"
@@ -92,20 +89,14 @@
                 }
               }}
             >
-              {#if gradientStops.length > 2}
-                <button
-                  class="remove-stop"
-                  on:click|stopPropagation={() => removeGradientStop(index)}>×</button
-                >
-              {/if}
             </div>
           {/each}
         </div>
       </div>
 
       <!-- Selected Stop Controls -->
-      {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
-        <div class="stop-controls">
+      <div class="stop-controls">
+        {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
           <h4>Color Stop {selectedStopIndex + 1}</h4>
           <div class="control-row">
             <div class="control-group">
@@ -121,20 +112,31 @@
                 class="color-input"
               />
             </div>
+            {#if gradientStops.length > 2}
+              <div class="control-group">
+                <label>&nbsp;</label>
+                <button
+                  type="button"
+                  class="delete-stop-btn"
+                  on:click={removeSelectedStop}
+                  title="Delete this color stop"
+                >
+                  🗑️ Delete Stop
+                </button>
+              </div>
+            {/if}
           </div>
-        </div>
-      {/if}
-
-      <!-- Instructions -->
-      <div class="gradient-instructions">
-        <p><strong>Instructions:</strong></p>
-        <ul>
-          <li>Click on the gradient to add new color stops</li>
-          <li>Click on a color stop to select it</li>
-          <li>Use the controls below to adjust position and color</li>
-          <li>Click × on a stop to remove it (minimum 2 stops required)</li>
-          <li>Changes apply to the simulation in real-time</li>
-        </ul>
+        {:else}
+          <div class="editor-instructions">
+            <p><strong>How to use:</strong></p>
+            <ul>
+              <li>Double-click on the gradient to add new color stops</li>
+              <li>Click on a color stop to select and edit it</li>
+              <li>Drag color stops to reposition them</li>
+              <li>Use the delete button to remove selected stops</li>
+            </ul>
+          </div>
+        {/if}
       </div>
 
       <!-- Dialog Actions -->
@@ -180,6 +182,7 @@
   let isDragging = false;
   let dragStopIndex = -1;
   let original_lut_name = ''; // Store the original LUT name to restore on cancel
+  let isAddingStop = false; // Flag to track when a new stop is being added
 
   // Reactive statements to handle prop changes
   // Note: Don't auto-select the first LUT when current_lut is empty,
@@ -221,20 +224,43 @@
   }
 
   // Gradient editor functions
+  // Function to add a gradient stop without transition
   function addGradientStop(position: number) {
     // Find the color at this position
     const color = getColorAtPosition(position);
+    
+    // Set flag to prevent transition on new stops
+    isAddingStop = true;
+    
     gradientStops = [...gradientStops, { position, color }];
     gradientStops.sort((a, b) => a.position - b.position);
+    
+    // Reset flag after a short delay to allow rendering
+    setTimeout(() => {
+      isAddingStop = false;
+    }, 50);
+    
     updateGradientPreview();
   }
 
   function removeGradientStop(index: number) {
     if (gradientStops.length <= 2) return;
+    
+    // Set flag to prevent transition on stop removal
+    isAddingStop = true;
+    
     gradientStops = gradientStops.filter((_, i) => i !== index);
     if (selectedStopIndex === index) {
       selectedStopIndex = -1;
+    } else if (selectedStopIndex > index) {
+      selectedStopIndex = selectedStopIndex - 1;
     }
+    
+    // Reset flag after a short delay to allow rendering
+    setTimeout(() => {
+      isAddingStop = false;
+    }, 50);
+    
     updateGradientPreview();
   }
 
@@ -283,13 +309,13 @@
     dragStopIndex = index;
     selectedStopIndex = index;
 
-    // Store the container element reference for consistent position calculation
-    const container = (event.currentTarget as HTMLElement).parentElement as HTMLElement;
+    // The container is now the gradient preview itself
+    const container = (event.currentTarget as HTMLElement)?.parentElement as HTMLElement;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
+      if (!isDragging || !container) return;
 
-      // Use the stored container reference and recalculate rect if needed
+      // Use the container reference and recalculate rect if needed
       const rect = container.getBoundingClientRect();
       const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 
@@ -412,15 +438,29 @@
       const lutData = [...rArr, ...gArr, ...bArr];
       await invoke('save_custom_lut', {
         name: custom_lut_name,
-        lut_data: lutData,
+        lutData: lutData,
       });
+      
+      // Update current LUT to the newly saved one
+      current_lut = custom_lut_name;
+      
+      // Notify parent component about the LUT change
+      dispatch('select', { name: custom_lut_name });
+      
       // Close the editor without restoring the original LUT
       show_gradient_editor = false;
       custom_lut_name = '';
-      // Refresh available LUTs
+      
+      // Refresh available LUTs to include the new one
       available_luts = await invoke('get_available_luts');
     } catch (e) {
       console.error('Failed to save custom LUT:', e);
+    }
+  }
+
+  function removeSelectedStop() {
+    if (selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length) {
+      removeGradientStop(selectedStopIndex);
     }
   }
 </script>
@@ -520,39 +560,33 @@
   }
 
   .gradient-preview {
+    position: relative;
     height: 50px;
     border: 2px solid #ccc;
     border-radius: 6px;
     margin-bottom: 15px;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
-  .gradient-stops-container {
-    position: relative;
-    height: 40px;
-    background: #f8f9fa;
-    border: 2px solid #dee2e6;
-    border-radius: 6px;
     cursor: crosshair;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
     user-select: none;
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
   }
 
-  .gradient-stops-container:hover {
+  .gradient-preview:hover {
     border-color: #646cff;
   }
+
+
 
   .gradient-stop {
     position: absolute;
     top: 50%;
     transform: translateX(-50%) translateY(-50%);
     width: 24px;
-    height: 24px;
+    height: 50px;
     border: 3px solid white;
-    border-radius: 50%;
+    border-radius: 6px;
     cursor: grab;
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
     transition: all 0.2s ease;
@@ -577,30 +611,10 @@
     transition: none;
   }
 
-  .remove-stop {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 18px;
-    height: 18px;
-    background: #dc3545;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    transition: all 0.2s ease;
+  .gradient-stop.no-transition {
+    transition: none;
   }
 
-  .remove-stop:hover {
-    background: #c82333;
-    transform: scale(1.1);
-  }
 
   .stop-controls {
     background: #f8f9fa;
@@ -608,6 +622,9 @@
     border-radius: 6px;
     margin: 1.5rem 0;
     border: 1px solid #dee2e6;
+    min-height: 200px;
+    display: flex;
+    flex-direction: column;
   }
 
   .stop-controls h4 {
@@ -620,6 +637,7 @@
     display: flex;
     gap: 1rem;
     align-items: end;
+    flex: 1;
   }
 
   .control-row .control-group {
@@ -651,26 +669,24 @@
     box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
   }
 
-  .gradient-instructions {
-    background: #e3f2fd;
-    padding: 1rem;
-    border-radius: 6px;
-    margin: 1.5rem 0;
-    border-left: 4px solid #2196f3;
+  .editor-instructions {
+    display: flex;
+    flex-direction: column;
   }
 
-  .gradient-instructions p {
+  .editor-instructions p {
     margin: 0 0 0.75rem 0;
-    color: #1976d2;
+    color: #333;
     font-weight: 600;
   }
 
-  .gradient-instructions ul {
+  .editor-instructions ul {
     margin: 0;
     padding-left: 1.5rem;
+    flex: 1;
   }
 
-  .gradient-instructions li {
+  .editor-instructions li {
     margin: 0.3rem 0;
     color: #333;
     line-height: 1.4;
@@ -729,5 +745,24 @@
     border-color: #5a6268;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
+  }
+
+  .delete-stop-btn {
+    background: #dc3545;
+    color: white;
+    border: 1px solid #dc3545;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .delete-stop-btn:hover {
+    background: #c82333;
+    border-color: #c82333;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
   }
 </style>

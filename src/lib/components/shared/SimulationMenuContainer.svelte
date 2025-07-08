@@ -58,12 +58,14 @@
     left: 0;
     top: 80px; /* Below the fixed control bar */
     bottom: 0;
-    width: 500px;
+    max-width: 40%;
+    min-width: 600px;
     overflow-y: auto;
   }
 
   .simulation-menu-container.middle {
-    max-width: 500px;
+    max-width: 40%;
+    overflow-y: auto;
     margin: 80px auto 0 auto; /* Account for fixed control bar */
   }
 
@@ -72,7 +74,8 @@
     right: 0;
     top: 80px; /* Below the fixed control bar */
     bottom: 0;
-    width: 500px;
+    max-width: 40%;
+    min-width: 600px;
     overflow-y: auto;
   }
 

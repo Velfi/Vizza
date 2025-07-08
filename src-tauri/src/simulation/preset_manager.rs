@@ -5,9 +5,9 @@ use std::sync::Arc;
 use wgpu::Device;
 use wgpu::Queue;
 
+use crate::commands::get_settings_dir;
 use crate::error::PresetError;
 use crate::error::PresetResult;
-use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use toml;
 
@@ -172,10 +172,9 @@ where
     }
 }
 
-/// Get the user's home folder path and create the Vizzy/simulation-specific presets subdirectory path
+/// Create the Vizzy/simulation-specific presets subdirectory path
 fn get_user_presets_dir(simulation_name: &str) -> PathBuf {
-    let home_dir = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home_dir.join("Vizzy").join(simulation_name).join("presets")
+    get_settings_dir().join(simulation_name).join("presets")
 }
 
 /// Sanitize filename to be safe for filesystem
@@ -370,6 +369,7 @@ impl SimulationPresetManager {
             SimulationType::SlimeMold(_) => "slime_mold",
             SimulationType::GrayScott(_) => "gray_scott",
             SimulationType::ParticleLife(_) => "particle_life",
+            SimulationType::Ecosystem(_) => "ecosystem",
             SimulationType::MainMenu(_) => "main_menu",
         }
     }

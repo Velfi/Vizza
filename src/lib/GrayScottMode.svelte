@@ -62,7 +62,7 @@
         <legend>Display Settings</legend>
         <div class="control-group">
           <LutSelector
-            {available_luts}
+            bind:available_luts
             current_lut={lut_name}
             reversed={lut_reversed}
             on:select={({ detail }) => updateLut(detail.name)}
@@ -83,6 +83,9 @@
               <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
                 📖 Camera Controls
               </button>
+            </div>
+            <div class="control-group">
+              <span>Camera controls not working? Click the control bar at the top of the screen.</span>
             </div>
           </div>
           <div class="cursor-settings">
@@ -522,6 +525,17 @@
   let lastMouseButton = -1; // Track which button was pressed for drag consistency
 
   function handleKeydown(event: KeyboardEvent) {
+    // Check if user is focused on a form element - if so, don't process camera controls
+    const activeElement = document.activeElement;
+    if (activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      (activeElement as HTMLElement).contentEditable === 'true'
+    )) {
+      return; // Let the form element handle the keyboard input
+    }
+
     if (event.key === '/') {
       event.preventDefault();
       toggleBackendGui();

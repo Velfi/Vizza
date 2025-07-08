@@ -168,6 +168,18 @@ pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
             ..Settings::default()
         },
     ));
+    preset_manager.add_preset(Preset::new(
+        "Venom".to_string(),
+        Settings {
+            agent_jitter: 2.0,
+            agent_sensor_angle: 0.3,
+            agent_sensor_distance: 20.0,
+            agent_speed_max: 500.0,
+            agent_speed_min: 0.0,
+            agent_turn_rate: 0.20943951606750488,
+            ..Settings::default()
+        },
+    ));
 
     // Capture all the built-in preset names we just added
     preset_manager.capture_built_in_presets();
