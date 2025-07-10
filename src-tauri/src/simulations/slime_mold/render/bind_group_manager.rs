@@ -8,6 +8,7 @@ pub struct BindGroupManager {
     pub display_bind_group: BindGroup,
     pub render_bind_group: BindGroup,
     pub camera_bind_group: BindGroup,
+    pub gradient_bind_group: BindGroup,
 }
 
 impl BindGroupManager {
@@ -18,6 +19,7 @@ impl BindGroupManager {
         display_bind_group_layout: &BindGroupLayout,
         render_bind_group_layout: &BindGroupLayout,
         camera_bind_group_layout: &BindGroupLayout,
+        gradient_bind_group_layout: &BindGroupLayout,
         agent_buffer: &Buffer,
         trail_map_buffer: &Buffer,
         gradient_buffer: &Buffer,
@@ -57,6 +59,12 @@ impl BindGroupManager {
                 device,
                 camera_bind_group_layout,
                 camera_buffer,
+            ),
+            gradient_bind_group: Self::create_gradient_bind_group(
+                device,
+                gradient_bind_group_layout,
+                gradient_buffer,
+                sim_size_buffer,
             ),
         }
     }
@@ -169,6 +177,28 @@ impl BindGroupManager {
                 binding: 0,
                 resource: buffer.as_entire_binding(),
             }],
+        })
+    }
+
+    fn create_gradient_bind_group(
+        device: &Device,
+        layout: &BindGroupLayout,
+        gradient_buffer: &Buffer,
+        sim_size_buffer: &Buffer,
+    ) -> BindGroup {
+        device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Gradient Bind Group"),
+            layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 2,
+                    resource: sim_size_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: gradient_buffer.as_entire_binding(),
+                },
+            ],
         })
     }
 }

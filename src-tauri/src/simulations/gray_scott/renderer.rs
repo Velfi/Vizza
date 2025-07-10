@@ -5,6 +5,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
 use crate::simulations::shared::camera::Camera;
+use super::shaders::{RENDER_3X3_SHADER};
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -112,7 +113,7 @@ impl Renderer {
         // Create 3x3 shader
         let shader_3x3 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Render 3x3 Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/render_3x3.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(RENDER_3X3_SHADER.into()),
         });
 
         // Create 3x3 render pipeline

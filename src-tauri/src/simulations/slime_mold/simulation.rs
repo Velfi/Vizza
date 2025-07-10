@@ -313,6 +313,7 @@ impl SlimeMoldModel {
             &pipeline_manager.display_bind_group_layout,
             &pipeline_manager.render_bind_group_layout,
             &pipeline_manager.camera_bind_group_layout,
+            &pipeline_manager.gradient_bind_group_layout,
             &agent_buffer,
             &trail_map_buffer,
             &gradient_buffer,
@@ -721,6 +722,21 @@ impl SlimeMoldModel {
 
     /// Run the compute passes for the simulation
     fn run_compute_passes(&self, encoder: &mut wgpu::CommandEncoder) {
+        // Gradient pass (if enabled)
+        if self.settings.gradient_type != super::settings::GradientType::Disabled {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Slime Mold Gradient Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.gradient_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.gradient_bind_group, &[]);
+            
+            let total_pixels = self.display_texture.width() * self.display_texture.height();
+            let workgroup_size = self.workgroup_config.compute_1d;
+            let workgroups = total_pixels.div_ceil(workgroup_size);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+
         // Agent update pass
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1114,6 +1130,7 @@ impl SlimeMoldModel {
             &self.pipeline_manager.display_bind_group_layout,
             &self.pipeline_manager.render_bind_group_layout,
             &self.pipeline_manager.camera_bind_group_layout,
+            &self.pipeline_manager.gradient_bind_group_layout,
             &self.agent_buffer,
             &self.trail_map_buffer,
             &self.gradient_buffer,
@@ -1307,10 +1324,8 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Determine cursor mode based on mouse_button and handle mouse release
-        let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
-            0 // mouse release - turn off cursor interaction
-        } else if mouse_button == 0 {
+        // Determine cursor mode based on mouse_button
+        let cursor_mode = if mouse_button == 0 {
             1 // left click = attract
         } else if mouse_button == 2 {
             2 // right click = repel
@@ -1338,6 +1353,19 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             world_x, world_y, sim_x, sim_y, cursor_mode, self.current_width, self.current_height
         );
 
+        self.update_cursor_params(queue);
+        Ok(())
+    }
+
+    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        // Turn off cursor interaction
+        self.cursor_active_mode = 0;
+        self.cursor_world_x = 0.0;
+        self.cursor_world_y = 0.0;
+
+        tracing::debug!("SlimeMold mouse release: cursor interaction disabled");
+
+        // Update cursor parameters on GPU
         self.update_cursor_params(queue);
         Ok(())
     }

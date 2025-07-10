@@ -4,6 +4,7 @@ pub mod render;
 pub mod settings;
 pub mod simulation;
 pub mod workgroup_optimizer;
+pub mod shaders;
 
 pub use simulation::SlimeMoldModel;
 

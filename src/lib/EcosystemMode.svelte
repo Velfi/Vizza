@@ -3,12 +3,14 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
 
-  import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
-  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
+  import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import EcosystemSettings from './components/ecosystem/EcosystemSettings.svelte';
+  import EcosystemLegend from './components/ecosystem/EcosystemLegend.svelte';
 
   const dispatch = createEventDispatcher();
+
+  export let menuPosition: string = 'middle';
 
   let currentSettings: any = {};
   // Remove unused currentState variable
@@ -33,6 +35,13 @@
 
   // Event listeners
   let unlistenFps: (() => void) | null = null;
+
+  // Camera controls
+  let pressedKeys = new Set<string>();
+  let animationFrameId: number | null = null;
+  
+  // Visibility sync trigger
+  let visibilitySyncTrigger = 0;
 
   async function navigateBack() {
     await destroySimulation();
@@ -74,6 +83,7 @@
     try {
       await invoke('start_ecosystem_simulation');
       await loadSettings();
+      await loadState();
     } catch (error) {
       console.error('Failed to start ecosystem simulation:', error);
     }
@@ -89,6 +99,20 @@
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
+    }
+  }
+
+  async function loadState() {
+    try {
+      const state: any = await invoke('get_current_state');
+      if (state) {
+        agentCount = state.agent_count || agentCount;
+        speciesCount = state.species_count || speciesCount;
+        totalEnergy = state.total_energy || 0;
+        aliveAgents = state.alive_agents || 0;
+      }
+    } catch (error) {
+      console.error('Failed to load state:', error);
     }
   }
 
@@ -125,6 +149,8 @@
     try {
       await invoke('reset_simulation');
       await loadSettings();
+      await loadState();
+      visibilitySyncTrigger++; // Trigger visibility sync
     } catch (error) {
       console.error('Failed to reset simulation:', error);
     }
@@ -134,6 +160,7 @@
     try {
       await invoke('randomize_settings');
       await loadSettings();
+      await loadState();
     } catch (error) {
       console.error('Failed to randomize settings:', error);
     }
@@ -231,19 +258,180 @@
     }
   }
 
+  // Camera control functions
+  function handleKeyDown(event: KeyboardEvent) {
+    // Check if user is focused on a form element - if so, don't process camera controls
+    const activeElement = document.activeElement;
+    if (activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      (activeElement as HTMLElement).contentEditable === 'true'
+    )) {
+      return; // Let the form element handle the keyboard input
+    }
+
+    if (event.key === '/') {
+      event.preventDefault();
+      toggleGui();
+      return;
+    }
+
+    // Handle camera controls - allow camera controls even when simulation is paused
+    const cameraKeys = [
+      'w',
+      'a',
+      's',
+      'd',
+      'arrowup',
+      'arrowdown',
+      'arrowleft',
+      'arrowright',
+      'q',
+      'e',
+      'c',
+    ];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      pressedKeys.add(event.key.toLowerCase());
+    }
+  }
+
+  function handleKeyUp(event: KeyboardEvent) {
+    const cameraKeys = [
+      'w',
+      'a',
+      's',
+      'd',
+      'arrowup',
+      'arrowdown',
+      'arrowleft',
+      'arrowright',
+      'q',
+      'e',
+      'c',
+    ];
+    if (cameraKeys.includes(event.key.toLowerCase())) {
+      pressedKeys.delete(event.key.toLowerCase());
+    }
+  }
+
+  async function panCamera(deltaX: number, deltaY: number) {
+    try {
+      await invoke('pan_camera', { deltaX, deltaY });
+    } catch (e) {
+      console.error('Failed to pan camera:', e);
+    }
+  }
+
+  async function zoomCamera(delta: number) {
+    try {
+      await invoke('zoom_camera', { delta });
+    } catch (e) {
+      console.error('Failed to zoom camera:', e);
+    }
+  }
+
+  async function resetCamera() {
+    try {
+      await invoke('reset_camera');
+    } catch (e) {
+      console.error('Failed to reset camera:', e);
+    }
+  }
+
+  // Camera update loop for smooth movement - runs continuously even when paused
+  function updateCamera() {
+    // Allow camera movement even when simulation is paused
+    const panAmount = 0.1;
+    let moved = false;
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+      deltaY += panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+      deltaY -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+      deltaX -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+      deltaX += panAmount;
+      moved = true;
+    }
+
+    // Apply combined movement if any keys are pressed
+    if (moved) {
+      panCamera(deltaX, deltaY);
+    }
+
+    if (pressedKeys.has('q')) {
+      zoomCamera(-0.05);
+      moved = true;
+    }
+    if (pressedKeys.has('e')) {
+      zoomCamera(0.05);
+      moved = true;
+    }
+    if (pressedKeys.has('c')) {
+      resetCamera();
+      moved = true;
+    }
+
+    // Always schedule the next frame to keep the loop running
+    animationFrameId = requestAnimationFrame(updateCamera);
+  }
+
+  // Mouse event handling for camera controls
+  async function handleMouseEvent(e: CustomEvent) {
+    const event = e.detail as MouseEvent | WheelEvent;
+    if (event.type === 'wheel') {
+      const wheelEvent = event as WheelEvent;
+      wheelEvent.preventDefault();
+
+      const zoomDelta = -wheelEvent.deltaY * 0.001;
+
+      try {
+        await invoke('zoom_camera_to_cursor', {
+          delta: zoomDelta,
+          cursorX: wheelEvent.clientX,
+          cursorY: wheelEvent.clientY,
+        });
+      } catch (e) {
+        console.error('Failed to zoom camera to cursor:', e);
+      }
+    }
+  }
+
+
+
   onMount(async () => {
+    // Set up keyboard listeners for camera control
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+
+    // Start camera update loop immediately so camera controls work even when paused
+    if (animationFrameId === null) {
+      animationFrameId = requestAnimationFrame(updateCamera);
+    }
+
+    // Add event listeners for auto-hide functionality
+    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    events.forEach((event) => {
+      window.addEventListener(event, handleUserInteraction, { passive: true });
+    });
+
     // Start the simulation first
     await startSimulation();
 
     // Listen for FPS updates
     unlistenFps = await listen('fps-update', (event: any) => {
       fps = event.payload;
-    });
-
-    // Add event listeners for auto-hide functionality
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
-    events.forEach((event) => {
-      window.addEventListener(event, handleUserInteraction, { passive: true });
     });
   });
 
@@ -259,6 +447,10 @@
       unlistenFps();
     }
 
+    // Remove keyboard event listeners
+    document.removeEventListener('keydown', handleKeyDown);
+    document.removeEventListener('keyup', handleKeyUp);
+
     // Remove auto-hide event listeners
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
     events.forEach((event) => {
@@ -271,95 +463,141 @@
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
+
+    // Stop camera update loop
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
   });
 </script>
 
-<div class="ecosystem-container">
-  <SimulationControlBar
-    simulationName="Ecosystem"
-    running={!isPaused}
-    showUI={showUI}
-    currentFps={fps}
-    controlsVisible={controlsVisible}
-    on:back={navigateBack}
-    on:toggleUI={toggleGui}
-    on:pause={pauseSimulation}
-    on:resume={resumeSimulation}
-    on:reset={resetSimulation}
-    on:randomize={randomizeSettings}
-    on:userInteraction={handleUserInteraction}
-  />
+<SimulationLayout
+  simulationName="Ecosystem"
+  running={!isPaused}
+  showUI={showUI}
+  currentFps={fps}
+  controlsVisible={controlsVisible}
+  menuPosition={menuPosition}
+  on:back={navigateBack}
+  on:toggleUI={toggleGui}
+  on:pause={pauseSimulation}
+  on:resume={resumeSimulation}
+  on:reset={resetSimulation}
+  on:randomize={randomizeSettings}
+  on:userInteraction={handleUserInteraction}
+  on:mouseEvent={handleMouseEvent}
+>
 
-  <SimulationMenuContainer {showUI}>
-      <div class="ecosystem-menu">
-        <div class="ecosystem-stats">
-          <h3>Ecosystem Status</h3>
-          <div class="stat-grid">
-            <div class="stat-item">
-              <span class="stat-label">Agent Count:</span>
-              <span class="stat-value">{agentCount}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Species:</span>
-              <span class="stat-value">{speciesCount}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Alive Agents:</span>
-              <span class="stat-value">{aliveAgents}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Total Energy:</span>
-              <span class="stat-value">{totalEnergy.toFixed(1)}</span>
-            </div>
+  <form on:submit|preventDefault>
+    <!-- Ecosystem Status -->
+    <fieldset>
+      <legend>Ecosystem Status</legend>
+      <div class="control-group">
+        <div class="stat-grid">
+          <div class="stat-item">
+            <span class="stat-label">Agent Count:</span>
+            <span class="stat-value">{agentCount}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Species:</span>
+            <span class="stat-value">{speciesCount}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Alive Agents:</span>
+            <span class="stat-value">{aliveAgents}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Energy:</span>
+            <span class="stat-value">{totalEnergy.toFixed(1)}</span>
           </div>
         </div>
+      </div>
+    </fieldset>
 
+    <!-- Legend -->
+    <fieldset>
+      <legend>Species Legend</legend>
+      <div class="control-group">
+        <EcosystemLegend syncTrigger={visibilitySyncTrigger} />
+      </div>
+    </fieldset>
+
+    <!-- Settings -->
+    <fieldset>
+      <legend>Settings</legend>
+      <div class="control-group">
         <EcosystemSettings
           settings={currentSettings}
           on:settingChange={handleSettingChange}
         />
+      </div>
+    </fieldset>
 
-        <div class="ecosystem-actions">
-          <button class="action-button reset-button" on:click={resetSimulation}>
+    <!-- Actions -->
+    <fieldset>
+      <legend>Actions</legend>
+      <div class="control-group">
+        <div class="action-buttons">
+          <button type="button" on:click={resetSimulation}>
             🔄 Reset Simulation
           </button>
-          <button class="action-button randomize-button" on:click={randomizeSettings}>
+          <button type="button" on:click={randomizeSettings}>
             🎲 Randomize Settings
           </button>
         </div>
-
-        <CursorConfig />
       </div>
-    </SimulationMenuContainer>
-</div>
+    </fieldset>
+
+    <!-- Controls -->
+    <fieldset>
+      <legend>Controls</legend>
+      <div class="interaction-controls-grid">
+        <div class="interaction-help">
+          <div class="control-group">
+            <span>🖱️ Mouse interaction available</span>
+          </div>
+          <div class="control-group">
+            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+              📖 Camera Controls
+            </button>
+          </div>
+          <div class="control-group">
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span>
+          </div>
+        </div>
+        <div class="cursor-settings">
+          <div class="cursor-settings-header">
+            <span>🎯 Cursor Settings</span>
+          </div>
+          <CursorConfig />
+        </div>
+      </div>
+    </fieldset>
+
+
+  </form>
+</SimulationLayout>
 
 <style>
-  .ecosystem-container {
-    position: relative;
-    width: 100%;
-    height: 100vh;
-    overflow: hidden;
-  }
-
-  .ecosystem-menu {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    max-height: 80vh;
-    overflow-y: auto;
-  }
-
-  .ecosystem-stats {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 8px;
+  fieldset {
+    border: 1px solid #ccc;
+    border-radius: 4px;
     padding: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin-bottom: 1rem;
   }
 
-  .ecosystem-stats h3 {
-    margin: 0 0 1rem 0;
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 1.1rem;
+  legend {
+    font-weight: bold;
+    padding: 0 0.5rem;
+  }
+
+  .control-group {
+    margin-bottom: 1rem;
+  }
+
+  .control-group:last-child {
+    margin-bottom: 0;
   }
 
   .stat-grid {
@@ -386,42 +624,55 @@
     font-size: 0.9rem;
   }
 
-  .ecosystem-actions {
+  .action-buttons {
     display: flex;
     gap: 1rem;
     justify-content: center;
-    padding: 1rem 0;
   }
 
-  .action-button {
-    padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
+
+
+  /* Interaction controls styling */
+  .interaction-controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .interaction-help {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings-header {
+    font-weight: bold;
     color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.9rem;
-    transition: all 0.3s ease;
-    flex: 1;
-    max-width: 150px;
   }
 
-  .action-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-    transform: translateY(-1px);
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .action-buttons {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .stat-grid {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
-  .reset-button:hover {
-    background: rgba(255, 193, 7, 0.2);
-    border-color: rgba(255, 193, 7, 0.4);
-    color: #ffc107;
-  }
 
-  .randomize-button:hover {
-    background: rgba(156, 39, 176, 0.2);
-    border-color: rgba(156, 39, 176, 0.4);
-    color: #9c27b0;
-  }
 </style> 

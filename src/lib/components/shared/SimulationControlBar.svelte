@@ -107,7 +107,6 @@
     top: 0;
     left: 0;
     right: 0;
-    z-index: 30;
     height: 80px;
     box-sizing: border-box;
   }

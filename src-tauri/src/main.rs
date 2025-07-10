@@ -185,6 +185,9 @@ fn main() {
             commands::resume_simulation,
             commands::destroy_simulation,
             commands::get_simulation_status,
+            commands::get_ecosystem_population_data,
+            commands::toggle_species_visibility,
+            commands::get_species_visibility_state,
             commands::scale_force_matrix,
             commands::flip_force_matrix_horizontal,
             commands::flip_force_matrix_vertical,
@@ -236,6 +239,7 @@ fn main() {
             // Interaction commands
             commands::handle_mouse_interaction,
             commands::handle_mouse_interaction_screen,
+            commands::handle_mouse_release,
             commands::update_cursor_position_screen,
             commands::seed_random_noise,
             // Utility commands

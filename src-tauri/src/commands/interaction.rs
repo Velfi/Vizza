@@ -38,11 +38,7 @@ pub async fn handle_mouse_interaction_screen(
     screen_y: f32,
     mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
-    println!(
-        "🖱️ Mouse interaction: screen=({}, {}), button={}",
-        screen_x, screen_y, mouse_button
-    );
-    tracing::info!(
+    tracing::debug!(
         "Mouse interaction: screen=({}, {}), button={}",
         screen_x,
         screen_y,
@@ -89,6 +85,28 @@ pub async fn seed_random_noise(
         Err(e) => {
             tracing::error!("Failed to seed random noise: {}", e);
             Err(format!("Failed to seed random noise: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn handle_mouse_release(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    tracing::debug!("Mouse release event received");
+
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    
+    match sim_manager.handle_mouse_release(&gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("Mouse release handled successfully");
+            Ok("Mouse release handled successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to handle mouse release: {}", e);
+            Err(format!("Failed to handle mouse release: {}", e))
         }
     }
 }

@@ -8,6 +8,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
+use super::shaders::{REACTION_DIFFUSION_SHADER};
 use crate::simulations::shared::coordinates::TextureCoords;
 
 #[repr(C)]
@@ -189,9 +190,7 @@ impl GrayScottModel {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                include_str!("shaders/reaction_diffusion.wgsl").into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(REACTION_DIFFUSION_SHADER.into()),
         });
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -633,6 +632,14 @@ impl GrayScottModel {
         Ok(())
     }
 
+    fn handle_mouse_release(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
+        // For Gray-Scott, mouse release doesn't need special handling
+        // The cursor position is already updated in handle_mouse_interaction
+        // and the interaction is immediate (no continuous effect)
+        tracing::debug!("Gray-Scott mouse release: no special handling needed");
+        Ok(())
+    }
+
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
         self.renderer.camera.pan(delta_x, delta_y);
     }
@@ -741,6 +748,10 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         let texture_x = (world_x + 1.0) * 0.5;
         let texture_y = (world_y + 1.0) * 0.5;
         GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, queue)
+    }
+
+    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        GrayScottModel::handle_mouse_release(self, queue)
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {

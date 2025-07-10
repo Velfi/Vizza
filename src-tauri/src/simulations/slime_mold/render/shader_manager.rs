@@ -1,12 +1,14 @@
 use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use std::borrow::Cow;
 use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
+use crate::simulations::slime_mold::shaders::{COMPUTE_SHADER, DISPLAY_SHADER, QUAD_SHADER, QUAD_3X3_SHADER, GRADIENT_SHADER};
 
 pub struct ShaderManager {
     pub compute_shader: ShaderModule,
     pub display_shader: ShaderModule,
     pub quad_shader: ShaderModule,
     pub quad_3x3_shader: ShaderModule,
+    pub gradient_shader: ShaderModule,
 }
 
 impl ShaderManager {
@@ -15,25 +17,32 @@ impl ShaderManager {
             compute_shader: Self::create_compute_shader(
                 device,
                 "Compute Shader",
-                include_str!("../shaders/compute.wgsl"),
+                COMPUTE_SHADER,
                 workgroup_config.compute_1d,
                 workgroup_config.compute_2d,
             ),
             display_shader: Self::create_display_shader(
                 device,
                 "Display Compute Shader",
-                include_str!("../shaders/display.wgsl"),
+                DISPLAY_SHADER,
                 workgroup_config.compute_2d,
             ),
             quad_shader: Self::create_shader(
                 device,
                 "Quad Shader",
-                include_str!("../shaders/quad.wgsl"),
+                QUAD_SHADER,
             ),
             quad_3x3_shader: Self::create_shader(
                 device,
                 "Quad 3x3 Shader",
-                include_str!("../shaders/quad_3x3.wgsl"),
+                QUAD_3X3_SHADER,
+            ),
+            gradient_shader: Self::create_compute_shader(
+                device,
+                "Gradient Shader",
+                GRADIENT_SHADER,
+                workgroup_config.compute_1d,
+                workgroup_config.compute_2d,
             ),
         }
     }

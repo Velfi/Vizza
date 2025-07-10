@@ -1,5 +1,6 @@
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -163,8 +164,6 @@ impl State {
         random_seed: u32,
     ) -> Self {
         let mut particles = Vec::with_capacity(particle_count);
-
-        use rand::{Rng, SeedableRng};
         let mut rng = rand::rngs::StdRng::seed_from_u64(random_seed as u64);
 
         // Distribute particles evenly among species
@@ -1436,8 +1435,7 @@ impl ParticleLifeModel {
         );
 
         // Update random seed for reset
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         self.state.random_seed = rng.random();
 
         // Update sim params with new random seed and current particle count
@@ -1504,8 +1502,7 @@ impl ParticleLifeModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Update random seed
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         let new_seed = rng.random();
 
         let randomize_params = ForceRandomizeParams {
@@ -2435,10 +2432,8 @@ impl Simulation for ParticleLifeModel {
         mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Determine cursor mode based on mouse_button and handle mouse release
-        let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
-            0 // mouse release - turn off cursor interaction
-        } else if mouse_button == 0 {
+        // Determine cursor mode based on mouse_button
+        let cursor_mode = if mouse_button == 0 {
             1 // left click = attract
         } else if mouse_button == 2 {
             2 // right click = repel
@@ -2493,6 +2488,39 @@ impl Simulation for ParticleLifeModel {
             sim_params.cursor_strength =
                 self.state.cursor_strength * self.settings.max_force * 10.0;
         }
+
+        // Upload to GPU immediately
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
+
+        Ok(())
+    }
+
+    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        // Turn off cursor interaction
+        self.cursor_active_mode = 0;
+        self.cursor_world_x = 0.0;
+        self.cursor_world_y = 0.0;
+
+        tracing::debug!("ParticleLife mouse release: cursor interaction disabled");
+
+        // Update sim params immediately with cursor disabled
+        let mut sim_params = SimParams::new(
+            self.width,
+            self.height,
+            self.state.particle_count as u32,
+            &self.settings,
+            &self.state,
+        );
+
+        // Override with cursor values (disabled)
+        sim_params.cursor_x = 0.0;
+        sim_params.cursor_y = 0.0;
+        sim_params.cursor_active = 0;
+        sim_params.cursor_strength = 0.0;
 
         // Upload to GPU immediately
         queue.write_buffer(
@@ -2621,8 +2649,7 @@ impl Simulation for ParticleLifeModel {
         );
 
         // Update random seed for consistency
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         self.state.random_seed = rng.random();
 
         // Update sim params with new random seed

@@ -8,22 +8,21 @@
       </div>
     </div>
   {:else}
-    <SimulationControlBar
+    <SimulationLayout
+      simulationName="Particle Life"
       running={isSimulationRunning}
       loading={isLoading}
       {showUI}
       currentFps={fps_display}
-      simulationName="Particle Life"
       {controlsVisible}
+      {menuPosition}
       on:back={() => dispatch('back')}
       on:toggleUI={toggleBackendGui}
       on:pause={pauseSimulation}
       on:resume={resumeSimulation}
       on:userInteraction={handleUserInteraction}
-    />
-
-    <!-- Main UI Controls Panel -->
-    <SimulationMenuContainer position={menuPosition} {showUI}>
+      on:mouseEvent={handleMouseEvent}
+    >
       <form on:submit|preventDefault>
         <!-- Presets -->
         <fieldset>
@@ -498,7 +497,7 @@
           </div>
         </fieldset>
       </form>
-    </SimulationMenuContainer>
+    </SimulationLayout>
 
     <!-- Save Preset Dialog -->
     {#if show_save_preset_dialog}
@@ -528,17 +527,7 @@
       </div>
     {/if}
 
-    <!-- Mouse overlay for camera interaction -->
-    <div
-      class="mouse-overlay"
-      on:mousedown={handleMouseEvent}
-      on:mouseup={handleMouseEvent}
-      on:mousemove={handleMouseEvent}
-      on:wheel={handleMouseEvent}
-      on:contextmenu={handleContextMenu}
-      role="button"
-      tabindex="0"
-    ></div>
+
   {/if}
 </div>
 
@@ -550,8 +539,7 @@
   import LutSelector from './components/shared/LutSelector.svelte';
   import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
-  import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
-  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
+  import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
   import './shared-theme.css';
@@ -714,6 +702,8 @@
   // Event listeners
   let unsubscribeFps: (() => void) | null = null;
   let unsubscribeTypeCounts: (() => void) | null = null;
+  let unsubscribeSimulationInitialized: (() => void) | null = null;
+  let unsubscribeSimulationResumed: (() => void) | null = null;
 
   // Reactive statement to ensure force matrix is always properly initialized
   $: {
@@ -1442,7 +1432,8 @@
   let isMousePressed = false;
   let currentMouseButton = 0;
 
-  async function handleMouseEvent(event: MouseEvent | WheelEvent) {
+  async function handleMouseEvent(e: CustomEvent) {
+    const event = e.detail as MouseEvent | WheelEvent;
     if (event.type === 'wheel') {
       const wheelEvent = event as WheelEvent;
       wheelEvent.preventDefault();
@@ -1514,23 +1505,15 @@
       isMousePressed = false;
 
       // Stop cursor interaction when mouse is released
-      // Send special coordinates to indicate mouse release
       try {
-        await invoke('handle_mouse_interaction_screen', {
-          screenX: -9999.0,
-          screenY: -9999.0,
-          mouseButton: 0,
-        });
+        await invoke('handle_mouse_release');
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);
       }
     }
   }
 
-  function handleContextMenu(event: MouseEvent) {
-    // Prevent right-click context menu from appearing
-    event.preventDefault();
-  }
+
 
   // Generator update functions (local state only)
   function updatePositionGenerator(value: string) {
@@ -1662,7 +1645,7 @@
       // Listen for simulation initialization event
       try {
         console.log('Registering simulation-initialized event listener...');
-        await listen('simulation-initialized', async () => {
+        unsubscribeSimulationInitialized = await listen('simulation-initialized', async () => {
           console.log('Simulation initialized, syncing settings...');
           await syncSettingsFromBackend();
           await updateSpeciesColors();
@@ -1675,7 +1658,7 @@
 
       // Listen for simulation resumed event
       try {
-        await listen('simulation-resumed', async () => {
+        unsubscribeSimulationResumed = await listen('simulation-resumed', async () => {
           console.log('Simulation resumed');
           isSimulationRunning = true;
         });
@@ -1733,6 +1716,12 @@
     }
     if (unsubscribeTypeCounts) {
       unsubscribeTypeCounts();
+    }
+    if (unsubscribeSimulationInitialized) {
+      unsubscribeSimulationInitialized();
+    }
+    if (unsubscribeSimulationResumed) {
+      unsubscribeSimulationResumed();
     }
 
     document.removeEventListener('keydown', handleKeyDown);
@@ -2427,16 +2416,7 @@
     }
   }
 
-  /* Mouse overlay for camera interaction */
-  .mouse-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
-    pointer-events: auto;
-  }
+
 
   /* Clear trails button */
   .clear-trails-button {

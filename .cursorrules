@@ -1,13 +1,12 @@
 # Rules/Notes for the project
 
-- don't be so obsequious.
-
 ## Common abbreviations
 
 - LUT: Look-up table. Used for color schemes.
 - PL: Particle Life. A simulation of particle behavior.
 - GS: Gray-Scott. A simulation of Gray-Scott reaction-diffusion.
 - SM: Slime Mold. A simulation of slime molds.
+- EM: Ecosystem. A simulation of an ecosystem.
 
 ## LUTs (Color Schemes)
 

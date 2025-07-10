@@ -21,6 +21,7 @@
     />
   {:else if currentMode === 'ecosystem'}
     <EcosystemMode
+      menuPosition={appSettings.menu_position}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
