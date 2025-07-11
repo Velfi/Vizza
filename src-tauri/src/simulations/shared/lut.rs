@@ -270,26 +270,30 @@ mod tests {
     fn test_automatic_lut_loading() {
         let manager = LutManager::new();
         let luts = manager.all_luts();
-        
+
         // Verify that some known LUTs are included
         assert!(luts.contains(&"MATPLOTLIB_viridis".to_string()));
         assert!(luts.contains(&"ZELDA_Blueprint".to_string()));
         assert!(luts.contains(&"KTZ_bw_Avada".to_string()));
-        
+
         // Verify that we can load each LUT
         for lut_name in &luts {
             let lut_data = manager.get(lut_name).unwrap_or_else(|e| {
                 panic!("Failed to load LUT '{}': {}", lut_name, e);
             });
-            
+
             // Verify the LUT data is valid
             assert_eq!(lut_data.name, *lut_name);
             assert_eq!(lut_data.red.len(), 256);
             assert_eq!(lut_data.green.len(), 256);
             assert_eq!(lut_data.blue.len(), 256);
         }
-        
+
         // Verify that we have a reasonable number of LUTs
-        assert!(luts.len() > 100, "Expected many LUTs but got {}", luts.len());
+        assert!(
+            luts.len() > 100,
+            "Expected many LUTs but got {}",
+            luts.len()
+        );
     }
 }

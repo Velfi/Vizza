@@ -8,7 +8,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use super::renderer::Renderer;
 use super::settings::{NutrientPattern, Settings};
 use super::shaders::noise_seed::NoiseSeedCompute;
-use super::shaders::{REACTION_DIFFUSION_SHADER};
+use super::shaders::REACTION_DIFFUSION_SHADER;
 use crate::simulations::shared::coordinates::TextureCoords;
 
 #[repr(C)]

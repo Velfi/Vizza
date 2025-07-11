@@ -84,9 +84,7 @@ struct SimParams {
     chemical_decay_rate: f32,
     chemical_deposition_rate: f32,
     
-    // Ecological parameters
-    ecological_roles: u32,
-    variants_per_role: u32,
+    // Ecological parameters (fixed at 3 roles, 3 variants per role = 9 total species)
     recycler_efficiency: f32,
     producer_photosynthesis_rate: f32,
     predator_hunting_efficiency: f32,

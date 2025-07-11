@@ -49,7 +49,9 @@ impl SimulationManager {
     }
 
     /// Get mutable reference to ecosystem simulation
-    pub fn get_ecosystem_simulation_mut(&mut self) -> Option<&mut crate::simulations::ecosystem::simulation::EcosystemModel> {
+    pub fn get_ecosystem_simulation_mut(
+        &mut self,
+    ) -> Option<&mut crate::simulations::ecosystem::simulation::EcosystemModel> {
         if let Some(SimulationType::Ecosystem(simulation)) = &mut self.current_simulation {
             Some(simulation)
         } else {
@@ -58,7 +60,9 @@ impl SimulationManager {
     }
 
     /// Get immutable reference to ecosystem simulation
-    pub fn get_ecosystem_simulation(&self) -> Option<&crate::simulations::ecosystem::simulation::EcosystemModel> {
+    pub fn get_ecosystem_simulation(
+        &self,
+    ) -> Option<&crate::simulations::ecosystem::simulation::EcosystemModel> {
         if let Some(SimulationType::Ecosystem(simulation)) = &self.current_simulation {
             Some(simulation)
         } else {
@@ -276,12 +280,7 @@ impl SimulationManager {
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
                     let world_y = world.y;
-                    simulation.handle_mouse_interaction(
-                        world_x,
-                        world_y,
-                        mouse_button,
-                        queue,
-                    )?;
+                    simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
                 }
                 _ => (),
             }
@@ -686,12 +685,16 @@ impl SimulationManager {
                 if population_update_counter >= 30 {
                     let mut sim_manager = manager.lock().await;
                     let gpu_ctx = gpu_context.lock().await;
-                    
-                    if let Some(SimulationType::Ecosystem(simulation)) = &mut sim_manager.current_simulation {
+
+                    if let Some(SimulationType::Ecosystem(simulation)) =
+                        &mut sim_manager.current_simulation
+                    {
                         // Use GPU readback for accurate population tracking
-                        simulation.update_population_history(&*gpu_ctx.device, &*gpu_ctx.queue).await;
+                        simulation
+                            .update_population_history(&*gpu_ctx.device, &*gpu_ctx.queue)
+                            .await;
                     }
-                    
+
                     population_update_counter = 0;
                 }
 
@@ -905,21 +908,31 @@ impl SimulationManager {
     }
 
     /// Get current ecosystem population data
-    pub async fn get_ecosystem_population(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<serde_json::Value, String> {
+    pub async fn get_ecosystem_population(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<serde_json::Value, String> {
         tracing::debug!("get_ecosystem_population called");
-        
+
         if let Some(SimulationType::Ecosystem(simulation)) = &self.current_simulation {
             tracing::debug!("Found ecosystem simulation");
-            
+
             // Get current population data using GPU readback for accurate counts
             let current_population = simulation.get_current_population(device, queue).await;
-            
+
             let population_history = simulation.get_population_history();
-            
-            tracing::debug!("Manager: Current population total: {}, counts: {:?}", 
-                          current_population.total_population, current_population.species_counts);
-            tracing::debug!("Manager: Population history length: {}", population_history.len());
-            
+
+            tracing::debug!(
+                "Manager: Current population total: {}, counts: {:?}",
+                current_population.total_population,
+                current_population.species_counts
+            );
+            tracing::debug!(
+                "Manager: Population history length: {}",
+                population_history.len()
+            );
+
             let response = serde_json::json!({
                 "current": {
                     "time": current_population.time,
@@ -935,10 +948,12 @@ impl SimulationManager {
                     })
                 }).collect::<Vec<_>>()
             });
-            
-            tracing::debug!("Manager: Returning response with total: {}", 
-                          response["current"]["total_population"]);
-            
+
+            tracing::debug!(
+                "Manager: Returning response with total: {}",
+                response["current"]["total_population"]
+            );
+
             Ok(response)
         } else {
             tracing::error!("No ecosystem simulation running");

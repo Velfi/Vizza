@@ -730,7 +730,7 @@ impl SlimeMoldModel {
             });
             compute_pass.set_pipeline(&self.pipeline_manager.gradient_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.gradient_bind_group, &[]);
-            
+
             let total_pixels = self.display_texture.width() * self.display_texture.height();
             let workgroup_size = self.workgroup_config.compute_1d;
             let workgroups = total_pixels.div_ceil(workgroup_size);

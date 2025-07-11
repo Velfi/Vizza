@@ -98,7 +98,7 @@ pub async fn handle_mouse_release(
 
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
-    
+
     match sim_manager.handle_mouse_release(&gpu_ctx.queue) {
         Ok(_) => {
             tracing::debug!("Mouse release handled successfully");

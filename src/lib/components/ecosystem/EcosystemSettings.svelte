@@ -13,14 +13,9 @@
 
   // Agent behavior options
   const agentCountOptions = ['500', '1000', '1500', '2000', '3000'];
-  const variantOptions = ['1', '2', '3', '4', '5'];
   const booleanOptions = ['On', 'Off'];
 
   function getAgentCountValue(stringValue: string): number {
-    return parseInt(stringValue);
-  }
-
-  function getVariantValue(stringValue: string): number {
     return parseInt(stringValue);
   }
 
@@ -45,16 +40,6 @@
         options={agentCountOptions}
         value={String(settings.agent_count || 1500)}
         on:change={(e) => handleSettingChange('agent_count', getAgentCountValue(e.detail.value))}
-      />
-    </div>
-    
-    <div class="setting-row">
-      <label for="variants-per-role">Variants per Role</label>
-      <Selector
-        id="variants-per-role"
-        options={variantOptions}
-        value={String(settings.variants_per_role || 3)}
-        on:change={(e) => handleSettingChange('variants_per_role', getVariantValue(e.detail.value))}
       />
     </div>
     

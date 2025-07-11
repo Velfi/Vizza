@@ -1,17 +1,19 @@
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
-use tokio::sync::oneshot;
-use std::sync::Arc;
 use std::collections::VecDeque;
+use std::mem;
+use std::sync::Arc;
+use tokio::sync::oneshot;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
-use std::mem;
 
 use super::settings::Settings;
+use super::shaders::{
+    AGENT_UPDATE_SHADER, CHEMICAL_DIFFUSION_SHADER, FLUID_DYNAMICS_SHADER, RENDER_SHADER,
+};
 use crate::simulations::shared::{camera::Camera, LutManager};
 use crate::simulations::traits::Simulation;
-use super::shaders::{AGENT_UPDATE_SHADER, CHEMICAL_DIFFUSION_SHADER, FLUID_DYNAMICS_SHADER, RENDER_SHADER};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -20,49 +22,49 @@ pub struct Agent {
     pub velocity: [f32; 2],
     pub energy: f32,
     pub age: f32,
-    pub ecological_role: u32,  // 0: Recycler, 1: Producer, 2: Predator
-    pub variant: u32,          // Variant within ecological role
-    
+    pub ecological_role: u32, // 0: Recycler, 1: Producer, 2: Predator
+    pub variant: u32,         // Variant within ecological role
+
     // Sensor array: 3-4 chemical receptors pointing different directions
     pub sensor_readings: [f32; 4],
-    
+
     // Movement engine parameters for run-and-tumble
     pub heading: f32,
-    pub run_duration: f32,         // Current run duration in run-and-tumble
-    pub run_timer: f32,            // Timer for current run
-    pub tumble_cooldown: f32,      // Cooldown after tumbling
-    
+    pub run_duration: f32,    // Current run duration in run-and-tumble
+    pub run_timer: f32,       // Timer for current run
+    pub tumble_cooldown: f32, // Cooldown after tumbling
+
     // Metabolic system
     pub metabolism_rate: f32,
     pub reproductive_threshold: f32,
     pub last_reproduction_time: f32,
-    
+
     // Behavioral state: 0: feeding, 1: hunting, 2: reproducing, 3: escaping
     pub behavioral_state: u32,
-    pub state_timer: f32,          // Timer for current state
-    
+    pub state_timer: f32, // Timer for current state
+
     // Chemical secretion rates for 6 chemical types
     pub chemical_secretion_rates: [f32; 6],
-    
+
     // Simple memory: recent food locations and threats
-    pub food_memory: [f32; 4],     // x, y positions of recent food
-    pub threat_memory: [f32; 4],   // x, y positions of recent threats
-    
+    pub food_memory: [f32; 4],   // x, y positions of recent food
+    pub threat_memory: [f32; 4], // x, y positions of recent threats
+
     // Biofilm formation (for producers)
     pub biofilm_strength: f32,
     pub biofilm_connections: u32,
-    
+
     // Hunting mechanics (for predators)
     pub hunt_target_id: u32,
     pub pack_coordination: f32,
-    
+
     // Spatial organization
     pub territory_center: [f32; 2],
     pub territory_radius: f32,
-    
+
     // Visibility control
-    pub is_visible: u32,  // 0 = hidden, 1 = visible
-    
+    pub is_visible: u32, // 0 = hidden, 1 = visible
+
     pub _pad: [u32; 1],
 }
 
@@ -71,8 +73,8 @@ pub struct Agent {
 pub struct DeadBiomass {
     pub position: [f32; 2],
     pub biomass_amount: f32,
-    pub species_origin: u32,  // What species died
-    pub decay_time: f32,      // Time until natural decay
+    pub species_origin: u32,         // What species died
+    pub decay_time: f32,             // Time until natural decay
     pub decomposition_progress: f32, // How much has been decomposed (0.0 to 1.0)
     pub is_active: u32,
     pub _pad: [u32; 1], // Padding for 32-byte alignment
@@ -102,9 +104,7 @@ pub struct SimParams {
     pub chemical_decay_rate: f32,
     pub chemical_deposition_rate: f32,
 
-    // Ecological parameters
-    pub ecological_roles: u32,
-    pub variants_per_role: u32,
+    // Ecological parameters (fixed at 3 roles, 3 variants per role = 9 total species)
     pub recycler_efficiency: f32,
     pub producer_photosynthesis_rate: f32,
     pub predator_hunting_efficiency: f32,
@@ -191,14 +191,14 @@ pub struct ChemicalDiffusionParams {
 pub struct RenderParams {
     pub show_energy_as_size: u32,
     pub time: f32,
-    
+
     pub show_chemical_fields: u32,
     pub chemical_field_opacity: f32,
     pub show_light_gradient: u32,
     pub environmental_opacity: f32,
-    
+
     pub chemical_resolution: f32,
-    
+
     // Individual chemical type flags
     pub show_oxygen: u32,
     pub show_co2: u32,
@@ -206,7 +206,7 @@ pub struct RenderParams {
     pub show_pheromones: u32,
     pub show_toxins: u32,
     pub show_attractants: u32,
-    
+
     // Environmental overlay flags
     pub show_temperature_zones: u32,
     pub show_ph_zones: u32,
@@ -301,7 +301,7 @@ pub struct EcosystemModel {
 
     // LUT management
     pub lut_manager: Arc<LutManager>,
-    
+
     // Visibility state management
     pub visibility_flags: Vec<u32>,
 }
@@ -332,9 +332,7 @@ impl SimParams {
             chemical_decay_rate: settings.chemical_decay_rate,
             chemical_deposition_rate: settings.chemical_deposition_rate,
 
-            // Ecological parameters
-            ecological_roles: settings.ecological_roles,
-            variants_per_role: settings.variants_per_role,
+            // Ecological parameters (fixed at 3 roles, 3 variants per role = 9 total species)
             recycler_efficiency: settings.recycler_efficiency,
             producer_photosynthesis_rate: settings.producer_photosynthesis_rate,
             predator_hunting_efficiency: settings.predator_hunting_efficiency,
@@ -381,7 +379,11 @@ impl SimParams {
             predation_success_rate: settings.predation_success_rate,
 
             // Spatial organization
-            enable_biofilm_formation: if settings.enable_biofilm_formation { 1 } else { 0 },
+            enable_biofilm_formation: if settings.enable_biofilm_formation {
+                1
+            } else {
+                0
+            },
             biofilm_growth_rate: settings.biofilm_growth_rate,
             biofilm_persistence: settings.biofilm_persistence,
             nutrient_stream_threshold: settings.nutrient_stream_threshold,
@@ -436,7 +438,11 @@ impl RenderParams {
             show_pheromones: if settings.show_pheromones { 1 } else { 0 },
             show_toxins: if settings.show_toxins { 1 } else { 0 },
             show_attractants: if settings.show_attractants { 1 } else { 0 },
-            show_temperature_zones: if settings.show_temperature_zones { 1 } else { 0 },
+            show_temperature_zones: if settings.show_temperature_zones {
+                1
+            } else {
+                0
+            },
             show_ph_zones: if settings.show_ph_zones { 1 } else { 0 },
             _pad: 0,
             _pad2: 0,
@@ -460,8 +466,8 @@ impl EcosystemModel {
         // Initialize camera
         let camera = Camera::new(device, width, height)?;
 
-        // Generate species colors
-        let species_colors = Self::generate_species_colors(settings.ecological_roles * settings.variants_per_role);
+        // Generate species colors (fixed at 3 roles * 3 variants = 9 species)
+        let species_colors = Self::generate_species_colors(9);
 
         // Create buffers - simplified for now
         // Initialize agents with random positions and properties
@@ -472,100 +478,96 @@ impl EcosystemModel {
 
         for i in 0..agent_count {
             let ecological_role = i % 3; // 0: Recycler, 1: Producer, 2: Predator
-            let variant = (i / 3) % settings.variants_per_role;
-            
-            // Global size scaling multiplier - adjust this to change all agent sizes
-            // 0.1 = 10% of original size (very small, like PL particles)
-            // 0.5 = 50% of original size (small)
-            // 1.0 = original size (normal)
-            // 2.0 = 200% of original size (large)
-            let size_multiplier = 0.1;
-            
+            let variant = (i / 3) % 3; // Fixed at 3 variants per role
+
             // Ecological role-specific initialization following design document
-            let (base_size, metabolism, chemical_secretion_rates) = match ecological_role {
-                0 => { // Recyclers - break down dead matter and waste into usable nutrients
+            let (metabolism, chemical_secretion_rates) = match ecological_role {
+                0 => {
+                    // Recyclers - break down dead matter and waste into usable nutrients
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Bacteria - small, fast-moving, swarm behavior around food sources
+                        0 => {
+                            // Bacteria - small, fast-moving, swarm behavior around food sources
                             rates[0] = -0.4; // Consume oxygen for decomposition
-                            rates[1] = 0.6;  // Produce CO2 from organic matter breakdown
-                            rates[2] = 0.9;  // Produce nitrogen compounds from protein breakdown
-                            rates[5] = 0.2;  // Produce attractants to signal food sources
-                            (0.0005, 1.0, rates) // Base size for bacteria
+                            rates[1] = 0.6; // Produce CO2 from organic matter breakdown
+                            rates[2] = 0.9; // Produce nitrogen compounds from protein breakdown
+                            rates[5] = 0.2; // Produce attractants to signal food sources
+                            (1.0, rates)
                         }
-                        1 => { // Fungi - slower movement, create visible thread networks
+                        1 => {
+                            // Fungi - slower movement, create visible thread networks
                             rates[0] = -0.2; // Consume oxygen for complex matter breakdown
-                            rates[2] = 1.2;  // Excellent at producing nitrogen compounds
-                            rates[5] = 0.8;  // Strong attractant production for network formation
-                            (0.0008, 0.5, rates) // Base size for fungi
+                            rates[2] = 1.2; // Excellent at producing nitrogen compounds
+                            rates[5] = 0.8; // Strong attractant production for network formation
+                            (0.5, rates)
                         }
-                        _ => { // Decomposer Protozoans - larger, engulf debris particles whole
+                        _ => {
+                            // Decomposer Protozoans - larger, engulf debris particles whole
                             rates[0] = -0.6; // High oxygen consumption for large-scale decomposition
-                            rates[1] = 0.4;  // Moderate CO2 production
-                            rates[2] = 0.8;  // Good nitrogen production from engulfed matter
-                            rates[5] = 0.1;  // Low attractant production (more selective)
-                            (0.0012, 0.7, rates) // Base size for decomposer protozoans
+                            rates[1] = 0.4; // Moderate CO2 production
+                            rates[2] = 0.8; // Good nitrogen production from engulfed matter
+                            rates[5] = 0.1; // Low attractant production (more selective)
+                            (0.7, rates)
                         }
                     }
                 }
-                1 => { // Producers - convert raw nutrients and light energy into biomass
+                1 => {
+                    // Producers - convert raw nutrients and light energy into biomass
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Algae - form biofilm mats, highly light-dependent, create persistent structures
-                            rates[0] = 1.0;  // High oxygen production from photosynthesis
+                        0 => {
+                            // Algae - form biofilm mats, highly light-dependent, create persistent structures
+                            rates[0] = 1.0; // High oxygen production from photosynthesis
                             rates[1] = -0.6; // High CO2 consumption for biomass building
-                            rates[5] = 0.4;  // Moderate attractant production for mat formation
-                            (0.001, 0.4, rates) // Base size for algae
+                            rates[5] = 0.4; // Moderate attractant production for mat formation
+                            (0.4, rates)
                         }
-                        1 => { // Cyanobacteria - mobile colonies, moderate light needs, can fix nitrogen
-                            rates[0] = 0.7;  // Good oxygen production
+                        1 => {
+                            // Cyanobacteria - mobile colonies, moderate light needs, can fix nitrogen
+                            rates[0] = 0.7; // Good oxygen production
                             rates[1] = -0.4; // Moderate CO2 consumption
-                            rates[2] = 0.3;  // Nitrogen fixation from environment
-                            rates[3] = 0.2;  // Pheromone production for colony coordination
-                            (0.0008, 0.6, rates) // Base size for cyanobacteria
+                            rates[2] = 0.3; // Nitrogen fixation from environment
+                            rates[3] = 0.2; // Pheromone production for colony coordination
+                            (0.6, rates)
                         }
-                        _ => { // Photosynthetic Protists - larger individual organisms, complex movement, efficient nutrient use
-                            rates[0] = 0.8;  // Efficient oxygen production
+                        _ => {
+                            // Photosynthetic Protists - larger individual organisms, complex movement, efficient nutrient use
+                            rates[0] = 0.8; // Efficient oxygen production
                             rates[1] = -0.7; // High CO2 consumption for efficient photosynthesis
-                            rates[2] = 0.1;  // Efficient nitrogen use (low production)
-                            (0.0011, 0.3, rates) // Base size for photosynthetic protists
+                            rates[2] = 0.1; // Efficient nitrogen use (low production)
+                            (0.3, rates)
                         }
                     }
                 }
-                _ => { // Predators - control population dynamics through consumption
+                _ => {
+                    // Predators - control population dynamics through consumption
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Predatory Bacteria - small, fast, hunt in coordinated groups
+                        0 => {
+                            // Predatory Bacteria - small, fast, hunt in coordinated groups
                             rates[0] = -0.3; // Consume oxygen for rapid movement
-                            rates[1] = 0.4;  // Produce CO2 from respiration
-                            rates[3] = 0.6;  // High pheromone production for pack coordination
-                            rates[4] = 0.1;  // Low toxin production for prey stunning
-                            (0.0006, 1.1, rates) // Base size for predatory bacteria
+                            rates[1] = 0.4; // Produce CO2 from respiration
+                            rates[3] = 0.6; // High pheromone production for pack coordination
+                            rates[4] = 0.1; // Low toxin production for prey stunning
+                            (1.1, rates)
                         }
-                        1 => { // Viruses - inject into hosts, replicate internally, burst out after delay
-                            rates[4] = 0.3;  // Produce toxins for host injection
-                            rates[3] = 0.2;  // Pheromone production for target recognition
-                            (0.0002, 1.5, rates) // Base size for viruses
+                        1 => {
+                            // Viruses - inject into hosts, replicate internally, burst out after delay
+                            rates[4] = 0.3; // Produce toxins for host injection
+                            rates[3] = 0.2; // Pheromone production for target recognition
+                            (1.5, rates)
                         }
-                        2 => { // Predatory Protozoans - large, engulf smaller organisms, slow but powerful
+                        _ => {
+                            // Predatory Protozoans - large, engulf smaller organisms, slow but powerful
                             rates[0] = -0.5; // High oxygen consumption for large body processes
-                            rates[1] = 0.5;  // CO2 production from consumed organisms
-                            rates[4] = 0.2;  // Toxin production for prey immobilization
-                            (0.0018, 0.5, rates) // Base size for predatory protozoans
-                        }
-                        _ => { // Parasitic Microbes - attach to hosts, drain resources over time
-                            rates[0] = -0.1; // Low oxygen consumption (parasitic lifestyle)
-                            rates[4] = 0.4;  // Toxin production for host weakening
-                            rates[3] = 0.3;  // Pheromone production for host tracking
-                            (0.0005, 0.8, rates) // Base size for parasitic microbes
+                            rates[1] = 0.5; // CO2 production from consumed organisms
+                            rates[4] = 0.2; // Toxin production for prey immobilization
+                            (0.5, rates)
                         }
                     }
                 }
             };
-            
-            // Apply global size scaling
-            let size = base_size * size_multiplier;
-            
+
             agents.push(Agent {
                 position: [rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0)],
                 velocity: [rng.random_range(-0.01..0.01), rng.random_range(-0.01..0.01)],
@@ -575,7 +577,8 @@ impl EcosystemModel {
                 variant: variant as u32,
                 sensor_readings: [0.0; 4],
                 heading: rng.random_range(0.0..6.28318),
-                run_duration: rng.random_range(settings.run_duration_min..settings.run_duration_max),
+                run_duration: rng
+                    .random_range(settings.run_duration_min..settings.run_duration_max),
                 run_timer: 0.0,
                 tumble_cooldown: 0.0,
                 metabolism_rate: metabolism,
@@ -606,29 +609,45 @@ impl EcosystemModel {
                 | wgpu::BufferUsages::COPY_SRC,
         });
         tracing::info!("Agent struct size: {} bytes", mem::size_of::<Agent>());
-        tracing::info!("Agent buffer size: {} bytes ({} agents)", agent_buffer.size(), agents.len());
+        tracing::info!(
+            "Agent buffer size: {} bytes ({} agents)",
+            agent_buffer.size(),
+            agents.len()
+        );
 
-
-
+        let biomass_buffer_size = (settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
         let biomass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Biomass Buffer"),
-            size: (settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64,
+            size: biomass_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        
+        tracing::info!(
+            "Created biomass buffer: size={} bytes, max_particles={}, struct_size={} bytes",
+            biomass_buffer_size,
+            settings.max_particles,
+            std::mem::size_of::<DeadBiomass>()
+        );
 
         // Clear biomass buffer to prevent garbage data
-        let biomass_buffer_size = settings.max_particles as usize;
-        let clear_biomass_data = vec![DeadBiomass {
-            position: [0.0, 0.0],
-            biomass_amount: 0.0,
-            species_origin: 0,
-            decay_time: 0.0,
-            decomposition_progress: 0.0,
-            is_active: 0,
-            _pad: [0],
-        }; biomass_buffer_size];
-        queue.write_buffer(&biomass_buffer, 0, bytemuck::cast_slice(&clear_biomass_data));
+        let clear_biomass_data = vec![
+            DeadBiomass {
+                position: [0.0, 0.0],
+                biomass_amount: 0.0,
+                species_origin: 0,
+                decay_time: 0.0,
+                decomposition_progress: 0.0,
+                is_active: 0,
+                _pad: [0],
+            };
+            settings.max_particles as usize
+        ];
+        queue.write_buffer(
+            &biomass_buffer,
+            0,
+            bytemuck::cast_slice(&clear_biomass_data),
+        );
 
         let chemical_buffer_size = (settings.chemical_resolution
             * settings.chemical_resolution
@@ -681,7 +700,7 @@ impl EcosystemModel {
         });
 
         // Create visibility buffer - one flag per species variant
-        let total_species = settings.ecological_roles * settings.variants_per_role;
+        let total_species = 9; // Fixed at 3 roles * 3 variants = 9 species
         let visibility_flags = vec![1u32; total_species as usize]; // Start all visible
         let visibility_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Visibility Buffer"),
@@ -717,74 +736,78 @@ impl EcosystemModel {
             source: wgpu::ShaderSource::Wgsl(FLUID_DYNAMICS_SHADER.into()),
         });
 
-        let fluid_dynamics_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Fluid Dynamics Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let fluid_dynamics_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Fluid Dynamics Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
-        let fluid_dynamics_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Fluid Dynamics Pipeline"),
-            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Fluid Dynamics Pipeline Layout"),
-                bind_group_layouts: &[&fluid_dynamics_bind_group_layout],
-                push_constant_ranges: &[],
-            })),
-            module: &fluid_dynamics_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let fluid_dynamics_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Fluid Dynamics Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Fluid Dynamics Pipeline Layout"),
+                        bind_group_layouts: &[&fluid_dynamics_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &fluid_dynamics_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
 
         let fluid_dynamics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Fluid Dynamics Bind Group"),
@@ -831,13 +854,14 @@ impl EcosystemModel {
             )?;
 
         // Create render pipelines
-        let (background_render_pipeline, background_bind_group) = Self::create_background_render_pipeline(
-            device,
-            surface_config,
-            &camera,
-            &render_params_buffer,
-            &chemical_field_buffer,
-        )?;
+        let (background_render_pipeline, background_bind_group) =
+            Self::create_background_render_pipeline(
+                device,
+                surface_config,
+                &camera,
+                &render_params_buffer,
+                &chemical_field_buffer,
+            )?;
 
         let (biomass_render_pipeline, biomass_bind_group) = Self::create_biomass_render_pipeline(
             device,
@@ -966,8 +990,6 @@ impl EcosystemModel {
             ],
         });
 
-
-
         Ok(Self {
             agent_buffer,
 
@@ -1012,39 +1034,53 @@ impl EcosystemModel {
 
     /// Fallback population counting (only used if GPU readback fails)
     fn count_populations_fallback(&self) -> Vec<u32> {
-        let mut counts = vec![0u32; self.settings.ecological_roles as usize];
+        let mut counts = vec![0u32; 3]; // Fixed at 3 ecological roles
         let total_agents = self.settings.agent_count;
-        
-        tracing::debug!("Fallback population count: total_agents={}, ecological_roles={}", 
-                       total_agents, self.settings.ecological_roles);
-        
-        // Only count if we have agents and ecological roles
-        if total_agents > 0 && self.settings.ecological_roles > 0 {
+
+        tracing::debug!(
+            "Fallback population count: total_agents={}, ecological_roles=3",
+            total_agents
+        );
+
+        // Only count if we have agents
+        if total_agents > 0 {
             // Distribute agents evenly among ecological roles (this is how they're initialized)
             for i in 0..total_agents {
-                let ecological_role = (i % self.settings.ecological_roles) as usize;
+                let ecological_role = (i % 3) as usize; // Fixed at 3 roles
                 if ecological_role < counts.len() {
                     counts[ecological_role] += 1;
                 } else {
-                    tracing::error!("Invalid ecological role index {} for ecological_roles {}", ecological_role, self.settings.ecological_roles);
+                    tracing::error!(
+                        "Invalid ecological role index {} for fixed 3 roles",
+                        ecological_role
+                    );
                 }
             }
         } else {
-            tracing::warn!("No agents or ecological roles to count: agents={}, ecological_roles={}", total_agents, self.settings.ecological_roles);
+            tracing::warn!(
+                "No agents to count: agents={}",
+                total_agents
+            );
         }
-        
+
         tracing::debug!("Fallback population counts: {:?}", counts);
-        
+
         counts
     }
-    
+
     /// Count living agents by reading back from GPU buffer
-    pub async fn count_living_populations(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u32> {
-        let mut counts = vec![0u32; self.settings.ecological_roles as usize];
-        
-        tracing::debug!("Starting GPU population count: agent_count={}, ecological_roles={}", 
-                       self.settings.agent_count, self.settings.ecological_roles);
-        
+    pub async fn count_living_populations(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<u32> {
+        let mut counts = vec![0u32; 3]; // Fixed at 3 ecological roles
+
+        tracing::debug!(
+            "Starting GPU population count: agent_count={}, ecological_roles=3",
+            self.settings.agent_count
+        );
+
         // Create a staging buffer to read data from GPU
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Population Count Staging Buffer"),
@@ -1052,12 +1088,12 @@ impl EcosystemModel {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         // Copy agent data from GPU to staging buffer
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Population Count Encoder"),
         });
-        
+
         encoder.copy_buffer_to_buffer(
             &self.agent_buffer,
             0,
@@ -1065,39 +1101,39 @@ impl EcosystemModel {
             0,
             self.agent_buffer.size(),
         );
-        
+
         queue.submit(Some(encoder.finish()));
-        
+
         // Map the staging buffer and read the data
         let buffer_slice = staging_buffer.slice(..);
         let (sender, receiver) = oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             sender.send(result).unwrap();
         });
-        
+
         // Wait for the buffer to be mapped
         device.poll(wgpu::Maintain::Wait);
-        
+
         match receiver.await {
             Ok(Ok(())) => {
                 let data = buffer_slice.get_mapped_range();
                 let agents: &[Agent] = bytemuck::cast_slice(&data);
-                
+
                 tracing::debug!("Successfully read {} agents from GPU buffer", agents.len());
-                
+
                 // Count living agents by species
                 let mut total_agents = 0;
                 let mut living_agents = 0;
                 let mut energy_sum = 0.0;
                 let mut min_energy = f32::INFINITY;
                 let mut max_energy = f32::NEG_INFINITY;
-                
+
                 for (i, agent) in agents.iter().enumerate() {
                     total_agents += 1;
                     energy_sum += agent.energy;
                     min_energy = min_energy.min(agent.energy);
                     max_energy = max_energy.max(agent.energy);
-                    
+
                     // Count all agents with positive energy as living
                     if agent.energy > 0.0 {
                         living_agents += 1;
@@ -1105,24 +1141,32 @@ impl EcosystemModel {
                         if species_idx < counts.len() {
                             counts[species_idx] += 1;
                         } else {
-                            tracing::warn!("Agent {} has invalid species index: {} (max: {})", 
-                                         i, species_idx, counts.len() - 1);
+                            tracing::warn!(
+                                "Agent {} has invalid species index: {} (max: {})",
+                                i,
+                                species_idx,
+                                counts.len() - 1
+                            );
                         }
                     }
-                    
+
                     // Debug first few agents and a few random ones
                     if i < 3 || (i % 500 == 0 && i < 1500) {
                         tracing::debug!("Agent {}: species={}, energy={:.2}, age={:.2}, position=({:.2}, {:.2})", 
                                        i, agent.ecological_role, agent.energy, agent.age, agent.position[0], agent.position[1]);
                     }
                 }
-                
-                let avg_energy = if total_agents > 0 { energy_sum / total_agents as f32 } else { 0.0 };
-                
+
+                let avg_energy = if total_agents > 0 {
+                    energy_sum / total_agents as f32
+                } else {
+                    0.0
+                };
+
                 tracing::debug!("GPU population analysis: total={}, living={}, avg_energy={:.2}, min_energy={:.2}, max_energy={:.2}", 
                                total_agents, living_agents, avg_energy, min_energy, max_energy);
                 tracing::debug!("GPU species counts: {:?}", counts);
-                
+
                 return counts;
             }
             Ok(Err(e)) => {
@@ -1132,9 +1176,9 @@ impl EcosystemModel {
                 tracing::error!("Failed to receive mapping result: {:?}", e);
             }
         }
-        
+
         drop(staging_buffer);
-        
+
         // Only fall back to static counting if there was an error reading from GPU
         tracing::warn!("GPU readback failed, falling back to static counting");
         self.count_populations_fallback()
@@ -1144,18 +1188,22 @@ impl EcosystemModel {
     pub async fn update_population_history(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let species_counts = self.count_living_populations(device, queue).await;
         let total_population = species_counts.iter().sum();
-        
+
         let population_data = PopulationData {
             time: self.time,
             species_counts,
             total_population,
         };
-        
+
         self.population_history.add_sample(population_data);
     }
 
     /// Get current population data by reading actual agent states from GPU
-    pub async fn get_current_population(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> PopulationData {
+    pub async fn get_current_population(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> PopulationData {
         let current_counts = self.count_living_populations(device, queue).await;
         PopulationData {
             time: self.time,
@@ -1163,22 +1211,26 @@ impl EcosystemModel {
             total_population: current_counts.iter().sum(),
         }
     }
-    
+
     /// Get population history
     pub fn get_population_history(&self) -> Vec<PopulationData> {
         self.population_history.data.iter().cloned().collect()
     }
-    
+
     /// Update population history (called from manager)
-    pub async fn update_population_history_async(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
+    pub async fn update_population_history_async(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) {
         self.update_population_history(device, queue).await;
         tracing::debug!("Population history updated successfully");
     }
-    
 
-    
     /// Create stable default preset following design document principles
-    pub fn create_stable_default_preset(&self) -> crate::simulations::ecosystem::settings::Settings {
+    pub fn create_stable_default_preset(
+        &self,
+    ) -> crate::simulations::ecosystem::settings::Settings {
         // This preset is designed to produce stable Lotka-Volterra oscillations
         // with 3-4 year cycles as specified in the design document
         crate::simulations::ecosystem::settings::Settings::default()
@@ -1186,30 +1238,28 @@ impl EcosystemModel {
 
     fn generate_species_colors(total_species: u32) -> Vec<[f32; 4]> {
         let mut colors = Vec::new();
-        
+
         // Colors with consistent schemes for each ecological role
         let species_colors = [
             // Recyclers (Role 0) - Shades of Green
             [0.298, 0.686, 0.314, 1.0], // Bacteria - Green (#4CAF50)
             [0.129, 0.588, 0.212, 1.0], // Fungi - Dark Green (#219622)
             [0.612, 0.847, 0.314, 1.0], // Decomposer Protozoans - Light Green (#9CD850)
-            
             // Producers (Role 1) - Shades of Blue
             [0.129, 0.588, 0.952, 1.0], // Algae - Blue (#2196F3)
             [0.0, 0.588, 0.847, 1.0],   // Cyanobacteria - Dark Blue (#0096D8)
             [0.612, 0.847, 0.952, 1.0], // Photosynthetic Protists - Light Blue (#9CD8F3)
-            
             // Predators (Role 2) - Shades of Red
             [0.957, 0.263, 0.212, 1.0], // Predatory Bacteria - Red (#F44336)
             [0.545, 0.0, 0.0, 1.0],     // Viruses - Dark Red (#8B0000)
             [1.0, 0.596, 0.596, 1.0],   // Predatory Protozoans - Light Red (#FF9898)
         ];
-        
+
         for i in 0..total_species {
             let color_index = usize::min(i as usize, species_colors.len() - 1);
             colors.push(species_colors[color_index]);
         }
-        
+
         colors
     }
 
@@ -1571,8 +1621,6 @@ impl EcosystemModel {
         Ok((pipeline, bind_group))
     }
 
-
-
     fn create_biomass_render_pipeline(
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
@@ -1583,7 +1631,9 @@ impl EcosystemModel {
         // Create shader modules
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Biomass Particle Shader"),
-            source: wgpu::ShaderSource::Wgsl(crate::simulations::ecosystem::shaders::BIOMASS_PARTICLE_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::ecosystem::shaders::BIOMASS_PARTICLE_SHADER.into(),
+            ),
         });
 
         // Create single bind group layout for all resources in group 0
@@ -1880,9 +1930,17 @@ impl Simulation for EcosystemModel {
                 0
             },
             time: self.time,
-            show_chemical_fields: if self.settings.show_chemical_fields { 1 } else { 0 },
+            show_chemical_fields: if self.settings.show_chemical_fields {
+                1
+            } else {
+                0
+            },
             chemical_field_opacity: self.settings.chemical_field_opacity,
-            show_light_gradient: if self.settings.show_light_gradient { 1 } else { 0 },
+            show_light_gradient: if self.settings.show_light_gradient {
+                1
+            } else {
+                0
+            },
             environmental_opacity: self.settings.environmental_opacity,
 
             chemical_resolution: self.settings.chemical_resolution as f32,
@@ -1892,7 +1950,11 @@ impl Simulation for EcosystemModel {
             show_pheromones: if self.settings.show_pheromones { 1 } else { 0 },
             show_toxins: if self.settings.show_toxins { 1 } else { 0 },
             show_attractants: if self.settings.show_attractants { 1 } else { 0 },
-            show_temperature_zones: if self.settings.show_temperature_zones { 1 } else { 0 },
+            show_temperature_zones: if self.settings.show_temperature_zones {
+                1
+            } else {
+                0
+            },
             show_ph_zones: if self.settings.show_ph_zones { 1 } else { 0 },
             _pad: 0,
             _pad2: 0,
@@ -1934,9 +1996,12 @@ impl Simulation for EcosystemModel {
                 let workgroup_size = 64;
                 let num_workgroups = self.settings.agent_count.div_ceil(workgroup_size);
                 compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
-                
-                tracing::debug!("Dispatched agent update: workgroups={}, agent_count={}", 
-                               num_workgroups, self.settings.agent_count);
+
+                tracing::debug!(
+                    "Dispatched agent update: workgroups={}, agent_count={}",
+                    num_workgroups,
+                    self.settings.agent_count
+                );
             }
 
             // Update fluid dynamics to generate velocity field
@@ -1999,8 +2064,11 @@ impl Simulation for EcosystemModel {
             });
 
             // Pass 1: Render background (chemical fields and environmental overlays)
-            if self.settings.show_chemical_fields || self.settings.show_light_gradient || 
-               self.settings.show_temperature_zones || self.settings.show_ph_zones {
+            if self.settings.show_chemical_fields
+                || self.settings.show_light_gradient
+                || self.settings.show_temperature_zones
+                || self.settings.show_ph_zones
+            {
                 render_pass.set_pipeline(&self.background_render_pipeline);
                 render_pass.set_bind_group(0, &self.background_bind_group, &[]);
                 render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
@@ -2080,8 +2148,11 @@ impl Simulation for EcosystemModel {
             });
 
             // Pass 1: Render background (chemical fields and environmental overlays)
-            if self.settings.show_chemical_fields || self.settings.show_light_gradient || 
-               self.settings.show_temperature_zones || self.settings.show_ph_zones {
+            if self.settings.show_chemical_fields
+                || self.settings.show_light_gradient
+                || self.settings.show_temperature_zones
+                || self.settings.show_ph_zones
+            {
                 render_pass.set_pipeline(&self.background_render_pipeline);
                 render_pass.set_bind_group(0, &self.background_bind_group, &[]);
                 render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
@@ -2161,15 +2232,8 @@ impl Simulation for EcosystemModel {
                     self.settings.energy_gain_from_food = val as f32;
                 }
             }
-            "ecological_roles" => {
-                if let Some(val) = value.as_u64() {
-                    self.settings.ecological_roles = val as u32;
-                    self.species_colors =
-                        Self::generate_species_colors(self.settings.ecological_roles * self.settings.variants_per_role);
-                    // Recreate the species colors buffer with the new size
-                    self.recreate_species_colors_buffer(device);
-                }
-            }
+            // ecological_roles and variants_per_role are now fixed at 3 and 3 respectively
+            // No longer configurable through settings
             "chemical_diffusion_rate" => {
                 if let Some(val) = value.as_f64() {
                     self.settings.chemical_diffusion_rate = val as f32;
@@ -2273,6 +2337,64 @@ impl Simulation for EcosystemModel {
                     self.settings.predator_hunting_efficiency = val as f32;
                 }
             }
+            "max_particles" => {
+                if let Some(val) = value.as_u64() {
+                    let new_max_particles = val as u32;
+                    let buffer_capacity = self.biomass_buffer.size() as usize / std::mem::size_of::<DeadBiomass>();
+                    
+                    if new_max_particles as usize > buffer_capacity {
+                        tracing::info!(
+                            "Recreating biomass buffer: old_capacity={}, new_max_particles={}",
+                            buffer_capacity,
+                            new_max_particles
+                        );
+                        
+                        // Recreate biomass buffer with new size
+                        let new_buffer_size = (new_max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
+                        self.biomass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Biomass Buffer"),
+                            size: new_buffer_size,
+                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        });
+                        
+                        // Recreate agent update pipeline with new biomass buffer
+                        let (new_agent_update_pipeline, new_agent_update_bind_group) = Self::create_agent_update_pipeline(
+                            device,
+                            &self.agent_buffer,
+                            &self.biomass_buffer,
+                            &self.chemical_field_buffer,
+                            &self.sim_params_buffer,
+                        )?;
+                        
+                        self.agent_update_pipeline = new_agent_update_pipeline;
+                        self.agent_update_bind_group = new_agent_update_bind_group;
+                        
+                        tracing::info!(
+                            "Biomass buffer and agent update pipeline recreated: new_size={} bytes, new_capacity={}",
+                            new_buffer_size,
+                            new_max_particles
+                        );
+                    }
+                    
+                    self.settings.max_particles = new_max_particles;
+                }
+            }
+            "particle_decomposition_rate" => {
+                if let Some(val) = value.as_f64() {
+                    self.settings.particle_decomposition_rate = val as f32;
+                }
+            }
+            "particle_decay_rate" => {
+                if let Some(val) = value.as_f64() {
+                    self.settings.particle_decay_rate = val as f32;
+                }
+            }
+            "matter_to_chemical_ratio" => {
+                if let Some(val) = value.as_f64() {
+                    self.settings.matter_to_chemical_ratio = val as f32;
+                }
+            }
             // These settings were removed in the new design
             _ => {}
         }
@@ -2286,10 +2408,10 @@ impl Simulation for EcosystemModel {
     fn get_state(&self) -> Value {
         // Calculate total energy across all agents
         let total_energy = self.settings.agent_count as f32 * 50.0; // Rough estimate since we can't read from GPU buffer
-        
+
         // Estimate alive agents (all agents start alive after reset)
         let alive_agents = self.settings.agent_count;
-        
+
         serde_json::json!({
             "time": self.time,
             "gui_visible": self.gui_visible,
@@ -2298,7 +2420,7 @@ impl Simulation for EcosystemModel {
                 "zoom": self.camera.zoom
             },
             "agent_count": self.settings.agent_count,
-            "ecological_roles": self.settings.ecological_roles,
+            // ecological_roles and variants_per_role are fixed at 3 and 3 respectively
             "total_energy": total_energy,
             "alive_agents": alive_agents
         })
@@ -2362,7 +2484,7 @@ impl Simulation for EcosystemModel {
     ) -> SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
-            self.species_colors = Self::generate_species_colors(self.settings.ecological_roles * self.settings.variants_per_role);
+            self.species_colors = Self::generate_species_colors(9); // Fixed at 3 roles * 3 variants = 9 species
         }
         Ok(())
     }
@@ -2372,11 +2494,59 @@ impl Simulation for EcosystemModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-                let mut rng = rand::rng();
+        let mut rng = rand::rng();
         self.settings.random_seed = rng.random();
 
         // Reset time
         self.time = 0.0;
+
+        // --- Ensure biomass buffer is correct size BEFORE any operations ---
+        let required_biomass_size = (self.settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
+        if self.biomass_buffer.size() != required_biomass_size {
+            tracing::info!(
+                "Resizing biomass buffer: old_size={} new_size={} (max_particles={})",
+                self.biomass_buffer.size(),
+                required_biomass_size,
+                self.settings.max_particles
+            );
+            self.biomass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Biomass Buffer"),
+                size: required_biomass_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            // Recreate agent update pipeline with new biomass buffer
+            let (new_agent_update_pipeline, new_agent_update_bind_group) = Self::create_agent_update_pipeline(
+                device,
+                &self.agent_buffer,
+                &self.biomass_buffer,
+                &self.chemical_field_buffer,
+                &self.sim_params_buffer,
+            )?;
+            self.agent_update_pipeline = new_agent_update_pipeline;
+            self.agent_update_bind_group = new_agent_update_bind_group;
+            // Recreate biomass render pipeline and bind group
+            let surface_config = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: wgpu::TextureFormat::Bgra8UnormSrgb, // Default format
+                width: 1,
+                height: 1,
+                present_mode: wgpu::PresentMode::Fifo,
+                alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+                view_formats: vec![],
+                desired_maximum_frame_latency: 1,
+            };
+            let (new_biomass_render_pipeline, new_biomass_bind_group) = Self::create_biomass_render_pipeline(
+                device,
+                &surface_config,
+                &self.camera,
+                &self.render_params_buffer,
+                &self.biomass_buffer,
+            )?;
+            self.biomass_render_pipeline = new_biomass_render_pipeline;
+            self.biomass_bind_group = new_biomass_bind_group;
+        }
+        // --- End biomass buffer resize logic ---
 
         // Regenerate agents with current settings
         let mut agents = Vec::with_capacity(self.settings.agent_count as usize);
@@ -2385,90 +2555,103 @@ impl Simulation for EcosystemModel {
 
         for i in 0..self.settings.agent_count {
             let ecological_role = i % 3; // 0: Recycler, 1: Producer, 2: Predator
-            let variant = (i / 3) % self.settings.variants_per_role;
-            
+            let variant = (i / 3) % 3; // Fixed at 3 variants per role
+
             // Ecological role-specific initialization following design document
             let (metabolism, chemical_secretion_rates) = match ecological_role {
-                0 => { // Recyclers - break down dead matter and waste into usable nutrients
+                0 => {
+                    // Recyclers - break down dead matter and waste into usable nutrients
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Bacteria - small, fast-moving, swarm behavior around food sources
+                        0 => {
+                            // Bacteria - small, fast-moving, swarm behavior around food sources
                             rates[0] = -0.4; // Consume oxygen for decomposition
-                            rates[1] = 0.6;  // Produce CO2 from organic matter breakdown
-                            rates[2] = 0.9;  // Produce nitrogen compounds from protein breakdown
-                            rates[5] = 0.2;  // Produce attractants to signal food sources
+                            rates[1] = 0.6; // Produce CO2 from organic matter breakdown
+                            rates[2] = 0.9; // Produce nitrogen compounds from protein breakdown
+                            rates[5] = 0.2; // Produce attractants to signal food sources
                             (1.0, rates) // Metabolism for bacteria
                         }
-                        1 => { // Fungi - slower movement, create visible thread networks
+                        1 => {
+                            // Fungi - slower movement, create visible thread networks
                             rates[0] = -0.2; // Consume oxygen for complex matter breakdown
-                            rates[2] = 1.2;  // Excellent at producing nitrogen compounds
-                            rates[5] = 0.8;  // Strong attractant production for network formation
+                            rates[2] = 1.2; // Excellent at producing nitrogen compounds
+                            rates[5] = 0.8; // Strong attractant production for network formation
                             (0.5, rates) // Metabolism for fungi
                         }
-                        _ => { // Decomposer Protozoans - larger, engulf debris particles whole
+                        _ => {
+                            // Decomposer Protozoans - larger, engulf debris particles whole
                             rates[0] = -0.6; // High oxygen consumption for large-scale decomposition
-                            rates[1] = 0.4;  // Moderate CO2 production
-                            rates[2] = 0.8;  // Good nitrogen production from engulfed matter
-                            rates[5] = 0.1;  // Low attractant production (more selective)
+                            rates[1] = 0.4; // Moderate CO2 production
+                            rates[2] = 0.8; // Good nitrogen production from engulfed matter
+                            rates[5] = 0.1; // Low attractant production (more selective)
                             (0.7, rates) // Metabolism for decomposer protozoans
                         }
                     }
                 }
-                1 => { // Producers - convert raw nutrients and light energy into biomass
+                1 => {
+                    // Producers - convert raw nutrients and light energy into biomass
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Algae - form biofilm mats, highly light-dependent, create persistent structures
-                            rates[0] = 1.0;  // High oxygen production from photosynthesis
+                        0 => {
+                            // Algae - form biofilm mats, highly light-dependent, create persistent structures
+                            rates[0] = 1.0; // High oxygen production from photosynthesis
                             rates[1] = -0.6; // High CO2 consumption for biomass building
-                            rates[5] = 0.4;  // Moderate attractant production for mat formation
+                            rates[5] = 0.4; // Moderate attractant production for mat formation
                             (0.4, rates) // Metabolism for algae
                         }
-                        1 => { // Cyanobacteria - mobile colonies, moderate light needs, can fix nitrogen
-                            rates[0] = 0.7;  // Good oxygen production
+                        1 => {
+                            // Cyanobacteria - mobile colonies, moderate light needs, can fix nitrogen
+                            rates[0] = 0.7; // Good oxygen production
                             rates[1] = -0.4; // Moderate CO2 consumption
-                            rates[2] = 0.3;  // Nitrogen fixation from environment
-                            rates[3] = 0.2;  // Pheromone production for colony coordination
+                            rates[2] = 0.3; // Nitrogen fixation from environment
+                            rates[3] = 0.2; // Pheromone production for colony coordination
                             (0.6, rates) // Metabolism for cyanobacteria
                         }
-                        _ => { // Photosynthetic Protists - larger individual organisms, complex movement, efficient nutrient use
-                            rates[0] = 0.8;  // Efficient oxygen production
+                        _ => {
+                            // Photosynthetic Protists - larger individual organisms, complex movement, efficient nutrient use
+                            rates[0] = 0.8; // Efficient oxygen production
                             rates[1] = -0.7; // High CO2 consumption for efficient photosynthesis
-                            rates[2] = 0.1;  // Efficient nitrogen use (low production)
+                            rates[2] = 0.1; // Efficient nitrogen use (low production)
                             (0.3, rates) // Metabolism for photosynthetic protists
                         }
                     }
                 }
-                _ => { // Predators - control population dynamics through consumption
+                _ => {
+                    // Predators - control population dynamics through consumption
                     let mut rates = [0.0; 6];
                     match variant {
-                        0 => { // Predatory Bacteria - small, fast, hunt in coordinated groups
+                        0 => {
+                            // Predatory Bacteria - small, fast, hunt in coordinated groups
                             rates[0] = -0.3; // Consume oxygen for rapid movement
-                            rates[1] = 0.4;  // Produce CO2 from respiration
-                            rates[3] = 0.6;  // High pheromone production for pack coordination
-                            rates[4] = 0.1;  // Low toxin production for prey stunning
+                            rates[1] = 0.4; // Produce CO2 from respiration
+                            rates[3] = 0.6; // High pheromone production for pack coordination
+                            rates[4] = 0.1; // Low toxin production for prey stunning
                             (1.1, rates) // Metabolism for predatory bacteria
                         }
-                        1 => { // Viruses - inject into hosts, replicate internally, burst out after delay
-                            rates[4] = 0.3;  // Produce toxins for host injection
-                            rates[3] = 0.2;  // Pheromone production for target recognition
+                        1 => {
+                            // Viruses - inject into hosts, replicate internally, burst out after delay
+                            rates[4] = 0.3; // Produce toxins for host injection
+                            rates[3] = 0.2; // Pheromone production for target recognition
                             (1.5, rates) // Metabolism for viruses
                         }
-                        2 => { // Predatory Protozoans - large, engulf smaller organisms, slow but powerful
+                        2 => {
+                            // Predatory Protozoans - large, engulf smaller organisms, slow but powerful
                             rates[0] = -0.5; // High oxygen consumption for large body processes
-                            rates[1] = 0.5;  // CO2 production from consumed organisms
-                            rates[4] = 0.2;  // Toxin production for prey immobilization
+                            rates[1] = 0.5; // CO2 production from consumed organisms
+                            rates[4] = 0.2; // Toxin production for prey immobilization
                             (0.5, rates) // Metabolism for predatory protozoans
                         }
-                        _ => { // Parasitic Microbes - attach to hosts, drain resources over time
+                        _ => {
+                            // Parasitic Microbes - attach to hosts, drain resources over time
                             rates[0] = -0.1; // Low oxygen consumption (parasitic lifestyle)
-                            rates[4] = 0.4;  // Toxin production for host weakening
-                            rates[3] = 0.3;  // Pheromone production for host tracking
+                            rates[4] = 0.4; // Toxin production for host weakening
+                            rates[3] = 0.3; // Pheromone production for host tracking
                             (0.8, rates) // Metabolism for parasitic microbes
                         }
                     }
                 }
             };
-            
+
             agents.push(Agent {
                 position: [rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0)],
                 velocity: [rng.random_range(-0.01..0.01), rng.random_range(-0.01..0.01)],
@@ -2478,7 +2661,8 @@ impl Simulation for EcosystemModel {
                 variant: variant as u32,
                 sensor_readings: [0.0; 4],
                 heading: rng.random_range(0.0..6.28318),
-                run_duration: rng.random_range(self.settings.run_duration_min..self.settings.run_duration_max),
+                run_duration: rng
+                    .random_range(self.settings.run_duration_min..self.settings.run_duration_max),
                 run_timer: 0.0,
                 tumble_cooldown: 0.0,
                 metabolism_rate: metabolism,
@@ -2504,8 +2688,13 @@ impl Simulation for EcosystemModel {
         queue.write_buffer(&self.agent_buffer, 0, bytemuck::cast_slice(&agents));
 
         // Update simulation parameters with new random seed
-        let sim_params = SimParams::from_settings(&self.settings, 2.0, 2.0, self.settings.agent_count);
-        queue.write_buffer(&self.sim_params_buffer, 0, bytemuck::cast_slice(&[sim_params]));
+        let sim_params =
+            SimParams::from_settings(&self.settings, 2.0, 2.0, self.settings.agent_count);
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
 
         // Clear chemical field buffer
         let chemical_buffer_size = (self.settings.chemical_resolution
@@ -2516,23 +2705,33 @@ impl Simulation for EcosystemModel {
         queue.write_buffer(&self.chemical_field_buffer, 0, clear_bytes);
         queue.write_buffer(&self.chemical_field_temp_buffer, 0, clear_bytes);
 
-        // Clear biomass buffer
-        let biomass_buffer_size = self.settings.max_particles as usize;
-        let clear_biomass_data = vec![DeadBiomass {
-            position: [0.0, 0.0],
-            biomass_amount: 0.0,
-            species_origin: 0,
-            decay_time: 0.0,
-            decomposition_progress: 0.0,
-            is_active: 0,
-            _pad: [0],
-        }; biomass_buffer_size];
-        queue.write_buffer(&self.biomass_buffer, 0, bytemuck::cast_slice(&clear_biomass_data));
+        // Clear biomass buffer - buffer is already the correct size
+        let clear_biomass_data = vec![
+            DeadBiomass {
+                position: [0.0, 0.0],
+                biomass_amount: 0.0,
+                species_origin: 0,
+                decay_time: 0.0,
+                decomposition_progress: 0.0,
+                is_active: 0,
+                _pad: [0],
+            };
+            self.settings.max_particles as usize
+        ];
+        queue.write_buffer(
+            &self.biomass_buffer,
+            0,
+            bytemuck::cast_slice(&clear_biomass_data),
+        );
 
         // Reset visibility flags to all visible
-        let total_species = self.settings.ecological_roles * self.settings.variants_per_role;
+        let total_species = 9; // 3 roles * 3 variants = 9 species
         self.visibility_flags = vec![1u32; total_species as usize];
-        queue.write_buffer(&self.visibility_buffer, 0, bytemuck::cast_slice(&self.visibility_flags));
+        queue.write_buffer(
+            &self.visibility_buffer,
+            0,
+            bytemuck::cast_slice(&self.visibility_flags),
+        );
 
         // Ensure GPU operations complete
         device.poll(wgpu::Maintain::Wait);
@@ -2555,11 +2754,9 @@ impl Simulation for EcosystemModel {
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         self.settings.randomize();
-        self.species_colors = Self::generate_species_colors(self.settings.ecological_roles);
+        self.species_colors = Self::generate_species_colors(9); // Fixed at 3 roles * 3 variants = 9 species
         Ok(())
     }
-
-
 }
 
 impl EcosystemModel {
@@ -2570,19 +2767,24 @@ impl EcosystemModel {
         variant: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        let species_index = (ecological_role * self.settings.variants_per_role + variant) as usize;
-        let total_species = (self.settings.ecological_roles * self.settings.variants_per_role) as usize;
-        
+        let species_index = (ecological_role * 3 + variant) as usize; // Fixed at 3 variants per role
+        let total_species = 9; // Fixed at 3 roles * 3 variants = 9 species
+
         if species_index >= total_species {
             return Err(SimulationError::InvalidParameter(format!(
                 "Species index {} out of range (max: {})",
-                species_index, total_species - 1
+                species_index,
+                total_species - 1
             )));
         }
 
         // Toggle the visibility flag in our local state
-        self.visibility_flags[species_index] = if self.visibility_flags[species_index] == 1 { 0 } else { 1 };
-        
+        self.visibility_flags[species_index] = if self.visibility_flags[species_index] == 1 {
+            0
+        } else {
+            1
+        };
+
         // Update GPU buffer with the current state
         queue.write_buffer(
             &self.visibility_buffer,
@@ -2590,10 +2792,13 @@ impl EcosystemModel {
             bytemuck::cast_slice(&self.visibility_flags),
         );
 
-        tracing::info!("Toggled visibility for species role={}, variant={} to {}", 
-                      ecological_role, variant, self.visibility_flags[species_index]);
+        tracing::info!(
+            "Toggled visibility for species role={}, variant={} to {}",
+            ecological_role,
+            variant,
+            self.visibility_flags[species_index]
+        );
 
         Ok(())
     }
 }
-

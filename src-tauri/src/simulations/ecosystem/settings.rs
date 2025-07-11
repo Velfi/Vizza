@@ -41,11 +41,7 @@ pub struct Settings {
     /// Rate at which agents deposit chemicals
     pub chemical_deposition_rate: f32,
 
-    // Ecological roles and variants
-    /// Number of ecological roles (3: Recyclers, Producers, Predators)
-    pub ecological_roles: u32,
-    /// Number of variants per role (multiple species per role)
-    pub variants_per_role: u32,
+    // Ecological role parameters (fixed at 3 roles, 3 variants per role = 9 total species)
     /// Recycler efficiency (bacteria, fungi, decomposer protozoans)
     pub recycler_efficiency: f32,
     /// Producer photosynthesis rate (algae, cyanobacteria, photosynthetic protists)
@@ -201,9 +197,7 @@ impl Default for Settings {
             chemical_decay_rate: 0.015,
             chemical_deposition_rate: 0.3,
 
-            // Ecological roles and variants - Balanced for stable coexistence
-            ecological_roles: 3,
-            variants_per_role: 3,
+            // Ecological role parameters (fixed at 3 roles, 3 variants per role = 9 total species)
             recycler_efficiency: 0.65,
             producer_photosynthesis_rate: 0.75,
             predator_hunting_efficiency: 0.55,
@@ -313,8 +307,8 @@ impl Settings {
         self.chemical_deposition_rate = rng.random_range(0.5..2.0);
 
         // Randomize ecological roles and variants
-        self.ecological_roles = rng.random_range(2..4);
-        self.variants_per_role = rng.random_range(2..5);
+        // self.ecological_roles = rng.random_range(2..4); // Removed
+        // self.variants_per_role = rng.random_range(2..5); // Removed
         self.recycler_efficiency = rng.random_range(0.5..1.0);
         self.producer_photosynthesis_rate = rng.random_range(0.5..1.0);
         self.predator_hunting_efficiency = rng.random_range(0.3..1.0);
@@ -472,6 +466,12 @@ impl Settings {
 
     /// Get list of available visual modes
     pub fn get_visual_modes() -> Vec<&'static str> {
-        vec!["minimal", "ecological", "chemical", "environmental", "debug"]
+        vec![
+            "minimal",
+            "ecological",
+            "chemical",
+            "environmental",
+            "debug",
+        ]
     }
 }

@@ -4,8 +4,8 @@ use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
+use super::shaders::RENDER_3X3_SHADER;
 use crate::simulations::shared::camera::Camera;
-use super::shaders::{RENDER_3X3_SHADER};
 
 #[derive(Debug)]
 pub struct Renderer {
