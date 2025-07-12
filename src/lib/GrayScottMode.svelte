@@ -449,16 +449,6 @@
   let simulationResumedUnlisten: (() => void) | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
 
-  async function randomizeSimulation() {
-    try {
-      await invoke('randomize_settings');
-      await syncSettingsFromBackend();
-      console.log('Settings randomized via keyboard shortcut');
-    } catch (e) {
-      console.error('Failed to randomize settings:', e);
-    }
-  }
-
   // Add a function to fetch the latest camera state from the backend
   async function fetchCameraState() {
     try {
@@ -474,34 +464,6 @@
       }
     } catch (e) {
       console.error('Failed to fetch camera state:', e);
-    }
-  }
-
-  // Update camera control functions to fetch camera state after movement
-  async function panCamera(deltaX: number, deltaY: number) {
-    try {
-      await invoke('pan_camera', { deltaX, deltaY });
-      await fetchCameraState();
-    } catch (e) {
-      console.error('Failed to pan camera:', e);
-    }
-  }
-
-  async function zoomCamera(delta: number) {
-    try {
-      await invoke('zoom_camera', { delta });
-      await fetchCameraState();
-    } catch (e) {
-      console.error('Failed to zoom camera:', e);
-    }
-  }
-
-  async function resetCamera() {
-    try {
-      await invoke('reset_camera');
-      console.log('Camera reset successfully');
-    } catch (e) {
-      console.error('Failed to reset camera:', e);
     }
   }
 
@@ -834,8 +796,6 @@
 </script>
 
 <style>
-  /* Gray-Scott specific styles (if any) */
-
   .interaction-controls-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -880,21 +840,5 @@
     .cursor-settings-header {
       font-size: 0.85rem;
     }
-  }
-
-  .toggle-button {
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    padding: 0;
-    margin: 0;
-    text-align: left;
-    width: 100%;
-  }
-
-  .toggle-button:hover {
-    color: #60a5fa;
   }
 </style>
