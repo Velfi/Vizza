@@ -40,10 +40,6 @@ pub struct Settings {
     /// Controls the amount of random thermal motion applied to particles
     /// Higher values create more chaotic, jittery movement
     pub brownian_motion: f32,
-
-    /// Enable 3x3 grid view to visualize wrap-around behavior
-    /// Always enabled to show 9 instances of the simulation in a grid with faded outer cells
-    pub show_wrap_grid: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -57,6 +53,8 @@ pub enum TypeGenerator {
     LineV,    // Vertical line
     Spiral,   // Spiral pattern
     Dithered, // Dithered pattern
+    WavyLineH, // Wavy horizontal lines
+    WavyLineV, // Wavy vertical lines
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -128,7 +126,6 @@ impl Default for Settings {
             min_distance: 0.001,
             max_distance: 0.01,
             brownian_motion: 0.5,
-            show_wrap_grid: true,
         }
     }
 }

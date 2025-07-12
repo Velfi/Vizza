@@ -214,6 +214,7 @@ pub enum ColorMode {
     Gray18,
     White,
     Black,
+    #[serde(rename = "LUT")]
     Lut,
 }
 
@@ -2301,6 +2302,8 @@ impl Simulation for ParticleLifeModel {
                         "LineV" => super::settings::TypeGenerator::LineV,
                         "Spiral" => super::settings::TypeGenerator::Spiral,
                         "Dithered" => super::settings::TypeGenerator::Dithered,
+                        "WavyLineH" => super::settings::TypeGenerator::WavyLineH,
+                        "WavyLineV" => super::settings::TypeGenerator::WavyLineV,
                         _ => super::settings::TypeGenerator::Random,
                     };
                     self.state.type_generator = generator;
@@ -2435,10 +2438,8 @@ impl Simulation for ParticleLifeModel {
         mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Determine cursor mode based on mouse_button and handle mouse release
-        let cursor_mode = if world_x == -9999.0 && world_y == -9999.0 {
-            0 // mouse release - turn off cursor interaction
-        } else if mouse_button == 0 {
+        // Determine cursor mode based on mouse_button
+        let cursor_mode = if mouse_button == 0 {
             1 // left click = attract
         } else if mouse_button == 2 {
             2 // right click = repel
@@ -2447,11 +2448,8 @@ impl Simulation for ParticleLifeModel {
         };
 
         // Store coordinates directly - conversion is handled in the manager
-        let (sim_x, sim_y) = if cursor_mode == 0 {
-            (0.0, 0.0) // Don't matter when cursor is inactive
-        } else {
-            (world_x, world_y)
-        };
+        let sim_x = world_x;
+        let sim_y = world_y;
 
         // Store cursor values in the model
         self.cursor_active_mode = cursor_mode;
@@ -2504,6 +2502,43 @@ impl Simulation for ParticleLifeModel {
         Ok(())
     }
 
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Turn off cursor interaction
+        self.cursor_active_mode = 0;
+        self.cursor_world_x = 0.0;
+        self.cursor_world_y = 0.0;
+
+        tracing::debug!("ParticleLife mouse release: turning off cursor interaction");
+
+        // Update sim params immediately with cursor deactivated
+        let mut sim_params = SimParams::new(
+            self.width,
+            self.height,
+            self.state.particle_count as u32,
+            &self.settings,
+            &self.state,
+        );
+
+        // Override with cursor values (inactive)
+        sim_params.cursor_x = 0.0;
+        sim_params.cursor_y = 0.0;
+        sim_params.cursor_active = 0;
+        sim_params.cursor_strength = 0.0;
+
+        // Upload to GPU immediately
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
+
+        Ok(())
+    }
+
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
         self.camera.pan(delta_x, delta_y);
     }
@@ -2540,31 +2575,35 @@ impl Simulation for ParticleLifeModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
+        // Deserialize the settings and apply them using update_setting for each field
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
-            let old_species_count = self.settings.species_count;
-            self.settings = new_settings;
-
-            // Upload the entire force matrix when applying new settings
-            let force_matrix_data = Self::flatten_force_matrix(&self.settings.force_matrix);
-            queue.write_buffer(
-                &self.force_matrix_buffer,
-                0,
-                bytemuck::cast_slice(&force_matrix_data),
-            );
-
-            // Update LUT if species count changed
-            if self.settings.species_count != old_species_count {
-                let current_lut_name = self.state.current_lut_name.clone();
-                let lut_reversed = self.state.lut_reversed;
-                let lut_manager = self.lut_manager.clone();
-                self.update_lut(
-                    device,
-                    queue,
-                    &lut_manager,
-                    self.state.color_mode,
-                    Some(&current_lut_name),
-                    lut_reversed,
-                )?;
+            // Apply each setting individually to ensure proper handling
+            if let Ok(species_count) = serde_json::to_value(new_settings.species_count) {
+                self.update_setting("species_count", species_count, device, queue)?;
+            }
+            if let Ok(force_matrix) = serde_json::to_value(new_settings.force_matrix) {
+                self.update_setting("force_matrix", force_matrix, device, queue)?;
+            }
+            if let Ok(max_force) = serde_json::to_value(new_settings.max_force) {
+                self.update_setting("max_force", max_force, device, queue)?;
+            }
+            if let Ok(min_distance) = serde_json::to_value(new_settings.min_distance) {
+                self.update_setting("min_distance", min_distance, device, queue)?;
+            }
+            if let Ok(max_distance) = serde_json::to_value(new_settings.max_distance) {
+                self.update_setting("max_distance", max_distance, device, queue)?;
+            }
+            if let Ok(friction) = serde_json::to_value(new_settings.friction) {
+                self.update_setting("friction", friction, device, queue)?;
+            }
+            if let Ok(force_beta) = serde_json::to_value(new_settings.force_beta) {
+                self.update_setting("force_beta", force_beta, device, queue)?;
+            }
+            if let Ok(brownian_motion) = serde_json::to_value(new_settings.brownian_motion) {
+                self.update_setting("brownian_motion", brownian_motion, device, queue)?;
+            }
+            if let Ok(wrap_edges) = serde_json::to_value(new_settings.wrap_edges) {
+                self.update_setting("wrap_edges", wrap_edges, device, queue)?;
             }
         }
         Ok(())

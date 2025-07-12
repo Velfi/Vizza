@@ -209,6 +209,8 @@
                 { value: 'LineV', label: 'Line V' },
                 { value: 'Spiral', label: 'Spiral' },
                 { value: 'Dithered', label: 'Dithered' },
+                { value: 'WavyLineH', label: 'Wavy Lines H' },
+                { value: 'WavyLineV', label: 'Wavy Lines V' },
               ]}
               on:change={({ detail }) => updateTypeGenerator(detail.value)}
               on:buttonclick={async () => {
@@ -499,30 +501,11 @@
 
     <!-- Save Preset Dialog -->
     {#if show_save_preset_dialog}
-      <div
-        class="dialog-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="save-preset-title"
-        tabindex="-1"
-        on:click={() => (show_save_preset_dialog = false)}
-        on:keydown={(e) => e.key === 'Escape' && (show_save_preset_dialog = false)}
-      >
-        <div class="dialog" role="document">
-          <h3 id="save-preset-title">Save Preset</h3>
-          <input
-            type="text"
-            placeholder="Enter preset name..."
-            value={new_preset_name}
-            on:input={(e) => (new_preset_name = (e.target as HTMLInputElement).value)}
-            on:keydown={(e) => e.key === 'Enter' && savePreset()}
-          />
-          <div class="dialog-buttons">
-            <button on:click={savePreset} disabled={new_preset_name.trim() === ''}> Save </button>
-            <button on:click={() => (show_save_preset_dialog = false)}> Cancel </button>
-          </div>
-        </div>
-      </div>
+      <SavePresetDialog
+        bind:presetName={new_preset_name}
+        on:save={({ detail }) => savePreset(detail.name)}
+        on:close={() => (show_save_preset_dialog = false)}
+      />
     {/if}
 
     <!-- Mouse overlay for camera interaction -->
@@ -551,6 +534,7 @@
   import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
+  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
@@ -567,7 +551,6 @@
     wrap_edges: boolean;
     force_beta: number;
     brownian_motion: number;
-    show_wrap_grid: boolean;
   }
 
   interface State {
@@ -602,7 +585,6 @@
     wrap_edges: true,
     force_beta: 0.3,
     brownian_motion: 0.1,
-    show_wrap_grid: true,
   };
 
   // Runtime state
@@ -620,7 +602,7 @@
     matrix_generator: 'Random',
     current_lut: '',
     lut_reversed: false,
-    color_mode: 'LUT',
+    color_mode: 'Lut',
   };
 
   // UI state
@@ -633,6 +615,8 @@
   let fps_display = 0;
   let isSimulationRunning = false;
   let isLoading = true;
+
+
 
   // Enhanced UI state
   let showUI = true;
@@ -964,27 +948,33 @@
     }
   }
 
-  async function savePreset() {
-    if (new_preset_name.trim() === '') return;
+  async function savePreset(presetName?: string) {
+    const nameToSave = presetName || new_preset_name;
+    if (nameToSave.trim() === '') return;
 
     try {
       await invoke('save_preset', {
-        presetName: new_preset_name.trim(),
+        presetName: nameToSave.trim(),
         settings: settings,
       });
 
       // Refresh presets list
       await loadPresets();
 
+      // Set the current preset to the newly saved one
+      current_preset = nameToSave.trim();
+
       // Clear dialog
       new_preset_name = '';
       show_save_preset_dialog = false;
 
-      console.log(`Saved preset: ${new_preset_name}`);
+      console.log(`Saved preset: ${nameToSave}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
   }
+
+
 
   // Data loading functions
   async function loadPresets() {
@@ -1055,6 +1045,7 @@
       }
 
       const backendState = await invoke('get_current_state');
+      console.log('Backend state received:', backendState);
       if (backendState) {
         const oldParticleCount = state.particle_count;
 
@@ -1118,6 +1109,16 @@
               state.lut_reversed = newReversed;
               console.log(`Synced LUT reversed from backend: ${state.lut_reversed}`);
             }
+          }
+          if ('color_mode' in backendState) {
+            const backendColorMode = (backendState as any).color_mode || 'LUT';
+            console.log(`Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`);
+            if (backendColorMode !== state.color_mode) {
+              state.color_mode = backendColorMode;
+              console.log(`Synced color mode from backend: ${state.color_mode}`);
+            }
+          } else {
+            console.log('No color_mode in backend state, keeping frontend default:', state.color_mode);
           }
         }
 
@@ -1309,6 +1310,15 @@
   let animationFrameId: number | null = null;
 
   function handleKeyDown(event: KeyboardEvent) {
+    // Check if the focused element is an input field
+    const activeElement = document.activeElement;
+    const isInputFocused = activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      (activeElement as HTMLElement).contentEditable === 'true'
+    );
+
     if (event.key === '/') {
       event.preventDefault();
       toggleBackendGui();
@@ -1316,6 +1326,7 @@
     }
 
     // Handle camera controls - allow camera controls even when simulation is paused
+    // But don't handle camera controls when an input is focused
     const cameraKeys = [
       'w',
       'a',
@@ -1329,7 +1340,7 @@
       'e',
       'c',
     ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
+    if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
       event.preventDefault();
       pressedKeys.add(event.key.toLowerCase());
     }
@@ -1500,12 +1511,9 @@
       isMousePressed = false;
 
       // Stop cursor interaction when mouse is released
-      // Send special coordinates to indicate mouse release
       try {
-        await invoke('handle_mouse_interaction_screen', {
-          screenX: -9999.0,
-          screenY: -9999.0,
-          mouseButton: 0,
+        await invoke('handle_mouse_release', {
+          mouseButton: currentMouseButton,
         });
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);
@@ -1979,13 +1987,7 @@
 </script>
 
 <style>
-  .simulation-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: transparent;
-    position: relative;
-  }
+  /* Particle Life specific styles */
 
   /* Loading Screen Styles */
   .loading-screen {
@@ -2034,56 +2036,8 @@
     font-size: 1rem;
   }
 
-  fieldset {
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  legend {
-    font-weight: bold;
-    padding: 0 0.5rem;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .control-group {
-    margin-bottom: 1rem;
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  input[type='checkbox'] {
-    margin-right: 0.5rem;
-  }
-
-  .preset-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-
   button {
-    padding: 0.5rem 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
     height: 35px;
-  }
-
-  button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 1);
   }
 
   .matrix-info {
@@ -2286,7 +2240,7 @@
   }
 
   .matrix-legend .negative {
-    color: #ea3333;
+    color: #336aea;
   }
 
   .matrix-legend .neutral {
@@ -2294,7 +2248,7 @@
   }
 
   .matrix-legend .positive {
-    color: #22c55e;
+    color: #c42f1c;
   }
 
   .icon-btn.scale-down {

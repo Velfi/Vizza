@@ -207,6 +207,66 @@ fn generate_dithered_type(position: vec2<f32>, seed: u32, n_types: u32) -> u32 {
     return base_band % n_types;
 }
 
+fn generate_wavy_line_h_type(position: vec2<f32>, seed: u32, n_types: u32) -> u32 {
+    // Create wavy horizontal lines using sine waves
+    let wave_frequency = 2.5; // Number of waves across the width
+    let wave_amplitude = 0.25; // Amplitude of the waves
+    let line_thickness = 0.08; // Thickness of the wavy lines
+    
+    // Create multiple wavy lines
+    let normalized_y = (position.y + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    let line_spacing = 1.0 / f32(n_types); // Space between lines
+    
+    // Check each wavy line to see if this position is within it
+    for (var i = 0u; i < n_types; i = i + 1u) {
+        let line_center = (f32(i) + 0.5) * line_spacing;
+        
+        // Calculate the wavy line position using sine wave
+        let wave_offset = sin(position.x * wave_frequency * 3.14159) * wave_amplitude;
+        let line_y = line_center + wave_offset;
+        
+        // Check if position is within the wavy line
+        let distance_to_line = abs(normalized_y - line_y);
+        if (distance_to_line < line_thickness) {
+            return i;
+        }
+    }
+    
+    // For areas outside the wavy lines, distribute based on y position
+    let background_type = u32(normalized_y * f32(n_types)) % n_types;
+    return background_type;
+}
+
+fn generate_wavy_line_v_type(position: vec2<f32>, seed: u32, n_types: u32) -> u32 {
+    // Create wavy vertical lines using sine waves
+    let wave_frequency = 2.5; // Number of waves across the height
+    let wave_amplitude = 0.25; // Amplitude of the waves
+    let line_thickness = 0.08; // Thickness of the wavy lines
+    
+    // Create multiple wavy lines
+    let normalized_x = (position.x + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    let line_spacing = 1.0 / f32(n_types); // Space between lines
+    
+    // Check each wavy line to see if this position is within it
+    for (var i = 0u; i < n_types; i = i + 1u) {
+        let line_center = (f32(i) + 0.5) * line_spacing;
+        
+        // Calculate the wavy line position using sine wave (waves along y-axis)
+        let wave_offset = sin(position.y * wave_frequency * 3.14159) * wave_amplitude;
+        let line_x = line_center + wave_offset;
+        
+        // Check if position is within the wavy line
+        let distance_to_line = abs(normalized_x - line_x);
+        if (distance_to_line < line_thickness) {
+            return i;
+        }
+    }
+    
+    // For areas outside the wavy lines, distribute based on x position
+    let background_type = u32(normalized_x * f32(n_types)) % n_types;
+    return background_type;
+}
+
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let index = global_id.x;
@@ -291,6 +351,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         case 8u: { // Dithered
             initial_type = generate_dithered_type(position, seed, init_params.species_count);
+        }
+        case 9u: { // WavyLineH
+            initial_type = generate_wavy_line_h_type(position, seed, init_params.species_count);
+        }
+        case 10u: { // WavyLineV
+            initial_type = generate_wavy_line_v_type(position, seed, init_params.species_count);
         }
         default: {
             initial_type = generate_random_type(seed, init_params.species_count);

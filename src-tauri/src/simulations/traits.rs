@@ -66,6 +66,13 @@ pub trait Simulation {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
 
+    /// Handle mouse release events
+    fn handle_mouse_release(
+        &mut self,
+        mouse_button: u32, // 0 = left, 1 = middle, 2 = right
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()>;
+
     /// Pan the camera by the given delta
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32);
 
@@ -336,6 +343,27 @@ impl Simulation for SimulationType {
             }
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)
+            }
+        }
+    }
+
+    fn handle_mouse_release(
+        &mut self,
+        mouse_button: u32, // 0 = left, 1 = middle, 2 = right
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        match self {
+            SimulationType::SlimeMold(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
             }
         }
     }

@@ -743,6 +743,15 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, queue)
     }
 
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Gray Scott doesn't need mouse release handling - cursor interaction is immediate
+        Ok(())
+    }
+
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
         GrayScottModel::pan_camera(self, delta_x, delta_y);
     }

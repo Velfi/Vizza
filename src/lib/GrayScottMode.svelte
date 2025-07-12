@@ -251,18 +251,13 @@
     </form>
   </SimulationMenuContainer>
 
-  <!-- Save Preset Dialog -->
+    <!-- Save Preset Dialog -->
   {#if show_save_preset_dialog}
-    <div class="dialog-backdrop">
-      <div class="dialog">
-        <h3>Save Current Settings</h3>
-        <input type="text" bind:value={new_preset_name} placeholder="Enter preset name" />
-        <div class="dialog-buttons">
-          <button type="button" on:click={savePreset}>Save</button>
-          <button type="button" on:click={() => (show_save_preset_dialog = false)}>Cancel</button>
-        </div>
-      </div>
-    </div>
+    <SavePresetDialog
+      bind:presetName={new_preset_name}
+      on:save={({ detail }) => savePreset(detail.name)}
+      on:close={() => (show_save_preset_dialog = false)}
+    />
   {/if}
 </div>
 
@@ -276,6 +271,7 @@
   import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
   import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -356,9 +352,10 @@
     }
   }
 
-  async function savePreset() {
+  async function savePreset(presetName?: string) {
+    const nameToSave = presetName || new_preset_name;
     try {
-      await invoke('save_preset', { preset_name: new_preset_name });
+      await invoke('save_preset', { preset_name: nameToSave });
       show_save_preset_dialog = false;
       new_preset_name = '';
       // Refresh the available presets list
@@ -367,6 +364,8 @@
       console.error('Failed to save preset:', e);
     }
   }
+
+
 
   // Simulation state
   let running = false;
@@ -522,6 +521,15 @@
   let lastMouseButton = -1; // Track which button was pressed for drag consistency
 
   function handleKeydown(event: KeyboardEvent) {
+    // Check if the focused element is an input field
+    const activeElement = document.activeElement;
+    const isInputFocused = activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      (activeElement as HTMLElement).contentEditable === 'true'
+    );
+
     if (event.key === '/') {
       event.preventDefault();
       toggleBackendGui();
@@ -530,6 +538,7 @@
       randomizeSimulation();
     } else {
       // Allow camera controls even when simulation is paused
+      // But don't handle camera controls when an input is focused
       const cameraKeys = [
         'w',
         'a',
@@ -543,7 +552,7 @@
         'e',
         'c',
       ];
-      if (cameraKeys.includes(event.key.toLowerCase())) {
+      if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
         event.preventDefault();
         pressedKeys.add(event.key.toLowerCase());
       }

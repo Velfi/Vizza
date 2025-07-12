@@ -31,7 +31,7 @@
     on:click|self={closeGradientEditor}
     on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
   >
-    <div class="dialog-content gradient-editor-content" role="document">
+    <div class="dialog-content gradient-editor-content" role="document" on:click|stopPropagation>
       <h3 id="gradient-editor-title">Custom LUT Editor</h3>
 
       <!-- LUT Name Input -->

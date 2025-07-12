@@ -173,9 +173,15 @@
 
   // Calculate force at a given distance
   function calculateForce(distance: number): number {
-    if (distance < betaDistance) {
-      // Close range: linear repulsion
-      return (distance / betaDistance - 1.0) * internalMaxForce;
+    const minDist = 0.001;
+    const betaRmax = internalForceBeta * internalMaxDistance;
+    if (distance < betaRmax) {
+      // Compute scale so that force at minDist matches old linear formula
+      const fOld = (minDist / betaRmax - 1.0) * internalMaxForce;
+      const scale = -fOld * minDist * minDist;
+      const effectiveDistance = Math.max(distance, minDist);
+      const repulsionStrength = scale / (effectiveDistance * effectiveDistance);
+      return -repulsionStrength; // Invert sign for plotting (close range only)
     } else if (distance <= internalMaxDistance) {
       // Far range: species-specific attraction/repulsion
       const farRangeForce = internalMaxForce * 0.5;
@@ -184,7 +190,7 @@
         (1.0 -
           (1.0 + internalForceBeta - (2.0 * distance) / internalMaxDistance) /
             (1.0 - internalForceBeta))
-      );
+      ); // No sign inversion for far range
     }
     return 0;
   }

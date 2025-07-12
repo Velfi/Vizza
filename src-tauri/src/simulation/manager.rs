@@ -218,57 +218,54 @@ impl SimulationManager {
                     )?;
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    // Handle mouse release special case before camera transformation
-                    if screen_x == -9999.0 && screen_y == -9999.0 {
-                        println!("🌍 ParticleLife mouse: RELEASE");
-                        simulation.handle_mouse_interaction(
-                            -9999.0,
-                            -9999.0,
-                            mouse_button,
-                            queue,
-                        )?;
-                    } else {
-                        let camera = &simulation.camera;
-                        let screen = ScreenCoords::new(screen_x, screen_y);
-                        let world = camera.screen_to_world(screen);
+                    let camera = &simulation.camera;
+                    let screen = ScreenCoords::new(screen_x, screen_y);
+                    let world = camera.screen_to_world(screen);
 
-                        // Particles now live in [-1,1] world space, so use world coordinates directly
-                        let particle_x = world.x;
-                        let particle_y = world.y;
+                    // Particles now live in [-1,1] world space, so use world coordinates directly
+                    let particle_x = world.x;
+                    let particle_y = world.y;
 
-                        simulation.handle_mouse_interaction(
-                            particle_x,
-                            particle_y,
-                            mouse_button,
-                            queue,
-                        )?;
-                    }
+                    simulation.handle_mouse_interaction(
+                        particle_x,
+                        particle_y,
+                        mouse_button,
+                        queue,
+                    )?;
                 }
                 SimulationType::SlimeMold(simulation) => {
-                    // Handle mouse release special case before camera transformation
-                    if screen_x == -9999.0 && screen_y == -9999.0 {
-                        println!("🌍 SlimeMold mouse: RELEASE");
-                        simulation.handle_mouse_interaction(
-                            -9999.0,
-                            -9999.0,
-                            mouse_button,
-                            queue,
-                        )?;
-                    } else {
-                        let camera = &simulation.camera;
-                        let screen = ScreenCoords::new(screen_x, screen_y);
-                        let world = camera.screen_to_world(screen);
-                        let world_x = world.x;
-                        let world_y = world.y;
-                        simulation.handle_mouse_interaction(
-                            world_x,
-                            world_y,
-                            mouse_button,
-                            queue,
-                        )?;
-                    }
+                    let camera = &simulation.camera;
+                    let screen = ScreenCoords::new(screen_x, screen_y);
+                    let world = camera.screen_to_world(screen);
+                    let world_x = world.x;
+                    let world_y = world.y;
+                    simulation.handle_mouse_interaction(
+                        world_x,
+                        world_y,
+                        mouse_button,
+                        queue,
+                    )?;
                 }
                 _ => (),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn handle_mouse_release(
+        &mut self,
+        mouse_button: u32,
+        queue: &Arc<Queue>,
+    ) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            match simulation {
+                SimulationType::ParticleLife(simulation) => {
+                    simulation.handle_mouse_release(mouse_button, queue)?;
+                }
+                SimulationType::SlimeMold(simulation) => {
+                    simulation.handle_mouse_release(mouse_button, queue)?;
+                }
+                _ => (), // Gray Scott doesn't need mouse release handling
             }
         }
         Ok(())

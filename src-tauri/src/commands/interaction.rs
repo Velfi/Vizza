@@ -38,11 +38,7 @@ pub async fn handle_mouse_interaction_screen(
     screen_y: f32,
     mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
-    println!(
-        "🖱️ Mouse interaction: screen=({}, {}), button={}",
-        screen_x, screen_y, mouse_button
-    );
-    tracing::info!(
+    tracing::trace!(
         "Mouse interaction: screen=({}, {}), button={}",
         screen_x,
         screen_y,
@@ -55,6 +51,22 @@ pub async fn handle_mouse_interaction_screen(
         .handle_mouse_interaction_screen_coords(screen_x, screen_y, mouse_button, &gpu_ctx.queue)
         .map_err(|e| e.to_string())?;
     Ok("Mouse interaction handled".to_string())
+}
+
+#[tauri::command]
+pub async fn handle_mouse_release(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    mouse_button: u32, // 0 = left, 1 = middle, 2 = right
+) -> Result<String, String> {
+    tracing::trace!("Mouse release: button={}", mouse_button);
+
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+    sim_manager
+        .handle_mouse_release(mouse_button, &gpu_ctx.queue)
+        .map_err(|e| e.to_string())?;
+    Ok("Mouse release handled".to_string())
 }
 
 #[tauri::command]

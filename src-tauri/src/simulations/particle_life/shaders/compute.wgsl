@@ -72,16 +72,21 @@ fn get_force(species_a: u32, species_b: u32) -> f32 {
 fn calculate_force(distance: f32, attraction: f32) -> f32 {
     let rmax = params.max_distance;
     let force_multiplier = params.max_force;
-    
-    if (distance < params.beta * rmax) {
-        // Close range: linear repulsion
-        return (distance / (params.beta * rmax) - 1.0) * force_multiplier;
+    let beta = params.beta;
+    let min_dist = 0.001;
+    let effective_distance = max(distance, min_dist);
+    let beta_rmax = beta * rmax;
+    if (distance < beta_rmax) {
+        // Compute scale so that force at min_dist matches old linear formula
+        let f_old = (min_dist / beta_rmax - 1.0) * force_multiplier;
+        let scale = -f_old * min_dist * min_dist;
+        let repulsion_strength = scale / (effective_distance * effective_distance);
+        return repulsion_strength;
     } else if (distance <= rmax) {
         // Far range: species-specific attraction/repulsion
-        return attraction * (1.0 - (1.0 + params.beta - 2.0 * distance / rmax) / (1.0 - params.beta)) * force_multiplier;
+        return attraction * (1.0 - (1.0 + beta - 2.0 * distance / rmax) / (1.0 - beta)) * force_multiplier;
     }
-    
-    return 0.0; // No force beyond max distance
+    return 0.0;
 }
 
 // Wrap position around world boundaries [-1,1]

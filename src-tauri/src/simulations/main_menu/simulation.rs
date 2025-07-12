@@ -289,6 +289,15 @@ impl Simulation for MainMenuModel {
         Ok(())
     }
 
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // No mouse interaction for this simulation
+        Ok(())
+    }
+
     fn pan_camera(&mut self, _delta_x: f32, _delta_y: f32) {
         // No camera for this simulation
     }

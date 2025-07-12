@@ -64,27 +64,11 @@
           </button> -->
         </div>
         {#if show_save_preset_dialog}
-          <div class="save-preset-dialog">
-            <div class="dialog-content">
-              <h3>Save Preset</h3>
-              <div class="control-group">
-                <label for="newPresetName">Preset Name</label>
-                <input type="text" id="newPresetName" bind:value={new_preset_name} />
-              </div>
-              <div class="dialog-actions">
-                <button type="button" on:click={savePreset}> Save </button>
-                <button
-                  type="button"
-                  on:click={() => {
-                    show_save_preset_dialog = false;
-                    new_preset_name = '';
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
+          <SavePresetDialog
+            bind:presetName={new_preset_name}
+            on:save={({ detail }) => savePreset(detail.name)}
+            on:close={() => (show_save_preset_dialog = false)}
+          />
         {/if}
       </fieldset>
 
@@ -539,6 +523,7 @@
   import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
   import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -704,9 +689,10 @@
     }
   }
 
-  async function savePreset() {
+  async function savePreset(presetName?: string) {
+    const nameToSave = presetName || new_preset_name;
     try {
-      await invoke('save_preset', { presetName: new_preset_name });
+      await invoke('save_preset', { presetName: nameToSave });
       show_save_preset_dialog = false;
       new_preset_name = '';
       // Refresh the available presets list
@@ -715,6 +701,8 @@
       console.error('Failed to save preset:', e);
     }
   }
+
+
 
   let running = false;
   let loading = false;
@@ -919,6 +907,15 @@
 
   // Keyboard event handler
   function handleKeydown(event: KeyboardEvent) {
+    // Check if the focused element is an input field
+    const activeElement = document.activeElement;
+    const isInputFocused = activeElement && (
+      activeElement.tagName === 'INPUT' ||
+      activeElement.tagName === 'TEXTAREA' ||
+      activeElement.tagName === 'SELECT' ||
+      (activeElement as HTMLElement).contentEditable === 'true'
+    );
+
     if (event.key === '/') {
       event.preventDefault();
       toggleBackendGui();
@@ -926,7 +923,7 @@
       event.preventDefault();
       randomizeSimulation();
     } else {
-      // Camera controls
+      // Camera controls - don't handle when an input is focused
       const cameraKeys = [
         'w',
         'a',
@@ -940,7 +937,7 @@
         'e',
         'c',
       ];
-      if (cameraKeys.includes(event.key.toLowerCase())) {
+      if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
         event.preventDefault();
         pressedKeys.add(event.key.toLowerCase());
       }
@@ -1198,17 +1195,17 @@
         } catch (e) {
           // Don't spam errors
         }
-      } else if (mouseEvent.type === 'mouseup' || mouseEvent.type === 'mouseleave') {
+      } else if (mouseEvent.type === 'mouseup') {
         isMousePressed = false;
         try {
-          await invoke('handle_mouse_interaction_screen', {
-            screenX: -9999.0,
-            screenY: -9999.0,
-            mouseButton: 0,
+          await invoke('handle_mouse_release', {
+            mouseButton: currentMouseButton,
           });
         } catch (e) {
           // Don't spam errors
         }
+      } else if (mouseEvent.type === 'mouseleave') {
+        isMousePressed = false;
       } else if (mouseEvent.type === 'contextmenu') {
         // Prevent right-click menu
         event.preventDefault();
@@ -1316,21 +1313,9 @@
 <style>
   /* SlimeMold specific styles */
 
-  /* Custom loading screen styling */
+  /* Custom loading screen styling - override for black background */
   .loading-overlay {
     background: black;
-  }
-
-  .loading-content {
-    padding: 2rem;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  .loading-content h2 {
-    margin: 1rem 0 0.5rem 0;
-    font-size: 1.5rem;
   }
 
   .loading-spinner {
@@ -1338,202 +1323,5 @@
     height: 40px;
     border: 4px solid rgba(255, 255, 255, 0.3);
     border-top: 4px solid #646cff;
-  }
-
-  /* Custom dialog styling */
-  .save-preset-dialog {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .dialog-content {
-    background: white;
-    padding: 1rem;
-    border-radius: 4px;
-    min-width: 300px;
-  }
-
-  .dialog-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-    margin-top: 1rem;
-  }
-
-  .simulation-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: transparent;
-    position: relative;
-  }
-
-  fieldset {
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  legend {
-    font-weight: bold;
-    padding: 0 0.5rem;
-  }
-
-  .control-group {
-    margin-bottom: 1rem;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-  }
-
-  input[type='number'],
-  select {
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-  }
-
-  .preset-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-
-  .interaction-controls-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    align-items: start;
-  }
-
-  .interaction-help {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .cursor-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .cursor-settings-header {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.8);
-    padding: 0.25rem 0;
-  }
-
-  /* Mobile responsive design */
-  @media (max-width: 768px) {
-    .interaction-controls-grid {
-      grid-template-columns: 1fr;
-      gap: 0.75rem;
-    }
-
-    .interaction-help {
-      gap: 0.4rem;
-    }
-
-    .cursor-settings {
-      gap: 0.4rem;
-    }
-
-    .cursor-settings-header {
-      font-size: 0.85rem;
-    }
-  }
-
-  .mouse-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
-    pointer-events: auto;
-  }
-
-  /* Key/Value pair settings layout */
-  .settings-grid {
-    display: grid;
-    grid-template-columns: 200px 120px;
-    gap: 0.25rem 0.5rem;
-    justify-content: center;
-  }
-
-  .setting-item {
-    display: contents;
-  }
-
-  .setting-label {
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 0.5rem 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .setting-item:last-child .setting-label {
-    border-bottom: none;
-  }
-
-  .setting-item select,
-  .setting-item input[type='number'] {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 0.25rem 0.5rem;
-    font-family: inherit;
-    font-size: 0.875rem;
-    width: 100%;
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    border: 0;
-    padding: 0;
-    white-space: nowrap;
-    clip-path: inset(100%);
-    clip: rect(0 0 0 0);
-  }
-
-  /* Settings section styling */
-  .settings-section {
-    margin-bottom: 1.5rem;
-  }
-
-  .settings-section:last-child {
-    margin-bottom: 0;
-  }
-
-  .section-header {
-    font-size: 1rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.9);
-    margin: 0 0 0.75rem 0;
-    padding: 0.25rem 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-  }
-
-  .section-separator {
-    height: 1px;
-    background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.3), transparent);
-    margin: 1.5rem 0;
   }
 </style>
