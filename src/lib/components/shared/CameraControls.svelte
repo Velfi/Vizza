@@ -1,6 +1,11 @@
+<!-- This component doesn't render anything, it just handles keyboard events -->
+
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { createEventDispatcher } from 'svelte';
+
+  const dispatch = createEventDispatcher();
 
   export let enabled: boolean = true;
 
@@ -12,13 +17,13 @@
 
     // Check if user is focused on a form element - if so, don't process camera controls
     const activeElement = document.activeElement;
-    const isInputFocused = activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    );
-    
+    const isInputFocused =
+      activeElement &&
+      (activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.tagName === 'SELECT' ||
+        (activeElement as HTMLElement).contentEditable === 'true');
+
     if (isInputFocused) {
       return; // Let the form element handle the keyboard input
     }
@@ -26,7 +31,7 @@
     if (event.key === '/') {
       event.preventDefault();
       // Dispatch event for parent to handle GUI toggle
-      dispatchEvent(new CustomEvent('toggleGui'));
+      dispatch('toggleGui');
       return;
     }
 
@@ -167,5 +172,3 @@
     }
   });
 </script>
-
-<!-- This component doesn't render anything, it just handles keyboard events --> 

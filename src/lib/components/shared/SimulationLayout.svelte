@@ -1,3 +1,45 @@
+<div
+  class="simulation-container"
+  on:mousedown={handleMouseEvent}
+  on:mousemove={handleMouseEvent}
+  on:mouseup={handleMouseEvent}
+  on:wheel={handleMouseEvent}
+  on:contextmenu={handleContextMenu}
+  role="button"
+  tabindex="0"
+>
+  <SimulationControlBar
+    {simulationName}
+    {running}
+    {loading}
+    {showUI}
+    {currentFps}
+    {controlsVisible}
+    on:back={handleBack}
+    on:toggleUI={handleToggleUI}
+    on:pause={handlePause}
+    on:resume={handleResume}
+    on:reset={handleReset}
+    on:randomize={handleRandomize}
+    on:userInteraction={handleUserInteraction}
+  />
+
+  <SimulationMenuContainer position={menuPosition} {showUI}>
+    <slot />
+  </SimulationMenuContainer>
+
+  <!-- Loading Screen -->
+  {#if loading}
+    <div class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <h2>Starting Simulation...</h2>
+        <p>Initializing GPU resources</p>
+      </div>
+    </div>
+  {/if}
+</div>
+
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import SimulationControlBar from './SimulationControlBar.svelte';
@@ -51,50 +93,18 @@
     }
     // If the event bubbled up from a child element, let it pass through normally
   }
+
+  // Handle context menu - only prevent default when clicking on simulation area
+  function handleContextMenu(event: MouseEvent) {
+    // Only prevent context menu when clicking directly on the container (simulation area)
+    if (event.target === event.currentTarget) {
+      event.preventDefault();
+      // Forward the context menu event as a right-click for simulation interaction
+      dispatch('mouseEvent', event);
+    }
+    // If clicking on UI elements, allow normal context menu behavior
+  }
 </script>
-
-<div 
-  class="simulation-container"
-  on:mousedown={handleMouseEvent}
-  on:mousemove={handleMouseEvent}
-  on:mouseup={handleMouseEvent}
-  on:wheel={handleMouseEvent}
-  on:contextmenu|preventDefault
-  role="button"
-  tabindex="0"
->
-  <SimulationControlBar
-    {simulationName}
-    {running}
-    {loading}
-    {showUI}
-    {currentFps}
-    {controlsVisible}
-    on:back={handleBack}
-    on:toggleUI={handleToggleUI}
-    on:pause={handlePause}
-    on:resume={handleResume}
-    on:reset={handleReset}
-    on:randomize={handleRandomize}
-    on:userInteraction={handleUserInteraction}
-  />
-
-  <SimulationMenuContainer position={menuPosition} {showUI}>
-    <slot />
-  </SimulationMenuContainer>
-
-  <!-- Loading Screen -->
-  {#if loading}
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <h2>Starting Simulation...</h2>
-        <p>Initializing GPU resources</p>
-      </div>
-    </div>
-  {/if}
-
-</div>
 
 <style>
   .simulation-container {
@@ -133,8 +143,12 @@
   }
 
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 
   .loading-content h2 {
@@ -146,4 +160,4 @@
     margin: 0;
     opacity: 0.8;
   }
-</style> 
+</style>

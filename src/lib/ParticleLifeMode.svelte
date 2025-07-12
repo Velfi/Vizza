@@ -24,23 +24,34 @@
       on:mouseEvent={handleMouseEvent}
     >
       <form on:submit|preventDefault>
+        <!-- About this simulation -->
+        <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+          <p>
+            Particle Life is a simulation where particles of different species interact with each
+            other based on a force matrix. Each species can attract, repel, or remain neutral
+            towards other species, creating complex emergent behaviors and beautiful patterns.
+          </p>
+          <p>
+            The simulation features up to 8 different species, each with their own color. The
+            interaction matrix below determines how strongly each species attracts or repels others.
+            Positive values create attraction, negative values create repulsion, and values near
+            zero result in neutral behavior.
+          </p>
+          <p>
+            Experiment with different matrix generators, adjust physics parameters, and watch as
+            simple rules give rise to complex, lifelike behaviors including flocking, clustering,
+            orbital patterns, and dynamic ecosystems.
+          </p>
+        </CollapsibleFieldset>
+
         <!-- Presets -->
-        <fieldset>
-          <legend>Presets</legend>
-          <div class="control-group">
-            <Selector
-              options={available_presets}
-              bind:value={current_preset}
-              placeholder="Select Preset..."
-              on:change={({ detail }) => updatePreset(detail.value)}
-            />
-          </div>
-          <div class="preset-actions">
-            <button type="button" on:click={() => (show_save_preset_dialog = true)}
-              >Save Current Settings</button
-            >
-          </div>
-        </fieldset>
+        <PresetFieldset
+          availablePresets={available_presets}
+          bind:currentPreset={current_preset}
+          placeholder="Select Preset..."
+          on:presetChange={({ detail }) => updatePreset(detail.value)}
+          on:presetSave={({ detail }) => savePreset(detail.name)}
+        />
 
         <!-- Display Settings -->
         <fieldset>
@@ -116,7 +127,9 @@
                 </button>
               </div>
               <div class="control-group">
-                <span>Camera controls not working? Click the control bar at the top of the screen.</span>
+                <span
+                  >Camera controls not working? Click the control bar at the top of the screen.</span
+                >
               </div>
             </div>
             <div class="cursor-settings">
@@ -438,85 +451,23 @@
         </fieldset>
 
         <!-- Physics Equation Visualization -->
-        <fieldset>
-          <legend>
-            <button
-              type="button"
-              class="fieldset-toggle"
-              on:click={() => (show_physics_diagram = !show_physics_diagram)}
-            >
-              {show_physics_diagram ? '▼' : '▶'} Physics
-            </button>
-          </legend>
-
-          {#if show_physics_diagram}
-            <div class="diagram-content">
-              <InteractivePhysicsDiagram
-                maxForce={settings.max_force}
-                maxDistance={settings.max_distance}
-                forceBeta={settings.force_beta}
-                friction={settings.friction}
-                brownianMotion={settings.brownian_motion}
-                on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
-              />
-            </div>
-          {/if}
-        </fieldset>
-
-        <!-- Type Distribution -->
-        <fieldset>
-          <legend>Type Distribution</legend>
-          <div class="distribution-section">
-            {#if typeCounts.length > 0 && typeCounts.length === settings.species_count}
-              {#each typeCounts as count, i}
-                <div class="type-distribution-item">
-                  <div class="type-info">
-                    <span
-                      class="type-color"
-                      style="background-color: {speciesColors[i] || '#ffffff'}"
-                    ></span>
-                    <span class="type-label">Type {i + 1}</span>
-                    <span class="type-count">{count.toLocaleString()}</span>
-                    <span class="type-percentage">({typePercentages[i].toFixed(1)}%)</span>
-                  </div>
-                  <div class="type-progress">
-                    <div
-                      class="progress-bar"
-                      style="width: {typePercentages[i]}%; background-color: {speciesColors[i] ||
-                        '#74c0fc'}"
-                    ></div>
-                  </div>
-                </div>
-              {/each}
-            {:else if typeCounts.length > 0 && typeCounts.length !== settings.species_count}
-              <p class="no-data">
-                Type distribution data mismatch: got {typeCounts.length} types for {settings.species_count}
-                species
-              </p>
-            {:else}
-              <p class="no-data">No type distribution data available</p>
-            {/if}
+        <CollapsibleFieldset title="Physics" bind:open={show_physics_diagram}>
+          <div class="diagram-content">
+            <InteractivePhysicsDiagram
+              maxForce={settings.max_force}
+              maxDistance={settings.max_distance}
+              forceBeta={settings.force_beta}
+              friction={settings.friction}
+              brownianMotion={settings.brownian_motion}
+              on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
+            />
           </div>
-        </fieldset>
+        </CollapsibleFieldset>
       </form>
     </SimulationLayout>
 
-    <!-- Save Preset Dialog -->
-    {#if show_save_preset_dialog}
-      <SavePresetDialog
-        bind:presetName={new_preset_name}
-        on:save={({ detail }) => savePreset(detail.name)}
-        on:close={() => (show_save_preset_dialog = false)}
-      />
-    {/if}
-
     <!-- Shared camera controls component -->
-    <CameraControls 
-      enabled={true} 
-      on:toggleGui={toggleBackendGui}
-    />
-
-
+    <CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
   {/if}
 </div>
 
@@ -531,8 +482,9 @@
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
-  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
+  import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
+  import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
@@ -607,14 +559,11 @@
   let current_preset = '';
   let available_presets: string[] = [];
   let available_luts: string[] = [];
-  let show_save_preset_dialog = false;
-  let new_preset_name = '';
   let show_physics_diagram = false; // Toggle for expandable physics diagram section
+  let show_about_section = false; // Toggle for expandable about section
   let fps_display = 0;
   let isSimulationRunning = false;
   let isLoading = true;
-
-
 
   // Enhanced UI state
   let showUI = true;
@@ -626,10 +575,6 @@
   // Cursor hiding functionality
   let cursorHidden = false;
   let cursorHideTimeout: number | null = null;
-
-  // Type distribution data
-  let typeCounts: number[] = [];
-  let totalParticles = 0;
 
   // Species colors for UI visualization - will be populated from backend
   let speciesColors: string[] = [];
@@ -692,7 +637,6 @@
 
   // Event listeners
   let unsubscribeFps: (() => void) | null = null;
-  let unsubscribeTypeCounts: (() => void) | null = null;
   let unsubscribeSimulationInitialized: (() => void) | null = null;
   let unsubscribeSimulationResumed: (() => void) | null = null;
 
@@ -769,10 +713,6 @@
     // Force a reactive update by triggering a change
     settings = { ...settings };
 
-    // Reset type distribution data to prevent stale data display
-    typeCounts = [];
-    totalParticles = 0;
-
     try {
       // First update the species count
       await invoke('update_simulation_setting', {
@@ -792,7 +732,7 @@
       // Wait a bit for the backend to process the changes and respawn particles
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Sync state from backend to get updated type distribution
+      // Sync state from backend
       await syncSettingsFromBackend();
 
       console.log(`Species count updated to ${newCount}, particles respawned`);
@@ -948,33 +888,25 @@
     }
   }
 
-  async function savePreset(presetName?: string) {
-    const nameToSave = presetName || new_preset_name;
-    if (nameToSave.trim() === '') return;
+  async function savePreset(presetName: string) {
+    if (presetName.trim() === '') return;
 
     try {
       await invoke('save_preset', {
-        presetName: nameToSave.trim(),
-        settings: settings,
+        presetName: presetName.trim(),
       });
 
       // Refresh presets list
       await loadPresets();
 
       // Set the current preset to the newly saved one
-      current_preset = nameToSave.trim();
+      current_preset = presetName.trim();
 
-      // Clear dialog
-      new_preset_name = '';
-      show_save_preset_dialog = false;
-
-      console.log(`Saved preset: ${nameToSave}`);
+      console.log(`Saved preset: ${presetName}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
   }
-
-
 
   // Data loading functions
   async function loadPresets() {
@@ -1058,36 +990,6 @@
 
         state = { ...state, ...backendState, ...preservedState };
 
-        // Extract type distribution data
-        if (
-          backendState &&
-          typeof backendState === 'object' &&
-          'type_counts' in backendState &&
-          Array.isArray(backendState.type_counts)
-        ) {
-          const backendTypeCounts = backendState.type_counts;
-          const backendSpeciesCount = (backendState as any).species_count || settings.species_count;
-
-          // Validate that type counts array matches species count
-          if (backendTypeCounts.length === backendSpeciesCount) {
-            typeCounts = backendTypeCounts;
-            totalParticles = (backendState as any).particle_count || 0;
-            console.log(
-              `Synced type distribution: ${typeCounts.length} types, ${totalParticles} total particles`
-            );
-          } else {
-            console.warn(
-              `Type counts array length (${backendTypeCounts.length}) doesn't match species count (${backendSpeciesCount}), ignoring`
-            );
-            typeCounts = [];
-            totalParticles = 0;
-          }
-        } else {
-          // No type counts data available
-          typeCounts = [];
-          totalParticles = 0;
-        }
-
         // Ensure particle_count is properly set from state
         if (backendState && typeof backendState === 'object' && 'particle_count' in backendState) {
           state.particle_count = (backendState as any).particle_count || 15000;
@@ -1112,13 +1014,18 @@
           }
           if ('color_mode' in backendState) {
             const backendColorMode = (backendState as any).color_mode || 'LUT';
-            console.log(`Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`);
+            console.log(
+              `Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`
+            );
             if (backendColorMode !== state.color_mode) {
               state.color_mode = backendColorMode;
               console.log(`Synced color mode from backend: ${state.color_mode}`);
             }
           } else {
-            console.log('No color_mode in backend state, keeping frontend default:', state.color_mode);
+            console.log(
+              'No color_mode in backend state, keeping frontend default:',
+              state.color_mode
+            );
           }
         }
 
@@ -1193,10 +1100,6 @@
     try {
       console.log('Resetting simulation...');
 
-      // Reset type distribution data to prevent stale data display
-      typeCounts = [];
-      totalParticles = 0;
-
       // Apply current generator settings before reset
       await invoke('update_simulation_setting', {
         settingName: 'position_generator',
@@ -1207,10 +1110,14 @@
         value: state.type_generator,
       });
 
+      await invoke('update_simulation_setting', {
+        settingName: 'matrix_generator',
+        value: state.matrix_generator,
+      });
+
       await invoke('reset_simulation');
 
-      console.log('Reset complete, waiting for GPU operations...');
-      // Add a small delay to ensure GPU operations are complete
+      // Wait a bit for the backend to process the changes
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       console.log('Syncing state from backend...');
@@ -1227,10 +1134,6 @@
 
   async function randomizeMatrix() {
     try {
-      // Reset type distribution data to prevent stale data display
-      typeCounts = [];
-      totalParticles = 0;
-
       // First update the matrix generator setting
       await invoke('update_simulation_setting', {
         settingName: 'matrix_generator',
@@ -1252,10 +1155,6 @@
 
   async function regeneratePositions() {
     try {
-      // Reset type distribution data to prevent stale data display
-      typeCounts = [];
-      totalParticles = 0;
-
       // Update the position generator setting and regenerate particles
       await invoke('update_simulation_setting', {
         settingName: 'position_generator',
@@ -1268,21 +1167,17 @@
       // Wait a bit for the backend to process the changes
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Sync state from backend to get updated type distribution
+      // Sync state from backend
       await syncSettingsFromBackend();
 
-      console.log(`Positions regenerated using ${state.position_generator} generator`);
+      console.log(`Particles regenerated with ${state.position_generator} position generator`);
     } catch (e) {
-      console.error('Failed to regenerate positions:', e);
+      console.error('Failed to regenerate particles:', e);
     }
   }
 
   async function regenerateTypes() {
     try {
-      // Reset type distribution data to prevent stale data display
-      typeCounts = [];
-      totalParticles = 0;
-
       // Update the type generator setting and regenerate particles
       await invoke('update_simulation_setting', {
         settingName: 'type_generator',
@@ -1295,17 +1190,14 @@
       // Wait a bit for the backend to process the changes
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Sync state from backend to get updated type distribution
-      // The syncSettingsFromBackend now preserves our UI state
+      // Sync state from backend
       await syncSettingsFromBackend();
 
-      console.log(`Types regenerated using ${state.type_generator} generator`);
+      console.log(`Types regenerated with ${state.type_generator} type generator`);
     } catch (e) {
       console.error('Failed to regenerate types:', e);
     }
   }
-
-
 
   let isMousePressed = false;
   let currentMouseButton = 0;
@@ -1318,11 +1210,16 @@
 
       const zoomDelta = -wheelEvent.deltaY * 0.001;
 
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = wheelEvent.clientX * devicePixelRatio;
+      const physicalCursorY = wheelEvent.clientY * devicePixelRatio;
+
       try {
         await invoke('zoom_camera_to_cursor', {
           delta: zoomDelta,
-          cursorX: wheelEvent.clientX,
-          cursorY: wheelEvent.clientY,
+          cursorX: physicalCursorX,
+          cursorY: physicalCursorY,
         });
       } catch (e) {
         console.error('Failed to zoom camera to cursor:', e);
@@ -1388,10 +1285,30 @@
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);
       }
+    } else if (event.type === 'contextmenu') {
+      // Handle context menu as right-click for repel functionality
+      const mouseEvent = event as MouseEvent;
+
+      // Convert screen coordinates to world coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+      console.log(
+        `Particle Life context menu (repel) at screen coords: (${physicalCursorX}, ${physicalCursorY}), raw: (${mouseEvent.clientX}, ${mouseEvent.clientY})`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: 2, // Right mouse button for repel
+        });
+      } catch (e) {
+        console.error('Failed to handle Particle Life context menu interaction:', e);
+      }
     }
   }
-
-
 
   // Generator update functions (local state only)
   function updatePositionGenerator(value: string) {
@@ -1509,17 +1426,6 @@
         console.error('Failed to set up FPS listener:', e);
       }
 
-      // Set up type counts monitoring
-      try {
-        unsubscribeTypeCounts = await listen('type-counts-update', (event) => {
-          const data = event.payload as { counts: number[]; total: number };
-          typeCounts = data.counts;
-          totalParticles = data.total;
-        });
-      } catch (e) {
-        console.error('Failed to set up type counts listener:', e);
-      }
-
       // Listen for simulation initialization event
       try {
         console.log('Registering simulation-initialized event listener...');
@@ -1544,10 +1450,8 @@
         console.error('Failed to set up simulation-resumed listener:', e);
       }
 
-
-
-      // Add event listeners for auto-hide functionality
-      const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+      // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
+      const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
       events.forEach((event) => {
         window.addEventListener(event, handleUserInteraction, { passive: true });
       });
@@ -1585,9 +1489,6 @@
     if (unsubscribeFps) {
       unsubscribeFps();
     }
-    if (unsubscribeTypeCounts) {
-      unsubscribeTypeCounts();
-    }
     if (unsubscribeSimulationInitialized) {
       unsubscribeSimulationInitialized();
     }
@@ -1596,7 +1497,7 @@
     }
 
     // Remove auto-hide event listeners
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
@@ -1608,22 +1509,6 @@
     stopCursorHideTimer();
     showCursor();
   });
-
-  $: typePercentages = typeCounts.map((count) =>
-    totalParticles > 0 ? (count / totalParticles) * 100 : 0
-  );
-
-  // Reactive statement to ensure typeCounts array matches current species count
-  $: if (settings.species_count && typeCounts.length !== settings.species_count) {
-    // If typeCounts array doesn't match species count, reset it
-    if (typeCounts.length > 0) {
-      console.log(
-        `Type counts array length (${typeCounts.length}) doesn't match species count (${settings.species_count}), resetting`
-      );
-      typeCounts = [];
-      totalParticles = 0;
-    }
-  }
 
   async function updateLut(lutName: string) {
     try {
@@ -1919,65 +1804,6 @@
     flex: 1;
   }
 
-  .distribution-section {
-    flex: 1;
-  }
-
-  .type-distribution-item {
-    margin-bottom: 0.75rem;
-  }
-
-  .type-info {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.25rem;
-  }
-
-  .type-color {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-  }
-
-  .type-label {
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.85rem;
-    font-weight: 500;
-    min-width: 50px;
-  }
-
-  .type-count {
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.8rem;
-    font-family: monospace;
-  }
-
-  .type-percentage {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 0.75rem;
-  }
-
-  .type-progress {
-    height: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-  }
-
-  .progress-bar {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.3s ease;
-  }
-
-  .no-data {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.8rem;
-    text-align: center;
-    font-style: italic;
-  }
-
   /* Force Matrix Styles */
   .force-matrix {
     display: grid;
@@ -2223,8 +2049,6 @@
       font-size: 0.85rem;
     }
   }
-
-
 
   /* Clear trails button */
   .clear-trails-button {

@@ -616,13 +616,8 @@ impl Settings {
         }
     }
 
-    /// Randomize only the force matrix, preserving physics settings
     pub fn randomize(&mut self) {
-        // Only randomize the force matrix - preserve all physics parameters
         self.randomize_force_matrix(&MatrixGenerator::Random);
-
-        // Note: Physics settings (max_force, distances, friction, wrap_edges)
-        // are intentionally NOT randomized.
     }
 
     /// Get the force between two species

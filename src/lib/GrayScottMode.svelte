@@ -13,26 +13,34 @@
   on:userInteraction={handleUserInteraction}
   on:mouseEvent={handleMouseEvent}
 >
-
-
   <form on:submit|preventDefault>
+    <!-- About this simulation -->
+    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+      <p>
+        The Gray-Scott simulation demonstrates reaction-diffusion patterns that occur in chemical
+        and biological systems. Two virtual chemicals, U and V, interact and diffuse through space,
+        creating complex, self-organizing patterns.
+      </p>
+      <p>
+        The simulation is governed by reaction-diffusion equations with feed and kill rates that
+        determine how the chemicals interact. Different parameter combinations produce dramatically
+        different patterns - from spots and stripes to spirals and labyrinthine structures.
+      </p>
+      <p>
+        Click to seed reactions, adjust the parameters to explore different behaviors, and watch as
+        simple chemical rules generate intricate, ever-changing patterns reminiscent of natural
+        phenomena like coral growth, bacterial colonies, and animal coat patterns.
+      </p>
+    </CollapsibleFieldset>
+
     <!-- Preset Controls -->
-    <fieldset>
-      <legend>Presets</legend>
-      <div class="control-group">
-        <Selector
-          options={available_presets}
-          bind:value={current_preset}
-          placeholder="Select preset..."
-          on:change={({ detail }) => updatePreset(detail.value)}
-        />
-      </div>
-      <div class="preset-actions">
-        <button type="button" on:click={() => (show_save_preset_dialog = true)}>
-          Save Current Settings
-        </button>
-      </div>
-    </fieldset>
+    <PresetFieldset
+      availablePresets={available_presets}
+      bind:currentPreset={current_preset}
+      placeholder="Select preset..."
+      on:presetChange={({ detail }) => updatePreset(detail.value)}
+      on:presetSave={({ detail }) => savePreset(detail.name)}
+    />
 
     <!-- Display Settings -->
     <fieldset>
@@ -62,7 +70,8 @@
             </button>
           </div>
           <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span>
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span
+            >
           </div>
         </div>
         <div class="cursor-settings">
@@ -70,8 +79,8 @@
             <span>🎯 Cursor Settings</span>
           </div>
           <CursorConfig
-            cursorSize={settings.cursor_size}
-            cursorStrength={settings.cursor_strength}
+            {cursorSize}
+            {cursorStrength}
             sizeMin={5}
             sizeMax={50}
             sizeStep={1}
@@ -82,6 +91,7 @@
             strengthPrecision={1}
             on:sizechange={async (e) => {
               try {
+                cursorSize = e.detail;
                 await invoke('update_simulation_setting', {
                   settingName: 'cursor_size',
                   value: e.detail,
@@ -92,6 +102,7 @@
             }}
             on:strengthchange={async (e) => {
               try {
+                cursorStrength = e.detail;
                 await invoke('update_simulation_setting', {
                   settingName: 'cursor_strength',
                   value: e.detail,
@@ -147,67 +158,43 @@
     </fieldset>
 
     <!-- Reaction-Diffusion -->
-    <fieldset>
-      <legend>
-        <button
-          type="button"
-          class="toggle-button"
-          on:click={() => (show_physics_diagram = !show_physics_diagram)}
-        >
-          {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion
-        </button>
-      </legend>
+    <CollapsibleFieldset title="Reaction-Diffusion" bind:open={show_physics_diagram}>
+      <GrayScottDiagram
+        feedRate={settings.feed_rate}
+        killRate={settings.kill_rate}
+        diffusionRateU={settings.diffusion_rate_u}
+        diffusionRateV={settings.diffusion_rate_v}
+        timestep={settings.timestep}
+        on:update={async (e) => {
+          console.log('GrayScottDiagram update event:', e.detail);
+          try {
+            // Update local settings first for immediate UI feedback
+            const settingName = e.detail.setting;
+            const value = e.detail.value;
 
-      {#if show_physics_diagram}
-        <GrayScottDiagram
-          feedRate={settings.feed_rate}
-          killRate={settings.kill_rate}
-          diffusionRateU={settings.diffusion_rate_u}
-          diffusionRateV={settings.diffusion_rate_v}
-          timestep={settings.timestep}
-          on:update={async (e) => {
-            console.log('GrayScottDiagram update event:', e.detail);
-            try {
-              // Update local settings first for immediate UI feedback
-              const settingName = e.detail.setting;
-              const value = e.detail.value;
-
-              // Update the local settings object to match the backend
-              if (settingName in settings) {
-                settings = { ...settings, [settingName]: value };
-              }
-
-              // Send the update to the backend
-              await invoke('update_simulation_setting', {
-                settingName: settingName,
-                value: value,
-              });
-
-              console.log(`Updated ${settingName} to ${value}`);
-            } catch (err) {
-              console.error('Failed to update setting:', err);
+            // Update the local settings object to match the backend
+            if (settingName in settings) {
+              settings = { ...settings, [settingName]: value };
             }
-          }}
-        />
-      {/if}
-    </fieldset>
+
+            // Send the update to the backend
+            await invoke('update_simulation_setting', {
+              settingName: settingName,
+              value: value,
+            });
+
+            console.log(`Updated ${settingName} to ${value}`);
+          } catch (err) {
+            console.error('Failed to update setting:', err);
+          }
+        }}
+      />
+    </CollapsibleFieldset>
   </form>
 </SimulationLayout>
 
-    <!-- Save Preset Dialog -->
-  {#if show_save_preset_dialog}
-    <SavePresetDialog
-      bind:presetName={new_preset_name}
-      on:save={({ detail }) => savePreset(detail.name)}
-      on:close={() => (show_save_preset_dialog = false)}
-    />
-  {/if}
-
-  <!-- Shared camera controls component -->
-  <CameraControls 
-    enabled={true} 
-    on:toggleGui={toggleBackendGui}
-  />
+<!-- Shared camera controls component -->
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -215,11 +202,11 @@
   import { listen } from '@tauri-apps/api/event';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
-  import Selector from './components/inputs/Selector.svelte';
   import LutSelector from './components/shared/LutSelector.svelte';
   import GrayScottDiagram from './components/gray-scott/GrayScottDiagram.svelte';
-  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
+  import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
+  import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -234,8 +221,6 @@
     timestep: number;
     nutrient_pattern: string;
     nutrient_pattern_reversed: boolean;
-    cursor_size: number;
-    cursor_strength: number;
   }
 
   // Simulation state
@@ -250,23 +235,20 @@
     // Nutrient Pattern Settings
     nutrient_pattern: 'Uniform',
     nutrient_pattern_reversed: false,
-
-    // Cursor Settings
-    cursor_size: 10,
-    cursor_strength: 0.5,
   };
+
+  // Cursor state (not saved in presets)
+  let cursorSize = 10.0;
+  let cursorStrength = 0.5;
 
   // Preset and LUT state
   let current_preset = '';
   let available_presets: string[] = [];
   let available_luts: string[] = [];
 
-  // Dialog state
-  let show_save_preset_dialog = false;
-  let new_preset_name = '';
-
   // UI state
   let show_physics_diagram = false;
+  let show_about_section = false;
 
   // LUT state (runtime, not saved in presets)
   let lut_name = '';
@@ -300,20 +282,18 @@
     }
   }
 
-  async function savePreset(presetName?: string) {
-    const nameToSave = presetName || new_preset_name;
+  async function savePreset(presetName: string) {
     try {
-      await invoke('save_preset', { preset_name: nameToSave });
-      show_save_preset_dialog = false;
-      new_preset_name = '';
+      await invoke('save_preset', { preset_name: presetName.trim() });
       // Refresh the available presets list
       await loadAvailablePresets();
+      // Set the current preset to the newly saved one
+      current_preset = presetName.trim();
+      console.log(`Saved preset: ${presetName}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
   }
-
-
 
   // Simulation state
   let running = false;
@@ -451,6 +431,14 @@
         // Update LUT-related settings from state
         lut_name = currentState.current_lut_name;
         lut_reversed = currentState.lut_reversed;
+
+        // Update cursor configuration from state
+        if ((currentState as any).cursor_size !== undefined) {
+          cursorSize = (currentState as any).cursor_size;
+        }
+        if ((currentState as any).cursor_strength !== undefined) {
+          cursorStrength = (currentState as any).cursor_strength;
+        }
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -460,8 +448,6 @@
   let simulationInitializedUnlisten: (() => void) | null = null;
   let simulationResumedUnlisten: (() => void) | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
-
-
 
   async function randomizeSimulation() {
     try {
@@ -544,11 +530,16 @@
 
       const zoomDelta = -wheelEvent.deltaY * 0.001;
 
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = wheelEvent.clientX * devicePixelRatio;
+      const physicalCursorY = wheelEvent.clientY * devicePixelRatio;
+
       try {
         await invoke('zoom_camera_to_cursor', {
           delta: zoomDelta,
-          cursorX: wheelEvent.clientX,
-          cursorY: wheelEvent.clientY,
+          cursorX: physicalCursorX,
+          cursorY: physicalCursorY,
         });
       } catch (e) {
         console.error('Failed to zoom camera to cursor:', e);
@@ -618,6 +609,28 @@
         await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
       } catch (e) {
         console.error('Failed to stop Gray-Scott mouse interaction:', e);
+      }
+    } else if (event.type === 'contextmenu') {
+      // Handle context menu as right-click for simulation interaction
+      const mouseEvent = event as MouseEvent;
+
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+      console.log(
+        `Gray-Scott context menu interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: 2`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: 2, // Right mouse button
+        });
+      } catch (e) {
+        console.error('Failed to handle Gray-Scott context menu interaction:', e);
       }
     }
   }
@@ -725,15 +738,11 @@
   }
 
   onMount(() => {
-
-
-    // Add event listeners for auto-hide functionality
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.addEventListener(event, handleUserInteraction, { passive: true });
     });
-
-
 
     // Listen for simulation initialization event
     listen('simulation-initialized', async () => {
@@ -797,9 +806,8 @@
   onDestroy(() => {
     // Remove keyboard event listeners
 
-
     // Remove auto-hide event listeners
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
@@ -812,7 +820,6 @@
     showCursor();
 
     // Cancel animation frame
-
 
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();

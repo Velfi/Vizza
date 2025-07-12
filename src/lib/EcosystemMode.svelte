@@ -1,3 +1,123 @@
+<SimulationLayout
+  simulationName="Ecosystem"
+  running={!isPaused}
+  {showUI}
+  currentFps={fps}
+  {controlsVisible}
+  {menuPosition}
+  on:back={navigateBack}
+  on:toggleUI={toggleGui}
+  on:pause={pauseSimulation}
+  on:resume={resumeSimulation}
+  on:reset={resetSimulation}
+  on:randomize={randomizeSettings}
+  on:userInteraction={handleUserInteraction}
+  on:mouseEvent={handleMouseEvent}
+>
+  <form on:submit|preventDefault>
+    <!-- About this simulation -->
+    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+      <p>
+        The Ecosystem simulation models a complex biological environment where multiple species
+        interact in dynamic relationships. Agents move through the world, consuming resources,
+        reproducing, and competing for survival in a realistic ecosystem.
+      </p>
+      <p>
+        Each species has unique characteristics like size, speed, energy requirements, and
+        reproductive strategies. The simulation includes food sources, predator-prey relationships,
+        and environmental factors that affect population dynamics.
+      </p>
+      <p>
+        Watch as populations rise and fall, species adapt to environmental pressures, and complex
+        ecological patterns emerge from simple behavioral rules. The ecosystem maintains balance
+        through natural selection and resource competition.
+      </p>
+    </CollapsibleFieldset>
+
+    <!-- Ecosystem Status -->
+    <fieldset>
+      <legend>Ecosystem Status</legend>
+      <div class="control-group">
+        <div class="stat-grid">
+          <div class="stat-item">
+            <span class="stat-label">Agent Count:</span>
+            <span class="stat-value">{agentCount}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Species:</span>
+            <span class="stat-value">{speciesCount}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Alive Agents:</span>
+            <span class="stat-value">{aliveAgents}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Energy:</span>
+            <span class="stat-value">{totalEnergy.toFixed(1)}</span>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- Legend -->
+    <fieldset>
+      <legend>Species Legend</legend>
+      <div class="control-group">
+        <EcosystemLegend syncTrigger={visibilitySyncTrigger} />
+      </div>
+    </fieldset>
+
+    <!-- Settings -->
+    <fieldset>
+      <legend>Settings</legend>
+      <div class="control-group">
+        <EcosystemSettings settings={currentSettings} on:settingChange={handleSettingChange} />
+      </div>
+    </fieldset>
+
+    <!-- Actions -->
+    <fieldset>
+      <legend>Actions</legend>
+      <div class="control-group">
+        <div class="action-buttons">
+          <button type="button" on:click={resetSimulation}> 🔄 Reset Simulation </button>
+          <button type="button" on:click={randomizeSettings}> 🎲 Randomize Settings </button>
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- Controls -->
+    <fieldset>
+      <legend>Controls</legend>
+      <div class="interaction-controls-grid">
+        <div class="interaction-help">
+          <div class="control-group">
+            <span>🖱️ Mouse interaction available</span>
+          </div>
+          <div class="control-group">
+            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+              📖 Camera Controls
+            </button>
+          </div>
+          <div class="control-group">
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span
+            >
+          </div>
+        </div>
+        <div class="cursor-settings">
+          <div class="cursor-settings-header">
+            <span>🎯 Cursor Settings</span>
+          </div>
+          <CursorConfig />
+        </div>
+      </div>
+    </fieldset>
+  </form>
+</SimulationLayout>
+
+<!-- Shared camera controls component -->
+<CameraControls enabled={true} on:toggleGui={toggleGui} />
+
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -8,6 +128,7 @@
   import EcosystemSettings from './components/ecosystem/EcosystemSettings.svelte';
   import EcosystemLegend from './components/ecosystem/EcosystemLegend.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
+  import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -37,26 +158,27 @@
   // Event listeners
   let unlistenFps: (() => void) | null = null;
 
-
-  
   // Visibility sync trigger
   let visibilitySyncTrigger = 0;
 
+  // Toggle for expandable about section
+  let show_about_section = false;
+
   async function navigateBack() {
     await destroySimulation();
-    
+
     // Reset UI state
     isPaused = false;
     isGuiVisible = true;
     showUI = true;
     controlsVisible = true;
     cursorHidden = false;
-    
+
     // Stop any active timers
     stopAutoHideTimer();
     stopCursorHideTimer();
     showCursor();
-    
+
     dispatch('back');
   }
 
@@ -65,18 +187,16 @@
       // Stop the ecosystem simulation and clean up
       await invoke('destroy_simulation');
       isPaused = true; // Mark as stopped
-      
+
       // Reset FPS
       fps = 0;
-      
+
       // Render a frame to show the main menu background
       await invoke('render_frame');
     } catch (error) {
       console.error('Failed to destroy ecosystem simulation:', error);
     }
   }
-
-
 
   async function startSimulation() {
     try {
@@ -117,7 +237,7 @@
 
   async function handleSettingChange(event: CustomEvent) {
     const { setting, value } = event.detail;
-    
+
     try {
       await invoke('update_simulation_setting', { settingName: setting, value });
       await loadSettings();
@@ -168,12 +288,12 @@
   async function toggleGui() {
     try {
       await invoke('toggle_gui');
-      
+
       // Get the current GUI state
-      const visible = await invoke('get_gui_state') as boolean;
+      const visible = (await invoke('get_gui_state')) as boolean;
       isGuiVisible = visible;
       showUI = visible;
-      
+
       // Handle auto-hide when UI is hidden
       if (!isGuiVisible) {
         showControls();
@@ -257,8 +377,6 @@
     }
   }
 
-
-
   // Mouse event handling for camera controls
   async function handleMouseEvent(e: CustomEvent) {
     const event = e.detail as MouseEvent | WheelEvent;
@@ -268,11 +386,16 @@
 
       const zoomDelta = -wheelEvent.deltaY * 0.001;
 
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = wheelEvent.clientX * devicePixelRatio;
+      const physicalCursorY = wheelEvent.clientY * devicePixelRatio;
+
       try {
         await invoke('zoom_camera_to_cursor', {
           delta: zoomDelta,
-          cursorX: wheelEvent.clientX,
-          cursorY: wheelEvent.clientY,
+          cursorX: physicalCursorX,
+          cursorY: physicalCursorY,
         });
       } catch (e) {
         console.error('Failed to zoom camera to cursor:', e);
@@ -280,13 +403,9 @@
     }
   }
 
-
-
   onMount(async () => {
-
-
-    // Add event listeners for auto-hide functionality
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.addEventListener(event, handleUserInteraction, { passive: true });
     });
@@ -312,10 +431,8 @@
       unlistenFps();
     }
 
-
-
     // Remove auto-hide event listeners
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
@@ -326,123 +443,8 @@
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
-
-
   });
 </script>
-
-<SimulationLayout
-  simulationName="Ecosystem"
-  running={!isPaused}
-  showUI={showUI}
-  currentFps={fps}
-  controlsVisible={controlsVisible}
-  menuPosition={menuPosition}
-  on:back={navigateBack}
-  on:toggleUI={toggleGui}
-  on:pause={pauseSimulation}
-  on:resume={resumeSimulation}
-  on:reset={resetSimulation}
-  on:randomize={randomizeSettings}
-  on:userInteraction={handleUserInteraction}
-  on:mouseEvent={handleMouseEvent}
->
-
-  <form on:submit|preventDefault>
-    <!-- Ecosystem Status -->
-    <fieldset>
-      <legend>Ecosystem Status</legend>
-      <div class="control-group">
-        <div class="stat-grid">
-          <div class="stat-item">
-            <span class="stat-label">Agent Count:</span>
-            <span class="stat-value">{agentCount}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Species:</span>
-            <span class="stat-value">{speciesCount}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Alive Agents:</span>
-            <span class="stat-value">{aliveAgents}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">Total Energy:</span>
-            <span class="stat-value">{totalEnergy.toFixed(1)}</span>
-          </div>
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- Legend -->
-    <fieldset>
-      <legend>Species Legend</legend>
-      <div class="control-group">
-        <EcosystemLegend syncTrigger={visibilitySyncTrigger} />
-      </div>
-    </fieldset>
-
-    <!-- Settings -->
-    <fieldset>
-      <legend>Settings</legend>
-      <div class="control-group">
-        <EcosystemSettings
-          settings={currentSettings}
-          on:settingChange={handleSettingChange}
-        />
-      </div>
-    </fieldset>
-
-    <!-- Actions -->
-    <fieldset>
-      <legend>Actions</legend>
-      <div class="control-group">
-        <div class="action-buttons">
-          <button type="button" on:click={resetSimulation}>
-            🔄 Reset Simulation
-          </button>
-          <button type="button" on:click={randomizeSettings}>
-            🎲 Randomize Settings
-          </button>
-        </div>
-      </div>
-    </fieldset>
-
-    <!-- Controls -->
-    <fieldset>
-      <legend>Controls</legend>
-      <div class="interaction-controls-grid">
-        <div class="interaction-help">
-          <div class="control-group">
-            <span>🖱️ Mouse interaction available</span>
-          </div>
-          <div class="control-group">
-            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-              📖 Camera Controls
-            </button>
-          </div>
-          <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span>
-          </div>
-        </div>
-        <div class="cursor-settings">
-          <div class="cursor-settings-header">
-            <span>🎯 Cursor Settings</span>
-          </div>
-          <CursorConfig />
-        </div>
-      </div>
-    </fieldset>
-
-
-  </form>
-</SimulationLayout>
-
-<!-- Shared camera controls component -->
-<CameraControls 
-  enabled={true} 
-  on:toggleGui={toggleGui}
-/>
 
 <style>
   fieldset {
@@ -495,8 +497,6 @@
     justify-content: center;
   }
 
-
-
   /* Interaction controls styling */
   .interaction-controls-grid {
     display: grid;
@@ -538,6 +538,4 @@
       grid-template-columns: 1fr;
     }
   }
-
-
-</style> 
+</style>

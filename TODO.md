@@ -3,6 +3,7 @@
 ## Current State Analysis
 
 ### ✅ Already Implemented
+
 - Basic ecosystem simulation framework
 - Agent struct with emotional states, neural networks, memory systems
 - 6 chemical types (O2, CO2, N, pheromones, toxins, attractants)
@@ -13,12 +14,14 @@
 - Basic UI components for settings
 
 ### 🔄 Partially Implemented
+
 - Neural network weights structure (200 weights broken into chunks)
 - Memory systems (short-term and long-term)
 - Species-specific parameters in settings
 - Chemical field visualization
 
 ### ❌ Not Yet Implemented
+
 - Lotka-Volterra population dynamics
 - Default preset with stable oscillations
 - Population tracking and visualization
@@ -29,6 +32,7 @@
 ## Phase 1: Lotka-Volterra Foundation
 
 ### Core Population Dynamics
+
 - [ ] **Implement Lotka-Volterra equations** in agent behavior
   - [ ] Add population tracking per species
   - [ ] Implement exponential growth for prey (α parameter)
@@ -38,6 +42,7 @@
   - [ ] Add carrying capacity limits to prevent unbounded growth
 
 ### Default Preset Calibration
+
 - [ ] **Create stable default preset**
   - [ ] Set initial populations: 1000 cyanobacteria, 800 heterotrophs, 200 predators
   - [ ] Calibrate α, β, γ, δ parameters for 3-4 year oscillation cycles
@@ -45,6 +50,7 @@
   - [ ] Ensure predator peaks lag prey peaks by ~1 year
 
 ### Population Visualization
+
 - [ ] **Add real-time population graphs**
   - [ ] Create population tracking system in Rust backend
   - [ ] Implement Lotka-Volterra curves display
@@ -52,6 +58,7 @@
   - [ ] Create population statistics panel
 
 ### Parameter Controls
+
 - [ ] **Add Lotka-Volterra parameter sliders**
   - [ ] α (prey growth rate) slider
   - [ ] β (predation efficiency) slider
@@ -63,6 +70,7 @@
 ## Phase 2: Enhanced Agent Behaviors
 
 ### Species-Specific Behaviors
+
 - [ ] **Implement distinct behaviors for each trophic level**
   - [ ] **Cyanobacteria**: Move toward light, form biofilms, produce oxygen
   - [ ] **Heterotrophs**: Follow chemical gradients, consume waste, reproduce rapidly
@@ -70,6 +78,7 @@
   - [ ] **Fungi**: Form branching networks, transport nutrients, create symbioses
 
 ### Neural Network Implementation
+
 - [ ] **Complete neural network functionality**
   - [ ] Implement 12 inputs: light (3), chemicals (3×3), temperature (3), neighbors (3), energy, age, emotions (4)
   - [ ] Add 2 hidden layers with ReLU activation (16 + 12 neurons)
@@ -78,6 +87,7 @@
   - [ ] Implement memory consolidation and retrieval
 
 ### Emotional and Memory Systems
+
 - [ ] **Enhance emotional state management**
   - [ ] Fear: increases with predators, triggers fleeing
   - [ ] Hunger: drives food-seeking behavior
@@ -91,6 +101,7 @@
 ## Phase 3: Chemical Ecology Enhancement
 
 ### Chemical Communication
+
 - [ ] **Implement pheromone-based communication**
   - [ ] Danger signals for predator warnings
   - [ ] Food alerts for resource discovery
@@ -100,6 +111,7 @@
 - [ ] **Collective decision making through chemical signals**
 
 ### Metabolic Networks
+
 - [ ] **Waste-to-food conversion chains**
   - [ ] Oxygen production by cyanobacteria
   - [ ] CO2 consumption by producers
@@ -109,6 +121,7 @@
 - [ ] **Nutrient cycling and recycling**
 
 ### Chemical Reactions
+
 - [ ] **Implement chemical reactions**
   - [ ] O2 + organic matter → CO2 + energy
   - [ ] CO2 + light → O2 + organic matter
@@ -118,6 +131,7 @@
 ## Phase 4: Environmental Complexity
 
 ### Dynamic Gradients
+
 - [ ] **Implement environmental gradients**
   - [ ] Oxygen gradients based on producer distribution
   - [ ] Temperature zones with hot spots near energy sources
@@ -126,6 +140,7 @@
   - [ ] Nutrient patches with concentrated resources
 
 ### Physical Environment
+
 - [ ] **Add obstacles and barriers**
   - [ ] Solid barriers creating microhabitats
   - [ ] Channels and flow paths for chemicals and movement
@@ -137,6 +152,7 @@
   - [ ] Resource pulses providing periodic abundance
 
 ### Environmental Interactions
+
 - [ ] **Agent-environment interactions**
   - [ ] Biofilm formation on surfaces
   - [ ] Tunneling through obstacles
@@ -146,6 +162,7 @@
 ## Phase 5: Collective Behaviors
 
 ### Emergent Behaviors
+
 - [ ] **Implement collective behaviors**
   - [ ] Swarming and flocking for similar species
   - [ ] Coordinated hunting for predators
@@ -154,6 +171,7 @@
   - [ ] Territorial formation and defense
 
 ### Spatial Patterns
+
 - [ ] **Biofilm formation** by producers
 - [ ] **Hunting packs** by predators
 - [ ] **Resource corridors** between food sources
@@ -161,6 +179,7 @@
 - [ ] **Territorial boundaries** between species
 
 ### Temporal Patterns
+
 - [ ] **Population cycles** (Lotka-Volterra dynamics)
 - [ ] **Succession** changes in dominant species over time
 - [ ] **Adaptation waves** evolution of new behaviors
@@ -169,6 +188,7 @@
 ## Phase 6: UI and Visualization
 
 ### Population Visualization
+
 - [ ] **Real-time population graphs**
   - [ ] Lotka-Volterra curves for each species
   - [ ] Phase space plots showing predator-prey relationships
@@ -176,6 +196,7 @@
   - [ ] Stability indicators and warnings
 
 ### Environmental Visualization
+
 - [ ] **Chemical field visualization**
   - [ ] Heat maps for different chemical types
   - [ ] Flow lines showing chemical gradients
@@ -186,6 +207,7 @@
   - [ ] Nutrient patch highlighting
 
 ### Interactive Features
+
 - [ ] **Species selection and focus**
   - [ ] Click to focus on specific species
   - [ ] Species-specific statistics display
@@ -203,6 +225,7 @@
 ## Phase 7: Performance and Polish
 
 ### Performance Optimization
+
 - [ ] **GPU optimization**
   - [ ] Spatial partitioning for neighbor detection
   - [ ] Efficient memory access patterns
@@ -214,6 +237,7 @@
   - [ ] Memory management for large populations
 
 ### Settings and Configuration
+
 - [ ] **Expand Settings struct**
   - [ ] Lotka-Volterra parameters (α, β, γ, δ)
   - [ ] Species-specific settings
@@ -226,6 +250,7 @@
   - [ ] Add tooltips and help text
 
 ### Testing and Validation
+
 - [ ] **Behavioral complexity validation**
   - [ ] At least 5 distinct emergent behaviors
   - [ ] Realistic population dynamics
@@ -237,6 +262,7 @@
 ## Implementation Notes
 
 ### Breaking Changes Required
+
 - **Agent struct**: Already expanded, needs behavior implementation
 - **Neural network**: Structure exists, needs full implementation
 - **Chemical system**: 6 types implemented, needs reactions
@@ -244,6 +270,7 @@
 - **Settings**: Expanded, needs UI updates
 
 ### Migration Strategy
+
 1. **Phase 1**: Implement Lotka-Volterra dynamics and default preset
 2. **Phase 2**: Complete neural network and species behaviors
 3. **Phase 3**: Enhance chemical ecology and communication
@@ -253,6 +280,7 @@
 7. **Phase 7**: Optimize performance and final polish
 
 ### Success Criteria
+
 - **Stable Lotka-Volterra oscillations** in default preset
 - **At least 5 distinct emergent behaviors** observed
 - **Population dynamics** show realistic boom/bust cycles

@@ -1,191 +1,13 @@
-<script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
-  
-  export let syncTrigger = 0; // Prop to trigger visibility sync
-  
-
-  
-  // Population data state
-  let populationData: { current?: { species_counts: number[], total_population: number, species_names: string[] } } = {};
-  let updateInterval: number;
-  
-  // Visibility state for each species variant
-  let speciesVisibility: boolean[] = Array(9).fill(true); // All visible by default
-  
-  const speciesInfo = [
-    // Recyclers (Role 0)
-    {
-      name: "Bacteria",
-      role: "Recycler",
-      description: "Fast decomposers, swarm behavior",
-      shape: "Circle",
-      behavior: "Chemical-seeking, rapid movement",
-      color: "Green"
-    },
-    {
-      name: "Fungi", 
-      role: "Recycler",
-      description: "Network builders, slow decomposers",
-      shape: "Star",
-      behavior: "Network-forming, biofilm creation",
-      color: "Purple"
-    },
-    {
-      name: "Decomposer Protozoans",
-      role: "Recycler", 
-      description: "Selective decomposers, moderate speed",
-      shape: "Square",
-      behavior: "Selective feeding, moderate movement",
-      color: "Brown"
-    },
-    
-    // Producers (Role 1)
-    {
-      name: "Algae",
-      role: "Producer",
-      description: "Photosynthetic, biofilm formation",
-      shape: "Circle",
-      behavior: "Light-seeking, slow movement",
-      color: "Cyan"
-    },
-    {
-      name: "Cyanobacteria",
-      role: "Producer",
-      description: "Mobile photosynthetic colonies",
-      shape: "Diamond",
-      behavior: "Light-seeking, moderate speed",
-      color: "Blue"
-    },
-    {
-      name: "Photosynthetic Protists",
-      role: "Producer",
-      description: "Complex movement patterns",
-      shape: "Triangle",
-      behavior: "Complex navigation, moderate speed",
-      color: "Teal"
-    },
-    
-    // Predators (Role 2)
-    {
-      name: "Predatory Bacteria",
-      role: "Predator",
-      description: "Coordinated group hunters",
-      shape: "Diamond",
-      behavior: "Pack hunting, fast movement",
-      color: "Red"
-    },
-    {
-      name: "Viruses",
-      role: "Predator",
-      description: "Extremely fast, inject into hosts",
-      shape: "Small Circle",
-      behavior: "Rapid infection, host targeting",
-      color: "Orange"
-    },
-    {
-      name: "Predatory Protozoans",
-      role: "Predator",
-      description: "Slow but powerful engulfers",
-      shape: "Large Circle",
-      behavior: "Engulfing prey, slow movement",
-      color: "Dark Red"
-    }
-  ];
-  
-  // Toggle visibility for a specific species variant
-  async function toggleSpeciesVisibility(speciesIndex: number) {
-    try {
-      const ecologicalRole = Math.floor(speciesIndex / 3);
-      const variant = speciesIndex % 3;
-      
-      await invoke('toggle_species_visibility', { 
-        ecologicalRole: ecologicalRole, 
-        variant: variant 
-      });
-      
-      // Update local visibility state
-      speciesVisibility[speciesIndex] = !speciesVisibility[speciesIndex];
-      
-      console.log(`Toggled visibility for species ${speciesIndex} (role: ${ecologicalRole}, variant: ${variant})`);
-    } catch (error) {
-      console.error('Failed to toggle species visibility:', error);
-    }
-  }
-  
-  // Fetch population data from backend
-  async function fetchPopulationData() {
-    try {
-      const data = await invoke('get_ecosystem_population_data');
-      populationData = data as any;
-    } catch (error) {
-      // Silently fail if ecosystem simulation isn't running
-      populationData = {};
-    }
-  }
-
-  // Sync visibility state with backend
-  async function syncVisibilityState() {
-    try {
-      const visibilityFlags = await invoke('get_species_visibility_state') as number[];
-      if (visibilityFlags && visibilityFlags.length === 9) {
-        speciesVisibility = visibilityFlags.map(flag => flag === 1);
-      }
-    } catch (error) {
-      // Silently fail if ecosystem simulation isn't running
-      console.debug('Could not sync visibility state:', error);
-    }
-  }
-  
-  // Get population count for a specific species
-  function getPopulationCount(speciesIndex: number): number {
-    return populationData.current?.species_counts?.[speciesIndex] || 0;
-  }
-  
-  // Get total population
-  function getTotalPopulation(): number {
-    return populationData.current?.total_population || 0;
-  }
-  
-  // Get role-based population totals
-  function getRolePopulation(roleIndex: number): number {
-    if (!populationData.current?.species_counts) return 0;
-    let total = 0;
-    for (let i = roleIndex * 3; i < (roleIndex + 1) * 3; i++) {
-      total += populationData.current.species_counts[i] || 0;
-    }
-    return total;
-  }
-  
-  onMount(() => {
-    // Initial fetch
-    fetchPopulationData();
-    syncVisibilityState();
-    
-    // Update every 500ms for real-time data
-    updateInterval = setInterval(fetchPopulationData, 500);
-  });
-
-  // Watch for sync trigger changes
-  $: if (syncTrigger > 0) {
-    syncVisibilityState();
-  }
-  
-  onDestroy(() => {
-    if (updateInterval) {
-      clearInterval(updateInterval);
-    }
-  });
-</script>
-
 <div class="ecosystem-legend">
   <h3>Ecosystem Legend</h3>
-  
+
   <div class="legend-section">
     <h4>Population Status</h4>
     <div class="population-summary">
       <div class="total-population">
-        Total Population: <span class="population-count">{getTotalPopulation().toLocaleString()}</span>
+        Total Population: <span class="population-count"
+          >{getTotalPopulation().toLocaleString()}</span
+        >
       </div>
       <div class="role-breakdown">
         <div class="role-item">
@@ -203,21 +25,25 @@
       </div>
     </div>
   </div>
-  
+
   <div class="legend-section">
     <h4>Ecological Roles & Species</h4>
     <div class="visibility-instructions">
       💡 Click on any species icon to toggle its visibility in the simulation
     </div>
-    
+
     <!-- Recyclers -->
     <div class="role-section">
       <h5 class="role-title recycler">🔄 Recyclers</h5>
       <div class="species-grid">
         {#each speciesInfo.slice(0, 3) as species, i}
-          <div class="species-item" class:visible={speciesVisibility[i]} class:hidden={!speciesVisibility[i]}>
-            <button 
-              class="species-toggle" 
+          <div
+            class="species-item"
+            class:visible={speciesVisibility[i]}
+            class:hidden={!speciesVisibility[i]}
+          >
+            <button
+              class="species-toggle"
               on:click={() => toggleSpeciesVisibility(i)}
               title="Click to toggle visibility"
             >
@@ -232,7 +58,8 @@
               <div class="species-header">
                 <div class="species-name">{species.name}</div>
                 <div class="species-population">
-                  Pop: <span class="population-count">{getPopulationCount(i).toLocaleString()}</span>
+                  Pop: <span class="population-count">{getPopulationCount(i).toLocaleString()}</span
+                  >
                 </div>
               </div>
               <div class="species-description">{species.description}</div>
@@ -244,15 +71,19 @@
         {/each}
       </div>
     </div>
-    
+
     <!-- Producers -->
     <div class="role-section">
       <h5 class="role-title producer">🌱 Producers</h5>
       <div class="species-grid">
         {#each speciesInfo.slice(3, 6) as species, i}
-          <div class="species-item" class:visible={speciesVisibility[i + 3]} class:hidden={!speciesVisibility[i + 3]}>
-            <button 
-              class="species-toggle" 
+          <div
+            class="species-item"
+            class:visible={speciesVisibility[i + 3]}
+            class:hidden={!speciesVisibility[i + 3]}
+          >
+            <button
+              class="species-toggle"
               on:click={() => toggleSpeciesVisibility(i + 3)}
               title="Click to toggle visibility"
             >
@@ -267,7 +98,9 @@
               <div class="species-header">
                 <div class="species-name">{species.name}</div>
                 <div class="species-population">
-                  Pop: <span class="population-count">{getPopulationCount(i + 3).toLocaleString()}</span>
+                  Pop: <span class="population-count"
+                    >{getPopulationCount(i + 3).toLocaleString()}</span
+                  >
                 </div>
               </div>
               <div class="species-description">{species.description}</div>
@@ -279,15 +112,19 @@
         {/each}
       </div>
     </div>
-    
+
     <!-- Predators -->
     <div class="role-section">
       <h5 class="role-title predator">🦠 Predators</h5>
       <div class="species-grid">
         {#each speciesInfo.slice(6, 9) as species, i}
-          <div class="species-item" class:visible={speciesVisibility[i + 6]} class:hidden={!speciesVisibility[i + 6]}>
-            <button 
-              class="species-toggle" 
+          <div
+            class="species-item"
+            class:visible={speciesVisibility[i + 6]}
+            class:hidden={!speciesVisibility[i + 6]}
+          >
+            <button
+              class="species-toggle"
               on:click={() => toggleSpeciesVisibility(i + 6)}
               title="Click to toggle visibility"
             >
@@ -302,7 +139,9 @@
               <div class="species-header">
                 <div class="species-name">{species.name}</div>
                 <div class="species-population">
-                  Pop: <span class="population-count">{getPopulationCount(i + 6).toLocaleString()}</span>
+                  Pop: <span class="population-count"
+                    >{getPopulationCount(i + 6).toLocaleString()}</span
+                  >
                 </div>
               </div>
               <div class="species-description">{species.description}</div>
@@ -316,6 +155,188 @@
     </div>
   </div>
 </div>
+
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+
+  export let syncTrigger = 0; // Prop to trigger visibility sync
+
+  // Population data state
+  let populationData: {
+    current?: { species_counts: number[]; total_population: number; species_names: string[] };
+  } = {};
+  let updateInterval: number;
+
+  // Visibility state for each species variant
+  let speciesVisibility: boolean[] = Array(9).fill(true); // All visible by default
+
+  const speciesInfo = [
+    // Recyclers (Role 0)
+    {
+      name: 'Bacteria',
+      role: 'Recycler',
+      description: 'Fast decomposers, swarm behavior',
+      shape: 'Circle',
+      behavior: 'Chemical-seeking, rapid movement',
+      color: 'Green',
+    },
+    {
+      name: 'Fungi',
+      role: 'Recycler',
+      description: 'Network builders, slow decomposers',
+      shape: 'Star',
+      behavior: 'Network-forming, biofilm creation',
+      color: 'Purple',
+    },
+    {
+      name: 'Decomposer Protozoans',
+      role: 'Recycler',
+      description: 'Selective decomposers, moderate speed',
+      shape: 'Square',
+      behavior: 'Selective feeding, moderate movement',
+      color: 'Brown',
+    },
+
+    // Producers (Role 1)
+    {
+      name: 'Algae',
+      role: 'Producer',
+      description: 'Photosynthetic, biofilm formation',
+      shape: 'Circle',
+      behavior: 'Light-seeking, slow movement',
+      color: 'Cyan',
+    },
+    {
+      name: 'Cyanobacteria',
+      role: 'Producer',
+      description: 'Mobile photosynthetic colonies',
+      shape: 'Diamond',
+      behavior: 'Light-seeking, moderate speed',
+      color: 'Blue',
+    },
+    {
+      name: 'Photosynthetic Protists',
+      role: 'Producer',
+      description: 'Complex movement patterns',
+      shape: 'Triangle',
+      behavior: 'Complex navigation, moderate speed',
+      color: 'Teal',
+    },
+
+    // Predators (Role 2)
+    {
+      name: 'Predatory Bacteria',
+      role: 'Predator',
+      description: 'Coordinated group hunters',
+      shape: 'Diamond',
+      behavior: 'Pack hunting, fast movement',
+      color: 'Red',
+    },
+    {
+      name: 'Viruses',
+      role: 'Predator',
+      description: 'Extremely fast, inject into hosts',
+      shape: 'Small Circle',
+      behavior: 'Rapid infection, host targeting',
+      color: 'Orange',
+    },
+    {
+      name: 'Predatory Protozoans',
+      role: 'Predator',
+      description: 'Slow but powerful engulfers',
+      shape: 'Large Circle',
+      behavior: 'Engulfing prey, slow movement',
+      color: 'Dark Red',
+    },
+  ];
+
+  // Toggle visibility for a specific species variant
+  async function toggleSpeciesVisibility(speciesIndex: number) {
+    try {
+      const ecologicalRole = Math.floor(speciesIndex / 3);
+      const variant = speciesIndex % 3;
+
+      await invoke('toggle_species_visibility', {
+        ecologicalRole: ecologicalRole,
+        variant: variant,
+      });
+
+      // Update local visibility state
+      speciesVisibility[speciesIndex] = !speciesVisibility[speciesIndex];
+
+      console.log(
+        `Toggled visibility for species ${speciesIndex} (role: ${ecologicalRole}, variant: ${variant})`
+      );
+    } catch (error) {
+      console.error('Failed to toggle species visibility:', error);
+    }
+  }
+
+  // Fetch population data from backend
+  async function fetchPopulationData() {
+    try {
+      const data = await invoke('get_ecosystem_population_data');
+      populationData = data as any;
+    } catch (error) {
+      // Silently fail if ecosystem simulation isn't running
+      populationData = {};
+    }
+  }
+
+  // Sync visibility state with backend
+  async function syncVisibilityState() {
+    try {
+      const visibilityFlags = (await invoke('get_species_visibility_state')) as number[];
+      if (visibilityFlags && visibilityFlags.length === 9) {
+        speciesVisibility = visibilityFlags.map((flag) => flag === 1);
+      }
+    } catch (error) {
+      // Silently fail if ecosystem simulation isn't running
+      console.debug('Could not sync visibility state:', error);
+    }
+  }
+
+  // Get population count for a specific species
+  function getPopulationCount(speciesIndex: number): number {
+    return populationData.current?.species_counts?.[speciesIndex] || 0;
+  }
+
+  // Get total population
+  function getTotalPopulation(): number {
+    return populationData.current?.total_population || 0;
+  }
+
+  // Get role-based population totals
+  function getRolePopulation(roleIndex: number): number {
+    if (!populationData.current?.species_counts) return 0;
+    let total = 0;
+    for (let i = roleIndex * 3; i < (roleIndex + 1) * 3; i++) {
+      total += populationData.current.species_counts[i] || 0;
+    }
+    return total;
+  }
+
+  onMount(() => {
+    // Initial fetch
+    fetchPopulationData();
+    syncVisibilityState();
+
+    // Update every 500ms for real-time data
+    updateInterval = setInterval(fetchPopulationData, 500);
+  });
+
+  // Watch for sync trigger changes
+  $: if (syncTrigger > 0) {
+    syncVisibilityState();
+  }
+
+  onDestroy(() => {
+    if (updateInterval) {
+      clearInterval(updateInterval);
+    }
+  });
+</script>
 
 <style>
   .ecosystem-legend {
@@ -516,26 +537,26 @@
   }
 
   /* Recyclers - all circles with green shades */
-  .species-shape[data-species="0"] .shape-preview {
+  .species-shape[data-species='0'] .shape-preview {
     border-radius: 50%;
     background: rgba(76, 175, 80, 0.3);
     border-color: #4caf50;
   }
 
-  .species-shape[data-species="1"] .shape-preview {
+  .species-shape[data-species='1'] .shape-preview {
     border-radius: 50%;
     background: rgba(33, 150, 34, 0.3);
     border-color: #219622;
   }
 
-  .species-shape[data-species="2"] .shape-preview {
+  .species-shape[data-species='2'] .shape-preview {
     border-radius: 50%;
     background: rgba(156, 216, 80, 0.3);
     border-color: #9cd850;
   }
 
   /* Producers - all diamonds with blue shades */
-  .species-shape[data-species="3"] .shape-preview {
+  .species-shape[data-species='3'] .shape-preview {
     width: 20px;
     height: 20px;
     transform: rotate(45deg);
@@ -543,7 +564,7 @@
     border-color: #2196f3;
   }
 
-  .species-shape[data-species="4"] .shape-preview {
+  .species-shape[data-species='4'] .shape-preview {
     width: 20px;
     height: 20px;
     transform: rotate(45deg);
@@ -551,7 +572,7 @@
     border-color: #0096d8;
   }
 
-  .species-shape[data-species="5"] .shape-preview {
+  .species-shape[data-species='5'] .shape-preview {
     width: 20px;
     height: 20px;
     transform: rotate(45deg);
@@ -560,7 +581,7 @@
   }
 
   /* Predators - all triangles with red shades */
-  .species-shape[data-species="6"] .shape-preview {
+  .species-shape[data-species='6'] .shape-preview {
     width: 0;
     height: 0;
     border-left: 12px solid transparent;
@@ -569,7 +590,7 @@
     border-color: transparent transparent #f44336 transparent;
   }
 
-  .species-shape[data-species="7"] .shape-preview {
+  .species-shape[data-species='7'] .shape-preview {
     width: 0;
     height: 0;
     border-left: 12px solid transparent;
@@ -578,7 +599,7 @@
     border-color: transparent transparent #8b0000 transparent;
   }
 
-  .species-shape[data-species="8"] .shape-preview {
+  .species-shape[data-species='8'] .shape-preview {
     width: 0;
     height: 0;
     border-left: 12px solid transparent;
@@ -624,4 +645,4 @@
   .behavior-label {
     color: rgba(255, 255, 255, 0.6);
   }
-</style> 
+</style>

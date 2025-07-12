@@ -54,10 +54,6 @@
             <span class="key">/</span>
             <span class="description">Toggle UI visibility</span>
           </div>
-          <div class="control-item">
-            <span class="key">R</span>
-            <span class="description">Randomize settings</span>
-          </div>
         </div>
       </div>
     </div>

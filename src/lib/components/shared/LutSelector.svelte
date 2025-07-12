@@ -88,8 +88,7 @@
                   selectedStopIndex = index;
                 }
               }}
-            >
-            </div>
+            ></div>
           {/each}
         </div>
       </div>
@@ -158,7 +157,7 @@
 {/if}
 
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Selector from '../inputs/Selector.svelte';
 
@@ -225,7 +224,7 @@
 
   // Gradient editor functions
   // Function to add a gradient stop without transition
-  function addGradientStop(position: number) {
+  async function addGradientStop(position: number) {
     // Find the color at this position
     const color = getColorAtPosition(position);
 
@@ -236,14 +235,13 @@
     gradientStops.sort((a, b) => a.position - b.position);
 
     // Reset flag after a short delay to allow rendering
-    setTimeout(() => {
-      isAddingStop = false;
-    }, 50);
+    await tick();
+    isAddingStop = false;
 
     updateGradientPreview();
   }
 
-  function removeGradientStop(index: number) {
+  async function removeGradientStop(index: number) {
     if (gradientStops.length <= 2) return;
 
     // Set flag to prevent transition on stop removal
@@ -257,9 +255,8 @@
     }
 
     // Reset flag after a short delay to allow rendering
-    setTimeout(() => {
-      isAddingStop = false;
-    }, 50);
+    await tick();
+    isAddingStop = false;
 
     updateGradientPreview();
   }
@@ -287,19 +284,101 @@
     return interpolateColor(leftStop.color, rightStop.color, t);
   }
 
-  function interpolateColor(color1: string, color2: string, t: number): string {
-    const r1 = parseInt(color1.slice(1, 3), 16);
-    const g1 = parseInt(color1.slice(3, 5), 16);
-    const b1 = parseInt(color1.slice(5, 7), 16);
-    const r2 = parseInt(color2.slice(1, 3), 16);
-    const g2 = parseInt(color2.slice(3, 5), 16);
-    const b2 = parseInt(color2.slice(5, 7), 16);
+  // Convert RGB to linear RGB
+  function rgbToLinear(rgb: number): number {
+    const normalized = rgb / 255;
+    return normalized <= 0.04045 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  }
 
-    const r = Math.round(r1 + (r2 - r1) * t);
-    const g = Math.round(g1 + (g2 - g1) * t);
-    const b = Math.round(b1 + (b2 - b1) * t);
+  // Convert linear RGB to RGB
+  function linearToRgb(linear: number): number {
+    const result =
+      linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.pow(linear, 1.0 / 2.4) - 0.055;
+    return Math.round(Math.max(0, Math.min(255, result * 255)));
+  }
+
+  // Convert linear RGB to XYZ
+  function linearRgbToXyz(r: number, g: number, b: number): [number, number, number] {
+    const x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
+    const y = r * 0.2126729 + g * 0.7151522 + b * 0.072175;
+    const z = r * 0.0193339 + g * 0.119192 + b * 0.9503041;
+    return [x, y, z];
+  }
+
+  // Convert XYZ to linear RGB
+  function xyzToLinearRgb(x: number, y: number, z: number): [number, number, number] {
+    const r = x * 3.2404542 + y * -1.5371385 + z * -0.4985314;
+    const g = x * -0.969266 + y * 1.8760108 + z * 0.041556;
+    const b = x * 0.0556434 + y * -0.2040259 + z * 1.0572252;
+    return [r, g, b];
+  }
+
+  // Convert XYZ to oklab
+  function xyzToOklab(x: number, y: number, z: number): [number, number, number] {
+    const l = Math.cbrt(0.8189330101 * x + 0.3618667424 * y - 0.1288597137 * z);
+    const m = Math.cbrt(0.0329845436 * x + 0.9293118715 * y + 0.0361456387 * z);
+    const s = Math.cbrt(0.0482003018 * x + 0.2643662691 * y + 0.633851707 * z);
+
+    const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    const bValue = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+
+    return [L, a, bValue];
+  }
+
+  // Convert oklab to XYZ
+  function oklabToXyz(L: number, a: number, bValue: number): [number, number, number] {
+    const l = L + 0.3963377774 * a + 0.2158037573 * bValue;
+    const m = L - 0.1055613458 * a - 0.0638541728 * bValue;
+    const s = L - 0.0894841775 * a - 1.291485548 * bValue;
+
+    const l3 = l * l * l;
+    const m3 = m * m * m;
+    const s3 = s * s * s;
+
+    const x = 1.2268798733 * l3 - 0.5578149965 * m3 + 0.2813910456 * s3;
+    const y = -0.0405801784 * l3 + 1.1122568696 * m3 - 0.0716766787 * s3;
+    const z = -0.0763812845 * l3 - 0.4214819784 * m3 + 1.5861632204 * s3;
+
+    return [x, y, z];
+  }
+
+  // Convert hex color to oklab
+  function hexToOklab(hex: string): [number, number, number] {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+
+    const linearR = rgbToLinear(r);
+    const linearG = rgbToLinear(g);
+    const linearB = rgbToLinear(b);
+
+    const [x, y, z] = linearRgbToXyz(linearR, linearG, linearB);
+    return xyzToOklab(x, y, z);
+  }
+
+  // Convert oklab to hex color
+  function oklabToHex(L: number, a: number, bValue: number): string {
+    const [x, y, z] = oklabToXyz(L, a, bValue);
+    const [linearR, linearG, linearB] = xyzToLinearRgb(x, y, z);
+
+    const r = linearToRgb(linearR);
+    const g = linearToRgb(linearG);
+    const b = linearToRgb(linearB);
 
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  // Interpolate between two colors in oklab space
+  function interpolateColor(color1: string, color2: string, t: number): string {
+    const [L1, a1, bValue1] = hexToOklab(color1);
+    const [L2, a2, bValue2] = hexToOklab(color2);
+
+    const L = L1 + (L2 - L1) * t;
+    const a = a1 + (a2 - a1) * t;
+    const bValue = bValue1 + (bValue2 - bValue1) * t;
+
+    return oklabToHex(L, a, bValue);
   }
 
   function handleStopMouseDown(event: MouseEvent, index: number) {
@@ -577,8 +656,6 @@
     border-color: #646cff;
   }
 
-
-
   .gradient-stop {
     position: absolute;
     top: 50%;
@@ -614,7 +691,6 @@
   .gradient-stop.no-transition {
     transition: none;
   }
-
 
   .stop-controls {
     background: #f8f9fa;

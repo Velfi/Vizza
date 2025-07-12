@@ -52,6 +52,10 @@ pub struct GrayScottModel {
     last_frame_time: std::time::Instant,
     show_gui: bool,
     pub current_lut_name: String,
+
+    // Cursor configuration (runtime state, not saved in presets)
+    pub cursor_size: f32,
+    pub cursor_strength: f32,
 }
 
 impl GrayScottModel {
@@ -135,8 +139,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_size: 10.0,
-            cursor_strength: 1.0,
+            cursor_size: 40.0,
+            cursor_strength: 0.5,
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -260,7 +264,9 @@ impl GrayScottModel {
             compute_pipeline,
             noise_seed_compute,
             last_frame_time: std::time::Instant::now(),
-            show_gui: false,
+            show_gui: true,
+            cursor_size: 40.0,
+            cursor_strength: 0.5,
         };
 
         // Apply initial LUT
@@ -290,8 +296,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_size: self.settings.cursor_size,
-            cursor_strength: self.settings.cursor_strength,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -420,12 +426,12 @@ impl GrayScottModel {
             }
             "cursor_size" => {
                 if let Some(v) = value.as_f64() {
-                    self.settings.cursor_size = v as f32;
+                    self.cursor_size = v as f32;
                 }
             }
             "cursor_strength" => {
                 if let Some(v) = value.as_f64() {
-                    self.settings.cursor_strength = v as f32;
+                    self.cursor_strength = v as f32;
                 }
             }
             _ => {}
@@ -444,8 +450,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_size: self.settings.cursor_size,
-            cursor_strength: self.settings.cursor_strength,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -517,8 +523,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: x,
             cursor_y: y,
-            cursor_size: self.settings.cursor_size,
-            cursor_strength: self.settings.cursor_strength,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
         };
 
         // Update params buffer
@@ -559,7 +565,7 @@ impl GrayScottModel {
         let ty = (texture_coords.y * self.height as f32) as i32;
 
         // Apply interaction in a circular area
-        let radius = self.settings.cursor_size as i32; // Use configurable cursor size
+        let radius = self.cursor_size as i32; // Use configurable cursor size
 
         // Collect all updates into a batch
         let mut updates: Vec<(usize, UVPair)> = Vec::new();
@@ -574,8 +580,7 @@ impl GrayScottModel {
                     let distance = ((dx * dx + dy * dy) as f32).sqrt();
                     if distance <= radius as f32 {
                         let index = (py * self.width as i32 + px) as usize;
-                        let factor =
-                            (1.0 - (distance / radius as f32)) * self.settings.cursor_strength;
+                        let factor = (1.0 - (distance / radius as f32)) * self.cursor_strength;
 
                         let uv_pair = if mouse_button == 0 {
                             // Left mouse button: seed the reaction with higher V concentration
@@ -730,6 +735,8 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
             "lut_reversed": self.lut_reversed,
             "current_lut_name": self.current_lut_name,
             "show_gui": self.show_gui,
+            "cursor_size": self.cursor_size,
+            "cursor_strength": self.cursor_strength,
             "camera": {
                 "position": self.renderer.camera.position,
                 "zoom": self.renderer.camera.zoom
@@ -827,7 +834,6 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
         Ok(())

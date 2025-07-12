@@ -351,7 +351,7 @@ impl SlimeMoldModel {
             current_agent_buffer_size: agent_buffer_size_bytes,
             current_width: effective_width,
             current_height: effective_height,
-            show_gui: false,
+            show_gui: true,
             camera,
             last_resize_time: std::time::Instant::now(),
             resize_debounce_threshold: std::time::Duration::from_millis(500),
@@ -359,7 +359,7 @@ impl SlimeMoldModel {
             cursor_world_x: 0.0,
             cursor_world_y: 0.0,
             cursor_buffer,
-            cursor_size: 100.0,   // Default cursor size
+            cursor_size: 300.0,   // Default cursor size
             cursor_strength: 5.0, // Default cursor strength
             position_generator: crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         };
@@ -1426,7 +1426,6 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
         Ok(())
