@@ -1263,40 +1263,6 @@ impl EcosystemModel {
         colors
     }
 
-    fn recreate_species_colors_buffer(&mut self, device: &Arc<Device>) {
-        // Create new buffer with updated species colors
-        self.species_colors_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Species Colors Buffer"),
-            contents: bytemuck::cast_slice(&self.species_colors),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        // Recreate the bind group with the new buffer
-        let species_colors_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Species Colors Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        self.species_colors_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Species Colors Bind Group"),
-            layout: &species_colors_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.species_colors_buffer.as_entire_binding(),
-            }],
-        });
-    }
-
     fn create_agent_update_pipeline(
         device: &Arc<Device>,
         agent_buffer: &wgpu::Buffer,

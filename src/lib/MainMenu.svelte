@@ -55,10 +55,10 @@
       <p>Multi-species particle simulation</p>
     </button>
 
-    <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
+    <!-- <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
       <h3>Ecosystem</h3>
       <p>Artificial life with chemotaxis</p>
-    </button>
+    </button> -->
 
     <button class="simulation-card disabled" disabled>
       <h3>Coming Soon</h3>

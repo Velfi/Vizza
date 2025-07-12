@@ -558,7 +558,6 @@
     wrap_edges: boolean;
     force_beta: number;
     brownian_motion: number;
-    show_wrap_grid: boolean;
   }
 
   interface State {
@@ -593,7 +592,6 @@
     wrap_edges: true,
     force_beta: 0.3,
     brownian_motion: 0.1,
-    show_wrap_grid: true,
   };
 
   // Runtime state
