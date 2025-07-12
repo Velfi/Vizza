@@ -573,10 +573,10 @@ impl EcosystemModel {
                 velocity: [rng.random_range(-0.01..0.01), rng.random_range(-0.01..0.01)],
                 energy: 50.0,
                 age: 0.0,
-                ecological_role: ecological_role as u32,
-                variant: variant as u32,
+                ecological_role,
+                variant,
                 sensor_readings: [0.0; 4],
-                heading: rng.random_range(0.0..6.28318),
+                heading: rng.random_range(0.0..std::f32::consts::TAU),
                 run_duration: rng
                     .random_range(settings.run_duration_min..settings.run_duration_max),
                 run_timer: 0.0,
@@ -615,14 +615,15 @@ impl EcosystemModel {
             agents.len()
         );
 
-        let biomass_buffer_size = (settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
+        let biomass_buffer_size =
+            (settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
         let biomass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Biomass Buffer"),
             size: biomass_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         tracing::info!(
             "Created biomass buffer: size={} bytes, max_particles={}, struct_size={} bytes",
             biomass_buffer_size,
@@ -1020,7 +1021,7 @@ impl EcosystemModel {
             render_params_bind_group,
             species_colors_bind_group,
             agent_buffer_bind_group,
-            camera: camera,
+            camera,
             settings,
             gui_visible: true,
             time: 0.0,
@@ -1057,10 +1058,7 @@ impl EcosystemModel {
                 }
             }
         } else {
-            tracing::warn!(
-                "No agents to count: agents={}",
-                total_agents
-            );
+            tracing::warn!("No agents to count: agents={}", total_agents);
         }
 
         tracing::debug!("Fallback population counts: {:?}", counts);
@@ -2306,43 +2304,46 @@ impl Simulation for EcosystemModel {
             "max_particles" => {
                 if let Some(val) = value.as_u64() {
                     let new_max_particles = val as u32;
-                    let buffer_capacity = self.biomass_buffer.size() as usize / std::mem::size_of::<DeadBiomass>();
-                    
+                    let buffer_capacity =
+                        self.biomass_buffer.size() as usize / std::mem::size_of::<DeadBiomass>();
+
                     if new_max_particles as usize > buffer_capacity {
                         tracing::info!(
                             "Recreating biomass buffer: old_capacity={}, new_max_particles={}",
                             buffer_capacity,
                             new_max_particles
                         );
-                        
+
                         // Recreate biomass buffer with new size
-                        let new_buffer_size = (new_max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
+                        let new_buffer_size =
+                            (new_max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
                         self.biomass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                             label: Some("Biomass Buffer"),
                             size: new_buffer_size,
                             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                             mapped_at_creation: false,
                         });
-                        
+
                         // Recreate agent update pipeline with new biomass buffer
-                        let (new_agent_update_pipeline, new_agent_update_bind_group) = Self::create_agent_update_pipeline(
-                            device,
-                            &self.agent_buffer,
-                            &self.biomass_buffer,
-                            &self.chemical_field_buffer,
-                            &self.sim_params_buffer,
-                        )?;
-                        
+                        let (new_agent_update_pipeline, new_agent_update_bind_group) =
+                            Self::create_agent_update_pipeline(
+                                device,
+                                &self.agent_buffer,
+                                &self.biomass_buffer,
+                                &self.chemical_field_buffer,
+                                &self.sim_params_buffer,
+                            )?;
+
                         self.agent_update_pipeline = new_agent_update_pipeline;
                         self.agent_update_bind_group = new_agent_update_bind_group;
-                        
+
                         tracing::info!(
                             "Biomass buffer and agent update pipeline recreated: new_size={} bytes, new_capacity={}",
                             new_buffer_size,
                             new_max_particles
                         );
                     }
-                    
+
                     self.settings.max_particles = new_max_particles;
                 }
             }
@@ -2404,7 +2405,11 @@ impl Simulation for EcosystemModel {
         Ok(())
     }
 
-    fn handle_mouse_release(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         // Ecosystem doesn't currently support mouse interaction
         Ok(())
     }
@@ -2467,7 +2472,8 @@ impl Simulation for EcosystemModel {
         self.time = 0.0;
 
         // --- Ensure biomass buffer is correct size BEFORE any operations ---
-        let required_biomass_size = (self.settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
+        let required_biomass_size =
+            (self.settings.max_particles as u64) * std::mem::size_of::<DeadBiomass>() as u64;
         if self.biomass_buffer.size() != required_biomass_size {
             tracing::info!(
                 "Resizing biomass buffer: old_size={} new_size={} (max_particles={})",
@@ -2482,13 +2488,14 @@ impl Simulation for EcosystemModel {
                 mapped_at_creation: false,
             });
             // Recreate agent update pipeline with new biomass buffer
-            let (new_agent_update_pipeline, new_agent_update_bind_group) = Self::create_agent_update_pipeline(
-                device,
-                &self.agent_buffer,
-                &self.biomass_buffer,
-                &self.chemical_field_buffer,
-                &self.sim_params_buffer,
-            )?;
+            let (new_agent_update_pipeline, new_agent_update_bind_group) =
+                Self::create_agent_update_pipeline(
+                    device,
+                    &self.agent_buffer,
+                    &self.biomass_buffer,
+                    &self.chemical_field_buffer,
+                    &self.sim_params_buffer,
+                )?;
             self.agent_update_pipeline = new_agent_update_pipeline;
             self.agent_update_bind_group = new_agent_update_bind_group;
             // Recreate biomass render pipeline and bind group
@@ -2502,13 +2509,14 @@ impl Simulation for EcosystemModel {
                 view_formats: vec![],
                 desired_maximum_frame_latency: 1,
             };
-            let (new_biomass_render_pipeline, new_biomass_bind_group) = Self::create_biomass_render_pipeline(
-                device,
-                &surface_config,
-                &self.camera,
-                &self.render_params_buffer,
-                &self.biomass_buffer,
-            )?;
+            let (new_biomass_render_pipeline, new_biomass_bind_group) =
+                Self::create_biomass_render_pipeline(
+                    device,
+                    &surface_config,
+                    &self.camera,
+                    &self.render_params_buffer,
+                    &self.biomass_buffer,
+                )?;
             self.biomass_render_pipeline = new_biomass_render_pipeline;
             self.biomass_bind_group = new_biomass_bind_group;
         }
@@ -2623,10 +2631,10 @@ impl Simulation for EcosystemModel {
                 velocity: [rng.random_range(-0.01..0.01), rng.random_range(-0.01..0.01)],
                 energy: 50.0,
                 age: 0.0,
-                ecological_role: ecological_role as u32,
-                variant: variant as u32,
+                ecological_role,
+                variant,
                 sensor_readings: [0.0; 4],
-                heading: rng.random_range(0.0..6.28318),
+                heading: rng.random_range(0.0..std::f32::consts::TAU),
                 run_duration: rng
                     .random_range(self.settings.run_duration_min..self.settings.run_duration_max),
                 run_timer: 0.0,

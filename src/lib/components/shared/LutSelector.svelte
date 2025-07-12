@@ -30,7 +30,7 @@
     tabindex="-1"
     on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
   >
-    <div class="dialog-content gradient-editor-content" role="document">
+    <div class="dialog-content gradient-editor-content" role="document" on:click|stopPropagation>
       <h3 id="gradient-editor-title">Color Scheme Editor</h3>
 
       <!-- LUT Name Input -->
@@ -228,39 +228,39 @@
   function addGradientStop(position: number) {
     // Find the color at this position
     const color = getColorAtPosition(position);
-    
+
     // Set flag to prevent transition on new stops
     isAddingStop = true;
-    
+
     gradientStops = [...gradientStops, { position, color }];
     gradientStops.sort((a, b) => a.position - b.position);
-    
+
     // Reset flag after a short delay to allow rendering
     setTimeout(() => {
       isAddingStop = false;
     }, 50);
-    
+
     updateGradientPreview();
   }
 
   function removeGradientStop(index: number) {
     if (gradientStops.length <= 2) return;
-    
+
     // Set flag to prevent transition on stop removal
     isAddingStop = true;
-    
+
     gradientStops = gradientStops.filter((_, i) => i !== index);
     if (selectedStopIndex === index) {
       selectedStopIndex = -1;
     } else if (selectedStopIndex > index) {
       selectedStopIndex = selectedStopIndex - 1;
     }
-    
+
     // Reset flag after a short delay to allow rendering
     setTimeout(() => {
       isAddingStop = false;
     }, 50);
-    
+
     updateGradientPreview();
   }
 
@@ -440,17 +440,17 @@
         name: custom_lut_name,
         lutData: lutData,
       });
-      
+
       // Update current LUT to the newly saved one
       current_lut = custom_lut_name;
-      
+
       // Notify parent component about the LUT change
       dispatch('select', { name: custom_lut_name });
-      
+
       // Close the editor without restoring the original LUT
       show_gradient_editor = false;
       custom_lut_name = '';
-      
+
       // Refresh available LUTs to include the new one
       available_luts = await invoke('get_available_luts');
     } catch (e) {

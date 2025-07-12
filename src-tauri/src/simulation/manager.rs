@@ -289,17 +289,17 @@ impl SimulationManager {
     }
 
     /// Handle mouse release events
-    pub fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> AppResult<()> {
+    pub fn handle_mouse_release(&mut self, mouse_button: u32, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::GrayScott(simulation) => {
-                    simulation.handle_mouse_release(queue)?;
+                    simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    simulation.handle_mouse_release(queue)?;
+                    simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 SimulationType::SlimeMold(simulation) => {
-                    simulation.handle_mouse_release(queue)?;
+                    simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 _ => (),
             }
@@ -691,7 +691,7 @@ impl SimulationManager {
                     {
                         // Use GPU readback for accurate population tracking
                         simulation
-                            .update_population_history(&*gpu_ctx.device, &*gpu_ctx.queue)
+                            .update_population_history(&gpu_ctx.device, &gpu_ctx.queue)
                             .await;
                     }
 

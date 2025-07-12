@@ -1333,16 +1333,11 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             0 // middle click or other = no interaction
         };
 
-        let (sim_x, sim_y) = if cursor_mode == 0 {
-            (0.0, 0.0)
-        } else {
-            // Convert world coordinates [-1, 1] to simulation pixel coordinates [0, width] x [0, height]
-            // World space is [-1, 1] where (-1, -1) is bottom-left and (1, 1) is top-right
-            // Simulation space is [0, width] x [0, height] where (0, 0) is top-left
-            let sim_x = ((world_x + 1.0) * 0.5) * self.current_width as f32;
-            let sim_y = ((1.0 - world_y) * 0.5) * self.current_height as f32; // Flip Y axis
-            (sim_x, sim_y)
-        };
+        // Convert world coordinates [-1, 1] to simulation pixel coordinates [0, width] x [0, height]
+        // World space is [-1, 1] where (-1, -1) is bottom-left and (1, 1) is top-right
+        // Simulation space is [0, width] x [0, height] where (0, 0) is top-left
+        let sim_x = ((world_x + 1.0) * 0.5) * self.current_width as f32;
+        let sim_y = ((1.0 - world_y) * 0.5) * self.current_height as f32; // Flip Y axis
 
         self.cursor_active_mode = cursor_mode;
         self.cursor_world_x = sim_x;
@@ -1357,13 +1352,17 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         Ok(())
     }
 
-    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         // Turn off cursor interaction
         self.cursor_active_mode = 0;
         self.cursor_world_x = 0.0;
         self.cursor_world_y = 0.0;
 
-        tracing::debug!("SlimeMold mouse release: cursor interaction disabled");
+        tracing::debug!("Slime Mold mouse release: cursor interaction disabled");
 
         // Update cursor parameters on GPU
         self.update_cursor_params(queue);

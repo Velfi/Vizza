@@ -750,7 +750,11 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, queue)
     }
 
-    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+    fn handle_mouse_release(
+        &mut self,
+        _mouse_button: u32,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
         GrayScottModel::handle_mouse_release(self, queue)
     }
 

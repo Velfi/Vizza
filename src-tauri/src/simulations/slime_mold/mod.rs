@@ -177,7 +177,7 @@ pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
             agent_sensor_distance: 20.0,
             agent_speed_max: 500.0,
             agent_speed_min: 0.0,
-            agent_turn_rate: 0.20943951606750488,
+            agent_turn_rate: 0.209_439_52,
             ..Settings::default()
         },
     ));

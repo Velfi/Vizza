@@ -234,7 +234,7 @@ impl Default for Settings {
             chemotaxis_sensitivity: 0.5,
             run_duration_min: 0.5,
             run_duration_max: 2.0,
-            tumble_angle_range: 3.14159,
+            tumble_angle_range: std::f32::consts::PI,
             flagella_strength: 1.0,
             receptor_saturation_threshold: 5.0,
 
@@ -339,13 +339,13 @@ impl Settings {
         self.base_light_intensity = rng.random_range(0.1..1.0);
         self.light_gradient_strength = rng.random_range(0.1..1.0);
         self.light_rotation_speed = rng.random_range(0.01..0.5);
-        self.light_direction_angle = rng.random_range(0.0..3.14); // 0 to 2*PI
+        self.light_direction_angle = rng.random_range(0.0..std::f32::consts::PI);
 
         // Randomize movement and sensing systems
         self.chemotaxis_sensitivity = rng.random_range(0.1..1.0);
         self.run_duration_min = rng.random_range(0.1..1.0);
         self.run_duration_max = self.run_duration_min + rng.random_range(0.1..2.0);
-        self.tumble_angle_range = rng.random_range(0.1..3.14); // 0 to 2*PI
+        self.tumble_angle_range = rng.random_range(0.1..std::f32::consts::PI);
         self.flagella_strength = rng.random_range(0.01..1.0);
         self.receptor_saturation_threshold = rng.random_range(1.0..10.0);
 

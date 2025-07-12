@@ -173,9 +173,12 @@
 
   // Calculate force at a given distance
   function calculateForce(distance: number): number {
-    if (distance < betaDistance) {
+    const minDist = 0.001;
+    const betaRmax = internalForceBeta * internalMaxDistance;
+    if (distance < betaRmax) {
       // Close range: linear repulsion
-      return (distance / betaDistance - 1.0) * internalMaxForce;
+      const effectiveDistance = Math.max(distance, minDist);
+      return (effectiveDistance / betaRmax - 1.0) * internalMaxForce;
     } else if (distance <= internalMaxDistance) {
       // Far range: species-specific attraction/repulsion
       const farRangeForce = internalMaxForce * 0.5;

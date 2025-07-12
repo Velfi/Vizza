@@ -4,6 +4,7 @@
 
 - LUT: Look-up table. Used for color schemes.
 - PL: Particle Life. A simulation of particle behavior.
+  - IM: Interaction Matrix. A matrix of force relationships between particles.
 - GS: Gray-Scott. A simulation of Gray-Scott reaction-diffusion.
 - SM: Slime Mold. A simulation of slime molds.
 - EM: Ecosystem. A simulation of an ecosystem.

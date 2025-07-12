@@ -101,11 +101,6 @@ impl GpuContext {
         // Configure surface
         surface.configure(&device, &surface_config);
 
-        println!(
-            "Surface initialized successfully: {}x{}",
-            surface_config.width, surface_config.height
-        );
-
         // Create main menu background simulation
         let device_arc = Arc::new(device);
         let queue_arc = Arc::new(queue);
@@ -144,7 +139,6 @@ impl GpuContext {
 
         // Reconfigure surface
         self.surface.configure(&self.device, &config);
-        println!("Surface resized to: {}x{}", width, height);
 
         Ok(())
     }

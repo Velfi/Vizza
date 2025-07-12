@@ -58,6 +58,6 @@ pub async fn get_species_visibility_state(
     if let Some(ecosystem_sim) = sim_manager.get_ecosystem_simulation() {
         Ok(ecosystem_sim.visibility_flags.clone())
     } else {
-        return Err("Ecosystem simulation not found".to_string());
+        Err("Ecosystem simulation not found".to_string())
     }
 }

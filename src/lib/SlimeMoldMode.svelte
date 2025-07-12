@@ -9,6 +9,8 @@
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
+  import CameraControls from './components/shared/CameraControls.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -82,8 +84,7 @@
   let unlistenFps: (() => void) | null = null;
 
   // Camera controls
-  let pressedKeys = new Set<string>();
-  let animationFrameId: number | null = null;
+
   let isMousePressed = false;
   let currentMouseButton = 0;
 
@@ -99,11 +100,11 @@
   async function toggleBackendGui() {
     try {
       await invoke('toggle_gui');
-      
+
       // Get the current GUI state
       const visible = await invoke('get_gui_state') as boolean;
       showUI = visible;
-      
+
       // Handle auto-hide when UI is hidden
       if (!showUI) {
         showControls();
@@ -311,9 +312,10 @@
     }
   }
 
-  async function savePreset() {
+  async function savePreset(presetName?: string) {
+    const nameToSave = presetName || new_preset_name;
     try {
-      await invoke('save_preset', { presetName: new_preset_name });
+      await invoke('save_preset', { presetName: nameToSave });
       show_save_preset_dialog = false;
       new_preset_name = '';
       // Refresh the available presets list
@@ -458,14 +460,7 @@
   onMount(async () => {
     // Set up event listeners BEFORE starting simulation to avoid race conditions
 
-    // Set up keyboard listeners for camera control
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
 
-    // Start camera update loop immediately so camera controls work even when paused
-    if (animationFrameId === null) {
-      animationFrameId = requestAnimationFrame(updateCamera);
-    }
 
     // Add event listeners for auto-hide functionality
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -502,9 +497,7 @@
       unlistenFps();
     }
 
-    // Remove keyboard event listeners
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
+
 
     // Remove auto-hide event listeners
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -519,11 +512,7 @@
     stopCursorHideTimer();
     showCursor();
 
-    // Stop camera update loop
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
+
   });
 
   async function updateLutName(value: string) {
@@ -535,134 +524,7 @@
     }
   }
 
-  // Camera control functions
-  function handleKeyDown(event: KeyboardEvent) {
-    // Check if user is focused on a form element - if so, don't process camera controls
-    const activeElement = document.activeElement;
-    if (activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    )) {
-      return; // Let the form element handle the keyboard input
-    }
 
-    if (event.key === '/') {
-      event.preventDefault();
-      toggleBackendGui();
-      return;
-    }
-
-    // Handle camera controls - allow camera controls even when simulation is paused
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      event.preventDefault();
-      pressedKeys.add(event.key.toLowerCase());
-    }
-  }
-
-  function handleKeyUp(event: KeyboardEvent) {
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      pressedKeys.delete(event.key.toLowerCase());
-    }
-  }
-
-  async function panCamera(deltaX: number, deltaY: number) {
-    try {
-      await invoke('pan_camera', { deltaX, deltaY });
-    } catch (e) {
-      console.error('Failed to pan camera:', e);
-    }
-  }
-
-  async function zoomCamera(delta: number) {
-    try {
-      await invoke('zoom_camera', { delta });
-    } catch (e) {
-      console.error('Failed to zoom camera:', e);
-    }
-  }
-
-  async function resetCamera() {
-    try {
-      await invoke('reset_camera');
-    } catch (e) {
-      console.error('Failed to reset camera:', e);
-    }
-  }
-
-  // Camera update loop for smooth movement - runs continuously even when paused
-  function updateCamera() {
-    // Allow camera movement even when simulation is paused
-    const panAmount = 0.1;
-    let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
-
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
-
-    // Apply combined movement if any keys are pressed
-    if (moved) {
-      panCamera(deltaX, deltaY);
-    }
-
-    if (pressedKeys.has('q')) {
-      zoomCamera(-0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('e')) {
-      zoomCamera(0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('c')) {
-      resetCamera();
-      moved = true;
-    }
-
-    // Always schedule the next frame to keep the loop running
-    animationFrameId = requestAnimationFrame(updateCamera);
-  }
 
   async function handleMouseEvent(e: CustomEvent) {
     const event = e.detail as MouseEvent | WheelEvent;
@@ -732,7 +594,7 @@
 
       // Stop cursor interaction when mouse is released
       try {
-        await invoke('handle_mouse_release');
+        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);
       }
@@ -1418,3 +1280,9 @@
     </fieldset>
   </form>
 </SimulationLayout>
+
+<!-- Shared camera controls component -->
+<CameraControls 
+  enabled={true} 
+  on:toggleGui={toggleBackendGui}
+/>

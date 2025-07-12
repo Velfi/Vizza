@@ -211,6 +211,8 @@
                 { value: 'LineV', label: 'Line V' },
                 { value: 'Spiral', label: 'Spiral' },
                 { value: 'Dithered', label: 'Dithered' },
+                { value: 'WavyLineH', label: 'Wavy Lines H' },
+                { value: 'WavyLineV', label: 'Wavy Lines V' },
               ]}
               on:change={({ detail }) => updateTypeGenerator(detail.value)}
               on:buttonclick={async () => {
@@ -501,31 +503,18 @@
 
     <!-- Save Preset Dialog -->
     {#if show_save_preset_dialog}
-      <div
-        class="dialog-backdrop"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="save-preset-title"
-        tabindex="-1"
-        on:click={() => (show_save_preset_dialog = false)}
-        on:keydown={(e) => e.key === 'Escape' && (show_save_preset_dialog = false)}
-      >
-        <div class="dialog" role="document">
-          <h3 id="save-preset-title">Save Preset</h3>
-          <input
-            type="text"
-            placeholder="Enter preset name..."
-            value={new_preset_name}
-            on:input={(e) => (new_preset_name = (e.target as HTMLInputElement).value)}
-            on:keydown={(e) => e.key === 'Enter' && savePreset()}
-          />
-          <div class="dialog-buttons">
-            <button on:click={savePreset} disabled={new_preset_name.trim() === ''}> Save </button>
-            <button on:click={() => (show_save_preset_dialog = false)}> Cancel </button>
-          </div>
-        </div>
-      </div>
+      <SavePresetDialog
+        bind:presetName={new_preset_name}
+        on:save={({ detail }) => savePreset(detail.name)}
+        on:close={() => (show_save_preset_dialog = false)}
+      />
     {/if}
+
+    <!-- Shared camera controls component -->
+    <CameraControls 
+      enabled={true} 
+      on:toggleGui={toggleBackendGui}
+    />
 
 
   {/if}
@@ -542,6 +531,8 @@
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
+  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
+  import CameraControls from './components/shared/CameraControls.svelte';
   import './shared-theme.css';
   import './particle_life_mode.css';
 
@@ -609,7 +600,7 @@
     matrix_generator: 'Random',
     current_lut: '',
     lut_reversed: false,
-    color_mode: 'LUT',
+    color_mode: 'Lut',
   };
 
   // UI state
@@ -622,6 +613,8 @@
   let fps_display = 0;
   let isSimulationRunning = false;
   let isLoading = true;
+
+
 
   // Enhanced UI state
   let showUI = true;
@@ -955,27 +948,33 @@
     }
   }
 
-  async function savePreset() {
-    if (new_preset_name.trim() === '') return;
+  async function savePreset(presetName?: string) {
+    const nameToSave = presetName || new_preset_name;
+    if (nameToSave.trim() === '') return;
 
     try {
       await invoke('save_preset', {
-        presetName: new_preset_name.trim(),
+        presetName: nameToSave.trim(),
         settings: settings,
       });
 
       // Refresh presets list
       await loadPresets();
 
+      // Set the current preset to the newly saved one
+      current_preset = nameToSave.trim();
+
       // Clear dialog
       new_preset_name = '';
       show_save_preset_dialog = false;
 
-      console.log(`Saved preset: ${new_preset_name}`);
+      console.log(`Saved preset: ${nameToSave}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
   }
+
+
 
   // Data loading functions
   async function loadPresets() {
@@ -1046,6 +1045,7 @@
       }
 
       const backendState = await invoke('get_current_state');
+      console.log('Backend state received:', backendState);
       if (backendState) {
         const oldParticleCount = state.particle_count;
 
@@ -1109,6 +1109,16 @@
               state.lut_reversed = newReversed;
               console.log(`Synced LUT reversed from backend: ${state.lut_reversed}`);
             }
+          }
+          if ('color_mode' in backendState) {
+            const backendColorMode = (backendState as any).color_mode || 'LUT';
+            console.log(`Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`);
+            if (backendColorMode !== state.color_mode) {
+              state.color_mode = backendColorMode;
+              console.log(`Synced color mode from backend: ${state.color_mode}`);
+            }
+          } else {
+            console.log('No color_mode in backend state, keeping frontend default:', state.color_mode);
           }
         }
 
@@ -1295,137 +1305,7 @@
     }
   }
 
-  // Camera controls
-  let pressedKeys = new Set<string>();
-  let animationFrameId: number | null = null;
 
-  function handleKeyDown(event: KeyboardEvent) {
-    // Check if user is focused on a form element - if so, don't process camera controls
-    const activeElement = document.activeElement;
-    if (activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    )) {
-      return; // Let the form element handle the keyboard input
-    }
-
-    if (event.key === '/') {
-      event.preventDefault();
-      toggleBackendGui();
-      return;
-    }
-
-    // Handle camera controls - allow camera controls even when simulation is paused
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      event.preventDefault();
-      pressedKeys.add(event.key.toLowerCase());
-    }
-  }
-
-  function handleKeyUp(event: KeyboardEvent) {
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      pressedKeys.delete(event.key.toLowerCase());
-    }
-  }
-
-  async function panCamera(deltaX: number, deltaY: number) {
-    try {
-      await invoke('pan_camera', { deltaX, deltaY });
-    } catch (e) {
-      console.error('Failed to pan camera:', e);
-    }
-  }
-
-  async function zoomCamera(delta: number) {
-    try {
-      await invoke('zoom_camera', { delta });
-    } catch (e) {
-      console.error('Failed to zoom camera:', e);
-    }
-  }
-
-  async function resetCamera() {
-    try {
-      await invoke('reset_camera');
-    } catch (e) {
-      console.error('Failed to reset camera:', e);
-    }
-  }
-
-  // Camera update loop for smooth movement - runs continuously even when paused
-  function updateCamera() {
-    // Allow camera movement even when simulation is paused
-    const panAmount = 0.1;
-    let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
-
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
-
-    // Apply combined movement if any keys are pressed
-    if (moved) {
-      panCamera(deltaX, deltaY);
-    }
-
-    if (pressedKeys.has('q')) {
-      zoomCamera(-0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('e')) {
-      zoomCamera(0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('c')) {
-      resetCamera();
-      moved = true;
-    }
-
-    // Always schedule the next frame to keep the loop running
-    animationFrameId = requestAnimationFrame(updateCamera);
-  }
 
   let isMousePressed = false;
   let currentMouseButton = 0;
@@ -1504,7 +1384,7 @@
 
       // Stop cursor interaction when mouse is released
       try {
-        await invoke('handle_mouse_release');
+        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
       } catch (e) {
         console.error('Failed to stop mouse interaction:', e);
       }
@@ -1664,14 +1544,7 @@
         console.error('Failed to set up simulation-resumed listener:', e);
       }
 
-      // Set up keyboard listeners for camera control
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('keyup', handleKeyUp);
 
-      // Start camera update loop immediately so camera controls work even when paused
-      if (animationFrameId === null) {
-        animationFrameId = requestAnimationFrame(updateCamera);
-      }
 
       // Add event listeners for auto-hide functionality
       const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -1722,9 +1595,6 @@
       unsubscribeSimulationResumed();
     }
 
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
-
     // Remove auto-hide event listeners
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
     events.forEach((event) => {
@@ -1737,12 +1607,6 @@
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
-
-    // Stop camera update loop
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
   });
 
   $: typePercentages = typeCounts.map((count) =>
@@ -1980,13 +1844,7 @@
 </script>
 
 <style>
-  .simulation-container {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    background: transparent;
-    position: relative;
-  }
+  /* Particle Life specific styles */
 
   /* Loading Screen Styles */
   .loading-screen {
@@ -2035,56 +1893,8 @@
     font-size: 1rem;
   }
 
-  fieldset {
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-
-  legend {
-    font-weight: bold;
-    padding: 0 0.5rem;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .control-group {
-    margin-bottom: 1rem;
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-  }
-
-  input[type='checkbox'] {
-    margin-right: 0.5rem;
-  }
-
-  .preset-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 1rem;
-  }
-
   button {
-    padding: 0.5rem 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
     height: 35px;
-  }
-
-  button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    color: rgba(255, 255, 255, 1);
   }
 
   .matrix-info {
@@ -2287,7 +2097,7 @@
   }
 
   .matrix-legend .negative {
-    color: #ea3333;
+    color: #336aea;
   }
 
   .matrix-legend .neutral {
@@ -2295,7 +2105,7 @@
   }
 
   .matrix-legend .positive {
-    color: #22c55e;
+    color: #c42f1c;
   }
 
   .icon-btn.scale-down {

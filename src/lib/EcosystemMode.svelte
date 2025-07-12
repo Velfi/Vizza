@@ -7,6 +7,7 @@
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import EcosystemSettings from './components/ecosystem/EcosystemSettings.svelte';
   import EcosystemLegend from './components/ecosystem/EcosystemLegend.svelte';
+  import CameraControls from './components/shared/CameraControls.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -36,9 +37,7 @@
   // Event listeners
   let unlistenFps: (() => void) | null = null;
 
-  // Camera controls
-  let pressedKeys = new Set<string>();
-  let animationFrameId: number | null = null;
+
   
   // Visibility sync trigger
   let visibilitySyncTrigger = 0;
@@ -258,134 +257,7 @@
     }
   }
 
-  // Camera control functions
-  function handleKeyDown(event: KeyboardEvent) {
-    // Check if user is focused on a form element - if so, don't process camera controls
-    const activeElement = document.activeElement;
-    if (activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    )) {
-      return; // Let the form element handle the keyboard input
-    }
 
-    if (event.key === '/') {
-      event.preventDefault();
-      toggleGui();
-      return;
-    }
-
-    // Handle camera controls - allow camera controls even when simulation is paused
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      event.preventDefault();
-      pressedKeys.add(event.key.toLowerCase());
-    }
-  }
-
-  function handleKeyUp(event: KeyboardEvent) {
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      pressedKeys.delete(event.key.toLowerCase());
-    }
-  }
-
-  async function panCamera(deltaX: number, deltaY: number) {
-    try {
-      await invoke('pan_camera', { deltaX, deltaY });
-    } catch (e) {
-      console.error('Failed to pan camera:', e);
-    }
-  }
-
-  async function zoomCamera(delta: number) {
-    try {
-      await invoke('zoom_camera', { delta });
-    } catch (e) {
-      console.error('Failed to zoom camera:', e);
-    }
-  }
-
-  async function resetCamera() {
-    try {
-      await invoke('reset_camera');
-    } catch (e) {
-      console.error('Failed to reset camera:', e);
-    }
-  }
-
-  // Camera update loop for smooth movement - runs continuously even when paused
-  function updateCamera() {
-    // Allow camera movement even when simulation is paused
-    const panAmount = 0.1;
-    let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
-
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
-
-    // Apply combined movement if any keys are pressed
-    if (moved) {
-      panCamera(deltaX, deltaY);
-    }
-
-    if (pressedKeys.has('q')) {
-      zoomCamera(-0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('e')) {
-      zoomCamera(0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('c')) {
-      resetCamera();
-      moved = true;
-    }
-
-    // Always schedule the next frame to keep the loop running
-    animationFrameId = requestAnimationFrame(updateCamera);
-  }
 
   // Mouse event handling for camera controls
   async function handleMouseEvent(e: CustomEvent) {
@@ -411,14 +283,7 @@
 
 
   onMount(async () => {
-    // Set up keyboard listeners for camera control
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
 
-    // Start camera update loop immediately so camera controls work even when paused
-    if (animationFrameId === null) {
-      animationFrameId = requestAnimationFrame(updateCamera);
-    }
 
     // Add event listeners for auto-hide functionality
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -447,9 +312,7 @@
       unlistenFps();
     }
 
-    // Remove keyboard event listeners
-    document.removeEventListener('keydown', handleKeyDown);
-    document.removeEventListener('keyup', handleKeyUp);
+
 
     // Remove auto-hide event listeners
     const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
@@ -464,11 +327,7 @@
     stopCursorHideTimer();
     showCursor();
 
-    // Stop camera update loop
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
+
   });
 </script>
 
@@ -578,6 +437,12 @@
 
   </form>
 </SimulationLayout>
+
+<!-- Shared camera controls component -->
+<CameraControls 
+  enabled={true} 
+  on:toggleGui={toggleGui}
+/>
 
 <style>
   fieldset {
