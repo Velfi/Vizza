@@ -98,7 +98,7 @@ export default [
       prettier: prettier,
     },
     rules: {
-      ...require('eslint-config-prettier').rules,
+      ...prettier.configs.recommended.rules,
     },
   },
 

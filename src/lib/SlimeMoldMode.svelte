@@ -842,10 +842,13 @@
   // Sync settings from backend to frontend
   async function syncSettingsFromBackend() {
     try {
-      const currentSettings = (await invoke('get_current_settings')) as any;
+      const currentSettings = await invoke('get_current_settings') as Record<string, unknown>;
       const currentState = (await invoke('get_current_state')) as {
         current_lut_name: string;
         lut_reversed: boolean;
+        cursor_size?: number;
+        cursor_strength?: number;
+        position_generator?: string;
       } | null;
 
       console.log('Syncing settings from backend:', { currentSettings, currentState });
@@ -853,15 +856,15 @@
       if (currentSettings) {
         // Handle gradient type conversion from enum to lowercase string
         if (currentSettings.gradient_type) {
-          currentSettings.gradient_type = currentSettings.gradient_type.toLowerCase();
+          currentSettings.gradient_type = (currentSettings.gradient_type as string).toLowerCase();
         }
 
         // Convert radians to degrees for frontend display
         if (currentSettings.agent_turn_rate !== undefined) {
-          currentSettings.agent_turn_rate = (currentSettings.agent_turn_rate * 180) / Math.PI;
+          currentSettings.agent_turn_rate = ((currentSettings.agent_turn_rate as number) * 180) / Math.PI;
         }
         if (currentSettings.agent_sensor_angle !== undefined) {
-          currentSettings.agent_sensor_angle = (currentSettings.agent_sensor_angle * 180) / Math.PI;
+          currentSettings.agent_sensor_angle = ((currentSettings.agent_sensor_angle as number) * 180) / Math.PI;
         }
 
         // Update the settings object with current backend values
@@ -883,16 +886,16 @@
         lut_reversed = currentState.lut_reversed;
 
         // Update cursor configuration from state
-        if ((currentState as any).cursor_size !== undefined) {
-          cursorSize = (currentState as any).cursor_size;
+        if (currentState.cursor_size !== undefined) {
+          cursorSize = currentState.cursor_size;
         }
-        if ((currentState as any).cursor_strength !== undefined) {
-          cursorStrength = (currentState as any).cursor_strength;
+        if (currentState.cursor_strength !== undefined) {
+          cursorStrength = currentState.cursor_strength;
         }
 
         // Update position generator from state
-        if ((currentState as any).position_generator !== undefined) {
-          position_generator = (currentState as any).position_generator;
+        if (currentState.position_generator !== undefined) {
+          position_generator = currentState.position_generator;
         }
 
         console.log('State synced from backend:', {
@@ -962,7 +965,7 @@
     await syncAgentCountFromBackend();
 
     // Listen for FPS updates
-    unlistenFps = await listen('fps-update', (event: any) => {
+    unlistenFps = await listen('fps-update', (event: { payload: number }) => {
       currentFps = event.payload;
     });
   });

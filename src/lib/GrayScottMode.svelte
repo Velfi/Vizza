@@ -433,11 +433,11 @@
         lut_reversed = currentState.lut_reversed;
 
         // Update cursor configuration from state
-        if ((currentState as any).cursor_size !== undefined) {
-          cursorSize = (currentState as any).cursor_size;
+        if ((currentState as { cursor_size?: number }).cursor_size !== undefined) {
+          cursorSize = (currentState as { cursor_size?: number }).cursor_size || 50;
         }
-        if ((currentState as any).cursor_strength !== undefined) {
-          cursorStrength = (currentState as any).cursor_strength;
+        if ((currentState as { cursor_strength?: number }).cursor_strength !== undefined) {
+          cursorStrength = (currentState as { cursor_strength?: number }).cursor_strength || 1.0;
         }
       }
     } catch (e) {

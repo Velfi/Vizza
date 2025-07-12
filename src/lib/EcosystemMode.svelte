@@ -134,7 +134,21 @@
 
   export let menuPosition: string = 'middle';
 
-  let currentSettings: any = {};
+  interface EcosystemSettings {
+    agent_count?: number;
+    species_count?: number;
+    [key: string]: unknown;
+  }
+
+  interface EcosystemState {
+    agent_count?: number;
+    species_count?: number;
+    total_energy?: number;
+    alive_agents?: number;
+    [key: string]: unknown;
+  }
+
+  let currentSettings: EcosystemSettings = {};
   // Remove unused currentState variable
   let isPaused = false;
   let isGuiVisible = true;
@@ -210,7 +224,7 @@
 
   async function loadSettings() {
     try {
-      const settings = await invoke('get_current_settings');
+      const settings = await invoke('get_current_settings') as EcosystemSettings;
       if (settings) {
         currentSettings = settings;
         agentCount = currentSettings.agent_count || 1000;
@@ -223,7 +237,7 @@
 
   async function loadState() {
     try {
-      const state: any = await invoke('get_current_state');
+      const state = await invoke('get_current_state') as EcosystemState;
       if (state) {
         agentCount = state.agent_count || agentCount;
         speciesCount = state.species_count || speciesCount;
@@ -414,7 +428,7 @@
     await startSimulation();
 
     // Listen for FPS updates
-    unlistenFps = await listen('fps-update', (event: any) => {
+    unlistenFps = await listen('fps-update', (event: { payload: number }) => {
       fps = event.payload;
     });
   });

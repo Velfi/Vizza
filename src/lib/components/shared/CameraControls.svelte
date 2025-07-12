@@ -9,7 +9,7 @@
 
   export let enabled: boolean = true;
 
-  let pressedKeys = new Set<string>();
+  const pressedKeys = new Set<string>();
   let animationFrameId: number | null = null;
 
   function handleKeyDown(event: KeyboardEvent) {

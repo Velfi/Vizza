@@ -226,13 +226,26 @@ fn update_agents(
             let dir = normalize(delta);
             let force = cursor.strength * (1.0 - dist / cursor.size);
             if (cursor.is_active == 1u) {
-                // Attract
+                // Attract with swirling effect
                 x += dir.x * force;
                 y += dir.y * force;
+                
+                // Add swirling force (tangential component) for black hole effect
+                let tangential_dir = vec2<f32>(-dir.y, dir.x);
+                let swirl_force = force * 0.8; // 80% of radial force
+                x += tangential_dir.x * swirl_force;
+                y += tangential_dir.y * swirl_force;
+                
             } else if (cursor.is_active == 2u) {
-                // Repel
+                // Repel with swirling effect
                 x -= dir.x * force;
                 y -= dir.y * force;
+                
+                // Add swirling force (tangential component) for centrifugal effect
+                let tangential_dir = vec2<f32>(dir.y, -dir.x);
+                let swirl_force = force * 0.8; // 80% of radial force
+                x += tangential_dir.x * swirl_force;
+                y += tangential_dir.y * swirl_force;
             }
         }
     }

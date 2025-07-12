@@ -908,11 +908,26 @@
   import NumberDragBox from '../inputs/NumberDragBox.svelte';
   import Selector from '../inputs/Selector.svelte';
 
-  export let settings: any = {};
+  interface EcosystemSettings {
+    agent_count?: number;
+    species_count?: number;
+    show_pheromones?: boolean;
+    show_toxins?: boolean;
+    show_attractants?: boolean;
+    chemical_field_opacity?: number;
+    show_light_gradient?: boolean;
+    show_temperature_zones?: boolean;
+    show_ph_zones?: boolean;
+    environmental_opacity?: number;
+    show_energy_as_size?: boolean;
+    [key: string]: unknown;
+  }
+
+  export let settings: EcosystemSettings = {};
 
   const dispatch = createEventDispatcher();
 
-  function handleSettingChange(setting: string, value: any) {
+  function handleSettingChange(setting: string, value: number | boolean) {
     dispatch('settingChange', { setting, value });
   }
 

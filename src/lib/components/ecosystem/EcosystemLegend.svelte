@@ -162,14 +162,16 @@
 
   export let syncTrigger = 0; // Prop to trigger visibility sync
 
-  // Population data state
-  let populationData: {
-    current?: { species_counts: number[]; total_population: number; species_names: string[] };
-  } = {};
-  let updateInterval: number;
+  interface PopulationData {
+    current?: {
+      species_counts?: number[];
+      total_population?: number;
+    };
+  }
 
-  // Visibility state for each species variant
-  let speciesVisibility: boolean[] = Array(9).fill(true); // All visible by default
+  let populationData: PopulationData = {};
+  let speciesVisibility: boolean[] = Array(9).fill(true);
+  let updateInterval: number | null = null;
 
   const speciesInfo = [
     // Recyclers (Role 0)
@@ -277,7 +279,7 @@
   async function fetchPopulationData() {
     try {
       const data = await invoke('get_ecosystem_population_data');
-      populationData = data as any;
+      populationData = data as PopulationData;
     } catch (error) {
       // Silently fail if ecosystem simulation isn't running
       populationData = {};
@@ -291,9 +293,9 @@
       if (visibilityFlags && visibilityFlags.length === 9) {
         speciesVisibility = visibilityFlags.map((flag) => flag === 1);
       }
-    } catch (error) {
+    } catch {
       // Silently fail if ecosystem simulation isn't running
-      console.debug('Could not sync visibility state:', error);
+      console.debug('Could not sync visibility state');
     }
   }
 

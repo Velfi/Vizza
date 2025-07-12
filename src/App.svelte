@@ -58,11 +58,25 @@
     | 'ecosystem'
     | 'how-to-play'
     | 'settings';
+
+  interface AppSettings {
+    ui_scale: number;
+    default_fps_limit: number;
+    default_fps_limit_enabled: boolean;
+    window_width: number;
+    window_height: number;
+    window_maximized: boolean;
+    auto_hide_ui: boolean;
+    auto_hide_delay: number;
+    menu_position: string;
+    default_camera_sensitivity: number;
+  }
+
   let currentMode: AppMode = 'menu';
   let previousMode: AppMode | null = null;
 
   // App settings for UI scaling
-  let appSettings: any = {
+  let appSettings: AppSettings = {
     ui_scale: 1.0,
     default_fps_limit: 60,
     default_fps_limit_enabled: false,
@@ -78,7 +92,7 @@
   // Load app settings and apply UI scale
   async function loadAppSettings() {
     try {
-      const settings = await invoke('get_app_settings');
+      const settings = await invoke('get_app_settings') as AppSettings;
       if (settings) {
         appSettings = settings;
         await applyUIScale(appSettings.ui_scale);

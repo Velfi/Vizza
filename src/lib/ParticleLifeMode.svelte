@@ -269,6 +269,7 @@
                 <div class="matrix-labels">
                   <div class="corner"></div>
                   {#each Array(settings.species_count) as _, j}
+                    <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
                     <div class="col-label" style="color: {speciesColors[j]}">
                       S{j + 1}
                     </div>
@@ -276,11 +277,13 @@
                 </div>
 
                 {#each Array(settings.species_count) as _, i}
+                  <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
                   <div class="matrix-row">
                     <div class="row-label" style="color: {speciesColors[i]}">
                       S{i + 1}
                     </div>
                     {#each Array(settings.species_count) as _, j}
+                      <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
                       {@const matrixValue =
                         settings.force_matrix &&
                         settings.force_matrix[i] &&
@@ -764,27 +767,27 @@
     }
   }
 
-  async function updateSetting(settingName: string, value: any) {
+  async function updateSetting(settingName: string, value: number | boolean) {
     try {
       // Update local state first for immediate UI feedback
       switch (settingName) {
         case 'max_force':
-          settings.max_force = value;
+          settings.max_force = value as number;
           break;
         case 'max_distance':
-          settings.max_distance = value;
+          settings.max_distance = value as number;
           break;
         case 'force_beta':
-          settings.force_beta = value;
+          settings.force_beta = value as number;
           break;
         case 'friction':
-          settings.friction = value;
+          settings.friction = value as number;
           break;
         case 'brownian_motion':
-          settings.brownian_motion = value;
+          settings.brownian_motion = value as number;
           break;
         case 'wrap_edges':
-          settings.wrap_edges = value;
+          settings.wrap_edges = value as boolean;
           break;
       }
 
@@ -992,13 +995,13 @@
 
         // Ensure particle_count is properly set from state
         if (backendState && typeof backendState === 'object' && 'particle_count' in backendState) {
-          state.particle_count = (backendState as any).particle_count || 15000;
+          state.particle_count = (backendState as { particle_count?: number }).particle_count || 15000;
         }
 
         // Sync LUT state from backend
         if (backendState && typeof backendState === 'object') {
           if ('current_lut_name' in backendState) {
-            const backendLut = (backendState as any).current_lut_name || '';
+            const backendLut = (backendState as { current_lut_name?: string }).current_lut_name || '';
             // Always sync LUT from backend to ensure consistency
             if (backendLut !== state.current_lut) {
               state.current_lut = backendLut;
@@ -1006,14 +1009,14 @@
             }
           }
           if ('lut_reversed' in backendState) {
-            const newReversed = (backendState as any).lut_reversed || false;
+            const newReversed = (backendState as { lut_reversed?: boolean }).lut_reversed || false;
             if (newReversed !== state.lut_reversed) {
               state.lut_reversed = newReversed;
               console.log(`Synced LUT reversed from backend: ${state.lut_reversed}`);
             }
           }
           if ('color_mode' in backendState) {
-            const backendColorMode = (backendState as any).color_mode || 'LUT';
+            const backendColorMode = (backendState as { color_mode?: string }).color_mode || 'LUT';
             console.log(
               `Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`
             );

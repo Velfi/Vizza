@@ -194,11 +194,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             
             // Apply force based on cursor mode (attract or repel)
             if (params.cursor_active == 1u) {
-                // Attract particles to cursor
+                // Attract particles to cursor with swirling effect
                 force += direction_to_cursor * cursor_force_strength;
+                
+                // Add swirling force (tangential component) for black hole effect
+                // Create perpendicular vector for tangential force
+                let tangential_direction = vec2<f32>(-direction_to_cursor.y, direction_to_cursor.x);
+                
+                // Swirling strength increases as particles get closer to center
+                let swirl_strength = cursor_force_strength * 0.8; // 80% of radial force
+                
+                // Apply tangential force to create circular motion
+                force += tangential_direction * swirl_strength;
+                
             } else if (params.cursor_active == 2u) {
-                // Repel particles from cursor
+                // Repel particles from cursor with swirling effect
                 force -= direction_to_cursor * cursor_force_strength;
+                
+                // Add swirling force (tangential component) for centrifugal effect
+                // Create perpendicular vector for tangential force (opposite direction from attract)
+                let tangential_direction = vec2<f32>(direction_to_cursor.y, -direction_to_cursor.x);
+                
+                // Swirling strength increases as particles get closer to center
+                let swirl_strength = cursor_force_strength * 0.8; // 80% of radial force
+                
+                // Apply tangential force to create circular motion (opposite direction)
+                force += tangential_direction * swirl_strength;
             }
         }
     }
