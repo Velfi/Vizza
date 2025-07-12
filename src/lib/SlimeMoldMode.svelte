@@ -1,334 +1,465 @@
-<div class="simulation-container">
-  <!-- Mouse interaction overlay -->
-  <div
-    class="mouse-overlay"
-    on:mousedown={handleMouseEvent}
-    on:mousemove={handleMouseEvent}
-    on:mouseup={handleMouseEvent}
-    on:mouseleave={handleMouseEvent}
-    on:contextmenu={handleMouseEvent}
-    on:wheel={handleMouseEvent}
-    role="button"
-    tabindex="0"
-  ></div>
+<SimulationLayout
+  simulationName="Slime Mold"
+  {running}
+  {loading}
+  {showUI}
+  {currentFps}
+  {controlsVisible}
+  {menuPosition}
+  on:back={returnToMenu}
+  on:toggleUI={toggleBackendGui}
+  on:pause={stopSimulation}
+  on:resume={resumeSimulation}
+  on:userInteraction={handleUserInteraction}
+  on:mouseEvent={handleMouseEvent}
+>
+  <form on:submit|preventDefault>
+    <!-- About this simulation -->
+    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+      <p>
+        Slime Mold simulates the fascinating behavior of Physarum polycephalum, a single-celled
+        organism that exhibits collective intelligence. Thousands of agents move through space,
+        depositing pheromone trails that attract other agents, creating efficient networks.
+      </p>
+      <p>
+        The simulation models how slime molds solve complex problems like finding optimal paths
+        through mazes and connecting food sources. Agents sense pheromone gradients and adjust their
+        movement accordingly, while the pheromone trails decay and diffuse over time.
+      </p>
+      <p>
+        Watch as simple rules for movement and pheromone interaction lead to the emergence of
+        sophisticated transportation networks, branching patterns, and adaptive pathfinding - all
+        without central coordination or planning.
+      </p>
+    </CollapsibleFieldset>
 
-  <!-- Loading Screen -->
-  {#if loading}
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <h2>Starting Simulation...</h2>
-        <p>Initializing GPU resources and agents</p>
+    <!-- Preset Controls -->
+    <PresetFieldset
+      availablePresets={available_presets}
+      bind:currentPreset={current_preset}
+      placeholder="Select preset..."
+      on:presetChange={({ detail }) => updatePreset(detail.value)}
+      on:presetSave={({ detail }) => savePreset(detail.name)}
+    />
+
+    <!-- Display Settings -->
+    <fieldset>
+      <legend>Display Settings</legend>
+      <div class="control-group">
+        <label for="lutSelector">Color Scheme</label>
+        <LutSelector
+          bind:available_luts
+          current_lut={lut_name}
+          reversed={lut_reversed}
+          on:select={({ detail }) => updateLutName(detail.name)}
+          on:reverse={() => updateLutReversed()}
+        />
       </div>
-    </div>
-  {/if}
+    </fieldset>
 
-  <SimulationControlBar
-    {running}
-    {loading}
-    {showUI}
-    {currentFps}
-    simulationName="Slime Mold"
-    {controlsVisible}
-    on:back={returnToMenu}
-    on:toggleUI={toggleBackendGui}
-    on:pause={stopSimulation}
-    on:resume={resumeSimulation}
-    on:userInteraction={handleUserInteraction}
-  />
-
-  <SimulationMenuContainer position={menuPosition} {showUI}>
-    <form on:submit|preventDefault>
-      <!-- 2. Preset Controls -->
-      <fieldset>
-        <legend>Presets</legend>
-        <div class="control-group">
-          <Selector
-            options={available_presets}
-            bind:value={current_preset}
-            label="Current Preset"
-            placeholder="Select preset..."
-            on:change={({ detail }) => updatePreset(detail.value)}
+    <!-- Controls -->
+    <fieldset>
+      <legend>Controls</legend>
+      <div class="interaction-controls-grid">
+        <div class="interaction-help">
+          <div class="control-group">
+            <span>🖱️ Left click: Attract agents | Right click: Repel agents</span>
+          </div>
+          <div class="control-group">
+            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+              📖 Camera Controls
+            </button>
+          </div>
+          <div class="control-group">
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span
+            >
+          </div>
+        </div>
+        <div class="cursor-settings">
+          <div class="cursor-settings-header">
+            <span>🎯 Cursor Settings</span>
+          </div>
+          <CursorConfig
+            {cursorSize}
+            {cursorStrength}
+            sizeMin={10}
+            sizeMax={500}
+            sizeStep={5}
+            strengthMin={0}
+            strengthMax={50}
+            strengthStep={0.5}
+            sizePrecision={0}
+            strengthPrecision={1}
+            on:sizechange={(e) => updateCursorSize(e.detail)}
+            on:strengthchange={(e) => updateCursorStrength(e.detail)}
           />
         </div>
-        <div class="control-group preset-actions">
-          <button type="button" on:click={() => (show_save_preset_dialog = true)}>
-            💾 Save Current
-          </button>
-          <!-- TODO: Implement preset deletion -->
-          <!-- <button 
+      </div>
+    </fieldset>
+
+    <!-- Combined Settings -->
+    <fieldset>
+      <legend>Settings</legend>
+
+      <!-- General Settings -->
+      <div class="settings-section">
+        <div class="control-group">
+          <button
             type="button"
-            on:click={deletePreset}
+            on:click={async () => {
+              try {
+                await invoke('randomize_settings');
+                await syncSettingsFromBackend();
+                console.log('Settings randomized successfully');
+              } catch (e) {
+                console.error('Failed to randomize settings:', e);
+              }
+            }}>🎲 Randomize Settings</button
           >
-            🗑 Delete
-          </button> -->
+          <button
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('reset_trails');
+                console.log('Trails reset successfully');
+              } catch (e) {
+                console.error('Failed to reset trails:', e);
+              }
+            }}>🧹 Clear Trails</button
+          >
         </div>
-        {#if show_save_preset_dialog}
-          <SavePresetDialog
-            bind:presetName={new_preset_name}
-            on:save={({ detail }) => savePreset(detail.name)}
-            on:close={() => (show_save_preset_dialog = false)}
-          />
-        {/if}
-      </fieldset>
-
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
         <div class="control-group">
-          <label for="lutSelector">Color Scheme</label>
-          <LutSelector
-            {available_luts}
-            current_lut={lut_name}
-            reversed={lut_reversed}
-            on:select={({ detail }) => updateLutName(detail.name)}
-            on:reverse={() => updateLutReversed()}
+          <label for="positionGenerator" class="visually-hidden">Agent Position Generator</label>
+          <ButtonSelect
+            bind:value={position_generator}
+            options={[
+              { value: 'Random', label: 'Random', buttonAction: 'randomize' },
+              { value: 'Center', label: 'Center', buttonAction: 'randomize' },
+              { value: 'UniformCircle', label: 'Uniform Circle', buttonAction: 'randomize' },
+              { value: 'CenteredCircle', label: 'Centered Circle', buttonAction: 'randomize' },
+              { value: 'Ring', label: 'Ring', buttonAction: 'randomize' },
+              { value: 'Line', label: 'Line', buttonAction: 'randomize' },
+              { value: 'Spiral', label: 'Spiral', buttonAction: 'randomize' },
+            ]}
+            buttonText="Reset Agents"
+            placeholder="Select position generator..."
+            on:change={async (e) => {
+              try {
+                await invoke('update_simulation_setting', {
+                  settingName: 'position_generator',
+                  value: e.detail.value,
+                });
+                await syncSettingsFromBackend();
+              } catch (err) {
+                console.error('Failed to update position generator:', err);
+              }
+            }}
+            on:buttonclick={async () => {
+              try {
+                await invoke('reset_agents');
+                await invoke('reset_trails');
+                console.log('Agents randomized via ButtonSelect');
+              } catch (err) {
+                console.error('Failed to randomize agents:', err);
+              }
+            }}
           />
         </div>
-      </fieldset>
+      </div>
 
-      <!-- Controls -->
-      <fieldset>
-        <legend>Controls</legend>
-        <div class="interaction-controls-grid">
-          <div class="interaction-help">
-            <div class="control-group">
-              <span>🖱️ Left click: Attract agents | Right click: Repel agents</span>
-            </div>
-            <div class="control-group">
-              <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-                📖 Camera Controls
-              </button>
-            </div>
-          </div>
-          <div class="cursor-settings">
-            <div class="cursor-settings-header">
-              <span>🎯 Cursor Settings</span>
-            </div>
-            <CursorConfig
-              {cursorSize}
-              {cursorStrength}
-              sizeMin={10}
-              sizeMax={500}
-              sizeStep={5}
-              strengthMin={0}
-              strengthMax={50}
-              strengthStep={0.5}
-              sizePrecision={0}
-              strengthPrecision={1}
-              on:sizechange={(e) => updateCursorSize(e.detail)}
-              on:strengthchange={(e) => updateCursorStrength(e.detail)}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Combined Settings -->
-      <fieldset>
-        <legend>Settings</legend>
-
-        <!-- General Settings -->
-        <div class="settings-section">
-          <div class="control-group">
-            <button
-              type="button"
-              on:click={async () => {
-                try {
-                  await invoke('randomize_settings');
-                  await syncSettingsFromBackend(); // Sync UI with new random settings
-                  console.log('Settings randomized successfully');
-                } catch (e) {
-                  console.error('Failed to randomize settings:', e);
-                }
-              }}>🎲 Randomize Settings</button
-            >
-            <button
-              type="button"
-              on:click={async () => {
-                try {
-                  await invoke('reset_trails');
-                  console.log('Trails reset successfully');
-                } catch (e) {
-                  console.error('Failed to reset trails:', e);
-                }
-              }}>🧹 Clear Trails</button
-            >
-          </div>
-          <div class="control-group">
-            <label for="positionGenerator" class="visually-hidden">Agent Position Generator</label>
-            <ButtonSelect
-              bind:value={position_generator}
-              options={[
-                { value: 'Random', label: 'Random', buttonAction: 'randomize' },
-                { value: 'Center', label: 'Center', buttonAction: 'randomize' },
-                { value: 'UniformCircle', label: 'Uniform Circle', buttonAction: 'randomize' },
-                { value: 'CenteredCircle', label: 'Centered Circle', buttonAction: 'randomize' },
-                { value: 'Ring', label: 'Ring', buttonAction: 'randomize' },
-                { value: 'Line', label: 'Line', buttonAction: 'randomize' },
-                { value: 'Spiral', label: 'Spiral', buttonAction: 'randomize' },
-              ]}
-              buttonText="Reset Agents"
-              placeholder="Select position generator..."
+      <!-- Pheromone Settings -->
+      <div class="settings-section">
+        <h3 class="section-header">Pheromone</h3>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Decay Rate:</span>
+            <NumberDragBox
+              bind:value={settings.pheromone_decay_rate}
+              min={0}
+              max={10000}
+              step={1}
+              precision={2}
+              unit="%"
               on:change={async (e) => {
                 try {
                   await invoke('update_simulation_setting', {
-                    settingName: 'position_generator',
-                    value: e.detail.value,
+                    settingName: 'pheromone_decay_rate',
+                    value: e.detail,
                   });
-                  await syncSettingsFromBackend();
                 } catch (err) {
-                  console.error('Failed to update position generator:', err);
+                  console.error('Failed to update pheromone decay rate:', err);
                 }
               }}
-              on:buttonclick={async () => {
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Deposition Rate:</span>
+            <NumberDragBox
+              bind:value={settings.pheromone_deposition_rate}
+              min={0}
+              max={100}
+              step={1}
+              precision={2}
+              unit="%"
+              on:change={async (e) => {
                 try {
-                  await invoke('reset_agents');
-                  await invoke('reset_trails'); // Also reset trails to make agent redistribution visible
-                  console.log('Agents randomized via ButtonSelect');
+                  await invoke('update_simulation_setting', {
+                    settingName: 'pheromone_deposition_rate',
+                    value: e.detail,
+                  });
                 } catch (err) {
-                  console.error('Failed to randomize agents:', err);
+                  console.error('Failed to update pheromone deposition rate:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Diffusion Rate:</span>
+            <NumberDragBox
+              bind:value={settings.pheromone_diffusion_rate}
+              min={0}
+              max={100}
+              step={1}
+              precision={2}
+              unit="%"
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'pheromone_diffusion_rate',
+                    value: e.detail,
+                  });
+                } catch (err) {
+                  console.error('Failed to update pheromone diffusion rate:', err);
                 }
               }}
             />
           </div>
         </div>
+      </div>
 
-        <!-- Pheromone Settings -->
-        <div class="settings-section">
-          <h3 class="section-header">Pheromone</h3>
-          <div class="settings-grid">
-            <div class="setting-item">
-              <span class="setting-label">Decay Rate:</span>
-              <NumberDragBox
-                bind:value={settings.pheromone_decay_rate}
-                min={0}
-                max={10000}
-                step={1}
-                precision={2}
-                unit="%"
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'pheromone_decay_rate',
-                      value: e.detail,
-                    });
-                  } catch (err) {
-                    console.error('Failed to update pheromone decay rate:', err);
-                  }
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Deposition Rate:</span>
-              <NumberDragBox
-                bind:value={settings.pheromone_deposition_rate}
-                min={0}
-                max={100}
-                step={1}
-                precision={2}
-                unit="%"
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'pheromone_deposition_rate',
-                      value: e.detail,
-                    });
-                  } catch (err) {
-                    console.error('Failed to update pheromone deposition rate:', err);
-                  }
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Diffusion Rate:</span>
-              <NumberDragBox
-                bind:value={settings.pheromone_diffusion_rate}
-                min={0}
-                max={100}
-                step={1}
-                precision={2}
-                unit="%"
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'pheromone_diffusion_rate',
-                      value: e.detail,
-                    });
-                  } catch (err) {
-                    console.error('Failed to update pheromone diffusion rate:', err);
-                  }
-                }}
-              />
-            </div>
+      <!-- Agent Settings -->
+      <div class="settings-section">
+        <h3 class="section-header">Agent</h3>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Agent Count (millions):</span>
+            <AgentCountInput
+              value={agent_count_millions}
+              min={0}
+              max={100}
+              on:update={async (e) => {
+                try {
+                  await updateAgentCount(e.detail);
+                  console.log(`Agent count updated to ${e.detail} million`);
+                } catch (err) {
+                  console.error('Failed to update agent count:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Min Speed:</span>
+            <NumberDragBox
+              bind:value={settings.agent_speed_min}
+              min={0}
+              max={500}
+              step={10}
+              precision={1}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_speed_min',
+                    value: e.detail,
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update min speed:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Max Speed:</span>
+            <NumberDragBox
+              bind:value={settings.agent_speed_max}
+              min={0}
+              max={500}
+              step={10}
+              precision={1}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_speed_max',
+                    value: e.detail,
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update max speed:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Turn Rate:</span>
+            <NumberDragBox
+              bind:value={settings.agent_turn_rate}
+              min={0}
+              max={360}
+              step={1}
+              precision={0}
+              unit="°"
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_turn_rate',
+                    value: (e.detail * Math.PI) / 180, // Convert degrees to radians
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update turn rate:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Jitter:</span>
+            <NumberDragBox
+              bind:value={settings.agent_jitter}
+              min={0}
+              max={5}
+              step={0.01}
+              precision={2}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_jitter',
+                    value: e.detail,
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update agent jitter:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Sensor Angle:</span>
+            <NumberDragBox
+              bind:value={settings.agent_sensor_angle}
+              min={0}
+              max={180}
+              step={1}
+              precision={0}
+              unit="°"
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_sensor_angle',
+                    value: (e.detail * Math.PI) / 180, // Convert degrees to radians
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update sensor angle:', err);
+                }
+              }}
+            />
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Sensor Distance:</span>
+            <NumberDragBox
+              bind:value={settings.agent_sensor_distance}
+              min={0}
+              max={500}
+              step={1}
+              precision={0}
+              on:change={async (e) => {
+                try {
+                  await invoke('update_simulation_setting', {
+                    settingName: 'agent_sensor_distance',
+                    value: e.detail,
+                  });
+                  await syncSettingsFromBackend();
+                } catch (err) {
+                  console.error('Failed to update sensor distance:', err);
+                }
+              }}
+            />
           </div>
         </div>
+      </div>
 
-        <!-- Agent Settings -->
-        <div class="settings-section">
-          <h3 class="section-header">Agent</h3>
-          <div class="settings-grid">
+      <!-- Gradient Settings -->
+      <div class="settings-section">
+        <h3 class="section-header">Gradient</h3>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Gradient Type:</span>
+            <select
+              id="gradientType"
+              bind:value={settings.gradient_type}
+              on:change={handleGradientType}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="radial">Radial</option>
+              <option value="linear">Linear</option>
+              <option value="spiral">Spiral</option>
+            </select>
+          </div>
+          {#if settings.gradient_type !== 'disabled'}
             <div class="setting-item">
-              <span class="setting-label">Agent Count (millions):</span>
-              <AgentCountInput
-                value={agent_count_millions}
-                min={0}
-                max={100}
-                on:update={async (e) => {
-                  try {
-                    await updateAgentCount(e.detail);
-                    console.log(`Agent count updated to ${e.detail} million`);
-                  } catch (err) {
-                    console.error('Failed to update agent count:', err);
-                  }
+              <span class="setting-label">Center X:</span>
+              <input
+                type="number"
+                id="gradientCenterX"
+                min="0"
+                max="100"
+                step="1"
+                bind:value={gradient_center_x_percent}
+                on:change={(e: Event) => {
+                  const value = parseFloat((e.target as HTMLInputElement).value);
+                  updateGradientCenterX(value);
                 }}
               />
             </div>
             <div class="setting-item">
-              <span class="setting-label">Min Speed:</span>
+              <span class="setting-label">Center Y:</span>
+              <input
+                type="number"
+                id="gradientCenterY"
+                min="0"
+                max="100"
+                step="1"
+                bind:value={gradient_center_y_percent}
+                on:change={(e: Event) => {
+                  const value = parseFloat((e.target as HTMLInputElement).value);
+                  updateGradientCenterY(value);
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Size:</span>
               <NumberDragBox
-                bind:value={settings.agent_speed_min}
-                min={0}
-                max={500}
-                step={10}
-                precision={1}
+                bind:value={settings.gradient_size}
+                min={0.1}
+                max={2}
+                step={0.01}
+                precision={2}
                 on:change={async (e) => {
                   try {
                     await invoke('update_simulation_setting', {
-                      settingName: 'agent_speed_min',
+                      settingName: 'gradient_size',
                       value: e.detail,
                     });
-                    await syncSettingsFromBackend();
                   } catch (err) {
-                    console.error('Failed to update min speed:', err);
+                    console.error('Failed to update gradient size:', err);
                   }
                 }}
               />
             </div>
             <div class="setting-item">
-              <span class="setting-label">Max Speed:</span>
+              <span class="setting-label">Angle:</span>
               <NumberDragBox
-                bind:value={settings.agent_speed_max}
-                min={0}
-                max={500}
-                step={10}
-                precision={1}
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'agent_speed_max',
-                      value: e.detail,
-                    });
-                    await syncSettingsFromBackend();
-                  } catch (err) {
-                    console.error('Failed to update max speed:', err);
-                  }
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Turn Rate:</span>
-              <NumberDragBox
-                bind:value={settings.agent_turn_rate}
+                bind:value={settings.gradient_angle}
                 min={0}
                 max={360}
                 step={1}
@@ -337,179 +468,24 @@
                 on:change={async (e) => {
                   try {
                     await invoke('update_simulation_setting', {
-                      settingName: 'agent_turn_rate',
-                      value: (e.detail * Math.PI) / 180, // Convert degrees to radians
-                    });
-                    await syncSettingsFromBackend();
-                  } catch (err) {
-                    console.error('Failed to update turn rate:', err);
-                  }
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Jitter:</span>
-              <NumberDragBox
-                bind:value={settings.agent_jitter}
-                min={0}
-                max={5}
-                step={0.01}
-                precision={2}
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'agent_jitter',
+                      settingName: 'gradient_angle',
                       value: e.detail,
                     });
-                    await syncSettingsFromBackend();
                   } catch (err) {
-                    console.error('Failed to update agent jitter:', err);
+                    console.error('Failed to update gradient angle:', err);
                   }
                 }}
               />
             </div>
-            <div class="setting-item">
-              <span class="setting-label">Sensor Angle:</span>
-              <NumberDragBox
-                bind:value={settings.agent_sensor_angle}
-                min={0}
-                max={180}
-                step={1}
-                precision={0}
-                unit="°"
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'agent_sensor_angle',
-                      value: (e.detail * Math.PI) / 180, // Convert degrees to radians
-                    });
-                    await syncSettingsFromBackend();
-                  } catch (err) {
-                    console.error('Failed to update sensor angle:', err);
-                  }
-                }}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Sensor Distance:</span>
-              <NumberDragBox
-                bind:value={settings.agent_sensor_distance}
-                min={0}
-                max={500}
-                step={1}
-                precision={0}
-                on:change={async (e) => {
-                  try {
-                    await invoke('update_simulation_setting', {
-                      settingName: 'agent_sensor_distance',
-                      value: e.detail,
-                    });
-                    await syncSettingsFromBackend();
-                  } catch (err) {
-                    console.error('Failed to update sensor distance:', err);
-                  }
-                }}
-              />
-            </div>
-          </div>
+          {/if}
         </div>
+      </div>
+    </fieldset>
+  </form>
+</SimulationLayout>
 
-        <!-- Gradient Settings -->
-        <div class="settings-section">
-          <h3 class="section-header">Gradient</h3>
-          <div class="settings-grid">
-            <div class="setting-item">
-              <span class="setting-label">Gradient Type:</span>
-              <select
-                id="gradientType"
-                bind:value={settings.gradient_type}
-                on:change={handleGradientType}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="radial">Radial</option>
-                <option value="linear">Linear</option>
-                <option value="spiral">Spiral</option>
-              </select>
-            </div>
-            {#if settings.gradient_type !== 'disabled'}
-              <div class="setting-item">
-                <span class="setting-label">Center X:</span>
-                <input
-                  type="number"
-                  id="gradientCenterX"
-                  min="0"
-                  max="100"
-                  step="1"
-                  bind:value={gradient_center_x_percent}
-                  on:change={(e: Event) => {
-                    const value = parseFloat((e.target as HTMLInputElement).value);
-                    updateGradientCenterX(value);
-                  }}
-                />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Center Y:</span>
-                <input
-                  type="number"
-                  id="gradientCenterY"
-                  min="0"
-                  max="100"
-                  step="1"
-                  bind:value={gradient_center_y_percent}
-                  on:change={(e: Event) => {
-                    const value = parseFloat((e.target as HTMLInputElement).value);
-                    updateGradientCenterY(value);
-                  }}
-                />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Size:</span>
-                <NumberDragBox
-                  bind:value={settings.gradient_size}
-                  min={0.1}
-                  max={2}
-                  step={0.01}
-                  precision={2}
-                  on:change={async (e) => {
-                    try {
-                      await invoke('update_simulation_setting', {
-                        settingName: 'gradient_size',
-                        value: e.detail,
-                      });
-                    } catch (err) {
-                      console.error('Failed to update gradient size:', err);
-                    }
-                  }}
-                />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Angle:</span>
-                <NumberDragBox
-                  bind:value={settings.gradient_angle}
-                  min={0}
-                  max={360}
-                  step={1}
-                  precision={0}
-                  unit="°"
-                  on:change={async (e) => {
-                    try {
-                      await invoke('update_simulation_setting', {
-                        settingName: 'gradient_angle',
-                        value: e.detail,
-                      });
-                    } catch (err) {
-                      console.error('Failed to update gradient angle:', err);
-                    }
-                  }}
-                />
-              </div>
-            {/if}
-          </div>
-        </div>
-      </fieldset>
-    </form>
-  </SimulationMenuContainer>
-</div>
+<!-- Shared camera controls component -->
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -520,10 +496,10 @@
   import LutSelector from './components/shared/LutSelector.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import ButtonSelect from './components/inputs/ButtonSelect.svelte';
-  import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
-  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
-  import Selector from './components/inputs/Selector.svelte';
-  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
+  import SimulationLayout from './components/shared/SimulationLayout.svelte';
+  import CameraControls from './components/shared/CameraControls.svelte';
+  import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
+  import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -567,7 +543,7 @@
   let currentAgentCount = 1_000_000;
 
   // Cursor interaction state (runtime, not saved in presets)
-  let cursorSize = 100.0;
+  let cursorSize = 300.0;
   let cursorStrength = 5.0;
 
   // Preset and LUT state
@@ -575,13 +551,148 @@
   let available_presets: string[] = [];
   let available_luts: string[] = [];
 
-  // Dialog state
-  let show_save_preset_dialog = false;
-  let new_preset_name = '';
+  // UI state
+  let show_about_section = false;
 
-  // Camera control state
-  let pressedKeys = new Set<string>();
-  let animationFrameId: number | null = null;
+  // Simulation control state
+  let running = false;
+  let loading = false;
+  let showUI = true;
+  let currentFps = 0;
+  let controlsVisible = true;
+
+  // Auto-hide functionality for controls when UI is hidden
+  let hideTimeout: number | null = null;
+
+  // Cursor hiding functionality
+  let cursorHidden = false;
+  let cursorHideTimeout: number | null = null;
+
+  // Event listeners
+  let unlistenFps: (() => void) | null = null;
+
+  // Camera controls
+
+  let isMousePressed = false;
+  let currentMouseButton = 0;
+
+  async function returnToMenu() {
+    try {
+      await invoke('destroy_simulation');
+      dispatch('back');
+    } catch (error) {
+      console.error('Failed to return to menu:', error);
+    }
+  }
+
+  async function toggleBackendGui() {
+    try {
+      await invoke('toggle_gui');
+
+      // Get the current GUI state
+      const visible = (await invoke('get_gui_state')) as boolean;
+      showUI = visible;
+
+      // Handle auto-hide when UI is hidden
+      if (!showUI) {
+        showControls();
+        showCursor();
+        startAutoHideTimer();
+        startCursorHideTimer();
+      } else {
+        stopAutoHideTimer();
+        stopCursorHideTimer();
+        showCursor();
+        controlsVisible = true;
+      }
+    } catch (error) {
+      console.error('Failed to toggle GUI:', error);
+    }
+  }
+
+  async function stopSimulation() {
+    try {
+      await invoke('pause_simulation');
+      running = false;
+    } catch (error) {
+      console.error('Failed to stop simulation:', error);
+    }
+  }
+
+  async function resumeSimulation() {
+    try {
+      await invoke('resume_simulation');
+      running = true;
+    } catch (error) {
+      console.error('Failed to resume simulation:', error);
+    }
+  }
+
+  // Auto-hide functionality
+  function startAutoHideTimer() {
+    stopAutoHideTimer();
+    hideTimeout = window.setTimeout(() => {
+      controlsVisible = false;
+      // Also hide cursor when controls are hidden
+      if (!showUI) {
+        hideCursor();
+      }
+    }, 3000);
+  }
+
+  function stopAutoHideTimer() {
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  }
+
+  function showControls() {
+    controlsVisible = true;
+  }
+
+  // Cursor hiding functionality
+  function hideCursor() {
+    if (!cursorHidden) {
+      document.body.style.cursor = 'none';
+      cursorHidden = true;
+    }
+  }
+
+  function showCursor() {
+    if (cursorHidden) {
+      document.body.style.cursor = '';
+      cursorHidden = false;
+    }
+  }
+
+  function startCursorHideTimer() {
+    stopCursorHideTimer();
+    cursorHideTimeout = window.setTimeout(() => {
+      if (!showUI && !controlsVisible) {
+        hideCursor();
+      }
+    }, 2000); // Hide cursor 2 seconds after last interaction
+  }
+
+  function stopCursorHideTimer() {
+    if (cursorHideTimeout) {
+      clearTimeout(cursorHideTimeout);
+      cursorHideTimeout = null;
+    }
+  }
+
+  function handleUserInteraction() {
+    if (!showUI && !controlsVisible) {
+      showControls();
+      showCursor();
+      startAutoHideTimer();
+    } else if (!showUI && controlsVisible) {
+      showCursor();
+      startAutoHideTimer();
+      startCursorHideTimer();
+    }
+  }
 
   // Helper function to convert agent count to millions
   const toMillions = (count: number) => count / 1_000_000;
@@ -689,107 +800,17 @@
     }
   }
 
-  async function savePreset(presetName?: string) {
-    const nameToSave = presetName || new_preset_name;
+  async function savePreset(presetName: string) {
     try {
-      await invoke('save_preset', { presetName: nameToSave });
-      show_save_preset_dialog = false;
-      new_preset_name = '';
+      await invoke('save_preset', { presetName: presetName.trim() });
       // Refresh the available presets list
       await loadAvailablePresets();
+      // Set the current preset to the newly saved one
+      current_preset = presetName.trim();
+      console.log(`Saved preset: ${presetName}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
-  }
-
-
-
-  let running = false;
-  let loading = false;
-
-  // FPS tracking (now received from backend)
-  let currentFps = 0;
-
-  // UI visibility toggle
-  let showUI = true;
-
-  // Auto-hide functionality for controls when UI is hidden
-  let controlsVisible = true;
-  let hideTimeout: number | null = null;
-
-  // Cursor hiding functionality
-  let cursorHidden = false;
-  let cursorHideTimeout: number | null = null;
-
-  async function startSimulation() {
-    if (running || loading) return;
-
-    loading = true;
-
-    try {
-      await invoke('start_slime_mold_simulation');
-      loading = false;
-      running = true;
-
-      // Backend now handles the render loop, we just track state
-      currentFps = 0;
-    } catch (e) {
-      console.error('Failed to start simulation:', e);
-      loading = false;
-      running = false;
-    }
-  }
-
-  async function resumeSimulation() {
-    if (running || loading) return;
-
-    try {
-      // Just restart the render loop without recreating the simulation
-      await invoke('resume_simulation');
-      running = true;
-      currentFps = 0;
-    } catch (e) {
-      console.error('Failed to resume simulation:', e);
-    }
-  }
-
-  async function stopSimulation() {
-    running = false;
-
-    try {
-      // Just pause the render loop, don't destroy simulation
-      await invoke('pause_simulation');
-
-      // Reset FPS
-      currentFps = 0;
-
-      // Immediately render a frame to show the triangle instead of last simulation frame
-      await invoke('render_frame');
-    } catch (e) {
-      console.error('Failed to stop simulation:', e);
-    }
-  }
-
-  async function destroySimulation() {
-    running = false;
-
-    try {
-      // Actually destroy the simulation completely
-      await invoke('destroy_simulation');
-
-      // Reset FPS
-      currentFps = 0;
-
-      // Render a frame to show the triangle
-      await invoke('render_frame');
-    } catch (e) {
-      console.error('Failed to destroy simulation:', e);
-    }
-  }
-
-  async function returnToMenu() {
-    await destroySimulation();
-    dispatch('back');
   }
 
   // Load available presets from backend
@@ -901,377 +922,65 @@
     }
   }
 
-  let simulationInitializedUnlisten: (() => void) | null = null;
-  let simulationResumedUnlisten: (() => void) | null = null;
-  let fpsUpdateUnlisten: (() => void) | null = null;
+  async function startSimulation() {
+    if (running || loading) return;
 
-  // Keyboard event handler
-  function handleKeydown(event: KeyboardEvent) {
-    // Check if the focused element is an input field
-    const activeElement = document.activeElement;
-    const isInputFocused = activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    );
+    loading = true;
 
-    if (event.key === '/') {
-      event.preventDefault();
-      toggleBackendGui();
-    } else if (event.key === 'r' || event.key === 'R') {
-      event.preventDefault();
-      randomizeSimulation();
-    } else {
-      // Camera controls - don't handle when an input is focused
-      const cameraKeys = [
-        'w',
-        'a',
-        's',
-        'd',
-        'arrowup',
-        'arrowdown',
-        'arrowleft',
-        'arrowright',
-        'q',
-        'e',
-        'c',
-      ];
-      if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
-        event.preventDefault();
-        pressedKeys.add(event.key.toLowerCase());
-      }
-    }
-  }
-
-  function handleKeyup(event: KeyboardEvent) {
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      pressedKeys.delete(event.key.toLowerCase());
-    }
-  }
-
-  async function toggleBackendGui() {
     try {
-      await invoke('toggle_gui');
-      // Sync UI state with backend
-      const isVisible = await invoke<boolean>('get_gui_state');
-      showUI = isVisible;
+      await invoke('start_slime_mold_simulation');
+      loading = false;
+      running = true;
 
-      // Handle auto-hide when UI is hidden
-      if (!showUI) {
-        showControls();
-        showCursor();
-        startAutoHideTimer();
-        startCursorHideTimer();
-      } else {
-        stopAutoHideTimer();
-        stopCursorHideTimer();
-        showCursor();
-        controlsVisible = true;
-      }
-    } catch (err) {
-      console.error('Failed to toggle backend GUI:', err);
-    }
-  }
-
-  // Auto-hide functionality
-  function startAutoHideTimer() {
-    stopAutoHideTimer();
-    hideTimeout = window.setTimeout(() => {
-      controlsVisible = false;
-      // Also hide cursor when controls are hidden
-      if (!showUI) {
-        hideCursor();
-      }
-    }, 3000);
-  }
-
-  function stopAutoHideTimer() {
-    if (hideTimeout) {
-      clearTimeout(hideTimeout);
-      hideTimeout = null;
-    }
-  }
-
-  function showControls() {
-    controlsVisible = true;
-  }
-
-  // Cursor hiding functionality
-  function hideCursor() {
-    if (!cursorHidden) {
-      document.body.style.cursor = 'none';
-      cursorHidden = true;
-    }
-  }
-
-  function showCursor() {
-    if (cursorHidden) {
-      document.body.style.cursor = '';
-      cursorHidden = false;
-    }
-  }
-
-  function startCursorHideTimer() {
-    stopCursorHideTimer();
-    cursorHideTimeout = window.setTimeout(() => {
-      if (!showUI && !controlsVisible) {
-        hideCursor();
-      }
-    }, 2000); // Hide cursor 2 seconds after last interaction
-  }
-
-  function stopCursorHideTimer() {
-    if (cursorHideTimeout) {
-      clearTimeout(cursorHideTimeout);
-      cursorHideTimeout = null;
-    }
-  }
-
-  function handleUserInteraction() {
-    if (!showUI && !controlsVisible) {
-      showControls();
-      showCursor();
-      startAutoHideTimer();
-    } else if (!showUI && controlsVisible) {
-      showCursor();
-      startAutoHideTimer();
-      startCursorHideTimer();
-    }
-  }
-
-  async function randomizeSimulation() {
-    try {
-      await invoke('randomize_settings');
-      await syncSettingsFromBackend();
-      console.log('Settings randomized via keyboard shortcut');
+      // Backend now handles the render loop, we just track state
+      currentFps = 0;
     } catch (e) {
-      console.error('Failed to randomize settings:', e);
-    }
-  }
-
-  // Camera control functions
-  async function panCamera(deltaX: number, deltaY: number) {
-    try {
-      await invoke('pan_camera', { deltaX, deltaY });
-    } catch (e) {
-      console.error('Failed to pan camera:', e);
-    }
-  }
-
-  async function zoomCamera(delta: number) {
-    try {
-      await invoke('zoom_camera', { delta });
-    } catch (e) {
-      console.error('Failed to zoom camera:', e);
-    }
-  }
-
-  async function zoomCameraToCursor(delta: number, cursorX: number, cursorY: number) {
-    try {
-      await invoke('zoom_camera_to_cursor', { delta, cursorX, cursorY });
-    } catch (e) {
-      console.error('Failed to zoom camera to cursor:', e);
-    }
-  }
-
-  async function resetCamera() {
-    try {
-      await invoke('reset_camera');
-    } catch (e) {
-      console.error('Failed to reset camera:', e);
-    }
-  }
-
-  // Camera update loop for smooth movement
-  function updateCamera() {
-    const panAmount = 0.1;
-    let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
-
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
-
-    if (moved) {
-      panCamera(deltaX, deltaY);
-    }
-
-    if (pressedKeys.has('q')) {
-      zoomCamera(-0.2);
-    }
-    if (pressedKeys.has('e')) {
-      zoomCamera(0.2);
-    }
-    if (pressedKeys.has('c') || pressedKeys.has('C')) {
-      resetCamera();
-    }
-
-    animationFrameId = requestAnimationFrame(updateCamera);
-  }
-
-  // Mouse event handler for camera controls and UI interaction
-  let isMousePressed = false;
-  let currentMouseButton = 0;
-
-  async function handleMouseEvent(event: MouseEvent | WheelEvent) {
-    const isWheelEvent = event instanceof WheelEvent;
-    const isMouseEvent = event instanceof MouseEvent;
-
-    // Prevent default for all events
-    event.preventDefault();
-
-    // Get cursor position
-    const cursorX = event.clientX;
-    const cursorY = event.clientY;
-
-    // Convert CSS pixels to physical pixels for backend
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const physicalCursorX = cursorX * devicePixelRatio;
-    const physicalCursorY = cursorY * devicePixelRatio;
-
-    // Handle wheel events (zoom) - allow even when paused
-    if (isWheelEvent) {
-      const wheelEvent = event as WheelEvent;
-
-      // Normalize wheel delta for smoother zooming
-      const normalizedDelta = wheelEvent.deltaY * 0.01;
-
-      // Zoom towards cursor position
-      await zoomCameraToCursor(normalizedDelta, physicalCursorX, physicalCursorY);
-    }
-
-    // Handle mouse events (currently just for camera, could be extended for slime mold interaction)
-    if (isMouseEvent) {
-      const mouseEvent = event as MouseEvent;
-
-      // Handle mouse down (start of drag) - could be used for slime mold interaction
-      if (mouseEvent.type === 'mousedown') {
-        isMousePressed = true;
-        currentMouseButton = mouseEvent.button;
-        try {
-          await invoke('handle_mouse_interaction_screen', {
-            screenX: physicalCursorX,
-            screenY: physicalCursorY,
-            mouseButton: mouseEvent.button,
-          });
-        } catch (e) {
-          console.error('Failed to handle mouse interaction:', e);
-        }
-      } else if (mouseEvent.type === 'mousemove' && isMousePressed) {
-        try {
-          await invoke('handle_mouse_interaction_screen', {
-            screenX: physicalCursorX,
-            screenY: physicalCursorY,
-            mouseButton: currentMouseButton,
-          });
-        } catch (e) {
-          // Don't spam errors
-        }
-      } else if (mouseEvent.type === 'mouseup') {
-        isMousePressed = false;
-        try {
-          await invoke('handle_mouse_release', {
-            mouseButton: currentMouseButton,
-          });
-        } catch (e) {
-          // Don't spam errors
-        }
-      } else if (mouseEvent.type === 'mouseleave') {
-        isMousePressed = false;
-      } else if (mouseEvent.type === 'contextmenu') {
-        // Prevent right-click menu
-        event.preventDefault();
-      }
+      console.error('Failed to start simulation:', e);
+      loading = false;
+      running = false;
     }
   }
 
   onMount(async () => {
-    // Load presets and LUTs first
-    await loadAvailablePresets();
-    await loadAvailableLuts();
+    // Set up event listeners BEFORE starting simulation to avoid race conditions
 
-    // Add keyboard event listener
-    window.addEventListener('keydown', handleKeydown);
-    window.addEventListener('keyup', handleKeyup);
-
-    // Add event listeners for auto-hide functionality
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.addEventListener(event, handleUserInteraction, { passive: true });
     });
 
-    // Start camera update loop
-    animationFrameId = requestAnimationFrame(updateCamera);
+    // Start the simulation first
+    await startSimulation();
 
-    // Listen for simulation initialization event
-    simulationInitializedUnlisten = await listen('simulation-initialized', async () => {
-      console.log('Simulation initialized, syncing settings and agent count...');
-      await syncSettingsFromBackend();
-      await syncAgentCountFromBackend();
+    // Load available presets and LUTs
+    await loadAvailablePresets();
+    await loadAvailableLuts();
 
-      // Apply the initial preset after simulation is initialized
-      if (available_presets.length > 0 && current_preset) {
-        try {
-          await invoke('apply_preset', { presetName: current_preset });
-          await syncSettingsFromBackend(); // Sync UI with preset settings
-          console.log(`Applied initial preset: ${current_preset}`);
-        } catch (e) {
-          console.error('Failed to apply initial preset:', e);
-        }
-      }
+    // Sync settings from backend
+    await syncSettingsFromBackend();
+    await syncAgentCountFromBackend();
+
+    // Listen for FPS updates
+    unlistenFps = await listen('fps-update', (event: any) => {
+      currentFps = event.payload;
     });
-
-    // Listen for simulation resumed event
-    simulationResumedUnlisten = await listen('simulation-resumed', async () => {
-      console.log('Simulation resumed');
-      running = true;
-      currentFps = 0;
-    });
-
-    // Listen for FPS updates from backend
-    fpsUpdateUnlisten = await listen('fps-update', (event) => {
-      currentFps = event.payload as number;
-    });
-
-    // Then start simulation
-    startSimulation();
   });
 
-  onDestroy(() => {
-    // Remove keyboard event listener
-    window.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('keyup', handleKeyup);
+  onDestroy(async () => {
+    // Clean up the simulation
+    try {
+      await invoke('destroy_simulation');
+    } catch (error) {
+      console.error('Failed to destroy simulation on component destroy:', error);
+    }
+
+    if (unlistenFps) {
+      unlistenFps();
+    }
 
     // Remove auto-hide event listeners
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
@@ -1282,22 +991,6 @@
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
-
-    // Cancel animation frame
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
-
-    if (simulationInitializedUnlisten) {
-      simulationInitializedUnlisten();
-    }
-    if (simulationResumedUnlisten) {
-      simulationResumedUnlisten();
-    }
-    if (fpsUpdateUnlisten) {
-      fpsUpdateUnlisten();
-    }
   });
 
   async function updateLutName(value: string) {
@@ -1308,20 +1001,250 @@
       console.error('Failed to update LUT name:', e);
     }
   }
+
+  async function handleMouseEvent(e: CustomEvent) {
+    const event = e.detail as MouseEvent | WheelEvent;
+    if (event.type === 'wheel') {
+      const wheelEvent = event as WheelEvent;
+      wheelEvent.preventDefault();
+
+      const zoomDelta = -wheelEvent.deltaY * 0.001;
+
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = wheelEvent.clientX * devicePixelRatio;
+      const physicalCursorY = wheelEvent.clientY * devicePixelRatio;
+
+      try {
+        await invoke('zoom_camera_to_cursor', {
+          delta: zoomDelta,
+          cursorX: physicalCursorX,
+          cursorY: physicalCursorY,
+        });
+      } catch (e) {
+        console.error('Failed to zoom camera to cursor:', e);
+      }
+    } else if (event.type === 'mousedown') {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.preventDefault();
+
+      isMousePressed = true;
+      currentMouseButton = mouseEvent.button;
+
+      // Convert screen coordinates to world coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+      console.log(
+        `Mouse interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), raw: (${mouseEvent.clientX}, ${mouseEvent.clientY})`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: mouseEvent.button,
+        });
+      } catch (e) {
+        console.error('Failed to handle mouse interaction:', e);
+      }
+    } else if (event.type === 'mousemove') {
+      if (isMousePressed) {
+        const mouseEvent = event as MouseEvent;
+        mouseEvent.preventDefault();
+
+        // Convert screen coordinates to world coordinates
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+        const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+        // Use the same button state as when mouse was first pressed
+        try {
+          await invoke('handle_mouse_interaction_screen', {
+            screenX: physicalCursorX,
+            screenY: physicalCursorY,
+            mouseButton: currentMouseButton,
+          });
+        } catch (e) {
+          console.error('Failed to handle mouse interaction:', e);
+        }
+      }
+    } else if (event.type === 'mouseup') {
+      isMousePressed = false;
+
+      // Stop cursor interaction when mouse is released
+      try {
+        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
+      } catch (e) {
+        console.error('Failed to stop mouse interaction:', e);
+      }
+    } else if (event.type === 'contextmenu') {
+      // Handle context menu as right-click for simulation interaction
+      const mouseEvent = event as MouseEvent;
+
+      // Convert screen coordinates to world coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+      console.log(
+        `Slime Mold context menu interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: 2`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: 2, // Right mouse button
+        });
+      } catch (e) {
+        console.error('Failed to handle Slime Mold context menu interaction:', e);
+      }
+    }
+  }
 </script>
 
 <style>
   /* SlimeMold specific styles */
 
-  /* Custom loading screen styling - override for black background */
-  .loading-overlay {
-    background: black;
+  fieldset {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
   }
 
-  .loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top: 4px solid #646cff;
+  legend {
+    font-weight: bold;
+    padding: 0 0.5rem;
+  }
+
+  .control-group {
+    margin-bottom: 1rem;
+  }
+
+  label {
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  input[type='number'],
+  select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+
+  .interaction-controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .interaction-help {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .cursor-settings-header {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0;
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+
+    .interaction-help {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings {
+      gap: 0.4rem;
+    }
+
+    .cursor-settings-header {
+      font-size: 0.85rem;
+    }
+  }
+
+  /* Key/Value pair settings layout */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 200px 120px;
+    gap: 0.25rem 0.5rem;
+    justify-content: center;
+  }
+
+  .setting-item {
+    display: contents;
+  }
+
+  .setting-label {
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .setting-item:last-child .setting-label {
+    border-bottom: none;
+  }
+
+  .setting-item select,
+  .setting-item input[type='number'] {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.9);
+    padding: 0.25rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    width: 100%;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    border: 0;
+    padding: 0;
+    white-space: nowrap;
+    clip-path: inset(100%);
+    clip: rect(0 0 0 0);
+  }
+
+  /* Settings section styling */
+  .settings-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .settings-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 0.75rem 0;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   }
 </style>

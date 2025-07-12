@@ -4,7 +4,7 @@
 const PI: f32 = 3.14159265359;
 const TAU: f32 = 6.28318530718; // 2π
 
-@group(0) @binding(0)
+@group(0) @binding(3)
 var<storage, read_write> gradient_map: array<f32>;
 
 struct SimSizeUniform {
@@ -30,7 +30,7 @@ struct SimSizeUniform {
     _pad2: u32,
 };
 
-@group(0) @binding(1)
+@group(0) @binding(2)
 var<uniform> sim_size: SimSizeUniform;
 
 // Gradient types

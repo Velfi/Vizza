@@ -313,6 +313,7 @@ impl SlimeMoldModel {
             &pipeline_manager.display_bind_group_layout,
             &pipeline_manager.render_bind_group_layout,
             &pipeline_manager.camera_bind_group_layout,
+            &pipeline_manager.gradient_bind_group_layout,
             &agent_buffer,
             &trail_map_buffer,
             &gradient_buffer,
@@ -350,7 +351,7 @@ impl SlimeMoldModel {
             current_agent_buffer_size: agent_buffer_size_bytes,
             current_width: effective_width,
             current_height: effective_height,
-            show_gui: false,
+            show_gui: true,
             camera,
             last_resize_time: std::time::Instant::now(),
             resize_debounce_threshold: std::time::Duration::from_millis(500),
@@ -358,7 +359,7 @@ impl SlimeMoldModel {
             cursor_world_x: 0.0,
             cursor_world_y: 0.0,
             cursor_buffer,
-            cursor_size: 100.0,   // Default cursor size
+            cursor_size: 300.0,   // Default cursor size
             cursor_strength: 5.0, // Default cursor strength
             position_generator: crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         };
@@ -721,6 +722,21 @@ impl SlimeMoldModel {
 
     /// Run the compute passes for the simulation
     fn run_compute_passes(&self, encoder: &mut wgpu::CommandEncoder) {
+        // Gradient pass (if enabled)
+        if self.settings.gradient_type != super::settings::GradientType::Disabled {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Slime Mold Gradient Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline_manager.gradient_pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group_manager.gradient_bind_group, &[]);
+
+            let total_pixels = self.display_texture.width() * self.display_texture.height();
+            let workgroup_size = self.workgroup_config.compute_1d;
+            let workgroups = total_pixels.div_ceil(workgroup_size);
+            compute_pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+
         // Agent update pass
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1114,6 +1130,7 @@ impl SlimeMoldModel {
             &self.pipeline_manager.display_bind_group_layout,
             &self.pipeline_manager.render_bind_group_layout,
             &self.pipeline_manager.camera_bind_group_layout,
+            &self.pipeline_manager.gradient_bind_group_layout,
             &self.agent_buffer,
             &self.trail_map_buffer,
             &self.gradient_buffer,
@@ -1345,8 +1362,9 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         self.cursor_world_x = 0.0;
         self.cursor_world_y = 0.0;
 
-        tracing::debug!("Slime mold mouse release: turning off cursor interaction");
+        tracing::debug!("Slime Mold mouse release: cursor interaction disabled");
 
+        // Update cursor parameters on GPU
         self.update_cursor_params(queue);
         Ok(())
     }
@@ -1408,7 +1426,6 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Randomize the settings
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
         Ok(())

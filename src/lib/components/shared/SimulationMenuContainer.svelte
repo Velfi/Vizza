@@ -47,7 +47,6 @@
 <style>
   .simulation-menu-container {
     position: relative;
-    z-index: 20;
     padding: 1rem;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
@@ -58,12 +57,14 @@
     left: 0;
     top: 80px; /* Below the fixed control bar */
     bottom: 0;
-    width: 40%;
+    max-width: 40%;
+    min-width: 600px;
     overflow-y: auto;
   }
 
   .simulation-menu-container.middle {
     max-width: 40%;
+    overflow-y: auto;
     margin: 80px auto 0 auto; /* Account for fixed control bar */
   }
 
@@ -72,7 +73,8 @@
     right: 0;
     top: 80px; /* Below the fixed control bar */
     bottom: 0;
-    width: 40%;
+    max-width: 40%;
+    min-width: 600px;
     overflow-y: auto;
   }
 

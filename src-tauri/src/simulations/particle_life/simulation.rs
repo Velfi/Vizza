@@ -1,5 +1,6 @@
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
+use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -163,8 +164,6 @@ impl State {
         random_seed: u32,
     ) -> Self {
         let mut particles = Vec::with_capacity(particle_count);
-
-        use rand::{Rng, SeedableRng};
         let mut rng = rand::rngs::StdRng::seed_from_u64(random_seed as u64);
 
         // Distribute particles evenly among species
@@ -299,25 +298,6 @@ pub struct ParticleLifeModel {
 }
 
 impl ParticleLifeModel {
-    /// Calculate type distribution based on particle count and species count
-    fn calculate_type_distribution(&self) -> Vec<u32> {
-        let total_particles = self.state.particle_count as u32;
-        let species_count = self.settings.species_count;
-
-        // Particles are distributed evenly among species
-        let base_count = total_particles / species_count;
-        let remainder = total_particles % species_count;
-
-        let mut type_counts = vec![base_count; species_count as usize];
-
-        // Distribute remainder particles among the first few species
-        for type_count in type_counts.iter_mut().take(remainder as usize) {
-            *type_count += 1;
-        }
-
-        type_counts
-    }
-
     /// Flatten 2D force matrix to 1D array for GPU
     pub fn flatten_force_matrix(force_matrix: &[Vec<f32>]) -> Vec<f32> {
         let mut flattened = Vec::new();
@@ -1301,7 +1281,7 @@ impl ParticleLifeModel {
             blit_bind_group,
             settings,
             state,
-            show_gui: false,
+            show_gui: true,
             lut_manager: Arc::new(lut_manager.clone()),
             width,
             height,
@@ -1437,8 +1417,7 @@ impl ParticleLifeModel {
         );
 
         // Update random seed for reset
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         self.state.random_seed = rng.random();
 
         // Update sim params with new random seed and current particle count
@@ -1505,8 +1484,7 @@ impl ParticleLifeModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Update random seed
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         let new_seed = rng.random();
 
         let randomize_params = ForceRandomizeParams {
@@ -2408,13 +2386,9 @@ impl Simulation for ParticleLifeModel {
     }
 
     fn get_state(&self) -> Value {
-        // Calculate type distribution
-        let type_counts = self.calculate_type_distribution();
-
         serde_json::json!({
             "particle_count": self.state.particle_count,
             "species_count": self.settings.species_count,
-            "type_counts": type_counts,
             "random_seed": self.state.random_seed,
             "dt": self.state.dt,
             "cursor_size": self.state.cursor_size,
@@ -2512,9 +2486,9 @@ impl Simulation for ParticleLifeModel {
         self.cursor_world_x = 0.0;
         self.cursor_world_y = 0.0;
 
-        tracing::debug!("ParticleLife mouse release: turning off cursor interaction");
+        tracing::debug!("ParticleLife mouse release: cursor interaction disabled");
 
-        // Update sim params immediately with cursor deactivated
+        // Update sim params immediately with cursor disabled
         let mut sim_params = SimParams::new(
             self.width,
             self.height,
@@ -2523,7 +2497,7 @@ impl Simulation for ParticleLifeModel {
             &self.state,
         );
 
-        // Override with cursor values (inactive)
+        // Override with cursor values (disabled)
         sim_params.cursor_x = 0.0;
         sim_params.cursor_y = 0.0;
         sim_params.cursor_active = 0;
@@ -2660,8 +2634,7 @@ impl Simulation for ParticleLifeModel {
         );
 
         // Update random seed for consistency
-        use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
         self.state.random_seed = rng.random();
 
         // Update sim params with new random seed

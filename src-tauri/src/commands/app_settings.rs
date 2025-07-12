@@ -52,12 +52,12 @@ impl Default for AppSettings {
 
 fn get_settings_path() -> PathBuf {
     let home_dir = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home_dir.join("vizzy").join("settings.toml")
+    home_dir.join(env!("CARGO_PKG_NAME")).join("settings.toml")
 }
 
-fn get_settings_dir() -> PathBuf {
+pub(crate) fn get_settings_dir() -> PathBuf {
     let home_dir = home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home_dir.join("vizzy")
+    home_dir.join(env!("CARGO_PKG_NAME"))
 }
 
 #[tauri::command]

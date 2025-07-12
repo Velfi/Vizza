@@ -2,14 +2,19 @@
 {#if showUI}
   <div class="controls">
     <div class="left-controls">
-      <button class="back-button" on:click={handleBackClick}> ← Back to Menu </button>
-      <button class="hide-ui-button" on:click={handleToggleUI}> 👁 Hide UI </button>
+      <Button class="back-button" on:click={handleBackClick}>← Back to Menu</Button>
+      <Button class="hide-ui-button" on:click={handleToggleUI}>
+        👁 {showUI ? 'Hide UI' : 'Show UI'}
+      </Button>
     </div>
 
     <div class="center-controls">
-      <button class="pause-resume-button" class:running on:click={handlePauseResume}>
+      <Button
+        class={`pause-resume-button${running ? ' running' : ''}`}
+        on:click={handlePauseResume}
+      >
         {running ? '⏸ Pause' : '▶ Resume'}
-      </button>
+      </Button>
       <span class="status-text">
         {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
       </span>
@@ -39,14 +44,17 @@
     aria-label="Auto-hiding control bar - interact to show controls"
   >
     <div class="left-controls">
-      <button class="back-button" on:click={handleBackClick}> ← Back to Menu </button>
-      <button class="hide-ui-button" on:click={handleToggleUI}> 👁 Show UI </button>
+      <Button class="back-button" on:click={handleBackClick}>← Back to Menu</Button>
+      <Button class="hide-ui-button" on:click={handleToggleUI}>👁 Show UI</Button>
     </div>
 
     <div class="center-controls">
-      <button class="pause-resume-button" class:running on:click={handlePauseResume}>
+      <Button
+        class={`pause-resume-button${running ? ' running' : ''}`}
+        on:click={handlePauseResume}
+      >
         {running ? '⏸ Pause' : '▶ Resume'}
-      </button>
+      </Button>
       <span class="status-text">
         {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
       </span>
@@ -62,6 +70,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import Button from './Button.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -107,7 +116,6 @@
     top: 0;
     left: 0;
     right: 0;
-    z-index: 30;
     height: 80px;
     box-sizing: border-box;
   }
@@ -128,37 +136,6 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-  }
-
-  .back-button,
-  .hide-ui-button,
-  .pause-resume-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-  }
-
-  .back-button:hover,
-  .hide-ui-button:hover,
-  .pause-resume-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .pause-resume-button.running {
-    background: rgba(81, 207, 102, 0.2);
-    border-color: rgba(81, 207, 102, 0.4);
-    color: #51cf66;
-  }
-
-  .pause-resume-button.running:hover {
-    background: rgba(81, 207, 102, 0.3);
-    border-color: rgba(81, 207, 102, 0.6);
   }
 
   .status-text,
@@ -190,13 +167,6 @@
     .center-controls,
     .right-controls {
       gap: 0.25rem;
-    }
-
-    .back-button,
-    .hide-ui-button,
-    .pause-resume-button {
-      padding: 0.25rem 0.5rem;
-      font-size: 0.875rem;
     }
 
     .status-text,

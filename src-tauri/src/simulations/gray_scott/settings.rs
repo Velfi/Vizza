@@ -104,8 +104,6 @@ pub struct Settings {
     pub timestep: f32,
     pub nutrient_pattern: NutrientPattern,
     pub nutrient_pattern_reversed: bool,
-    pub cursor_size: f32,
-    pub cursor_strength: f32,
 }
 
 impl Default for Settings {
@@ -118,8 +116,6 @@ impl Default for Settings {
             timestep: 1.0,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
-            cursor_size: 10.0,
-            cursor_strength: 0.5,
         }
     }
 }
@@ -151,8 +147,5 @@ impl Settings {
         self.nutrient_pattern = patterns[rng.random_range(0..patterns.len())];
 
         self.nutrient_pattern_reversed = rng.random_bool(0.5);
-
-        self.cursor_size = rng.random_range(5.0..20.0);
-        self.cursor_strength = rng.random_range(0.1..1.0);
     }
 }

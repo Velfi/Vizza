@@ -10,12 +10,14 @@ pub struct PipelineManager {
     pub display_pipeline: ComputePipeline,
     pub reset_pipeline: ComputePipeline,
     pub update_speeds_pipeline: ComputePipeline,
+    pub gradient_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
     pub render_3x3_pipeline: RenderPipeline,
     pub compute_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
     pub render_bind_group_layout: BindGroupLayout,
     pub camera_bind_group_layout: BindGroupLayout,
+    pub gradient_bind_group_layout: BindGroupLayout,
 }
 
 impl PipelineManager {
@@ -179,6 +181,33 @@ impl PipelineManager {
                 }],
             });
 
+        let gradient_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Gradient Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(
@@ -269,6 +298,21 @@ impl PipelineManager {
                 cache: None,
                 compilation_options: Default::default(),
             });
+
+        let gradient_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Gradient Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Gradient Pipeline Layout"),
+                    bind_group_layouts: &[&gradient_bind_group_layout],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            module: &shader_manager.gradient_shader,
+            entry_point: Some("generate_gradient"),
+            cache: None,
+            compilation_options: Default::default(),
+        });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
@@ -365,12 +409,14 @@ impl PipelineManager {
             display_pipeline,
             reset_pipeline,
             update_speeds_pipeline,
+            gradient_pipeline,
             render_pipeline,
             render_3x3_pipeline,
             compute_bind_group_layout,
             display_bind_group_layout,
             render_bind_group_layout,
             camera_bind_group_layout,
+            gradient_bind_group_layout,
         }
     }
 }

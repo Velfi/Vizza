@@ -22,6 +22,7 @@
     {#if isEditing}
       <input
         bind:this={inputElement}
+        {id}
         type="number"
         value={displayValue}
         {min}
@@ -60,6 +61,7 @@
   export let precision: number = 2;
   export let unit: string = '';
   export let showButtons: boolean = true;
+  export let id: string = '';
 
   const dispatch = createEventDispatcher();
 
@@ -170,7 +172,6 @@
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    width: 100%;
   }
 
   .step-button {

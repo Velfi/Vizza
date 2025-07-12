@@ -1,7 +1,5 @@
 # Rules/Notes for the project
 
-- don't be so obsequious.
-
 ## Common abbreviations
 
 - LUT: Look-up table. Used for color schemes.
@@ -9,6 +7,7 @@
   - IM: Interaction Matrix. A matrix of force relationships between particles.
 - GS: Gray-Scott. A simulation of Gray-Scott reaction-diffusion.
 - SM: Slime Mold. A simulation of slime molds.
+- EM: Ecosystem. A simulation of an ecosystem.
 
 ## LUTs (Color Schemes)
 
@@ -35,3 +34,27 @@ This distinction is crucial for:
 - Preset management (only save settings, not state)
 - State restoration after simulation restart
 - UI state management
+
+## Tauri Notes
+
+### Parameter Name Convention
+- **Backend (Rust)**: Uses snake_case parameter names (e.g., `preset_name`)
+- **Frontend (JavaScript)**: Must use camelCase parameter names (e.g., `presetName`)
+- **Tauri automatically converts** between snake_case and camelCase
+- When calling Tauri commands from frontend, always use camelCase parameter names
+- The Rust function signature uses snake_case, but JavaScript invocations use camelCase
+
+### Example
+```rust
+// Backend (Rust)
+#[tauri::command]
+pub async fn save_preset(preset_name: String) -> Result<String, String>
+```
+
+```javascript
+// Frontend (JavaScript) - CORRECT
+await invoke('save_preset', { presetName: 'My Preset' });
+
+// Frontend (JavaScript) - WRONG
+await invoke('save_preset', { preset_name: 'My Preset' });
+```

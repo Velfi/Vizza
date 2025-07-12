@@ -2,6 +2,7 @@ pub mod buffer_pool;
 pub mod commands;
 pub mod render;
 pub mod settings;
+pub mod shaders;
 pub mod simulation;
 pub mod workgroup_optimizer;
 
@@ -165,6 +166,18 @@ pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
             pheromone_decay_rate: 100.0,
             pheromone_deposition_rate: 27.726316,
             pheromone_diffusion_rate: 66.059_27,
+            ..Settings::default()
+        },
+    ));
+    preset_manager.add_preset(Preset::new(
+        "Venom".to_string(),
+        Settings {
+            agent_jitter: 2.0,
+            agent_sensor_angle: 0.3,
+            agent_sensor_distance: 20.0,
+            agent_speed_max: 500.0,
+            agent_speed_min: 0.0,
+            agent_turn_rate: 0.209_439_52,
             ..Settings::default()
         },
     ));

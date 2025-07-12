@@ -44,15 +44,15 @@ pub struct Settings {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TypeGenerator {
-    Radial,   // Change type based on distance from center
-    Polar,    // Change type based on orientation to center
-    StripesH, // Horizontal stripes
-    StripesV, // Vertical stripes
-    Random,   // Random distribution
-    LineH,    // Horizontal line
-    LineV,    // Vertical line
-    Spiral,   // Spiral pattern
-    Dithered, // Dithered pattern
+    Radial,    // Change type based on distance from center
+    Polar,     // Change type based on orientation to center
+    StripesH,  // Horizontal stripes
+    StripesV,  // Vertical stripes
+    Random,    // Random distribution
+    LineH,     // Horizontal line
+    LineV,     // Vertical line
+    Spiral,    // Spiral pattern
+    Dithered,  // Dithered pattern
     WavyLineH, // Wavy horizontal lines
     WavyLineV, // Wavy vertical lines
 }
@@ -616,13 +616,8 @@ impl Settings {
         }
     }
 
-    /// Randomize only the force matrix, preserving physics settings
     pub fn randomize(&mut self) {
-        // Only randomize the force matrix - preserve all physics parameters
         self.randomize_force_matrix(&MatrixGenerator::Random);
-
-        // Note: Physics settings (max_force, distances, friction, wrap_edges)
-        // are intentionally NOT randomized.
     }
 
     /// Get the force between two species

@@ -1,5 +1,6 @@
+use crate::commands::get_settings_dir;
 use crate::error::{LutError, LutResult};
-use dirs::home_dir;
+use include_dir::{include_dir, Dir};
 use rand::Rng;
 use std::collections::HashMap;
 use std::io;
@@ -102,181 +103,20 @@ impl LutData {
     }
 }
 
-macro_rules! include_luts {
-    ($($name:expr),*) => {
-        {
-            let mut map = HashMap::new();
-            $(
-                map.insert(
-                    $name.strip_suffix(".lut").unwrap(),
-                    include_bytes!(concat!("LUTs/", $name))
-                );
-            )*
-            map
-        }
-    };
-}
+static LUT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/simulations/shared/LUTs");
 
 lazy_static::lazy_static! {
-    static ref EMBEDDED_LUTS: HashMap<&'static str, &'static [u8; 768]> = include_luts!(
-        "KTZ_bt_Brick.lut",
-        "KTZ_bt_Teal.lut",
-        "KTZ_bw_Avada.lut",
-        "KTZ_bw_CityNight.lut",
-        "KTZ_bw_Coral.lut",
-        "KTZ_bw_DarkGold.lut",
-        "KTZ_bw_DeepBlush.lut",
-        "KTZ_bw_DeepLime.lut",
-        "KTZ_bw_Div_Orange.lut",
-        "KTZ_bw_Ember.lut",
-        "KTZ_bw_Incendio.lut",
-        "KTZ_bw_IndiGlow.lut",
-        "KTZ_bw_Iris.lut",
-        "KTZ_bw_kawa.lut",
-        "KTZ_bw_Lagoon.lut",
-        "KTZ_bw_Lavender.lut",
-        "KTZ_bw_Moon.lut",
-        "KTZ_bw_NavyGold.lut",
-        "KTZ_bw_Nebula.lut",
-        "KTZ_bw_NightRose.lut",
-        "KTZ_bw_PinkShui.lut",
-        "KTZ_bw_Sakura.lut",
-        "KTZ_bw_Saphira.lut",
-        "KTZ_bw_Scarlet.lut",
-        "KTZ_bw_SeaWeed.lut",
-        "KTZ_bw_Spectral.lut",
-        "KTZ_bw_Sunrise.lut",
-        "KTZ_bw_TealHot.lut",
-        "KTZ_Campfire.lut",
-        "KTZ_color_BCO.lut",
-        "KTZ_color_BOG.lut",
-        "KTZ_color_Gazoil.lut",
-        "KTZ_color_POC.lut",
-        "KTZ_color_POCY.lut",
-        "KTZ_Div_Cyan.lut",
-        "KTZ_Div_Red.lut",
-        "KTZ_Grey_Div_Green.lut",
-        "KTZ_Grey_Div_Orange.lut",
-        "KTZ_Grey_To_Black.lut",
-        "KTZ_inv_Noice_Blue.lut",
-        "KTZ_inv_Noice_Orange.lut",
-        "KTZ_inv_Owl_Red.lut",
-        "KTZ_inv_Owl_Teal.lut",
-        "KTZ_k_Blue.lut",
-        "KTZ_k_Green.lut",
-        "KTZ_k_Magenta.lut",
-        "KTZ_k_Orange.lut",
-        "KTZ_Klein_Blue.lut",
-        "KTZ_Klein_Gold.lut",
-        "KTZ_Klein_Pink.lut",
-        "KTZ_Noice_Blue.lut",
-        "KTZ_Noice_Cyan.lut",
-        "KTZ_Noice_Green.lut",
-        "KTZ_Noice_Magenta.lut",
-        "KTZ_Noice_Orange.lut",
-        "KTZ_Noice_Red.lut",
-        "KTZ_poc_Cyan.lut",
-        "KTZ_poc_Orange.lut",
-        "KTZ_poc_Purple.lut",
-        "KTZ_rgb_Blue.lut",
-        "KTZ_rgb_Green.lut",
-        "KTZ_rgb_Red.lut",
-        "MATPLOTLIB_Accent.lut",
-        "MATPLOTLIB_afmhot.lut",
-        "MATPLOTLIB_autumn.lut",
-        "MATPLOTLIB_berlin.lut",
-        "MATPLOTLIB_binary.lut",
-        "MATPLOTLIB_Blues.lut",
-        "MATPLOTLIB_bone.lut",
-        "MATPLOTLIB_BrBG.lut",
-        "MATPLOTLIB_brg.lut",
-        "MATPLOTLIB_BuGn.lut",
-        "MATPLOTLIB_BuPu.lut",
-        "MATPLOTLIB_bwr.lut",
-        "MATPLOTLIB_cividis.lut",
-        "MATPLOTLIB_CMRmap.lut",
-        "MATPLOTLIB_cool.lut",
-        "MATPLOTLIB_coolwarm.lut",
-        "MATPLOTLIB_copper.lut",
-        "MATPLOTLIB_cubehelix.lut",
-        "MATPLOTLIB_Dark2.lut",
-        "MATPLOTLIB_flag.lut",
-        "MATPLOTLIB_gist_earth.lut",
-        "MATPLOTLIB_gist_gray.lut",
-        "MATPLOTLIB_gist_heat.lut",
-        "MATPLOTLIB_gist_ncar.lut",
-        "MATPLOTLIB_gist_rainbow.lut",
-        "MATPLOTLIB_gist_stern.lut",
-        "MATPLOTLIB_gist_yarg.lut",
-        "MATPLOTLIB_gist_yerg.lut",
-        "MATPLOTLIB_GnBu.lut",
-        "MATPLOTLIB_gnuplot.lut",
-        "MATPLOTLIB_gnuplot2.lut",
-        "MATPLOTLIB_gray.lut",
-        "MATPLOTLIB_Grays.lut",
-        "MATPLOTLIB_Greens.lut",
-        "MATPLOTLIB_grey.lut",
-        "MATPLOTLIB_Greys.lut",
-        "MATPLOTLIB_hot.lut",
-        "MATPLOTLIB_hsv.lut",
-        "MATPLOTLIB_inferno.lut",
-        "MATPLOTLIB_jet.lut",
-        "MATPLOTLIB_magma.lut",
-        "MATPLOTLIB_managua.lut",
-        "MATPLOTLIB_nipy_spectral.lut",
-        "MATPLOTLIB_ocean.lut",
-        "MATPLOTLIB_Oranges.lut",
-        "MATPLOTLIB_OrRd.lut",
-        "MATPLOTLIB_Paired.lut",
-        "MATPLOTLIB_Pastel1.lut",
-        "MATPLOTLIB_Pastel2.lut",
-        "MATPLOTLIB_pink.lut",
-        "MATPLOTLIB_PiYG.lut",
-        "MATPLOTLIB_plasma.lut",
-        "MATPLOTLIB_PRGn.lut",
-        "MATPLOTLIB_prism.lut",
-        "MATPLOTLIB_PuBu.lut",
-        "MATPLOTLIB_PuBuGn.lut",
-        "MATPLOTLIB_PuOr.lut",
-        "MATPLOTLIB_PuRd.lut",
-        "MATPLOTLIB_Purples.lut",
-        "MATPLOTLIB_rainbow.lut",
-        "MATPLOTLIB_RdBu.lut",
-        "MATPLOTLIB_RdGy.lut",
-        "MATPLOTLIB_RdPu.lut",
-        "MATPLOTLIB_RdYlBu.lut",
-        "MATPLOTLIB_RdYlGn.lut",
-        "MATPLOTLIB_Reds.lut",
-        "MATPLOTLIB_seismic.lut",
-        "MATPLOTLIB_Set1.lut",
-        "MATPLOTLIB_Set2.lut",
-        "MATPLOTLIB_Set3.lut",
-        "MATPLOTLIB_Spectral.lut",
-        "MATPLOTLIB_spring.lut",
-        "MATPLOTLIB_summer.lut",
-        "MATPLOTLIB_tab10.lut",
-        "MATPLOTLIB_tab20.lut",
-        "MATPLOTLIB_tab20b.lut",
-        "MATPLOTLIB_tab20c.lut",
-        "MATPLOTLIB_terrain.lut",
-        "MATPLOTLIB_turbo.lut",
-        "MATPLOTLIB_twilight_shifted.lut",
-        "MATPLOTLIB_twilight.lut",
-        "MATPLOTLIB_vanimo.lut",
-        "MATPLOTLIB_viridis.lut",
-        "MATPLOTLIB_winter.lut",
-        "MATPLOTLIB_Wistia.lut",
-        "MATPLOTLIB_YlGn.lut",
-        "MATPLOTLIB_YlGnBu.lut",
-        "MATPLOTLIB_YlOrBr.lut",
-        "MATPLOTLIB_YlOrRd.lut",
-        "ZELDA_Glass.lut",
-        "ZELDA_Monochrome.lut",
-        "ZELDA_Rainbow.lut",
-        "ZELDA_Slava Ukraini.lut",
-        "ZELDA_Terrain.lut",
-        "ZELDA_Trans Rights.lut"
-    );
+    static ref EMBEDDED_LUTS: HashMap<&'static str, &'static [u8]> = {
+        let mut map = HashMap::new();
+        for file in LUT_DIR.files() {
+            if let Some(name) = file.path().file_stem().and_then(|s| s.to_str()) {
+                if file.path().extension().and_then(|s| s.to_str()) == Some("lut") {
+                    map.insert(name, file.contents());
+                }
+            }
+        }
+        map
+    };
 }
 
 #[derive(Debug, Clone)]
@@ -311,7 +151,7 @@ impl LutManager {
                 )));
             }
 
-            return LutData::from_bytes(name.to_string(), buffer.as_slice())
+            return LutData::from_bytes(name.to_string(), buffer)
                 .map_err(|e| LutError::DataError(e.to_string()));
         }
 
@@ -320,10 +160,7 @@ impl LutManager {
     }
 
     fn lut_dir() -> LutResult<std::path::PathBuf> {
-        let home_dir = home_dir()
-            .ok_or_else(|| LutError::DataError("Could not find home directory".to_string()))?;
-
-        let lut_dir = home_dir.join("sim-pix").join("LUTs");
+        let lut_dir = get_settings_dir().join("LUTs");
         Ok(lut_dir)
     }
 
@@ -375,9 +212,9 @@ impl LutManager {
     }
 
     pub(crate) fn get_random_lut(&self) -> LutResult<LutData> {
-        let mut lut_names = EMBEDDED_LUTS.keys();
+        let lut_names: Vec<&str> = EMBEDDED_LUTS.keys().copied().collect();
         let random_index = rand::rng().random_range(0..lut_names.len());
-        let lut_name = lut_names.nth(random_index).expect("LUTs exist");
+        let lut_name = lut_names[random_index];
         self.get(lut_name)
     }
 }
@@ -427,5 +264,36 @@ mod tests {
         // Test u32 buffer size (GPU format)
         let u32_buffer = lut_data.to_u32_buffer();
         assert_eq!(u32_buffer.len(), 768); // 768 u32 values
+    }
+
+    #[test]
+    fn test_automatic_lut_loading() {
+        let manager = LutManager::new();
+        let luts = manager.all_luts();
+
+        // Verify that some known LUTs are included
+        assert!(luts.contains(&"MATPLOTLIB_viridis".to_string()));
+        assert!(luts.contains(&"ZELDA_Blueprint".to_string()));
+        assert!(luts.contains(&"KTZ_bw_Avada".to_string()));
+
+        // Verify that we can load each LUT
+        for lut_name in &luts {
+            let lut_data = manager.get(lut_name).unwrap_or_else(|e| {
+                panic!("Failed to load LUT '{}': {}", lut_name, e);
+            });
+
+            // Verify the LUT data is valid
+            assert_eq!(lut_data.name, *lut_name);
+            assert_eq!(lut_data.red.len(), 256);
+            assert_eq!(lut_data.green.len(), 256);
+            assert_eq!(lut_data.blue.len(), 256);
+        }
+
+        // Verify that we have a reasonable number of LUTs
+        assert!(
+            luts.len() > 100,
+            "Expected many LUTs but got {}",
+            luts.len()
+        );
     }
 }

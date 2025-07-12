@@ -484,7 +484,7 @@ mod tests {
         for row in &matrix {
             for &value in row {
                 assert!(
-                    value >= -1.0 && value <= 1.0,
+                    (-1.0..=1.0).contains(&value),
                     "Value {} is outside valid range",
                     value
                 );

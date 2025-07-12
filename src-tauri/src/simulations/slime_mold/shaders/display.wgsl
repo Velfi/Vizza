@@ -39,6 +39,58 @@ var<storage, read> lut_data: array<u32>;
 @group(0) @binding(4)
 var<storage, read> gradient_map: array<f32>;
 
+// Bilinear interpolation for trail map sampling
+fn sample_trail_map_smooth(pos: vec2<f32>) -> f32 {
+    let width = i32(sim_size.width);
+    let height = i32(sim_size.height);
+    
+    // Clamp position to valid range
+    let clamped_pos = clamp(pos, vec2<f32>(0.0), vec2<f32>(f32(width - 1), f32(height - 1)));
+    
+    let x0 = i32(floor(clamped_pos.x));
+    let y0 = i32(floor(clamped_pos.y));
+    let x1 = min(x0 + 1, width - 1);
+    let y1 = min(y0 + 1, height - 1);
+    
+    let dx = clamped_pos.x - f32(x0);
+    let dy = clamped_pos.y - f32(y0);
+    
+    let v00 = trail_map[y0 * width + x0];
+    let v10 = trail_map[y0 * width + x1];
+    let v01 = trail_map[y1 * width + x0];
+    let v11 = trail_map[y1 * width + x1];
+    
+    let v0 = mix(v00, v10, dx);
+    let v1 = mix(v01, v11, dx);
+    return mix(v0, v1, dy);
+}
+
+// Bilinear interpolation for gradient map sampling
+fn sample_gradient_map_smooth(pos: vec2<f32>) -> f32 {
+    let width = i32(sim_size.width);
+    let height = i32(sim_size.height);
+    
+    // Clamp position to valid range
+    let clamped_pos = clamp(pos, vec2<f32>(0.0), vec2<f32>(f32(width - 1), f32(height - 1)));
+    
+    let x0 = i32(floor(clamped_pos.x));
+    let y0 = i32(floor(clamped_pos.y));
+    let x1 = min(x0 + 1, width - 1);
+    let y1 = min(y0 + 1, height - 1);
+    
+    let dx = clamped_pos.x - f32(x0);
+    let dy = clamped_pos.y - f32(y0);
+    
+    let v00 = gradient_map[y0 * width + x0];
+    let v10 = gradient_map[y0 * width + x1];
+    let v01 = gradient_map[y1 * width + x0];
+    let v11 = gradient_map[y1 * width + x1];
+    
+    let v0 = mix(v00, v10, dx);
+    let v1 = mix(v01, v11, dx);
+    return mix(v0, v1, dy);
+}
+
 // Convert from sRGB (gamma-corrected) to linear RGB
 fn srgb_to_linear(srgb: f32) -> f32 {
     if (srgb <= 0.04045) {
@@ -70,19 +122,19 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    // Map texture pixel to simulation coordinates
+    // Map texture pixel to simulation coordinates (with sub-pixel precision)
     var sim_x = f32(id.x) * f32(sim_size.width) / f32(tex_width);
     var sim_y = f32(id.y) * f32(sim_size.height) / f32(tex_height);
 
     var color = vec3<f32>(0.0);
     if (sim_x >= 0.0 && sim_x < f32(sim_size.width) && sim_y >= 0.0 && sim_y < f32(sim_size.height)) {
-        let idx = u32(sim_y) * sim_size.width + u32(sim_x);
-        let trail = trail_map[idx];
+        // Use bilinear interpolation for smooth sampling
+        let trail = sample_trail_map_smooth(vec2<f32>(sim_x, sim_y));
         
         // Only add gradient if it's enabled (gradient_type != 0 means enabled)
         var intensity = trail;
         if (sim_size.gradient_type != 0u) {
-            let grad = gradient_map[idx];
+            let grad = sample_gradient_map_smooth(vec2<f32>(sim_x, sim_y));
             intensity = clamp(trail + grad, 0.0, 1.0);
         }
         

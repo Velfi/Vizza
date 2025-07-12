@@ -70,18 +70,12 @@ pub async fn toggle_lut_reversed(
 pub async fn save_custom_lut(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     name: String,
-    lut_data: Vec<f32>,
+    lut_data: Vec<u8>,
 ) -> Result<String, String> {
     let sim_manager = manager.lock().await;
 
-    // Convert f32 values to u8 bytes (0-255 range)
-    let byte_data: Vec<u8> = lut_data
-        .iter()
-        .map(|&f| (f.clamp(0.0, 255.0)) as u8)
-        .collect();
-
     // Create LutData from the byte data
-    let lut_data = LutData::from_bytes(name.clone(), &byte_data)
+    let lut_data = LutData::from_bytes(name.clone(), &lut_data)
         .map_err(|e| format!("Failed to create LUT data: {}", e))?;
 
     match sim_manager.lut_manager.save_custom(&name, &lut_data) {
@@ -100,18 +94,12 @@ pub async fn save_custom_lut(
 pub async fn update_gradient_preview(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    lut_data: Vec<f32>,
+    lut_data: Vec<u8>,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    // Convert f32 values to u8 bytes (0-255 range) and create LutData
-    let byte_data: Vec<u8> = lut_data
-        .iter()
-        .map(|&f| (f.clamp(0.0, 255.0)) as u8)
-        .collect();
-
-    let lut_data = LutData::from_bytes("gradient_preview".to_string(), &byte_data)
+    let lut_data = LutData::from_bytes("gradient_preview".to_string(), &lut_data)
         .map_err(|e| format!("Failed to create LUT data: {}", e))?;
 
     // Apply the preview LUT to any running simulation

@@ -301,8 +301,8 @@ impl Camera {
 
     /// Convert world coordinates to screen coordinates
     pub fn world_to_screen(&self, world: WorldCoords) -> ScreenCoords {
-        let ndc_x = (world.x - self.position[0]) * self.zoom;
-        let ndc_y = (world.y - self.position[1]) * self.zoom;
+        let ndc_x = (world.x - self.target_position[0]) * self.target_zoom;
+        let ndc_y = (world.y - self.target_position[1]) * self.target_zoom;
 
         let screen_x = (ndc_x + 1.0) * self.viewport_width * 0.5;
         let screen_y = (-ndc_y + 1.0) * self.viewport_height * 0.5; // Flip Y axis correctly
@@ -326,15 +326,15 @@ impl Camera {
 
     /// Convert NDC to world coordinates
     pub fn ndc_to_world(&self, ndc: NdcCoords) -> WorldCoords {
-        let world_x = (ndc.x / self.zoom) + self.position[0];
-        let world_y = (ndc.y / self.zoom) + self.position[1];
+        let world_x = (ndc.x / self.target_zoom) + self.target_position[0];
+        let world_y = (ndc.y / self.target_zoom) + self.target_position[1];
         WorldCoords::new(world_x, world_y)
     }
 
     /// Convert world coordinates to NDC
     pub fn world_to_ndc(&self, world: WorldCoords) -> NdcCoords {
-        let ndc_x = (world.x - self.position[0]) * self.zoom;
-        let ndc_y = (world.y - self.position[1]) * self.zoom;
+        let ndc_x = (world.x - self.target_position[0]) * self.target_zoom;
+        let ndc_y = (world.y - self.target_position[1]) * self.target_zoom;
         NdcCoords::new(ndc_x, ndc_y)
     }
 

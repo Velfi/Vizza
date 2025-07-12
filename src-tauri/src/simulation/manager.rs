@@ -48,6 +48,28 @@ impl SimulationManager {
         self.current_simulation.as_ref()
     }
 
+    /// Get mutable reference to ecosystem simulation
+    pub fn get_ecosystem_simulation_mut(
+        &mut self,
+    ) -> Option<&mut crate::simulations::ecosystem::simulation::EcosystemModel> {
+        if let Some(SimulationType::Ecosystem(simulation)) = &mut self.current_simulation {
+            Some(simulation)
+        } else {
+            None
+        }
+    }
+
+    /// Get immutable reference to ecosystem simulation
+    pub fn get_ecosystem_simulation(
+        &self,
+    ) -> Option<&crate::simulations::ecosystem::simulation::EcosystemModel> {
+        if let Some(SimulationType::Ecosystem(simulation)) = &self.current_simulation {
+            Some(simulation)
+        } else {
+            None
+        }
+    }
+
     pub async fn start_simulation(
         &mut self,
         simulation_type: String,
@@ -121,6 +143,25 @@ impl SimulationManager {
                         .map_err(|e| format!("Failed to apply Default preset: {}", e))?;
                     tracing::info!("Applied Default preset to Particle Life simulation");
                 }
+
+                // Automatically unpause after successful initialization
+                self.resume();
+
+                Ok(())
+            }
+            "ecosystem" => {
+                // Initialize Ecosystem simulation
+                let settings = crate::simulations::ecosystem::settings::Settings::default();
+                let simulation = crate::simulations::ecosystem::simulation::EcosystemModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings.agent_count,
+                    settings,
+                    &self.lut_manager,
+                )?;
+
+                self.current_simulation = Some(SimulationType::Ecosystem(simulation));
 
                 // Automatically unpause after successful initialization
                 self.resume();
@@ -239,12 +280,7 @@ impl SimulationManager {
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
                     let world_y = world.y;
-                    simulation.handle_mouse_interaction(
-                        world_x,
-                        world_y,
-                        mouse_button,
-                        queue,
-                    )?;
+                    simulation.handle_mouse_interaction(world_x, world_y, mouse_button, queue)?;
                 }
                 _ => (),
             }
@@ -252,20 +288,20 @@ impl SimulationManager {
         Ok(())
     }
 
-    pub fn handle_mouse_release(
-        &mut self,
-        mouse_button: u32,
-        queue: &Arc<Queue>,
-    ) -> AppResult<()> {
+    /// Handle mouse release events
+    pub fn handle_mouse_release(&mut self, mouse_button: u32, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
+                SimulationType::GrayScott(simulation) => {
+                    simulation.handle_mouse_release(mouse_button, queue)?;
+                }
                 SimulationType::ParticleLife(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 SimulationType::SlimeMold(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
-                _ => (), // Gray Scott doesn't need mouse release handling
+                _ => (),
             }
         }
         Ok(())
@@ -436,6 +472,10 @@ impl SimulationManager {
                     // For particle life, use the existing update_setting method
                     simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
                 }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("LUT changes not yet implemented for ecosystem simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT changes not supported for main menu simulation");
@@ -513,6 +553,10 @@ impl SimulationManager {
                         !current_reversed,
                     )?;
                 }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("LUT reversal not yet implemented for ecosystem simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
@@ -566,6 +610,10 @@ impl SimulationManager {
                     )?;
                     tracing::info!("Custom LUT applied to particle life simulation");
                 }
+                SimulationType::Ecosystem(_simulation) => {
+                    // Ecosystem doesn't support LUT changes yet
+                    tracing::warn!("Custom LUT not yet implemented for ecosystem simulation");
+                }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("Custom LUT not supported for main menu simulation");
@@ -596,6 +644,7 @@ impl SimulationManager {
         tokio::spawn(async move {
             let mut frame_count = 0u32;
             let mut last_fps_update = Instant::now();
+            let mut population_update_counter = 0u32;
 
             while render_loop_running.load(Ordering::Relaxed) {
                 let frame_start = Instant::now();
@@ -630,6 +679,24 @@ impl SimulationManager {
                 }
 
                 frame_count += 1;
+                population_update_counter += 1;
+
+                // Update population history every 30 frames (about once per second at 30 FPS)
+                if population_update_counter >= 30 {
+                    let mut sim_manager = manager.lock().await;
+                    let gpu_ctx = gpu_context.lock().await;
+
+                    if let Some(SimulationType::Ecosystem(simulation)) =
+                        &mut sim_manager.current_simulation
+                    {
+                        // Use GPU readback for accurate population tracking
+                        simulation
+                            .update_population_history(&gpu_ctx.device, &gpu_ctx.queue)
+                            .await;
+                    }
+
+                    population_update_counter = 0;
+                }
 
                 // Update FPS every second
                 if last_fps_update.elapsed() >= Duration::from_secs(1) {
@@ -703,6 +770,9 @@ impl SimulationManager {
                 }
                 SimulationType::ParticleLife(sim) => {
                     sim.reset_particles_gpu(device, queue)?;
+                }
+                SimulationType::Ecosystem(_sim) => {
+                    simulation.reset_runtime_state(device, queue)?;
                 }
                 _ => {
                     simulation.reset_runtime_state(device, queue)?;
@@ -786,6 +856,7 @@ impl SimulationManager {
                     Some(simulation.renderer.camera.get_state())
                 }
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::Ecosystem(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
@@ -807,6 +878,9 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
+                SimulationType::Ecosystem(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
             }
         }
@@ -825,8 +899,65 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
+                SimulationType::Ecosystem(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
+                }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
             }
+        }
+    }
+
+    /// Get current ecosystem population data
+    pub async fn get_ecosystem_population(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<serde_json::Value, String> {
+        tracing::debug!("get_ecosystem_population called");
+
+        if let Some(SimulationType::Ecosystem(simulation)) = &self.current_simulation {
+            tracing::debug!("Found ecosystem simulation");
+
+            // Get current population data using GPU readback for accurate counts
+            let current_population = simulation.get_current_population(device, queue).await;
+
+            let population_history = simulation.get_population_history();
+
+            tracing::debug!(
+                "Manager: Current population total: {}, counts: {:?}",
+                current_population.total_population,
+                current_population.species_counts
+            );
+            tracing::debug!(
+                "Manager: Population history length: {}",
+                population_history.len()
+            );
+
+            let response = serde_json::json!({
+                "current": {
+                    "time": current_population.time,
+                    "species_counts": current_population.species_counts,
+                    "total_population": current_population.total_population,
+                    "species_names": ["Cyanobacteria", "Heterotrophs", "Predators", "Fungi"]
+                },
+                "history": population_history.iter().map(|data| {
+                    serde_json::json!({
+                        "time": data.time,
+                        "species_counts": data.species_counts,
+                        "total_population": data.total_population
+                    })
+                }).collect::<Vec<_>>()
+            });
+
+            tracing::debug!(
+                "Manager: Returning response with total: {}",
+                response["current"]["total_population"]
+            );
+
+            Ok(response)
+        } else {
+            tracing::error!("No ecosystem simulation running");
+            Err("No ecosystem simulation running".to_string())
         }
     }
 }

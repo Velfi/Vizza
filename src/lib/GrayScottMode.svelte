@@ -1,277 +1,212 @@
-<div class="simulation-container">
-  <!-- Mouse interaction overlay -->
-  <div
-    class="mouse-overlay"
-    on:mousedown={handleMouseEvent}
-    on:mousemove={handleMouseEvent}
-    on:mouseup={handleMouseEvent}
-    on:mouseleave={handleMouseEvent}
-    on:contextmenu={handleMouseEvent}
-    on:wheel={handleMouseEvent}
-    role="button"
-    tabindex="0"
-  ></div>
+<SimulationLayout
+  simulationName="Gray-Scott"
+  {running}
+  {loading}
+  {showUI}
+  {currentFps}
+  {controlsVisible}
+  {menuPosition}
+  on:back={returnToMenu}
+  on:toggleUI={toggleBackendGui}
+  on:pause={stopSimulation}
+  on:resume={resumeSimulation}
+  on:userInteraction={handleUserInteraction}
+  on:mouseEvent={handleMouseEvent}
+>
+  <form on:submit|preventDefault>
+    <!-- About this simulation -->
+    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+      <p>
+        The Gray-Scott simulation demonstrates reaction-diffusion patterns that occur in chemical
+        and biological systems. Two virtual chemicals, U and V, interact and diffuse through space,
+        creating complex, self-organizing patterns.
+      </p>
+      <p>
+        The simulation is governed by reaction-diffusion equations with feed and kill rates that
+        determine how the chemicals interact. Different parameter combinations produce dramatically
+        different patterns - from spots and stripes to spirals and labyrinthine structures.
+      </p>
+      <p>
+        Click to seed reactions, adjust the parameters to explore different behaviors, and watch as
+        simple chemical rules generate intricate, ever-changing patterns reminiscent of natural
+        phenomena like coral growth, bacterial colonies, and animal coat patterns.
+      </p>
+    </CollapsibleFieldset>
 
-  <!-- Loading Screen -->
-  {#if loading}
-    <div class="loading-overlay">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <h2>Starting Simulation...</h2>
-        <p>Initializing GPU resources</p>
-      </div>
-    </div>
-  {/if}
-
-  <SimulationControlBar
-    {running}
-    {loading}
-    {showUI}
-    {currentFps}
-    simulationName="Gray-Scott"
-    {controlsVisible}
-    on:back={returnToMenu}
-    on:toggleUI={toggleBackendGui}
-    on:pause={stopSimulation}
-    on:resume={resumeSimulation}
-    on:userInteraction={handleUserInteraction}
-  />
-
-  <SimulationMenuContainer position={menuPosition} {showUI}>
-    <form on:submit|preventDefault>
-      <!-- Preset Controls -->
-      <fieldset>
-        <legend>Presets</legend>
-        <div class="control-group">
-          <Selector
-            options={available_presets}
-            bind:value={current_preset}
-            placeholder="Select preset..."
-            on:change={({ detail }) => updatePreset(detail.value)}
-          />
-        </div>
-        <div class="preset-actions">
-          <button type="button" on:click={() => (show_save_preset_dialog = true)}>
-            Save Current Settings
-          </button>
-        </div>
-      </fieldset>
-
-      <!-- Display Settings -->
-      <fieldset>
-        <legend>Display Settings</legend>
-        <div class="control-group">
-          <LutSelector
-            {available_luts}
-            current_lut={lut_name}
-            reversed={lut_reversed}
-            on:select={({ detail }) => updateLut(detail.name)}
-            on:reverse={() => updateLutReversed()}
-          />
-        </div>
-      </fieldset>
-
-      <!-- Controls -->
-      <fieldset>
-        <legend>Controls</legend>
-        <div class="interaction-controls-grid">
-          <div class="interaction-help">
-            <div class="control-group">
-              <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
-            </div>
-            <div class="control-group">
-              <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-                📖 Camera Controls
-              </button>
-            </div>
-          </div>
-          <div class="cursor-settings">
-            <div class="cursor-settings-header">
-              <span>🎯 Cursor Settings</span>
-            </div>
-            <CursorConfig
-              cursorSize={settings.cursor_size}
-              cursorStrength={settings.cursor_strength}
-              sizeMin={5}
-              sizeMax={50}
-              sizeStep={1}
-              strengthMin={0.1}
-              strengthMax={2.0}
-              strengthStep={0.1}
-              sizePrecision={0}
-              strengthPrecision={1}
-              on:sizechange={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', {
-                    settingName: 'cursor_size',
-                    value: e.detail,
-                  });
-                } catch (err) {
-                  console.error('Failed to update cursor size:', err);
-                }
-              }}
-              on:strengthchange={async (e) => {
-                try {
-                  await invoke('update_simulation_setting', {
-                    settingName: 'cursor_strength',
-                    value: e.detail,
-                  });
-                } catch (err) {
-                  console.error('Failed to update cursor strength:', err);
-                }
-              }}
-            />
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Settings -->
-      <fieldset>
-        <legend>Settings</legend>
-        <div class="control-group">
-          <button
-            type="button"
-            on:click={async () => {
-              try {
-                await invoke('reset_simulation');
-                console.log('Simulation reset successfully');
-              } catch (e) {
-                console.error('Failed to reset simulation:', e);
-              }
-            }}>🔄 Reset Simulation</button
-          >
-          <button
-            type="button"
-            on:click={async () => {
-              try {
-                await invoke('randomize_settings');
-                await syncSettingsFromBackend(); // Sync UI with new random settings
-                console.log('Settings randomized successfully');
-              } catch (e) {
-                console.error('Failed to randomize settings:', e);
-              }
-            }}>🎲 Randomize Settings</button
-          >
-          <button
-            type="button"
-            on:click={async () => {
-              try {
-                await invoke('seed_random_noise');
-                console.log('Random noise seeded successfully');
-              } catch (e) {
-                console.error('Failed to seed random noise:', e);
-              }
-            }}>🌱 Seed Noise</button
-          >
-        </div>
-      </fieldset>
-
-      <!-- Reaction-Diffusion -->
-      <fieldset>
-        <legend>
-          <button
-            type="button"
-            class="toggle-button"
-            on:click={() => (show_physics_diagram = !show_physics_diagram)}
-          >
-            {show_physics_diagram ? '▼' : '▶'} Reaction-Diffusion
-          </button>
-        </legend>
-
-        {#if show_physics_diagram}
-          <GrayScottDiagram
-            feedRate={settings.feed_rate}
-            killRate={settings.kill_rate}
-            diffusionRateU={settings.diffusion_rate_u}
-            diffusionRateV={settings.diffusion_rate_v}
-            timestep={settings.timestep}
-            on:update={async (e) => {
-              console.log('GrayScottDiagram update event:', e.detail);
-              try {
-                // Update local settings first for immediate UI feedback
-                const settingName = e.detail.setting;
-                const value = e.detail.value;
-
-                // Update the local settings object to match the backend
-                if (settingName in settings) {
-                  settings = { ...settings, [settingName]: value };
-                }
-
-                await invoke('update_simulation_setting', {
-                  settingName: settingName,
-                  value: value,
-                });
-                console.log('Backend invoked for', settingName, value);
-              } catch (err) {
-                console.error(`Failed to update ${e.detail.setting}:`, err);
-                // On error, sync from backend to restore correct state
-                await syncSettingsFromBackend();
-              }
-            }}
-          />
-        {/if}
-      </fieldset>
-
-      <!-- Nutrient Pattern Settings -->
-      <fieldset>
-        <legend>Nutrient Pattern</legend>
-        <div class="control-group">
-          <Selector
-            options={[
-              'Uniform',
-              'Checkerboard',
-              'Diagonal Gradient',
-              'Radial Gradient',
-              'Vertical Stripes',
-              'Horizontal Stripes',
-              'Enhanced Noise',
-              'Wave Function',
-              'Cosine Grid',
-            ]}
-            bind:value={settings.nutrient_pattern}
-            label="Pattern Type"
-            on:change={({ detail }) => updateNutrientPattern(detail.value)}
-          />
-        </div>
-        <div class="control-group">
-          <label for="nutrientPatternReversed">Reverse Pattern</label>
-          <input
-            type="checkbox"
-            id="nutrientPatternReversed"
-            bind:checked={settings.nutrient_pattern_reversed}
-            on:change={(e: Event) => {
-              const target = e.target as HTMLInputElement;
-              if (target) {
-                updateNutrientPatternReversed(target.checked);
-              }
-            }}
-          />
-        </div>
-      </fieldset>
-    </form>
-  </SimulationMenuContainer>
-
-    <!-- Save Preset Dialog -->
-  {#if show_save_preset_dialog}
-    <SavePresetDialog
-      bind:presetName={new_preset_name}
-      on:save={({ detail }) => savePreset(detail.name)}
-      on:close={() => (show_save_preset_dialog = false)}
+    <!-- Preset Controls -->
+    <PresetFieldset
+      availablePresets={available_presets}
+      bind:currentPreset={current_preset}
+      placeholder="Select preset..."
+      on:presetChange={({ detail }) => updatePreset(detail.value)}
+      on:presetSave={({ detail }) => savePreset(detail.name)}
     />
-  {/if}
-</div>
+
+    <!-- Display Settings -->
+    <fieldset>
+      <legend>Display Settings</legend>
+      <div class="control-group">
+        <LutSelector
+          bind:available_luts
+          current_lut={lut_name}
+          reversed={lut_reversed}
+          on:select={({ detail }) => updateLut(detail.name)}
+          on:reverse={() => updateLutReversed()}
+        />
+      </div>
+    </fieldset>
+
+    <!-- Controls -->
+    <fieldset>
+      <legend>Controls</legend>
+      <div class="interaction-controls-grid">
+        <div class="interaction-help">
+          <div class="control-group">
+            <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
+          </div>
+          <div class="control-group">
+            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
+              📖 Camera Controls
+            </button>
+          </div>
+          <div class="control-group">
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span
+            >
+          </div>
+        </div>
+        <div class="cursor-settings">
+          <div class="cursor-settings-header">
+            <span>🎯 Cursor Settings</span>
+          </div>
+          <CursorConfig
+            {cursorSize}
+            {cursorStrength}
+            sizeMin={5}
+            sizeMax={50}
+            sizeStep={1}
+            strengthMin={0.1}
+            strengthMax={2.0}
+            strengthStep={0.1}
+            sizePrecision={0}
+            strengthPrecision={1}
+            on:sizechange={async (e) => {
+              try {
+                cursorSize = e.detail;
+                await invoke('update_simulation_setting', {
+                  settingName: 'cursor_size',
+                  value: e.detail,
+                });
+              } catch (err) {
+                console.error('Failed to update cursor size:', err);
+              }
+            }}
+            on:strengthchange={async (e) => {
+              try {
+                cursorStrength = e.detail;
+                await invoke('update_simulation_setting', {
+                  settingName: 'cursor_strength',
+                  value: e.detail,
+                });
+              } catch (err) {
+                console.error('Failed to update cursor strength:', err);
+              }
+            }}
+          />
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- Settings -->
+    <fieldset>
+      <legend>Settings</legend>
+      <div class="control-group">
+        <button
+          type="button"
+          on:click={async () => {
+            try {
+              await invoke('reset_simulation');
+              console.log('Simulation reset successfully');
+            } catch (e) {
+              console.error('Failed to reset simulation:', e);
+            }
+          }}>🔄 Reset Simulation</button
+        >
+        <button
+          type="button"
+          on:click={async () => {
+            try {
+              await invoke('randomize_settings');
+              await syncSettingsFromBackend(); // Sync UI with new random settings
+              console.log('Settings randomized successfully');
+            } catch (e) {
+              console.error('Failed to randomize settings:', e);
+            }
+          }}>🎲 Randomize Settings</button
+        >
+        <button
+          type="button"
+          on:click={async () => {
+            try {
+              await invoke('seed_random_noise');
+              console.log('Random noise seeded successfully');
+            } catch (e) {
+              console.error('Failed to seed random noise:', e);
+            }
+          }}>🌱 Seed Noise</button
+        >
+      </div>
+    </fieldset>
+
+    <!-- Reaction-Diffusion -->
+    <CollapsibleFieldset title="Reaction-Diffusion" bind:open={show_physics_diagram}>
+      <GrayScottDiagram
+        feedRate={settings.feed_rate}
+        killRate={settings.kill_rate}
+        diffusionRateU={settings.diffusion_rate_u}
+        diffusionRateV={settings.diffusion_rate_v}
+        timestep={settings.timestep}
+        on:update={async (e) => {
+          console.log('GrayScottDiagram update event:', e.detail);
+          try {
+            // Update local settings first for immediate UI feedback
+            const settingName = e.detail.setting;
+            const value = e.detail.value;
+
+            // Update the local settings object to match the backend
+            if (settingName in settings) {
+              settings = { ...settings, [settingName]: value };
+            }
+
+            // Send the update to the backend
+            await invoke('update_simulation_setting', {
+              settingName: settingName,
+              value: value,
+            });
+
+            console.log(`Updated ${settingName} to ${value}`);
+          } catch (err) {
+            console.error('Failed to update setting:', err);
+          }
+        }}
+      />
+    </CollapsibleFieldset>
+  </form>
+</SimulationLayout>
+
+<!-- Shared camera controls component -->
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
-  import LutSelector from './components/shared/LutSelector.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
+  import SimulationLayout from './components/shared/SimulationLayout.svelte';
+  import LutSelector from './components/shared/LutSelector.svelte';
   import GrayScottDiagram from './components/gray-scott/GrayScottDiagram.svelte';
-  import SimulationControlBar from './components/shared/SimulationControlBar.svelte';
-  import SimulationMenuContainer from './components/shared/SimulationMenuContainer.svelte';
-  import Selector from './components/inputs/Selector.svelte';
-  import SavePresetDialog from './components/shared/SavePresetDialog.svelte';
+  import CameraControls from './components/shared/CameraControls.svelte';
+  import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
+  import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -286,8 +221,6 @@
     timestep: number;
     nutrient_pattern: string;
     nutrient_pattern_reversed: boolean;
-    cursor_size: number;
-    cursor_strength: number;
   }
 
   // Simulation state
@@ -302,23 +235,20 @@
     // Nutrient Pattern Settings
     nutrient_pattern: 'Uniform',
     nutrient_pattern_reversed: false,
-
-    // Cursor Settings
-    cursor_size: 10,
-    cursor_strength: 0.5,
   };
+
+  // Cursor state (not saved in presets)
+  let cursorSize = 10.0;
+  let cursorStrength = 0.5;
 
   // Preset and LUT state
   let current_preset = '';
   let available_presets: string[] = [];
   let available_luts: string[] = [];
 
-  // Dialog state
-  let show_save_preset_dialog = false;
-  let new_preset_name = '';
-
   // UI state
   let show_physics_diagram = false;
+  let show_about_section = false;
 
   // LUT state (runtime, not saved in presets)
   let lut_name = '';
@@ -352,20 +282,18 @@
     }
   }
 
-  async function savePreset(presetName?: string) {
-    const nameToSave = presetName || new_preset_name;
+  async function savePreset(presetName: string) {
     try {
-      await invoke('save_preset', { preset_name: nameToSave });
-      show_save_preset_dialog = false;
-      new_preset_name = '';
+      await invoke('save_preset', { preset_name: presetName.trim() });
       // Refresh the available presets list
       await loadAvailablePresets();
+      // Set the current preset to the newly saved one
+      current_preset = presetName.trim();
+      console.log(`Saved preset: ${presetName}`);
     } catch (e) {
       console.error('Failed to save preset:', e);
     }
   }
-
-
 
   // Simulation state
   let running = false;
@@ -503,6 +431,14 @@
         // Update LUT-related settings from state
         lut_name = currentState.current_lut_name;
         lut_reversed = currentState.lut_reversed;
+
+        // Update cursor configuration from state
+        if ((currentState as any).cursor_size !== undefined) {
+          cursorSize = (currentState as any).cursor_size;
+        }
+        if ((currentState as any).cursor_strength !== undefined) {
+          cursorStrength = (currentState as any).cursor_strength;
+        }
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -512,124 +448,6 @@
   let simulationInitializedUnlisten: (() => void) | null = null;
   let simulationResumedUnlisten: (() => void) | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
-
-  // Simple panning state
-  const pressedKeys = new Set<string>();
-
-  // Mouse drag state
-  let isMouseDown = false;
-  let lastMouseButton = -1; // Track which button was pressed for drag consistency
-
-  function handleKeydown(event: KeyboardEvent) {
-    // Check if the focused element is an input field
-    const activeElement = document.activeElement;
-    const isInputFocused = activeElement && (
-      activeElement.tagName === 'INPUT' ||
-      activeElement.tagName === 'TEXTAREA' ||
-      activeElement.tagName === 'SELECT' ||
-      (activeElement as HTMLElement).contentEditable === 'true'
-    );
-
-    if (event.key === '/') {
-      event.preventDefault();
-      toggleBackendGui();
-    } else if (event.key === 'r' || event.key === 'R') {
-      event.preventDefault();
-      randomizeSimulation();
-    } else {
-      // Allow camera controls even when simulation is paused
-      // But don't handle camera controls when an input is focused
-      const cameraKeys = [
-        'w',
-        'a',
-        's',
-        'd',
-        'arrowup',
-        'arrowdown',
-        'arrowleft',
-        'arrowright',
-        'q',
-        'e',
-        'c',
-      ];
-      if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
-        event.preventDefault();
-        pressedKeys.add(event.key.toLowerCase());
-      }
-    }
-  }
-
-  function handleKeyup(event: KeyboardEvent) {
-    const cameraKeys = [
-      'w',
-      'a',
-      's',
-      'd',
-      'arrowup',
-      'arrowdown',
-      'arrowleft',
-      'arrowright',
-      'q',
-      'e',
-      'c',
-    ];
-    if (cameraKeys.includes(event.key.toLowerCase())) {
-      pressedKeys.delete(event.key.toLowerCase());
-    }
-  }
-
-  // Add animation frame loop for smooth camera movement
-  let animationFrameId: number | null = null;
-
-  function updateCamera() {
-    // Allow camera movement even when simulation is paused
-    const panAmount = 0.1;
-    let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
-
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
-
-    // Apply combined movement if any keys are pressed
-    if (moved) {
-      console.log('Panning camera:', { deltaX, deltaY });
-      panCamera(deltaX, deltaY);
-    }
-
-    if (pressedKeys.has('q')) {
-      console.log('Zooming out');
-      zoomCamera(-0.2);
-      moved = true;
-    }
-    if (pressedKeys.has('e')) {
-      console.log('Zooming in');
-      zoomCamera(0.2);
-      moved = true;
-    }
-    if (pressedKeys.has('c') || pressedKeys.has('C')) {
-      console.log('Resetting camera');
-      resetCamera();
-      moved = true;
-    }
-
-    // Always schedule the next frame to keep the loop running
-    animationFrameId = requestAnimationFrame(updateCamera);
-  }
 
   async function randomizeSimulation() {
     try {
@@ -678,44 +496,12 @@
     }
   }
 
-  async function zoomCameraToCursor(delta: number, cursorX: number, cursorY: number) {
-    try {
-      await invoke('zoom_camera_to_cursor', { delta, cursorX, cursorY });
-      await fetchCameraState();
-    } catch (e) {
-      console.error('Failed to zoom camera to cursor:', e);
-    }
-  }
-
   async function resetCamera() {
     try {
       await invoke('reset_camera');
-      await fetchCameraState();
+      console.log('Camera reset successfully');
     } catch (e) {
       console.error('Failed to reset camera:', e);
-    }
-  }
-
-  // Add missing functions for nutrient pattern updates
-  async function updateNutrientPattern(value: string) {
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'nutrient_pattern',
-        value: value,
-      });
-    } catch (err) {
-      console.error('Failed to update nutrient pattern:', err);
-    }
-  }
-
-  async function updateNutrientPatternReversed(value: boolean) {
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'nutrient_pattern_reversed',
-        value: value,
-      });
-    } catch (err) {
-      console.error('Failed to update nutrient pattern reversed:', err);
     }
   }
 
@@ -730,104 +516,121 @@
     }
   }
 
-  // Unified mouse event handler
-  async function handleMouseEvent(event: MouseEvent | WheelEvent) {
-    const isWheelEvent = event instanceof WheelEvent;
-    const isMouseEvent = event instanceof MouseEvent;
+  // Mouse state tracking for dragging support
+  let isMousePressed = false;
+  let currentMouseButton = 0;
 
-    // Early return if simulation is not running (except for wheel events which can still zoom)
-    if (!running && !isWheelEvent) {
-      console.log('Mouse event ignored - simulation not running');
-      return;
-    }
+  // Mouse event handling for camera controls and simulation interaction
+  async function handleMouseEvent(e: CustomEvent) {
+    const event = e.detail as MouseEvent | WheelEvent;
 
-    // Prevent default for all events
-    event.preventDefault();
-
-    // Get cursor position
-    const cursorX = event.clientX;
-    const cursorY = event.clientY;
-
-    // Convert CSS pixels to physical pixels for backend (camera expects physical pixels)
-    const devicePixelRatio = window.devicePixelRatio || 1;
-    const physicalCursorX = cursorX * devicePixelRatio;
-    const physicalCursorY = cursorY * devicePixelRatio;
-
-    console.log(
-      `Mouse event: ${event.type}, running: ${running}, cursor: (${cursorX}, ${cursorY}), physical: (${physicalCursorX}, ${physicalCursorY})`
-    );
-
-    // Handle wheel events (zoom) - allow even when paused
-    if (isWheelEvent) {
+    if (event.type === 'wheel') {
       const wheelEvent = event as WheelEvent;
+      wheelEvent.preventDefault();
 
-      // Send cursor position to backend (use physical pixels)
-      await sendCursorToBackend(physicalCursorX, physicalCursorY);
+      const zoomDelta = -wheelEvent.deltaY * 0.001;
 
-      // Normalize wheel delta (make it smaller for smoother zooming)
-      const normalizedDelta = wheelEvent.deltaY * 0.01;
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = wheelEvent.clientX * devicePixelRatio;
+      const physicalCursorY = wheelEvent.clientY * devicePixelRatio;
 
-      // Zoom towards cursor position
-      await zoomCameraToCursor(normalizedDelta, physicalCursorX, physicalCursorY);
-    }
+      try {
+        await invoke('zoom_camera_to_cursor', {
+          delta: zoomDelta,
+          cursorX: physicalCursorX,
+          cursorY: physicalCursorY,
+        });
+      } catch (e) {
+        console.error('Failed to zoom camera to cursor:', e);
+      }
+    } else if (event.type === 'mousedown') {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.preventDefault();
 
-    // Handle mouse events
-    if (isMouseEvent) {
+      isMousePressed = true;
+      currentMouseButton = mouseEvent.button;
+
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
+
+      console.log(
+        `Gray-Scott mouse interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: ${mouseEvent.button}`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: mouseEvent.button,
+        });
+      } catch (e) {
+        console.error('Failed to handle Gray-Scott mouse interaction:', e);
+      }
+    } else if (event.type === 'mousemove') {
       const mouseEvent = event as MouseEvent;
 
-      // Send cursor position to backend (use physical pixels)
-      await sendCursorToBackend(physicalCursorX, physicalCursorY);
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
 
-      // Handle mouse down (start of drag) - only when running
-      if (mouseEvent.type === 'mousedown' && running) {
-        isMouseDown = true;
-        lastMouseButton = mouseEvent.button;
+      if (isMousePressed) {
+        // Continue interaction while dragging
+        mouseEvent.preventDefault();
 
         try {
           await invoke('handle_mouse_interaction_screen', {
             screenX: physicalCursorX,
             screenY: physicalCursorY,
-            mouseButton: mouseEvent.button,
+            mouseButton: currentMouseButton,
           });
-          console.log(
-            `Mouse interaction: button ${mouseEvent.button} at (${physicalCursorX}, ${physicalCursorY})`
-          );
-        } catch (err) {
-          console.error('Failed to handle mouse interaction:', err);
+        } catch (e) {
+          console.error('Failed to handle Gray-Scott mouse drag:', e);
         }
-      }
-
-      // Handle mouse move during drag - only when running
-      if (mouseEvent.type === 'mousemove' && isMouseDown && running) {
+      } else {
+        // Just update cursor position for visual feedback when not dragging
         try {
-          await invoke('handle_mouse_interaction_screen', {
-            screenX: physicalCursorX,
-            screenY: physicalCursorY,
-            mouseButton: lastMouseButton,
-          });
-        } catch (err) {
-          console.error('Failed to handle mouse drag interaction:', err);
+          await sendCursorToBackend(physicalCursorX, physicalCursorY);
+        } catch (e) {
+          console.error('Failed to update cursor position:', e);
         }
       }
+    } else if (event.type === 'mouseup') {
+      const mouseEvent = event as MouseEvent;
+      mouseEvent.preventDefault();
 
-      // Handle mouse up (end of drag) - always handle
-      if (mouseEvent.type === 'mouseup') {
-        console.log('Mouse up');
-        isMouseDown = false;
-        lastMouseButton = -1;
+      isMousePressed = false;
+
+      // Stop cursor interaction when mouse is released
+      try {
+        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
+      } catch (e) {
+        console.error('Failed to stop Gray-Scott mouse interaction:', e);
       }
+    } else if (event.type === 'contextmenu') {
+      // Handle context menu as right-click for simulation interaction
+      const mouseEvent = event as MouseEvent;
 
-      // Handle mouse leave (end of drag if mouse leaves window) - always handle
-      if (mouseEvent.type === 'mouseleave') {
-        console.log('Mouse leave');
-        isMouseDown = false;
-        lastMouseButton = -1;
-      }
+      // Convert screen coordinates to physical coordinates
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const physicalCursorX = mouseEvent.clientX * devicePixelRatio;
+      const physicalCursorY = mouseEvent.clientY * devicePixelRatio;
 
-      // Handle context menu (right click) - always prevent
-      if (mouseEvent.type === 'contextmenu') {
-        console.log('Context menu prevented');
-        // Context menu is already prevented by preventDefault() above
+      console.log(
+        `Gray-Scott context menu interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: 2`
+      );
+
+      try {
+        await invoke('handle_mouse_interaction_screen', {
+          screenX: physicalCursorX,
+          screenY: physicalCursorY,
+          mouseButton: 2, // Right mouse button
+        });
+      } catch (e) {
+        console.error('Failed to handle Gray-Scott context menu interaction:', e);
       }
     }
   }
@@ -935,20 +738,11 @@
   }
 
   onMount(() => {
-    // Add keyboard event listeners
-    window.addEventListener('keydown', handleKeydown);
-    window.addEventListener('keyup', handleKeyup);
-
-    // Add event listeners for auto-hide functionality
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.addEventListener(event, handleUserInteraction, { passive: true });
     });
-
-    // Start camera update loop immediately so camera controls work even when paused
-    if (animationFrameId === null) {
-      animationFrameId = requestAnimationFrame(updateCamera);
-    }
 
     // Listen for simulation initialization event
     listen('simulation-initialized', async () => {
@@ -1011,11 +805,9 @@
 
   onDestroy(() => {
     // Remove keyboard event listeners
-    window.removeEventListener('keydown', handleKeydown);
-    window.removeEventListener('keyup', handleKeyup);
 
     // Remove auto-hide event listeners
-    const events = ['mousedown', 'mousemove', 'keydown', 'wheel', 'touchstart'];
+    const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {
       window.removeEventListener(event, handleUserInteraction);
     });
@@ -1028,10 +820,6 @@
     showCursor();
 
     // Cancel animation frame
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
 
     if (simulationInitializedUnlisten) {
       simulationInitializedUnlisten();
