@@ -1,6 +1,6 @@
 <fieldset>
   <legend>
-    <button type="button" class="fieldset-toggle" on:click={toggle}>
+    <button type="button" class="fieldset-toggle" on:click={toggle} aria-expanded={open}>
       {open ? '▼' : '▶'}
       {title}
     </button>
