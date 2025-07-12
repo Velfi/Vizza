@@ -84,25 +84,25 @@
     dispatch('userInteraction');
   }
 
+  // Helper function to check if the event occurred directly on the container
+  function isDirectTarget(event: Event): boolean {
+    return event.target === event.currentTarget;
+  }
+
   // Handle mouse events and forward to parent, but only if not on UI elements
   function handleMouseEvent(event: MouseEvent | WheelEvent) {
-    // Only handle events that happened directly on the container (not on child UI elements)
-    if (event.target === event.currentTarget) {
+    if (isDirectTarget(event)) {
       event.preventDefault();
       dispatch('mouseEvent', event);
     }
-    // If the event bubbled up from a child element, let it pass through normally
   }
 
   // Handle context menu - only prevent default when clicking on simulation area
   function handleContextMenu(event: MouseEvent) {
-    // Only prevent context menu when clicking directly on the container (simulation area)
-    if (event.target === event.currentTarget) {
+    if (isDirectTarget(event)) {
       event.preventDefault();
-      // Forward the context menu event as a right-click for simulation interaction
       dispatch('mouseEvent', event);
     }
-    // If clicking on UI elements, allow normal context menu behavior
   }
 </script>
 
