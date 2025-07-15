@@ -19,6 +19,12 @@
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
+  {:else if currentMode === 'flow'}
+    <FlowMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
   {:else if currentMode === 'ecosystem'}
     <EcosystemMode
       menuPosition={appSettings.menu_position}
@@ -46,6 +52,7 @@
   import SlimeMoldMode from './lib/SlimeMoldMode.svelte';
   import GrayScottMode from './lib/GrayScottMode.svelte';
   import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
+  import FlowMode from './lib/FlowMode.svelte';
   import EcosystemMode from './lib/EcosystemMode.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
@@ -55,6 +62,7 @@
     | 'slime-mold'
     | 'gray-scott'
     | 'particle-life'
+    | 'flow'
     | 'ecosystem'
     | 'how-to-play'
     | 'settings';
@@ -92,7 +100,7 @@
   // Load app settings and apply UI scale
   async function loadAppSettings() {
     try {
-      const settings = await invoke('get_app_settings') as AppSettings;
+      const settings = (await invoke('get_app_settings')) as AppSettings;
       if (settings) {
         appSettings = settings;
         await applyUIScale(appSettings.ui_scale);

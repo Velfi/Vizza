@@ -55,6 +55,11 @@
       <p>Multi-species particle simulation</p>
     </button>
 
+    <button class="simulation-card" on:click={() => selectSimulation('flow')}>
+      <h3>Flow Field</h3>
+      <p>Particle flow through vector fields</p>
+    </button>
+
     <!-- <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
       <h3>Ecosystem</h3>
       <p>Artificial life with chemotaxis</p>

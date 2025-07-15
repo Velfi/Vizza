@@ -64,7 +64,7 @@ impl GpuContext {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Main GPU Device"),
-                    required_features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     required_limits: limits,
                     memory_hints: wgpu::MemoryHints::Performance,
                 },
@@ -171,10 +171,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             // Simulation commands
+            commands::start_simulation,
             commands::start_slime_mold_simulation,
             commands::start_gray_scott_simulation,
             commands::start_particle_life_simulation,
             commands::start_ecosystem_simulation,
+            commands::start_flow_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
             commands::destroy_simulation,
@@ -194,6 +196,7 @@ fn main() {
             commands::zero_force_matrix,
             commands::flip_force_matrix_sign,
             commands::clear_trail_texture,
+            commands::kill_all_particles,
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

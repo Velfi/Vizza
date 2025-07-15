@@ -538,6 +538,7 @@ impl GrayScottModel {
         texture_x: f32,
         texture_y: f32,
         mouse_button: u32,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // texture_x and texture_y are in [0,1] range
@@ -749,12 +750,13 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         world_x: f32,
         world_y: f32,
         mouse_button: u32,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Convert world coordinates to texture coordinates
         let texture_x = (world_x + 1.0) * 0.5;
         let texture_y = (world_y + 1.0) * 0.5;
-        GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, queue)
+        GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, _device, queue)
     }
 
     fn handle_mouse_release(

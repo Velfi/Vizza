@@ -1322,6 +1322,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         world_x: f32,
         world_y: f32,
         mouse_button: u32,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Determine cursor mode based on mouse_button

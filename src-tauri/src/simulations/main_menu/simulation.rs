@@ -283,6 +283,7 @@ impl Simulation for MainMenuModel {
         _world_x: f32,
         _world_y: f32,
         _mouse_button: u32,
+        _device: &Arc<Device>,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // No mouse interaction for this simulation

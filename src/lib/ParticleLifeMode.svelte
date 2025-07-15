@@ -995,13 +995,15 @@
 
         // Ensure particle_count is properly set from state
         if (backendState && typeof backendState === 'object' && 'particle_count' in backendState) {
-          state.particle_count = (backendState as { particle_count?: number }).particle_count || 15000;
+          state.particle_count =
+            (backendState as { particle_count?: number }).particle_count || 15000;
         }
 
         // Sync LUT state from backend
         if (backendState && typeof backendState === 'object') {
           if ('current_lut_name' in backendState) {
-            const backendLut = (backendState as { current_lut_name?: string }).current_lut_name || '';
+            const backendLut =
+              (backendState as { current_lut_name?: string }).current_lut_name || '';
             // Always sync LUT from backend to ensure consistency
             if (backendLut !== state.current_lut) {
               state.current_lut = backendLut;

@@ -1,4 +1,5 @@
 pub mod ecosystem;
+pub mod flow;
 pub mod gray_scott;
 pub mod main_menu;
 pub mod particle_life;

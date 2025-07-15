@@ -842,7 +842,7 @@
   // Sync settings from backend to frontend
   async function syncSettingsFromBackend() {
     try {
-      const currentSettings = await invoke('get_current_settings') as Record<string, unknown>;
+      const currentSettings = (await invoke('get_current_settings')) as Record<string, unknown>;
       const currentState = (await invoke('get_current_state')) as {
         current_lut_name: string;
         lut_reversed: boolean;
@@ -861,10 +861,12 @@
 
         // Convert radians to degrees for frontend display
         if (currentSettings.agent_turn_rate !== undefined) {
-          currentSettings.agent_turn_rate = ((currentSettings.agent_turn_rate as number) * 180) / Math.PI;
+          currentSettings.agent_turn_rate =
+            ((currentSettings.agent_turn_rate as number) * 180) / Math.PI;
         }
         if (currentSettings.agent_sensor_angle !== undefined) {
-          currentSettings.agent_sensor_angle = ((currentSettings.agent_sensor_angle as number) * 180) / Math.PI;
+          currentSettings.agent_sensor_angle =
+            ((currentSettings.agent_sensor_angle as number) * 180) / Math.PI;
         }
 
         // Update the settings object with current backend values

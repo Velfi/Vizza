@@ -71,6 +71,11 @@
   let dragStartValue = 0;
   let isEditing = false;
 
+  // Ensure value is always a valid number
+  $: if (typeof value !== 'number' || isNaN(value)) {
+    value = 0;
+  }
+
   function clamp(val: number): number {
     let result = val;
     if (min !== undefined) result = Math.max(min, result);
@@ -79,6 +84,9 @@
   }
 
   function formatValue(val: number): string {
+    if (typeof val !== 'number' || isNaN(val)) {
+      return '0';
+    }
     return parseFloat(val.toFixed(precision)).toString();
   }
 
@@ -107,7 +115,7 @@
 
     if (newValue !== value) {
       value = newValue;
-      dispatch('change', value);
+      dispatch('change', newValue);
     }
   }
 
@@ -141,24 +149,26 @@
     const newValue = clamp(parseFloat(inputElement.value) || 0);
     if (newValue !== value) {
       value = newValue;
-      dispatch('change', value);
+      dispatch('change', newValue);
     }
     isEditing = false;
   }
 
   function increment() {
-    const newValue = clamp(value + step);
-    if (newValue !== value) {
+    const currentValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+    const newValue = clamp(currentValue + step);
+    if (newValue !== currentValue) {
       value = newValue;
-      dispatch('change', value);
+      dispatch('change', newValue);
     }
   }
 
   function decrement() {
-    const newValue = clamp(value - step);
-    if (newValue !== value) {
+    const currentValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+    const newValue = clamp(currentValue - step);
+    if (newValue !== currentValue) {
       value = newValue;
-      dispatch('change', value);
+      dispatch('change', newValue);
     }
   }
 

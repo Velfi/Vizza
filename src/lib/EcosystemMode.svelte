@@ -224,7 +224,7 @@
 
   async function loadSettings() {
     try {
-      const settings = await invoke('get_current_settings') as EcosystemSettings;
+      const settings = (await invoke('get_current_settings')) as EcosystemSettings;
       if (settings) {
         currentSettings = settings;
         agentCount = currentSettings.agent_count || 1000;
@@ -237,7 +237,7 @@
 
   async function loadState() {
     try {
-      const state = await invoke('get_current_state') as EcosystemState;
+      const state = (await invoke('get_current_state')) as EcosystemState;
       if (state) {
         agentCount = state.agent_count || agentCount;
         speciesCount = state.species_count || speciesCount;

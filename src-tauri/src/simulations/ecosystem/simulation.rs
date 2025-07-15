@@ -2395,13 +2395,13 @@ impl Simulation for EcosystemModel {
 
     fn handle_mouse_interaction(
         &mut self,
-        world_x: f32,
-        world_y: f32,
+        _world_x: f32,
+        _world_y: f32,
         _mouse_button: u32,
+        _device: &Arc<Device>,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Could implement food spawning or agent attraction here
-        println!("Mouse interaction at ({}, {})", world_x, world_y);
         Ok(())
     }
 

@@ -193,6 +193,101 @@ pub async fn start_ecosystem_simulation(
 }
 
 #[tauri::command]
+pub async fn start_flow_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    tracing::debug!("start_flow_simulation called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    // Get current surface configuration
+    let surface_config = gpu_ctx.surface_config.lock().await.clone();
+
+    match sim_manager
+        .start_simulation(
+            "flow".to_string(),
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+            &surface_config,
+            &gpu_ctx.adapter_info,
+        )
+        .await
+    {
+        Ok(_) => {
+            tracing::info!("Flow simulation started successfully");
+
+            // Start the backend render loop
+            sim_manager.start_render_loop(
+                app.clone(),
+                gpu_context.inner().clone(),
+                manager.inner().clone(),
+            );
+
+            // Emit event to notify frontend that simulation is initialized
+            if let Err(e) = app.emit("simulation-initialized", ()) {
+                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
+            }
+
+            Ok("Flow simulation started successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to start simulation: {}", e);
+            Err(format!("Failed to start simulation: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    app: tauri::AppHandle,
+    simulation_type: String,
+) -> Result<String, String> {
+    tracing::debug!("start_simulation called with type: {}", simulation_type);
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    // Get current surface configuration
+    let surface_config = gpu_ctx.surface_config.lock().await.clone();
+
+    match sim_manager
+        .start_simulation(
+            simulation_type.clone(),
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+            &surface_config,
+            &gpu_ctx.adapter_info,
+        )
+        .await
+    {
+        Ok(_) => {
+            tracing::info!("{} simulation started successfully", simulation_type);
+
+            // Start the backend render loop
+            sim_manager.start_render_loop(
+                app.clone(),
+                gpu_context.inner().clone(),
+                manager.inner().clone(),
+            );
+
+            // Emit event to notify frontend that simulation is initialized
+            if let Err(e) = app.emit("simulation-initialized", ()) {
+                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
+            }
+
+            Ok(format!("{} simulation started successfully", simulation_type))
+        }
+        Err(e) => {
+            tracing::error!("Failed to start simulation: {}", e);
+            Err(format!("Failed to start simulation: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn pause_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
@@ -710,5 +805,23 @@ pub async fn flip_force_matrix_sign(
         Ok("Force matrix signs flipped".to_string())
     } else {
         Err("No Particle Life simulation running".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn kill_all_particles(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+) -> Result<String, String> {
+    tracing::debug!("kill_all_particles called");
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(SimulationType::Flow(simulation)) = &mut sim_manager.current_simulation {
+        simulation.kill_all_particles(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to kill particles: {}", e))?;
+        Ok("All particles killed successfully".to_string())
+    } else {
+        Err("This command is only available for Flow simulation".to_string())
     }
 }
