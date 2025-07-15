@@ -81,7 +81,8 @@
             </button>
           </div>
           <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span>
+            <span>Camera controls not working? Click the control bar at the top of the screen.</span
+            >
           </div>
           <div class="control-group">
             <button type="button" on:click={killAllParticles} class="danger-button">
@@ -286,7 +287,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -412,6 +413,14 @@
     }
   }
 
+  async function togglePause() {
+    if (running) {
+      await stopSimulation();
+    } else {
+      await resumeSimulation();
+    }
+  }
+
   // Auto-hide functionality
   function startAutoHideTimer() {
     stopAutoHideTimer();
@@ -484,7 +493,7 @@
 
   async function handleMouseEvent(e: CustomEvent) {
     const event = e.detail as MouseEvent | WheelEvent;
-    
+
     if (event.type === 'wheel') {
       const wheelEvent = event as WheelEvent;
       wheelEvent.preventDefault();
@@ -586,7 +595,7 @@
         console.error('Failed to handle Flow context menu interaction:', e);
       }
     }
-    
+
     // Always handle user interaction for UI visibility
     handleUserInteraction();
   }
@@ -653,8 +662,6 @@
       console.error('Failed to update noise type:', e);
     }
   }
-
-
 
   async function updateVectorMagnitude(value: number) {
     if (typeof value !== 'number' || isNaN(value)) {
@@ -952,7 +959,7 @@
     try {
       const backendSettings = await invoke('get_current_settings');
       const backendState = await invoke('get_current_state');
-      
+
       if (backendSettings) {
         // Update local settings with backend values, using frontend defaults for missing values
         settings = {
@@ -978,7 +985,7 @@
           ...backendSettings,
         };
       }
-      
+
       if (backendState) {
         // Update cursor state from backend
         const state = backendState as any;
@@ -1039,7 +1046,7 @@
     });
 
     stopAutoHideTimer();
-    
+
     // Stop cursor hide timer and restore cursor
     stopCursorHideTimer();
     showCursor();
@@ -1105,6 +1112,4 @@
   .danger-button:hover {
     background: #b91c1c !important;
   }
-
-
 </style>

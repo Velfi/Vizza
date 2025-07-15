@@ -35,6 +35,13 @@
       return;
     }
 
+    if (event.key === ' ') {
+      event.preventDefault();
+      // Dispatch event for parent to handle pause toggle
+      dispatch('togglePause');
+      return;
+    }
+
     // Handle camera controls
     const cameraKeys = [
       'w',
