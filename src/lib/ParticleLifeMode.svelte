@@ -470,7 +470,7 @@
     </SimulationLayout>
 
     <!-- Shared camera controls component -->
-    <CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
+    <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
   {/if}
 </div>
 
@@ -1098,6 +1098,14 @@
       console.log('Simulation resumed');
     } catch (e) {
       console.error('Failed to resume simulation:', e);
+    }
+  }
+
+  async function togglePause() {
+    if (isSimulationRunning) {
+      await pauseSimulation();
+    } else {
+      await resumeSimulation();
     }
   }
 

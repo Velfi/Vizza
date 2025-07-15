@@ -485,7 +485,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} />
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -625,6 +625,14 @@
       running = true;
     } catch (error) {
       console.error('Failed to resume simulation:', error);
+    }
+  }
+
+  async function togglePause() {
+    if (running) {
+      await stopSimulation();
+    } else {
+      await resumeSimulation();
     }
   }
 
