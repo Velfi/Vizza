@@ -756,7 +756,14 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         // Convert world coordinates to texture coordinates
         let texture_x = (world_x + 1.0) * 0.5;
         let texture_y = (world_y + 1.0) * 0.5;
-        GrayScottModel::handle_mouse_interaction(self, texture_x, texture_y, mouse_button, _device, queue)
+        GrayScottModel::handle_mouse_interaction(
+            self,
+            texture_x,
+            texture_y,
+            mouse_button,
+            _device,
+            queue,
+        )
     }
 
     fn handle_mouse_release(

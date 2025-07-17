@@ -936,4 +936,15 @@
   .brownian-motion-slider:hover::-moz-range-thumb {
     background: #d97706;
   }
+
+  .diagram-content {
+    margin-top: 1rem;
+  }
+
+  /* Responsive design for diagram section */
+  @media (max-width: 768px) {
+    .diagram-content {
+      padding: 0.5rem;
+    }
+  }
 </style>

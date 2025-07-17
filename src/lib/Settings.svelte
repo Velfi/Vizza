@@ -1,12 +1,12 @@
 <div class="settings-container">
   <div class="settings-header">
-    <button class="back-button" on:click={() => dispatch('back')}> ← Back to Menu </button>
+    <Button variant="default" on:click={() => dispatch('back')}>← Back to Menu</Button>
     <h1>App Settings</h1>
     <div class="header-actions">
-      <button class="save-button" class:loading={saving} on:click={saveSettings} disabled={saving}>
+      <Button variant="success" on:click={saveSettings} disabled={saving}>
         {saving ? 'Saving...' : '💾 Save'}
-      </button>
-      <button class="reset-button" on:click={resetSettings}> 🔄 Reset to Defaults </button>
+      </Button>
+      <Button variant="warning" on:click={resetSettings}>🔄 Reset to Defaults</Button>
     </div>
   </div>
 
@@ -113,13 +113,13 @@
           </div>
           <div class="setting-item">
             <span class="setting-label">Current Size:</span>
-            <button
-              class="capture-size-button"
+            <Button
+              variant="default"
               on:click={captureCurrentWindowSize}
               title="Set default window size to current window size"
             >
               📏 Use Current Size
-            </button>
+            </Button>
           </div>
         </div>
       </fieldset>
@@ -182,6 +182,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import './shared-theme.css';
 
@@ -344,62 +345,6 @@
   .header-actions {
     display: flex;
     gap: 0.5rem;
-  }
-
-  .back-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-    font-size: 1em;
-  }
-
-  .back-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
-  }
-
-  .save-button {
-    padding: 0.5rem 1rem;
-    background: rgba(81, 207, 102, 0.2);
-    border: 1px solid rgba(81, 207, 102, 0.4);
-    border-radius: 4px;
-    color: #51cf66;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-    font-size: 1em;
-  }
-
-  .save-button:hover:not(.loading) {
-    background: rgba(81, 207, 102, 0.3);
-    border-color: rgba(81, 207, 102, 0.6);
-  }
-
-  .save-button.loading {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-
-  .reset-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 107, 107, 0.2);
-    border: 1px solid rgba(255, 107, 107, 0.4);
-    border-radius: 4px;
-    color: #ff6b6b;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-    font-size: 1em;
-  }
-
-  .reset-button:hover {
-    background: rgba(255, 107, 107, 0.3);
-    border-color: rgba(255, 107, 107, 0.6);
   }
 
   .save-status {

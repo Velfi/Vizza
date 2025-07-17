@@ -1,7 +1,7 @@
 <SimulationLayout
   simulationName="Gray-Scott"
   {running}
-  {loading}
+  loading={loading || !settings}
   {showUI}
   {currentFps}
   {controlsVisible}
@@ -13,184 +13,191 @@
   on:userInteraction={handleUserInteraction}
   on:mouseEvent={handleMouseEvent}
 >
-  <form on:submit|preventDefault>
-    <!-- About this simulation -->
-    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
-      <p>
-        The Gray-Scott simulation demonstrates reaction-diffusion patterns that occur in chemical
-        and biological systems. Two virtual chemicals, U and V, interact and diffuse through space,
-        creating complex, self-organizing patterns.
-      </p>
-      <p>
-        The simulation is governed by reaction-diffusion equations with feed and kill rates that
-        determine how the chemicals interact. Different parameter combinations produce dramatically
-        different patterns - from spots and stripes to spirals and labyrinthine structures.
-      </p>
-      <p>
-        Click to seed reactions, adjust the parameters to explore different behaviors, and watch as
-        simple chemical rules generate intricate, ever-changing patterns reminiscent of natural
-        phenomena like coral growth, bacterial colonies, and animal coat patterns.
-      </p>
-    </CollapsibleFieldset>
+  {#if settings}
+    <form on:submit|preventDefault>
+      <!-- About this simulation -->
+      <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+        <p>
+          The Gray-Scott simulation demonstrates reaction-diffusion patterns that occur in chemical
+          and biological systems. Two virtual chemicals, U and V, interact and diffuse through
+          space, creating complex, self-organizing patterns.
+        </p>
+        <p>
+          The simulation is governed by reaction-diffusion equations with feed and kill rates that
+          determine how the chemicals interact. Different parameter combinations produce
+          dramatically different patterns - from spots and stripes to spirals and labyrinthine
+          structures.
+        </p>
+        <p>
+          Click to seed reactions, adjust the parameters to explore different behaviors, and watch
+          as simple chemical rules generate intricate, ever-changing patterns reminiscent of natural
+          phenomena like coral growth, bacterial colonies, and animal coat patterns.
+        </p>
+      </CollapsibleFieldset>
 
-    <!-- Preset Controls -->
-    <PresetFieldset
-      availablePresets={available_presets}
-      bind:currentPreset={current_preset}
-      placeholder="Select preset..."
-      on:presetChange={({ detail }) => updatePreset(detail.value)}
-      on:presetSave={({ detail }) => savePreset(detail.name)}
-    />
+      <!-- Preset Controls -->
+      <PresetFieldset
+        availablePresets={available_presets}
+        bind:currentPreset={current_preset}
+        placeholder="Select preset..."
+        on:presetChange={({ detail }) => updatePreset(detail.value)}
+        on:presetSave={({ detail }) => savePreset(detail.name)}
+      />
 
-    <!-- Display Settings -->
-    <fieldset>
-      <legend>Display Settings</legend>
-      <div class="control-group">
-        <LutSelector
-          bind:available_luts
-          current_lut={lut_name}
-          reversed={lut_reversed}
-          on:select={({ detail }) => updateLut(detail.name)}
-          on:reverse={() => updateLutReversed()}
-        />
-      </div>
-    </fieldset>
-
-    <!-- Controls -->
-    <fieldset>
-      <legend>Controls</legend>
-      <div class="interaction-controls-grid">
-        <div class="interaction-help">
-          <div class="control-group">
-            <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
-          </div>
-          <div class="control-group">
-            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-              📖 Camera Controls
-            </button>
-          </div>
-          <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span
-            >
-          </div>
-        </div>
-        <div class="cursor-settings">
-          <div class="cursor-settings-header">
-            <span>🎯 Cursor Settings</span>
-          </div>
-          <CursorConfig
-            {cursorSize}
-            {cursorStrength}
-            sizeMin={5}
-            sizeMax={50}
-            sizeStep={1}
-            strengthMin={0.1}
-            strengthMax={2.0}
-            strengthStep={0.1}
-            sizePrecision={0}
-            strengthPrecision={1}
-            on:sizechange={async (e) => {
-              try {
-                cursorSize = e.detail;
-                await invoke('update_simulation_setting', {
-                  settingName: 'cursor_size',
-                  value: e.detail,
-                });
-              } catch (err) {
-                console.error('Failed to update cursor size:', err);
-              }
-            }}
-            on:strengthchange={async (e) => {
-              try {
-                cursorStrength = e.detail;
-                await invoke('update_simulation_setting', {
-                  settingName: 'cursor_strength',
-                  value: e.detail,
-                });
-              } catch (err) {
-                console.error('Failed to update cursor strength:', err);
-              }
-            }}
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="control-group">
+          <LutSelector
+            bind:available_luts
+            current_lut={lut_name}
+            reversed={lut_reversed}
+            on:select={({ detail }) => updateLut(detail.name)}
+            on:reverse={() => updateLutReversed()}
           />
         </div>
-      </div>
-    </fieldset>
+      </fieldset>
 
-    <!-- Settings -->
-    <fieldset>
-      <legend>Settings</legend>
-      <div class="control-group">
-        <button
-          type="button"
-          on:click={async () => {
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="interaction-controls-grid">
+          <div class="interaction-help">
+            <div class="control-group">
+              <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
+            </div>
+            <div class="control-group">
+              <Button variant="default" on:click={() => dispatch('navigate', 'how-to-play')}>
+                📖 Camera Controls
+              </Button>
+            </div>
+            <div class="control-group">
+              <span
+                >Camera controls not working? Click the control bar at the top of the screen.</span
+              >
+            </div>
+          </div>
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
+            <CursorConfig
+              {cursorSize}
+              {cursorStrength}
+              sizeMin={5}
+              sizeMax={50}
+              sizeStep={1}
+              strengthMin={0.1}
+              strengthMax={2.0}
+              strengthStep={0.1}
+              sizePrecision={0}
+              strengthPrecision={1}
+              on:sizechange={async (e) => {
+                try {
+                  cursorSize = e.detail;
+                  await invoke('update_simulation_setting', {
+                    settingName: 'cursor_size',
+                    value: e.detail,
+                  });
+                } catch (err) {
+                  console.error('Failed to update cursor size:', err);
+                }
+              }}
+              on:strengthchange={async (e) => {
+                try {
+                  cursorStrength = e.detail;
+                  await invoke('update_simulation_setting', {
+                    settingName: 'cursor_strength',
+                    value: e.detail,
+                  });
+                } catch (err) {
+                  console.error('Failed to update cursor strength:', err);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Settings -->
+      <fieldset>
+        <legend>Settings</legend>
+        <div class="control-group">
+          <Button
+            variant="warning"
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('reset_simulation');
+                console.log('Simulation reset successfully');
+              } catch (e) {
+                console.error('Failed to reset simulation:', e);
+              }
+            }}>🔄 Reset Simulation</Button
+          >
+          <Button
+            variant="warning"
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('randomize_settings');
+                await syncSettingsFromBackend();
+                console.log('Settings randomized successfully');
+              } catch (e) {
+                console.error('Failed to randomize settings:', e);
+              }
+            }}>🎲 Randomize Settings</Button
+          >
+          <Button
+            variant="primary"
+            type="button"
+            on:click={async () => {
+              try {
+                await invoke('seed_random_noise');
+                console.log('Random noise seeded successfully');
+              } catch (e) {
+                console.error('Failed to seed random noise:', e);
+              }
+            }}>🌱 Seed Noise</Button
+          >
+        </div>
+      </fieldset>
+
+      <!-- Reaction-Diffusion -->
+      <CollapsibleFieldset title="Reaction-Diffusion" bind:open={show_physics_diagram}>
+        <GrayScottDiagram
+          feedRate={settings.feed_rate}
+          killRate={settings.kill_rate}
+          diffusionRateU={settings.diffusion_rate_u}
+          diffusionRateV={settings.diffusion_rate_v}
+          timestep={settings.timestep}
+          on:update={async (e) => {
+            console.log('GrayScottDiagram update event:', e.detail);
             try {
-              await invoke('reset_simulation');
-              console.log('Simulation reset successfully');
-            } catch (e) {
-              console.error('Failed to reset simulation:', e);
-            }
-          }}>🔄 Reset Simulation</button
-        >
-        <button
-          type="button"
-          on:click={async () => {
-            try {
-              await invoke('randomize_settings');
-              await syncSettingsFromBackend(); // Sync UI with new random settings
-              console.log('Settings randomized successfully');
-            } catch (e) {
-              console.error('Failed to randomize settings:', e);
-            }
-          }}>🎲 Randomize Settings</button
-        >
-        <button
-          type="button"
-          on:click={async () => {
-            try {
-              await invoke('seed_random_noise');
-              console.log('Random noise seeded successfully');
-            } catch (e) {
-              console.error('Failed to seed random noise:', e);
-            }
-          }}>🌱 Seed Noise</button
-        >
-      </div>
-    </fieldset>
+              // Update local settings first for immediate UI feedback
+              const settingName = e.detail.setting;
+              const value = e.detail.value;
 
-    <!-- Reaction-Diffusion -->
-    <CollapsibleFieldset title="Reaction-Diffusion" bind:open={show_physics_diagram}>
-      <GrayScottDiagram
-        feedRate={settings.feed_rate}
-        killRate={settings.kill_rate}
-        diffusionRateU={settings.diffusion_rate_u}
-        diffusionRateV={settings.diffusion_rate_v}
-        timestep={settings.timestep}
-        on:update={async (e) => {
-          console.log('GrayScottDiagram update event:', e.detail);
-          try {
-            // Update local settings first for immediate UI feedback
-            const settingName = e.detail.setting;
-            const value = e.detail.value;
+              // Update the local settings object to match the backend
+              if (settingName in settings) {
+                settings = { ...settings, [settingName]: value };
+              }
 
-            // Update the local settings object to match the backend
-            if (settingName in settings) {
-              settings = { ...settings, [settingName]: value };
+              // Send the update to the backend
+              await invoke('update_simulation_setting', {
+                settingName: settingName,
+                value: value,
+              });
+
+              console.log(`Updated ${settingName} to ${value}`);
+            } catch (err) {
+              console.error('Failed to update setting:', err);
             }
-
-            // Send the update to the backend
-            await invoke('update_simulation_setting', {
-              settingName: settingName,
-              value: value,
-            });
-
-            console.log(`Updated ${settingName} to ${value}`);
-          } catch (err) {
-            console.error('Failed to update setting:', err);
-          }
-        }}
-      />
-    </CollapsibleFieldset>
-  </form>
+          }}
+        />
+      </CollapsibleFieldset>
+    </form>
+  {/if}
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
@@ -207,6 +214,7 @@
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
+  import Button from './components/shared/Button.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -224,18 +232,7 @@
   }
 
   // Simulation state
-  let settings: Settings = {
-    // Reaction-Diffusion Settings
-    feed_rate: 0.055,
-    kill_rate: 0.062,
-    diffusion_rate_u: 0.1,
-    diffusion_rate_v: 0.05,
-    timestep: 1.0,
-
-    // Nutrient Pattern Settings
-    nutrient_pattern: 'Uniform',
-    nutrient_pattern_reversed: false,
-  };
+  let settings: Settings | undefined = undefined;
 
   // Cursor state (not saved in presets)
   let cursorSize = 10.0;
@@ -412,40 +409,30 @@
   // Sync settings from backend to frontend
   async function syncSettingsFromBackend() {
     try {
-      const currentSettings = await invoke('get_current_settings');
-      const currentState = (await invoke('get_current_state')) as {
-        current_lut_name: string;
-        lut_reversed: boolean;
-      } | null;
+      const backendSettings = await invoke('get_current_settings');
+      const backendState = await invoke('get_current_state');
 
-      if (currentSettings) {
-        // Log the sync for debugging
-        console.log('Syncing settings from backend:', {
-          before: { ...settings },
-          backend: currentSettings,
-          currentPreset: current_preset,
-        });
-
-        // Update the settings object with current backend values
-        settings = {
-          ...settings,
-          ...currentSettings,
-        };
-
-        console.log('Settings after sync:', { ...settings });
+      if (backendSettings) {
+        // Use backend settings directly
+        settings = backendSettings as Settings;
       }
 
-      if (currentState) {
+      if (backendState) {
         // Update LUT-related settings from state
-        lut_name = currentState.current_lut_name;
-        lut_reversed = currentState.lut_reversed;
+        const state = backendState as any;
+        if (state.current_lut_name !== undefined) {
+          lut_name = state.current_lut_name;
+        }
+        if (state.lut_reversed !== undefined) {
+          lut_reversed = state.lut_reversed;
+        }
 
         // Update cursor configuration from state
-        if ((currentState as { cursor_size?: number }).cursor_size !== undefined) {
-          cursorSize = (currentState as { cursor_size?: number }).cursor_size || 50;
+        if (state.cursor_size !== undefined) {
+          cursorSize = state.cursor_size;
         }
-        if ((currentState as { cursor_strength?: number }).cursor_strength !== undefined) {
-          cursorStrength = (currentState as { cursor_strength?: number }).cursor_strength || 1.0;
+        if (state.cursor_strength !== undefined) {
+          cursorStrength = state.cursor_strength;
         }
       }
     } catch (e) {

@@ -17,6 +17,16 @@ struct SimParams {
     trail_map_height: u32,
     particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     particle_size: u32, // Particle size in pixels
+    background_type: u32, // 0=Lack, 1=Terrain, 2=Field
+    screen_width: u32, // Screen width in pixels
+    screen_height: u32, // Screen height in pixels
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_active: u32, // 0=Inactive, 1=Cel, 2=El
+    cursor_size: u32,
+    cursor_strength: f32,
+    particle_autospawn: u32, // 0=disabled, 1=enabled
+    particle_spawn_rate: f32, // 0 = no spawn, 1.0 = full spawn rate
 }
 
 struct FlowVector {

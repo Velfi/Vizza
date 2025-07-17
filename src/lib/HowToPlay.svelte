@@ -1,6 +1,6 @@
 <div class="how-to-play-container">
   <div class="controls">
-    <button class="back-button" on:click={goBack}> ← Back </button>
+    <Button variant="default" on:click={goBack}>← Back</Button>
 
     <div class="title">How To Play</div>
   </div>
@@ -62,6 +62,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import Button from './components/shared/Button.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -88,22 +89,6 @@
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .back-button {
-    padding: 0.5rem 1rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-  }
-
-  .back-button:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: rgba(255, 255, 255, 0.4);
   }
 
   .title {

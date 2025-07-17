@@ -1,5 +1,6 @@
 struct SimParams {
     particle_limit: u32,
+    autospawn_limit: u32,
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
@@ -17,6 +18,16 @@ struct SimParams {
     trail_map_height: u32,
     particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     particle_size: u32, // Particle size in pixels
+    background_type: u32, // 0=Black, 1=White, 2=Vector Field
+    screen_width: u32, // Screen width in pixels
+    screen_height: u32, // Screen height in pixels
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_active: u32, // 0=Inactive, 1=Attract, 2=Repel
+    cursor_size: u32,
+    cursor_strength: f32,
+    particle_autospawn: u32, // 0=disabled, 1=enabled
+    particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
 }
 
 struct CameraUniform {
@@ -33,10 +44,15 @@ struct CameraUniform {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) grid_fade_factor: f32,
+    @location(2) world_pos: vec2<f32>,
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+fn vs_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
+) -> VertexOutput {
     // Full screen quad
     let positions = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0),
@@ -59,68 +75,61 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     let pos = positions[vertex_index];
     let uv = uvs[vertex_index];
     
-    // Apply camera transformation to the fullscreen quad
-    let camera_pos = camera.transform_matrix * vec4<f32>(pos, 0.0, 1.0);
+    // Calculate grid cell position (0-8, arranged as 3x3 grid)
+    let grid_x = i32(instance_index % 3u) - 1; // -1, 0, 1
+    let grid_y = i32(instance_index / 3u) - 1; // -1, 0, 1
+    
+    // Calculate fade factor based on distance from center
+    let center_distance = abs(grid_x) + abs(grid_y);
+    var grid_fade_factor: f32;
+    if (center_distance == 0) {
+        grid_fade_factor = 1.0; // Center cell - full opacity
+    } else if (center_distance == 1) {
+        grid_fade_factor = 0.4; // Adjacent cells - medium fade
+    } else {
+        grid_fade_factor = 0.2; // Corner cells - strong fade
+    }
+    
+    // Start with base world position and offset by grid cell
+    // Each grid cell represents a full world tile offset (width/height = 2.0)
+    let world_position = vec2<f32>(
+        pos.x + f32(grid_x) * 2.0,
+        pos.y + f32(grid_y) * 2.0
+    );
+    
+    // Apply camera transformation to the world position
+    let camera_pos = camera.transform_matrix * vec4<f32>(world_position, 0.0, 1.0);
     
     return VertexOutput(
         camera_pos,
         uv,
+        grid_fade_factor,
+        world_position,
+    );
+}
+
+// Convert world coordinates to trail texture coordinates
+fn world_to_trail_coords(world_pos: vec2<f32>) -> vec2<f32> {
+    // World coordinates are -1 to 1, convert to 0 to 1 for texture sampling
+    return vec2<f32>(
+        (world_pos.x + 1.0) * 0.5,
+        (world_pos.y + 1.0) * 0.5  // Remove Y flip to match particle_update.wgsl
     );
 }
 
 @fragment
-fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    // Sample trail texture at screen position
-    let x_coord = i32(uv.x * f32(sim_params.trail_map_width));
-    let y_coord = i32(uv.y * f32(sim_params.trail_map_height));
-    
-    // Clamp to valid range
-    let x = clamp(x_coord, 0, i32(sim_params.trail_map_width) - 1);
-    let y = clamp(y_coord, 0, i32(sim_params.trail_map_height) - 1);
-    
-    // Choose sampling method based on diffusion rate
-    var final_intensity = 0.0;
-    var final_color = vec3<f32>(0.0, 0.0, 0.0);
-    
-    if (sim_params.trail_diffusion_rate <= 0.01) {
-        // No diffusion - sample only center pixel for crisp edges
-        let trail_data = textureLoad(trail_map, vec2<i32>(x, y));
-        final_intensity = trail_data.a;
-        final_color = trail_data.rgb;
-    } else {
-        // With diffusion - sample larger area to match particle size
-        let sample_radius = i32(sim_params.particle_size); // Use full particle size for sampling area
-        var total_intensity = 0.0;
-        var total_color = vec3<f32>(0.0, 0.0, 0.0);
-        var sample_count = 0.0;
-        
-        for (var dx = -sample_radius; dx <= sample_radius; dx++) {
-            for (var dy = -sample_radius; dy <= sample_radius; dy++) {
-                let sample_x = clamp(x + dx, 0, i32(sim_params.trail_map_width) - 1);
-                let sample_y = clamp(y + dy, 0, i32(sim_params.trail_map_height) - 1);
-                
-                let trail_data = textureLoad(trail_map, vec2<i32>(sample_x, sample_y));
-                let trail_intensity = trail_data.a;
-                let trail_color = trail_data.rgb;
-                
-                total_intensity += trail_intensity;
-                total_color += trail_color * trail_intensity;
-                sample_count += 1.0;
-            }
-        }
-        
-        // Average the samples
-        final_intensity = total_intensity / sample_count;
-        final_color = total_color / max(total_intensity, 0.001); // Avoid division by zero
-    }
-    
-    // Only render if there's trail data
-    if (final_intensity <= 0.01) {
+fn fs_main(@location(0) uv: vec2<f32>, @location(1) grid_fade_factor: f32, @location(2) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
+    let trail_uv = world_to_trail_coords(world_pos);
+    let texel = vec2<i32>(
+        i32(trail_uv.x * f32(sim_params.trail_map_width)),
+        i32(trail_uv.y * f32(sim_params.trail_map_height))
+    );
+    let trail_data = textureLoad(trail_map, texel);
+    let trail_intensity = trail_data.a;
+    let trail_color = trail_data.rgb;
+    if (trail_intensity <= 0.01) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
-    
-    // Use the stored trail color directly
-    let alpha = final_intensity; // Full intensity = full opacity
-    
-    return vec4<f32>(final_color, alpha);
+    let alpha = trail_intensity * grid_fade_factor;
+    return vec4<f32>(trail_color, alpha);
 } 

@@ -177,8 +177,9 @@ impl SimulationManager {
                     surface_config,
                     settings,
                     &self.lut_manager,
-                ).map_err(|e| format!("Failed to initialize Flow simulation: {}", e))?;
-                
+                )
+                .map_err(|e| format!("Failed to initialize Flow simulation: {}", e))?;
+
                 self.current_simulation = Some(SimulationType::Flow(simulation));
                 self.resume();
                 Ok(())
@@ -299,7 +300,13 @@ impl SimulationManager {
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
                     let world_y = world.y;
-                    simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)?;
+                    simulation.handle_mouse_interaction(
+                        world_x,
+                        world_y,
+                        mouse_button,
+                        device,
+                        queue,
+                    )?;
                 }
                 SimulationType::Flow(simulation) => {
                     let camera = &simulation.camera;
@@ -307,7 +314,13 @@ impl SimulationManager {
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
                     let world_y = world.y;
-                    simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)?;
+                    simulation.handle_mouse_interaction(
+                        world_x,
+                        world_y,
+                        mouse_button,
+                        device,
+                        queue,
+                    )?;
                 }
                 _ => (),
             }
@@ -508,7 +521,12 @@ impl SimulationManager {
                 }
                 SimulationType::Flow(simulation) => {
                     // For Flow, use the existing update_setting method
-                    simulation.update_setting("currentLut", serde_json::json!(lut_name), device, queue)?;
+                    simulation.update_setting(
+                        "currentLut",
+                        serde_json::json!(lut_name),
+                        device,
+                        queue,
+                    )?;
                     tracing::info!("LUT '{}' applied to Flow simulation", lut_name);
                 }
                 SimulationType::MainMenu(_) => {
@@ -600,19 +618,26 @@ impl SimulationManager {
                             format!("Failed to load LUT '{}': {}", current_lut, e).into(),
                         )
                     })?;
-                    
+
                     // Reverse the LUT
                     lut_data.reverse();
-                    
+
                     // Apply the reversed LUT by saving it as a temporary LUT and applying it
                     let temp_lut_name = format!("{}_reversed", current_lut);
-                    self.lut_manager.save_custom(&temp_lut_name, &lut_data).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to save temporary reversed LUT: {}", e).into(),
-                        )
-                    })?;
-                    
-                    simulation.update_setting("currentLut", serde_json::json!(temp_lut_name), device, queue)?;
+                    self.lut_manager
+                        .save_custom(&temp_lut_name, &lut_data)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!("Failed to save temporary reversed LUT: {}", e).into(),
+                            )
+                        })?;
+
+                    simulation.update_setting(
+                        "currentLut",
+                        serde_json::json!(temp_lut_name),
+                        device,
+                        queue,
+                    )?;
                     tracing::info!("LUT reversed for Flow simulation");
                 }
                 SimulationType::MainMenu(_) => {
@@ -675,13 +700,20 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => {
                     // For Flow, save the custom LUT temporarily and apply it
                     let temp_lut_name = "custom_flow_lut";
-                    self.lut_manager.save_custom(temp_lut_name, lut_data).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to store temporary custom LUT: {}", e).into(),
-                        )
-                    })?;
-                    
-                    simulation.update_setting("currentLut", serde_json::json!(temp_lut_name), device, queue)?;
+                    self.lut_manager
+                        .save_custom(temp_lut_name, lut_data)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!("Failed to store temporary custom LUT: {}", e).into(),
+                            )
+                        })?;
+
+                    simulation.update_setting(
+                        "currentLut",
+                        serde_json::json!(temp_lut_name),
+                        device,
+                        queue,
+                    )?;
                     tracing::info!("Custom LUT applied to Flow simulation");
                 }
                 SimulationType::MainMenu(_) => {
@@ -889,18 +921,14 @@ impl SimulationManager {
         );
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    simulation.pan_camera(delta_x, delta_y)
-                }
+                SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::GrayScott(simulation) => {
                     simulation.renderer.camera.pan(delta_x, delta_y)
                 }
-                SimulationType::ParticleLife(simulation) => {
-                    simulation.camera.pan(delta_x, delta_y)
-                }
+                SimulationType::ParticleLife(simulation) => simulation.camera.pan(delta_x, delta_y),
                 SimulationType::Ecosystem(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
-                SimulationType::MainMenu(_) => {},
+                SimulationType::MainMenu(_) => {}
             }
         }
     }
@@ -909,22 +937,12 @@ impl SimulationManager {
         tracing::debug!("SimulationManager zoom_camera: delta={:.2}", delta);
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    simulation.zoom_camera(delta)
-                }
-                SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.camera.zoom(delta)
-                }
-                SimulationType::ParticleLife(simulation) => {
-                    simulation.camera.zoom(delta)
-                }
-                SimulationType::Ecosystem(simulation) => {
-                    simulation.camera.zoom(delta)
-                }
-                SimulationType::Flow(simulation) => {
-                    simulation.camera.zoom(delta)
-                }
-                SimulationType::MainMenu(_) => {},
+                SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
+                SimulationType::GrayScott(simulation) => simulation.renderer.camera.zoom(delta),
+                SimulationType::ParticleLife(simulation) => simulation.camera.zoom(delta),
+                SimulationType::Ecosystem(simulation) => simulation.camera.zoom(delta),
+                SimulationType::Flow(simulation) => simulation.camera.zoom(delta),
+                SimulationType::MainMenu(_) => {}
             }
         }
     }
@@ -941,9 +959,10 @@ impl SimulationManager {
                 SimulationType::SlimeMold(simulation) => {
                     simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
                 }
-                SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
-                }
+                SimulationType::GrayScott(simulation) => simulation
+                    .renderer
+                    .camera
+                    .zoom_to_cursor(delta, cursor_x, cursor_y),
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
@@ -953,7 +972,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
-                SimulationType::MainMenu(_) => {},
+                SimulationType::MainMenu(_) => {}
             }
         }
     }
@@ -962,22 +981,12 @@ impl SimulationManager {
         tracing::debug!("SimulationManager reset_camera");
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    simulation.reset_camera()
-                }
-                SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.camera.reset()
-                }
-                SimulationType::ParticleLife(simulation) => {
-                    simulation.camera.reset()
-                }
-                SimulationType::Ecosystem(simulation) => {
-                    simulation.camera.reset()
-                }
-                SimulationType::Flow(simulation) => {
-                    simulation.camera.reset()
-                }
-                SimulationType::MainMenu(_) => {},
+                SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
+                SimulationType::GrayScott(simulation) => simulation.renderer.camera.reset(),
+                SimulationType::ParticleLife(simulation) => simulation.camera.reset(),
+                SimulationType::Ecosystem(simulation) => simulation.camera.reset(),
+                SimulationType::Flow(simulation) => simulation.camera.reset(),
+                SimulationType::MainMenu(_) => {}
             }
         }
     }
@@ -1040,9 +1049,7 @@ impl SimulationManager {
                 SimulationType::Ecosystem(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
-                SimulationType::Flow(simulation) => {
-                    simulation.camera.set_sensitivity(sensitivity)
-                }
+                SimulationType::Flow(simulation) => simulation.camera.set_sensitivity(sensitivity),
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
             }
         }

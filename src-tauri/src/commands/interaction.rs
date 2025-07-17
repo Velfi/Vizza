@@ -13,7 +13,8 @@ pub async fn handle_mouse_interaction(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    match sim_manager.handle_mouse_interaction(x, y, mouse_button, &gpu_ctx.device, &gpu_ctx.queue) {
+    match sim_manager.handle_mouse_interaction(x, y, mouse_button, &gpu_ctx.device, &gpu_ctx.queue)
+    {
         Ok(_) => {
             tracing::debug!(
                 "Mouse interaction handled at ({}, {}) with button {}",
@@ -48,7 +49,13 @@ pub async fn handle_mouse_interaction_screen(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     sim_manager
-        .handle_mouse_interaction_screen_coords(screen_x, screen_y, mouse_button, &gpu_ctx.device, &gpu_ctx.queue)
+        .handle_mouse_interaction_screen_coords(
+            screen_x,
+            screen_y,
+            mouse_button,
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+        )
         .map_err(|e| e.to_string())?;
     Ok("Mouse interaction handled".to_string())
 }

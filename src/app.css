@@ -5,9 +5,19 @@ body {
   padding: 0;
   height: 100%;
   background-color: transparent;
+  font-family: 'Zelda Sans';
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
 #app {
   height: 100%;
   background-color: transparent;
+}
+
+@font-face {
+  font-family: 'Zelda Sans';
+  src: url('/assets/ZeldaSans-Regular-v1.otf');
 }

@@ -22,14 +22,17 @@
       />
     </div>
     <div class="dialog-buttons">
-      <button on:click={handleSave} disabled={presetName.trim() === ''}> Save </button>
-      <button on:click={() => dispatch('close')}> Cancel </button>
+      <Button variant="success" on:click={handleSave} disabled={presetName.trim() === ''}>
+        Save
+      </Button>
+      <Button variant="default" on:click={() => dispatch('close')}>Cancel</Button>
     </div>
   </div>
 </div>
 
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import Button from './Button.svelte';
 
   export let presetName: string = '';
 
@@ -53,3 +56,76 @@
     }
   });
 </script>
+
+<style>
+  .dialog-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .dialog {
+    background: rgba(0, 0, 0, 0.9);
+    padding: 2rem;
+    border-radius: 8px;
+    min-width: 300px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .dialog h3 {
+    margin-top: 0;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.5rem;
+  }
+
+  .dialog input {
+    width: 100%;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+    font-family: inherit;
+    font-size: 1rem;
+    box-sizing: border-box;
+  }
+
+  .dialog input:focus {
+    outline: none;
+    border-color: #646cff;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .dialog input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .dialog .input-group {
+    margin: 1rem 0;
+  }
+
+  .dialog .input-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    font-size: 0.9rem;
+  }
+
+  .dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+</style>

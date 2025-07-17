@@ -1,7 +1,7 @@
 <SimulationLayout
   simulationName="Flow Field"
   {running}
-  {loading}
+  loading={loading || !settings}
   {showUI}
   {currentFps}
   {controlsVisible}
@@ -13,277 +13,306 @@
   on:userInteraction={handleUserInteraction}
   on:mouseEvent={handleMouseEvent}
 >
-  <form on:submit|preventDefault>
-    <!-- About this simulation -->
-    <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
-      <p>
-        Flow Field creates beautiful patterns by moving particles through a vector field generated
-        from noise functions. Particles follow the direction of nearby flow vectors, creating
-        organic, flowing animations.
-      </p>
-      <p>
-        The simulation uses various noise algorithms to generate the underlying vector field,
-        including Perlin noise, FBM, Billow, and others. Each noise type produces different flow
-        patterns and behaviors.
-      </p>
-      <p>
-        Experiment with different noise types, adjust particle parameters, and watch as simple
-        vector fields create complex, mesmerizing particle flows reminiscent of natural phenomena
-        like wind, water currents, and magnetic fields.
-      </p>
-    </CollapsibleFieldset>
+  {#if settings}
+    <form on:submit|preventDefault>
+      <!-- About this simulation -->
+      <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+        <p>
+          Flow Field creates beautiful patterns by moving particles through a vector field generated
+          from noise functions. Particles follow the direction of nearby flow vectors, creating
+          organic, flowing animations.
+        </p>
+        <p>
+          The simulation uses various noise algorithms to generate the underlying vector field,
+          including Perlin noise, FBM, Billow, and others. Each noise type produces different flow
+          patterns and behaviors.
+        </p>
+        <p>
+          Experiment with different noise types, adjust particle parameters, and watch as simple
+          vector fields create complex, mesmerizing particle flows reminiscent of natural phenomena
+          like wind, water currents, and magnetic fields.
+        </p>
+      </CollapsibleFieldset>
 
-    <!-- Preset Controls -->
-    <PresetFieldset
-      availablePresets={available_presets}
-      bind:currentPreset={current_preset}
-      placeholder="Select preset..."
-      on:presetChange={({ detail }) => updatePreset(detail.value)}
-      on:presetSave={({ detail }) => savePreset(detail.name)}
-    />
-
-    <!-- Display Settings -->
-    <fieldset>
-      <legend>Display Settings</legend>
-      <div class="control-group">
-        <label for="background-select">Background</label>
-        <select
-          id="background-select"
-          bind:value={settings.background}
-          on:change={(e) => updateBackground((e.target as HTMLSelectElement).value)}
-        >
-          <option value="Black">Black</option>
-          <option value="White">White</option>
-          <option value="Vector Field">Vector Field</option>
-        </select>
-      </div>
-
-      <LutSelector
-        {available_luts}
-        bind:current_lut={settings.current_lut}
-        bind:reversed={settings.lut_reversed}
-        on:select={({ detail }) => updateLut(detail.name)}
-        on:reverse={() => updateLutReversed()}
+      <!-- Preset Controls -->
+      <PresetFieldset
+        availablePresets={available_presets}
+        bind:currentPreset={current_preset}
+        placeholder="Select preset..."
+        on:presetChange={({ detail }) => updatePreset(detail.value)}
+        on:presetSave={({ detail }) => savePreset(detail.name)}
       />
-    </fieldset>
 
-    <!-- Controls -->
-    <fieldset>
-      <legend>Controls</legend>
-      <div class="interaction-controls-grid">
-        <div class="interaction-help">
-          <div class="control-group">
-            <span>🖱️ Left click: Spawn particles | Right click: Destroy particles</span>
-          </div>
-          <div class="control-group">
-            <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-              📖 Camera Controls
-            </button>
-          </div>
-          <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span
-            >
-          </div>
-          <div class="control-group">
-            <button type="button" on:click={killAllParticles} class="danger-button">
-              💀 Kill All Particles
-            </button>
-          </div>
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="control-group">
+          <label for="background-select">Background</label>
+          <select
+            id="background-select"
+            bind:value={backgroundValue}
+            on:change={(e) => updateBackground((e.target as HTMLSelectElement).value)}
+          >
+            <option value="Black">Black</option>
+            <option value="White">White</option>
+            <option value="Vector Field">Vector Field</option>
+          </select>
         </div>
-        <div class="cursor-settings">
-          <div class="cursor-settings-header">
-            <span>🎯 Cursor Settings</span>
-          </div>
-          <CursorConfig
-            {cursorSize}
-            {cursorStrength}
-            sizeMin={10}
-            sizeMax={65}
-            sizeStep={5}
-            strengthMin={0}
-            strengthMax={1}
-            strengthStep={0.01}
-            sizePrecision={0}
-            strengthPrecision={2}
-            on:sizechange={(e) => updateCursorSize(e.detail)}
-            on:strengthchange={(e) => updateCursorStrength(e.detail)}
-          />
-        </div>
-      </div>
-    </fieldset>
 
-    <!-- Combined Settings -->
-    <fieldset>
-      <legend>Settings</legend>
+        <LutSelector
+          {available_luts}
+          bind:current_lut={currentLutValue}
+          bind:reversed={lutReversedValue}
+          on:select={({ detail }) => updateLut(detail.name)}
+          on:reverse={() => updateLutReversed()}
+        />
+      </fieldset>
 
-      <!-- Flow Field Settings -->
-      <div class="settings-section">
-        <h3 class="section-header">Flow Field</h3>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Noise Type:</span>
-            <select
-              bind:value={settings.noise_type}
-              on:change={(e) => updateNoiseType((e.target as HTMLSelectElement).value)}
-            >
-              <option value="Perlin">Perlin</option>
-              <option value="Simplex">Simplex</option>
-              <option value="OpenSimplex">OpenSimplex</option>
-              <option value="Worley">Worley</option>
-              <option value="Value">Value</option>
-            </select>
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="interaction-controls-grid">
+          <div class="interaction-help">
+            <div class="control-group">
+              <span>🖱️ Left click: Spawn particles | Right click: Destroy particles</span>
+            </div>
+            <div class="control-group">
+              <Button variant="default" on:click={() => dispatch('navigate', 'how-to-play')}>
+                📖 Camera Controls
+              </Button>
+            </div>
+            <div class="control-group">
+              <span
+                >Camera controls not working? Click the control bar at the top of the screen.</span
+              >
+            </div>
+            <div class="control-group">
+              <Button variant="danger" on:click={killAllParticles}>💀 Kill All Particles</Button>
+            </div>
           </div>
-          <div class="setting-item">
-            <span class="setting-label">Noise Seed:</span>
-            <NumberDragBox
-              value={settings.noise_seed ?? 42}
-              on:change={({ detail }) => updateNoiseSeed(detail)}
-              min={0}
-              max={100000}
-              step={1}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Noise Scale:</span>
-            <NumberDragBox
-              value={settings.noise_scale}
-              on:change={({ detail }) => updateNoiseScale(detail)}
-              min={0.001}
-              max={1.0}
-              step={0.1}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Vector Magnitude:</span>
-            <NumberDragBox
-              value={settings.vector_magnitude}
-              on:change={({ detail }) => updateVectorMagnitude(detail)}
-              min={0.1}
-              max={10.0}
-              step={0.1}
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
+            </div>
+            <CursorConfig
+              {cursorSize}
+              {cursorStrength}
+              sizeMin={10}
+              sizeMax={65}
+              sizeStep={5}
+              strengthMin={0}
+              strengthMax={1}
+              strengthStep={0.01}
+              sizePrecision={0}
+              strengthPrecision={2}
+              on:sizechange={(e) => updateCursorSize(e.detail)}
+              on:strengthchange={(e) => updateCursorStrength(e.detail)}
             />
           </div>
         </div>
-      </div>
+      </fieldset>
 
-      <!-- Particle Settings -->
-      <div class="settings-section">
-        <h3 class="section-header">Particles</h3>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Particle Limit:</span>
-            <NumberDragBox
-              value={settings.particle_limit}
-              on:change={({ detail }) => updateParticleLimit(detail)}
-              min={100}
-              max={50000}
-              step={100}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Particle Lifetime:</span>
-            <NumberDragBox
-              value={settings.particle_lifetime}
-              on:change={({ detail }) => updateParticleLifetime(detail)}
-              min={0.1}
-              max={10.0}
-              step={0.1}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Particle Speed:</span>
-            <NumberDragBox
-              value={settings.particle_speed}
-              on:change={({ detail }) => updateParticleSpeed(detail)}
-              min={0.001}
-              max={0.2}
-              step={0.001}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Particle Size (pixels):</span>
-            <NumberDragBox
-              value={settings.particle_size}
-              on:change={({ detail }) => updateParticleSize(detail)}
-              min={1}
-              max={20}
-              step={1}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Particle Shape:</span>
-            <select
-              bind:value={settings.particle_shape}
-              on:change={(e) => updateParticleShape((e.target as HTMLSelectElement).value)}
-            >
-              <option value="Circle">Circle</option>
-              <option value="Square">Square</option>
-              <option value="Triangle">Triangle</option>
-              <option value="Star">Star</option>
-              <option value="Diamond">Diamond</option>
-            </select>
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">
-              <input
-                type="checkbox"
-                bind:checked={settings.particle_autospawn}
-                on:change={() => updateParticleAutospawn(settings.particle_autospawn)}
+      <!-- Combined Settings -->
+      <fieldset>
+        <legend>Settings</legend>
+
+        <!-- Flow Field Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Flow Field</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Noise Type:</span>
+              <select
+                value={settings.noise_type}
+                on:change={(e) => updateNoiseType((e.target as HTMLSelectElement).value)}
+              >
+                <option value="Perlin">Perlin</option>
+                <option value="Simplex">Simplex</option>
+                <option value="OpenSimplex">OpenSimplex</option>
+                <option value="Worley">Worley</option>
+                <option value="Value">Value</option>
+                <option value="FBM">FBM</option>
+                <option value="FBMBillow">FBM Billow</option>
+                <option value="FBMClouds">FBM Clouds</option>
+                <option value="FBMRidged">FBM Ridged</option>
+                <option value="Billow">Billow</option>
+                <option value="RidgedMulti">Ridged Multi</option>
+                <option value="Cylinders">Cylinders</option>
+                <option value="Checkerboard">Checkerboard</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Noise Seed:</span>
+              <NumberDragBox
+                value={settings.noise_seed}
+                on:change={({ detail }) => updateNoiseSeed(detail)}
+                min={0}
+                max={100000}
+                step={1}
               />
-              Auto-spawn Particles
-            </span>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Noise Scale:</span>
+              <NumberDragBox
+                value={settings.noise_scale}
+                on:change={({ detail }) => updateNoiseScale(detail)}
+                min={0.01}
+                max={10.0}
+                step={0.1}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Vector Magnitude:</span>
+              <NumberDragBox
+                value={settings.vector_magnitude}
+                on:change={({ detail }) => updateVectorMagnitude(detail)}
+                min={0.001}
+                max={5.0}
+                step={0.1}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Trail Settings -->
-      <div class="settings-section">
-        <h3 class="section-header">Trails</h3>
-        <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Trail Decay Rate:</span>
-            <NumberDragBox
-              value={settings.trail_decay_rate}
-              on:change={({ detail }) => updateTrailDecayRate(detail)}
-              min={0.0}
-              max={1.0}
-              step={0.01}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Trail Deposition Rate:</span>
-            <NumberDragBox
-              value={settings.trail_deposition_rate}
-              on:change={({ detail }) => updateTrailDepositionRate(detail)}
-              min={0.0}
-              max={1.0}
-              step={0.01}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Trail Diffusion Rate:</span>
-            <NumberDragBox
-              value={settings.trail_diffusion_rate}
-              on:change={({ detail }) => updateTrailDiffusionRate(detail)}
-              min={0.0}
-              max={1.0}
-              step={0.01}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Trail Wash Out Rate:</span>
-            <NumberDragBox
-              value={settings.trail_wash_out_rate}
-              on:change={({ detail }) => updateTrailWashOutRate(detail)}
-              min={0.0}
-              max={1.0}
-              step={0.01}
-            />
+        <!-- Particle Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Particles</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Autospawn Limit:</span>
+              <NumberDragBox
+                value={settings.autospawn_limit}
+                on:change={({ detail }) => updateAutospawnLimit(detail)}
+                min={100}
+                max={50000}
+                step={100}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Lifetime:</span>
+              <NumberDragBox
+                value={settings.particle_lifetime}
+                on:change={({ detail }) => updateParticleLifetime(detail)}
+                min={0.1}
+                max={10.0}
+                step={0.1}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Speed:</span>
+              <NumberDragBox
+                value={settings.particle_speed}
+                on:change={({ detail }) => updateParticleSpeed(detail)}
+                min={0.001}
+                max={0.2}
+                step={0.001}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Size (pixels):</span>
+              <NumberDragBox
+                value={settings.particle_size}
+                on:change={({ detail }) => updateParticleSize(detail)}
+                min={1}
+                max={50}
+                step={1}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Shape:</span>
+              <select
+                value={settings.particle_shape}
+                on:change={(e) => updateParticleShape((e.target as HTMLSelectElement).value)}
+              >
+                <option value="Circle">Circle</option>
+                <option value="Square">Square</option>
+                <option value="Triangle">Triangle</option>
+                <option value="Flower">Flower</option>
+                <option value="Diamond">Diamond</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">
+                <input
+                  type="checkbox"
+                  checked={settings.particle_autospawn}
+                  on:change={(e) => updateParticleAutospawn((e.target as HTMLInputElement).checked)}
+                />
+                Auto-spawn Particles
+              </span>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">
+                <input
+                  type="checkbox"
+                  checked={settings.show_particles}
+                  on:change={(e) => updateShowParticles((e.target as HTMLInputElement).checked)}
+                />
+                Show Particles
+              </span>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Spawn Rate:</span>
+              <NumberDragBox
+                value={settings.particle_spawn_rate}
+                on:change={({ detail }) => updateParticleSpawnRate(detail)}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+              />
+            </div>
           </div>
         </div>
-      </div>
-    </fieldset>
-  </form>
+
+        <!-- Trail Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Trails</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Trail Decay Rate:</span>
+              <NumberDragBox
+                value={settings.trail_decay_rate}
+                on:change={({ detail }) => updateTrailDecayRate(detail)}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Trail Deposition Rate:</span>
+              <NumberDragBox
+                value={settings.trail_deposition_rate}
+                on:change={({ detail }) => updateTrailDepositionRate(detail)}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Trail Diffusion Rate:</span>
+              <NumberDragBox
+                value={settings.trail_diffusion_rate}
+                on:change={({ detail }) => updateTrailDiffusionRate(detail)}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Trail Wash Out Rate:</span>
+              <NumberDragBox
+                value={settings.trail_wash_out_rate}
+                on:change={({ detail }) => updateTrailWashOutRate(detail)}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+              />
+            </div>
+          </div>
+        </div>
+      </fieldset>
+    </form>
+  {/if}
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
@@ -293,6 +322,7 @@
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import LutSelector from './components/shared/LutSelector.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
@@ -307,32 +337,42 @@
   export let menuPosition: string = 'middle';
 
   // Simulation state
-  let settings = {
+  type Settings = {
     // Flow field parameters
-    noise_type: 'Perlin',
-    noise_seed: 42,
-    noise_scale: 0.1,
-    vector_magnitude: 1.0,
+    noise_type: string;
+    noise_seed: number;
+    noise_scale: number;
+    vector_magnitude: number;
 
     // Particle parameters
-    particle_limit: 1000,
-    particle_lifetime: 3.0,
-    particle_speed: 0.02,
-    particle_size: 4,
-    particle_shape: 'Circle',
-    particle_autospawn: true,
+    particle_limit: number;
+    autospawn_limit: number;
+    particle_lifetime: number;
+    particle_speed: number;
+    particle_size: number;
+    particle_shape: string;
+    particle_autospawn: boolean;
+    particle_spawn_rate: number;
 
     // Trail parameters
-    trail_decay_rate: 0.05,
-    trail_deposition_rate: 0.1,
-    trail_diffusion_rate: 0.1,
-    trail_wash_out_rate: 0.0,
+    trail_decay_rate: number;
+    trail_deposition_rate: number;
+    trail_diffusion_rate: number;
+    trail_wash_out_rate: number;
 
     // Visual parameters
-    background: 'Vector Field',
-    current_lut: 'MATPLOTLIB_viridis',
-    lut_reversed: false,
+    background: string;
+    current_lut: string;
+    lut_reversed: boolean;
+    show_particles: boolean;
   };
+
+  let settings: Settings | undefined = undefined;
+
+  // Local variables for binding
+  let backgroundValue = '';
+  let currentLutValue = '';
+  let lutReversedValue = false;
 
   // Preset and LUT state
   let current_preset = '';
@@ -623,7 +663,7 @@
       return;
     }
 
-    settings.noise_seed = value;
+    settings!.noise_seed = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'noiseSeed',
@@ -640,7 +680,7 @@
       return;
     }
 
-    settings.noise_scale = value;
+    settings!.noise_scale = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'noiseScale',
@@ -652,7 +692,7 @@
   }
 
   async function updateNoiseType(value: string) {
-    settings.noise_type = value;
+    settings!.noise_type = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'noiseType',
@@ -669,7 +709,7 @@
       return;
     }
 
-    settings.vector_magnitude = value;
+    settings!.vector_magnitude = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'vectorMagnitude',
@@ -680,20 +720,20 @@
     }
   }
 
-  async function updateParticleLimit(value: number) {
+  async function updateAutospawnLimit(value: number) {
     if (typeof value !== 'number' || isNaN(value)) {
-      console.error('Invalid particle limit value:', value);
+      console.error('Invalid autospawn limit value:', value);
       return;
     }
 
-    settings.particle_limit = value;
+    settings!.autospawn_limit = value;
     try {
       await invoke('update_simulation_setting', {
-        settingName: 'particleLimit',
+        settingName: 'autospawnLimit',
         value,
       });
     } catch (e) {
-      console.error('Failed to update particle limit:', e);
+      console.error('Failed to update autospawn limit:', e);
     }
   }
 
@@ -703,7 +743,7 @@
       return;
     }
 
-    settings.particle_lifetime = value;
+    settings!.particle_lifetime = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'particleLifetime',
@@ -720,7 +760,7 @@
       return;
     }
 
-    settings.particle_speed = value;
+    settings!.particle_speed = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'particleSpeed',
@@ -740,7 +780,7 @@
 
     // Ensure particle size is an integer
     const intValue = Math.round(value);
-    settings.particle_size = intValue;
+    settings!.particle_size = intValue;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'particleSize',
@@ -752,7 +792,7 @@
   }
 
   async function updateParticleShape(value: string) {
-    settings.particle_shape = value;
+    settings!.particle_shape = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'particleShape',
@@ -764,7 +804,7 @@
   }
 
   async function updateParticleAutospawn(value: boolean) {
-    settings.particle_autospawn = value;
+    settings!.particle_autospawn = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'particleAutospawn',
@@ -772,6 +812,35 @@
       });
     } catch (e) {
       console.error('Failed to update particle autospawn:', e);
+    }
+  }
+
+  async function updateShowParticles(value: boolean) {
+    settings!.show_particles = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'showParticles',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update show particles:', e);
+    }
+  }
+
+  async function updateParticleSpawnRate(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid particle spawn rate value:', value);
+      return;
+    }
+
+    settings!.particle_spawn_rate = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'particleSpawnRate',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update particle spawn rate:', e);
     }
   }
 
@@ -790,7 +859,7 @@
       return;
     }
 
-    settings.trail_decay_rate = value;
+    settings!.trail_decay_rate = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'trailDecayRate',
@@ -807,7 +876,7 @@
       return;
     }
 
-    settings.trail_deposition_rate = value;
+    settings!.trail_deposition_rate = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'trailDepositionRate',
@@ -824,7 +893,7 @@
       return;
     }
 
-    settings.trail_diffusion_rate = value;
+    settings!.trail_diffusion_rate = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'trailDiffusionRate',
@@ -841,7 +910,7 @@
       return;
     }
 
-    settings.trail_wash_out_rate = value;
+    settings!.trail_wash_out_rate = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'trailWashOutRate',
@@ -853,7 +922,7 @@
   }
 
   async function updateBackground(value: string) {
-    settings.background = value;
+    settings!.background = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'background',
@@ -865,7 +934,7 @@
   }
 
   async function updateLut(lutName: string) {
-    settings.current_lut = lutName;
+    settings!.current_lut = lutName;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'currentLut',
@@ -877,11 +946,11 @@
   }
 
   async function updateLutReversed() {
-    settings.lut_reversed = !settings.lut_reversed;
+    settings!.lut_reversed = !settings!.lut_reversed;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'lutReversed',
-        value: settings.lut_reversed,
+        value: settings!.lut_reversed,
       });
     } catch (e) {
       console.error('Failed to update LUT reversed:', e);
@@ -961,29 +1030,13 @@
       const backendState = await invoke('get_current_state');
 
       if (backendSettings) {
-        // Update local settings with backend values, using frontend defaults for missing values
-        settings = {
-          // Frontend defaults
-          noise_type: 'Perlin',
-          noise_seed: 42,
-          noise_scale: 0.1,
-          vector_magnitude: 1.0,
-          particle_limit: 1000,
-          particle_lifetime: 3.0,
-          particle_speed: 0.02,
-          particle_size: 4,
-          particle_shape: 'Circle',
-          particle_autospawn: true,
-          trail_decay_rate: 0.05,
-          trail_deposition_rate: 0.1,
-          trail_diffusion_rate: 0.1,
-          trail_wash_out_rate: 0.0,
-          background: 'Vector Field',
-          current_lut: 'MATPLOTLIB_viridis',
-          lut_reversed: false,
-          // Override with backend values
-          ...backendSettings,
-        };
+        // Use backend settings directly
+        settings = backendSettings as Settings;
+
+        // Update local binding variables
+        backgroundValue = settings.background;
+        currentLutValue = settings.current_lut;
+        lutReversedValue = settings.lut_reversed;
       }
 
       if (backendState) {
@@ -1019,6 +1072,7 @@
       await loadAvailableLuts();
     });
 
+    // Start simulation and keep loading until we get settings
     await startSimulation();
 
     unlistenFps = await listen('fps-update', (event: { payload: number }) => {
@@ -1087,29 +1141,5 @@
   .control-group span {
     font-size: 0.875rem;
     color: var(--text-secondary);
-  }
-
-  .control-group button {
-    padding: 0.5rem;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--background-secondary);
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 0.875rem;
-  }
-
-  .control-group button:hover {
-    background: var(--background-hover);
-  }
-
-  .danger-button {
-    background: #dc2626 !important;
-    color: white !important;
-    border-color: #dc2626 !important;
-  }
-
-  .danger-button:hover {
-    background: #b91c1c !important;
   }
 </style>

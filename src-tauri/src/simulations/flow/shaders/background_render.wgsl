@@ -27,6 +27,13 @@ struct SimParams {
     background_type: u32, // 0=Black, 1=White, 2=Vector Field
     screen_width: u32, // Screen width in pixels
     screen_height: u32, // Screen height in pixels
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_active: u32, // 0=inactive, 1=click, 2=hold
+    cursor_size: u32,
+    cursor_strength: f32,
+    particle_autospawn: u32, // 0=disabled, 1=enabled
+    particle_spawn_rate: f32, // 0 = no spawn, 1.0 = full spawn rate
 }
 
 struct CameraUniform {

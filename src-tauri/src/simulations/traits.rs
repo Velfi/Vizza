@@ -391,7 +391,9 @@ impl Simulation for SimulationType {
             SimulationType::Ecosystem(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }
-            SimulationType::Flow(sim) => sim.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue),
+            SimulationType::Flow(sim) => {
+                sim.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }

@@ -2,6 +2,7 @@ struct Particle {
     position: vec2<f32>,
     age: f32,
     color: vec4<f32>,
+    my_parent_was: u32, // 0= autospawned, 1 = spawned by brush
 }
 
 struct SimParams {
@@ -23,6 +24,16 @@ struct SimParams {
     trail_map_height: u32,
     particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     particle_size: u32, // Particle size in pixels
+    background_type: u32, // 0=Black, 1=Texture, 2=Field
+    screen_width: u32, // Screen width in pixels
+    screen_height: u32, // Screen height in pixels
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_active: u32, // 0=inactive, 1=attract, 2=repel
+    cursor_size: u32,
+    cursor_strength: f32,
+    particle_autospawn: u32, // 0=disabled, 1=enabled
+    particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
 }
 
 struct CameraUniform {
@@ -82,15 +93,13 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
     }
     
     // Create a quad centered at particle position
-    let quad_size = f32(sim_params.particle_size) * 0.001; // Convert pixels to world units
-    
     let positions = array<vec2<f32>, 6>(
-        vec2<f32>(-quad_size, -quad_size),
-        vec2<f32>( quad_size, -quad_size),
-        vec2<f32>(-quad_size,  quad_size),
-        vec2<f32>(-quad_size,  quad_size),
-        vec2<f32>( quad_size, -quad_size),
-        vec2<f32>( quad_size,  quad_size),
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 1.0, -1.0),
+        vec2<f32>(-1.0,  1.0),
+        vec2<f32>(-1.0,  1.0),
+        vec2<f32>( 1.0, -1.0),
+        vec2<f32>( 1.0,  1.0),
     );
     
     let uvs = array<vec2<f32>, 6>(
@@ -105,8 +114,11 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
     let pos = positions[vertex_index];
     let uv = uvs[vertex_index];
     
-    // Offset particle position by grid cell
-    let world_pos = particle.position + pos + vec2<f32>(f32(grid_x) * 2.0, f32(grid_y) * 2.0);
+    // Calculate quad offset for this vertex
+    let quad_offset = pos * f32(sim_params.particle_size) / vec2<f32>(f32(sim_params.screen_width), f32(sim_params.screen_height));
+    
+    // Offset particle position by grid cell and add quad offset
+    let world_pos = particle.position + quad_offset + vec2<f32>(f32(grid_x) * 2.0, f32(grid_y) * 2.0);
     
     // Apply camera transformation
     let camera_pos = camera.transform_matrix * vec4<f32>(world_pos, 0.0, 1.0);

@@ -9,7 +9,7 @@
     />
   </div>
   <div class="preset-actions">
-    <button type="button" on:click={handleSaveClick}> Save Current Settings </button>
+    <Button variant="primary" on:click={handleSaveClick}>Save Current Settings</Button>
   </div>
 </fieldset>
 
@@ -19,6 +19,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import Button from './Button.svelte';
   import Selector from '../inputs/Selector.svelte';
   import SavePresetDialog from './SavePresetDialog.svelte';
 

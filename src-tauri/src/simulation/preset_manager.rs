@@ -332,9 +332,7 @@ impl PresetManagerType {
             (_, SimulationType::Ecosystem(_)) => {
                 Err("Ecosystem simulation presets not yet implemented".into())
             }
-            (_, SimulationType::MainMenu(_)) => {
-                Err("Main menu does not support presets".into())
-            }
+            (_, SimulationType::MainMenu(_)) => Err("Main menu does not support presets".into()),
             _ => Err("Simulation type does not match preset manager type".into()),
         }
     }

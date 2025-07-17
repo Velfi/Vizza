@@ -1,486 +1,295 @@
-<div class="simulation-container">
-  {#if isLoading}
-    <div class="loading-screen">
-      <div class="loading-content">
-        <div class="loading-spinner"></div>
-        <h2>Loading Particle Life Simulation...</h2>
-        <p>Initializing GPU resources and starting simulation</p>
-      </div>
-    </div>
-  {:else}
-    <SimulationLayout
-      simulationName="Particle Life"
-      running={isSimulationRunning}
-      loading={isLoading}
-      {showUI}
-      currentFps={fps_display}
-      {controlsVisible}
-      {menuPosition}
-      on:back={() => dispatch('back')}
-      on:toggleUI={toggleBackendGui}
-      on:pause={pauseSimulation}
-      on:resume={resumeSimulation}
-      on:userInteraction={handleUserInteraction}
-      on:mouseEvent={handleMouseEvent}
-    >
-      <form on:submit|preventDefault>
-        <!-- About this simulation -->
-        <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
-          <p>
-            Particle Life is a simulation where particles of different species interact with each
-            other based on a force matrix. Each species can attract, repel, or remain neutral
-            towards other species, creating complex emergent behaviors and beautiful patterns.
-          </p>
-          <p>
-            The simulation features up to 8 different species, each with their own color. The
-            interaction matrix below determines how strongly each species attracts or repels others.
-            Positive values create attraction, negative values create repulsion, and values near
-            zero result in neutral behavior.
-          </p>
-          <p>
-            Experiment with different matrix generators, adjust physics parameters, and watch as
-            simple rules give rise to complex, lifelike behaviors including flocking, clustering,
-            orbital patterns, and dynamic ecosystems.
-          </p>
-        </CollapsibleFieldset>
+<SimulationLayout
+  simulationName="Particle Life"
+  running={isSimulationRunning}
+  loading={isLoading || !settings || !state}
+  {showUI}
+  currentFps={fps_display}
+  {controlsVisible}
+  {menuPosition}
+  on:back={() => dispatch('back')}
+  on:toggleUI={toggleBackendGui}
+  on:pause={pauseSimulation}
+  on:resume={resumeSimulation}
+  on:userInteraction={handleUserInteraction}
+  on:mouseEvent={handleMouseEvent}
+>
+  {#if settings && state}
+    <form on:submit|preventDefault>
+      <!-- About this simulation -->
+      <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
+        <p>
+          Particle Life is a simulation where particles of different species interact with each
+          other based on a force matrix. Each species can attract, repel, or remain neutral towards
+          other species, creating complex emergent behaviors and beautiful patterns.
+        </p>
+        <p>
+          The simulation features up to 8 different species, each with their own color. The
+          interaction matrix below determines how strongly each species attracts or repels others.
+          Positive values create attraction, negative values create repulsion, and values near zero
+          result in neutral behavior.
+        </p>
+        <p>
+          Experiment with different matrix generators, adjust physics parameters, and watch as
+          simple rules give rise to complex, lifelike behaviors including flocking, clustering,
+          orbital patterns, and dynamic ecosystems.
+        </p>
+      </CollapsibleFieldset>
 
-        <!-- Presets -->
-        <PresetFieldset
-          availablePresets={available_presets}
-          bind:currentPreset={current_preset}
-          placeholder="Select Preset..."
-          on:presetChange={({ detail }) => updatePreset(detail.value)}
-          on:presetSave={({ detail }) => savePreset(detail.name)}
-        />
+      <!-- Presets -->
+      <PresetFieldset
+        availablePresets={available_presets}
+        bind:currentPreset={current_preset}
+        placeholder="Select Preset..."
+        on:presetChange={({ detail }) => updatePreset(detail.value)}
+        on:presetSave={({ detail }) => savePreset(detail.name)}
+      />
 
-        <!-- Display Settings -->
-        <fieldset>
-          <legend>Display Settings</legend>
-          <div class="display-controls-grid">
-            <div class="control-group">
-              <Selector
-                options={['LUT', 'Gray18', 'White', 'Black']}
-                bind:value={state.color_mode}
-                label="Background Mode"
-                on:change={({ detail }) => updateColorMode(detail.value)}
-              />
-            </div>
-            <div class="control-group">
-              <label for="lutSelector">Color Scheme</label>
-              <LutSelector
-                bind:available_luts
-                bind:current_lut={state.current_lut}
-                bind:reversed={state.lut_reversed}
-                on:select={(e) => updateLut(e.detail.name)}
-                on:reverse={(e) => updateLutReversed(e.detail.reversed)}
-              />
-            </div>
-            <div class="control-group">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={state.traces_enabled}
-                  on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
-                />
-                Enable Particle Traces
-              </label>
-            </div>
-            {#if state.traces_enabled}
-              <div class="control-group">
-                <label for="traceFade">Trace Fade</label>
-                <input
-                  type="range"
-                  id="traceFade"
-                  value={state.trace_fade}
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  on:input={(e) =>
-                    updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
-                />
-                <span class="range-value">{state.trace_fade.toFixed(2)}</span>
-              </div>
-              <div class="control-group">
-                <button
-                  class="clear-trails-button"
-                  on:click={clearTrails}
-                  title="Clear all particle trails"
-                >
-                  Clear Trails
-                </button>
-              </div>
-            {/if}
-          </div>
-        </fieldset>
-
-        <!-- Controls -->
-        <fieldset>
-          <legend>Controls</legend>
-          <div class="interaction-controls-grid">
-            <div class="interaction-help">
-              <div class="control-group">
-                <span>🖱️ Left click: Attract | Right click: Repel</span>
-              </div>
-              <div class="control-group">
-                <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
-                  📖 Camera Controls
-                </button>
-              </div>
-              <div class="control-group">
-                <span
-                  >Camera controls not working? Click the control bar at the top of the screen.</span
-                >
-              </div>
-            </div>
-            <div class="cursor-settings">
-              <div class="cursor-settings-header">
-                <span>🎯 Cursor Settings</span>
-              </div>
-              <CursorConfig
-                cursorSize={state.cursor_size}
-                cursorStrength={state.cursor_strength}
-                sizeMin={0.05}
-                sizeMax={1.0}
-                sizeStep={0.05}
-                strengthMin={0}
-                strengthMax={20}
-                strengthStep={0.5}
-                sizePrecision={2}
-                strengthPrecision={1}
-                on:sizechange={(e) => updateCursorSize(e.detail)}
-                on:strengthchange={(e) => updateCursorStrength(e.detail)}
-              />
-            </div>
-          </div>
-        </fieldset>
-
-        <!-- Settings -->
-        <fieldset>
-          <legend>Settings</legend>
+      <!-- Display Settings -->
+      <fieldset>
+        <legend>Display Settings</legend>
+        <div class="display-controls-grid">
           <div class="control-group">
-            <button type="button" on:click={resetSimulation}>Regenerate Particles</button>
-            <ButtonSelect
-              value={state.matrix_generator}
-              buttonText="Regenerate Matrix"
-              placeholder="Select matrix generator..."
-              options={[
-                { value: 'Random', label: 'Random' },
-                { value: 'Symmetry', label: 'Symmetry' },
-                { value: 'Chains', label: 'Chains' },
-                { value: 'Chains2', label: 'Chains2' },
-                { value: 'Chains3', label: 'Chains3' },
-                { value: 'Snakes', label: 'Snakes' },
-                { value: 'Zero', label: 'Zero' },
-                { value: 'PredatorPrey', label: 'PredatorPrey' },
-                { value: 'Symbiosis', label: 'Symbiosis' },
-                { value: 'Territorial', label: 'Territorial' },
-                { value: 'Magnetic', label: 'Magnetic' },
-                { value: 'Crystal', label: 'Crystal' },
-                { value: 'Wave', label: 'Wave' },
-                { value: 'Hierarchy', label: 'Hierarchy' },
-                { value: 'Clique', label: 'Clique' },
-                { value: 'AntiClique', label: 'AntiClique' },
-                { value: 'Fibonacci', label: 'Fibonacci' },
-                { value: 'Prime', label: 'Prime' },
-                { value: 'Fractal', label: 'Fractal' },
-                { value: 'RockPaperScissors', label: 'RockPaperScissors' },
-                { value: 'Cooperation', label: 'Cooperation' },
-                { value: 'Competition', label: 'Competition' },
-              ]}
-              on:change={({ detail }) => updateMatrixGenerator(detail.value)}
-              on:buttonclick={async () => {
-                await randomizeMatrix();
-              }}
-            />
-            <ButtonSelect
-              value={state.position_generator}
-              buttonText="Regenerate Positions"
-              placeholder="Select position generator..."
-              options={[
-                { value: 'Random', label: 'Random' },
-                { value: 'Center', label: 'Center' },
-                { value: 'UniformCircle', label: 'UniformCircle' },
-                { value: 'CenteredCircle', label: 'CenteredCircle' },
-                { value: 'Ring', label: 'Ring' },
-                { value: 'Line', label: 'Line' },
-                { value: 'Spiral', label: 'Spiral' },
-              ]}
-              on:change={({ detail }) => updatePositionGenerator(detail.value)}
-              on:buttonclick={async () => {
-                await regeneratePositions();
-              }}
-            />
-            <ButtonSelect
-              value={state.type_generator}
-              buttonText="Regenerate Types"
-              placeholder="Select type generator..."
-              options={[
-                { value: 'Radial', label: 'Radial' },
-                { value: 'Polar', label: 'Polar' },
-                { value: 'StripesH', label: 'Stripes H' },
-                { value: 'StripesV', label: 'Stripes V' },
-                { value: 'Random', label: 'Random' },
-                { value: 'LineH', label: 'Line H' },
-                { value: 'LineV', label: 'Line V' },
-                { value: 'Spiral', label: 'Spiral' },
-                { value: 'Dithered', label: 'Dithered' },
-                { value: 'WavyLineH', label: 'Wavy Lines H' },
-                { value: 'WavyLineV', label: 'Wavy Lines V' },
-              ]}
-              on:change={({ detail }) => updateTypeGenerator(detail.value)}
-              on:buttonclick={async () => {
-                await regenerateTypes();
-              }}
+            <Selector
+              options={['LUT', 'Gray18', 'White', 'Black']}
+              bind:value={state.color_mode}
+              label="Background Mode"
+              on:change={({ detail }) => updateColorMode(detail.value)}
             />
           </div>
-
           <div class="control-group">
-            <label for="particleCount">Particle Count</label>
-            <NumberDragBox
-              value={state.particle_count}
-              min={1}
-              max={50000}
-              step={1000}
-              precision={0}
-              on:change={(e) => updateParticleCount(e.detail)}
-            />
-
-            <label for="speciesCount">Species Count</label>
-            <NumberDragBox
-              value={settings.species_count}
-              min={2}
-              max={8}
-              step={1}
-              precision={0}
-              on:change={(e) => updateSpeciesCount(e.detail)}
+            <label for="lutSelector">Color Scheme</label>
+            <LutSelector
+              bind:available_luts
+              bind:current_lut={state.current_lut}
+              bind:reversed={state.lut_reversed}
+              on:select={(e) => updateLut(e.detail.name)}
+              on:reverse={(e) => updateLutReversed(e.detail.reversed)}
             />
           </div>
-
-          <!-- Interaction Matrix -->
           <div class="control-group">
-            <div class="matrix-info">
-              <p>Click and drag to edit values.</p>
+            <label>
+              <input
+                type="checkbox"
+                checked={state.traces_enabled}
+                on:change={(e) => updateTracesEnabled((e.target as HTMLInputElement).checked)}
+              />
+              Enable Particle Traces
+            </label>
+          </div>
+          {#if state.traces_enabled}
+            <div class="control-group">
+              <label for="traceFade">Trace Fade</label>
+              <input
+                type="range"
+                id="traceFade"
+                value={state.trace_fade}
+                min="0"
+                max="1"
+                step="0.01"
+                on:input={(e) => updateTraceFade(parseFloat((e.target as HTMLInputElement).value))}
+              />
+              <span class="range-value">{state.trace_fade.toFixed(2)}</span>
+            </div>
+            <div class="control-group">
+              <Button variant="warning" on:click={clearTrails} title="Clear all particle trails">
+                Clear Trails
+              </Button>
+            </div>
+          {/if}
+        </div>
+      </fieldset>
+
+      <!-- Controls -->
+      <fieldset>
+        <legend>Controls</legend>
+        <div class="interaction-controls-grid">
+          <div class="interaction-help">
+            <div class="control-group">
+              <span>🖱️ Left click: Attract | Right click: Repel</span>
+            </div>
+            <div class="control-group">
+              <Button variant="default" on:click={() => dispatch('navigate', 'how-to-play')}>
+                📖 Camera Controls
+              </Button>
+            </div>
+            <div class="control-group">
+              <span
+                >Camera controls not working? Click the control bar at the top of the screen.</span
+              >
             </div>
           </div>
-
-          <div class="matrix-and-setup-container">
-            <div class="matrix-section">
-              <div class="force-matrix" style="--species-count: {settings.species_count}">
-                <div class="matrix-labels">
-                  <div class="corner"></div>
-                  {#each Array(settings.species_count) as _, j}
-                    <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
-                    <div class="col-label" style="color: {speciesColors[j]}">
-                      S{j + 1}
-                    </div>
-                  {/each}
-                </div>
-
-                {#each Array(settings.species_count) as _, i}
-                  <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
-                  <div class="matrix-row">
-                    <div class="row-label" style="color: {speciesColors[i]}">
-                      S{i + 1}
-                    </div>
-                    {#each Array(settings.species_count) as _, j}
-                      <!-- eslint-disable-next-line @typescript-eslint/no-unused-vars -->
-                      {@const matrixValue =
-                        settings.force_matrix &&
-                        settings.force_matrix[i] &&
-                        settings.force_matrix[i][j] !== undefined
-                          ? settings.force_matrix[i][j]
-                          : 0}
-                      <div
-                        class="matrix-cell"
-                        class:repulsion={matrixValue < 0.0}
-                        class:neutral={matrixValueIsNeutral(matrixValue)}
-                        class:weak={matrixValueIsWeak(matrixValue)}
-                        class:moderate={matrixValueIsModerate(matrixValue)}
-                        class:strong={matrixValueIsStrong(matrixValue)}
-                      >
-                        {#if settings.force_matrix && settings.force_matrix[i] && settings.force_matrix[i][j] !== undefined}
-                          <NumberDragBox
-                            value={settings.force_matrix[i][j]}
-                            min={-1}
-                            max={1}
-                            step={0.1}
-                            precision={2}
-                            showButtons={false}
-                            on:change={(e) => updateForceMatrix(i, j, e.detail)}
-                          />
-                        {:else}
-                          <div class="matrix-placeholder">0.00</div>
-                        {/if}
-                      </div>
-                    {/each}
-                  </div>
-                {/each}
-              </div>
-
-              <div class="matrix-legend">
-                <span class="negative">-1.0 = Repulsion</span>
-                <span class="neutral">0.0 = Neutral</span>
-                <span class="positive">+1.0 = Attraction</span>
-              </div>
-
-              <!-- Matrix Transformation Controls -->
-              <div class="icon-button-pair">
-                <button
-                  type="button"
-                  class="icon-btn scale-down"
-                  on:click={() => scaleMatrix(0.8)}
-                  title="Scale down matrix values by 20%"
-                >
-                  ⬇↓
-                </button>
-                <button
-                  type="button"
-                  class="icon-btn scale-up"
-                  on:click={() => scaleMatrix(1.2)}
-                  title="Scale up matrix values by 20%"
-                >
-                  ↑⬆
-                </button>
-              </div>
-
-              <!-- Transformation Controls -->
-              <div class="icon-transformation-grid">
-                <!-- Rotation Pair -->
-                <div class="icon-button-pair">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={rotateMatrixCounterclockwise}
-                    title="Rotate matrix anticlockwise"
-                  >
-                    ↺
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={rotateMatrixClockwise}
-                    title="Rotate matrix clockwise"
-                  >
-                    ↻
-                  </button>
-                </div>
-
-                <!-- Flip Pair -->
-                <div class="icon-button-pair">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={flipMatrixHorizontal}
-                    title="Flip matrix horizontally"
-                  >
-                    ↔
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={flipMatrixVertical}
-                    title="Flip matrix vertically"
-                  >
-                    ↕
-                  </button>
-                </div>
-
-                <!-- Horizontal Shift Pair -->
-                <div class="icon-button-pair">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={shiftMatrixLeft}
-                    title="Shift matrix left"
-                  >
-                    ←
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={shiftMatrixRight}
-                    title="Shift matrix right"
-                  >
-                    →
-                  </button>
-                </div>
-
-                <!-- Vertical Shift Pair -->
-                <div class="icon-button-pair">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={shiftMatrixUp}
-                    title="Shift matrix up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={shiftMatrixDown}
-                    title="Shift matrix down"
-                  >
-                    ↓
-                  </button>
-                </div>
-
-                <!-- Zero and Sign Flip Pair -->
-                <div class="icon-button-pair">
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={zeroMatrix}
-                    title="Set all matrix values to zero"
-                  >
-                    0
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    on:click={flipMatrixSign}
-                    title="Flip the sign of all matrix values"
-                  >
-                    ±
-                  </button>
-                </div>
-              </div>
-
-              <div class="scaling-info">
-                <small>Transformations preserve diagonal (self-repulsion) values</small>
-              </div>
+          <div class="cursor-settings">
+            <div class="cursor-settings-header">
+              <span>🎯 Cursor Settings</span>
             </div>
-          </div>
-        </fieldset>
-
-        <!-- Physics Equation Visualization -->
-        <CollapsibleFieldset title="Physics" bind:open={show_physics_diagram}>
-          <div class="diagram-content">
-            <InteractivePhysicsDiagram
-              maxForce={settings.max_force}
-              maxDistance={settings.max_distance}
-              forceBeta={settings.force_beta}
-              friction={settings.friction}
-              brownianMotion={settings.brownian_motion}
-              on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
+            <CursorConfig
+              cursorSize={state.cursor_size}
+              cursorStrength={state.cursor_strength}
+              sizeMin={0.05}
+              sizeMax={1.0}
+              sizeStep={0.05}
+              strengthMin={0}
+              strengthMax={20}
+              strengthStep={0.5}
+              sizePrecision={2}
+              strengthPrecision={1}
+              on:sizechange={(e) => updateCursorSize(e.detail)}
+              on:strengthchange={(e) => updateCursorStrength(e.detail)}
             />
           </div>
-        </CollapsibleFieldset>
-      </form>
-    </SimulationLayout>
+        </div>
+      </fieldset>
 
-    <!-- Shared camera controls component -->
-    <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+      <!-- Settings -->
+      <fieldset>
+        <legend>Settings</legend>
+        <div class="control-group">
+          <Button variant="primary" on:click={resetSimulation}>Regenerate Particles</Button>
+          <ButtonSelect
+            value={state.matrix_generator}
+            buttonText="Regenerate Matrix"
+            placeholder="Select matrix generator..."
+            options={[
+              { value: 'Random', label: 'Random' },
+              { value: 'Symmetry', label: 'Symmetry' },
+              { value: 'Chains', label: 'Chains' },
+              { value: 'Chains2', label: 'Chains2' },
+              { value: 'Chains3', label: 'Chains3' },
+              { value: 'Snakes', label: 'Snakes' },
+              { value: 'Zero', label: 'Zero' },
+              { value: 'PredatorPrey', label: 'PredatorPrey' },
+              { value: 'Symbiosis', label: 'Symbiosis' },
+              { value: 'Territorial', label: 'Territorial' },
+              { value: 'Magnetic', label: 'Magnetic' },
+              { value: 'Crystal', label: 'Crystal' },
+              { value: 'Wave', label: 'Wave' },
+              { value: 'Hierarchy', label: 'Hierarchy' },
+              { value: 'Clique', label: 'Clique' },
+              { value: 'AntiClique', label: 'AntiClique' },
+              { value: 'Fibonacci', label: 'Fibonacci' },
+              { value: 'Prime', label: 'Prime' },
+              { value: 'Fractal', label: 'Fractal' },
+              { value: 'RockPaperScissors', label: 'RockPaperScissors' },
+              { value: 'Cooperation', label: 'Cooperation' },
+              { value: 'Competition', label: 'Competition' },
+            ]}
+            on:change={({ detail }) => updateMatrixGenerator(detail.value)}
+            on:buttonclick={async () => {
+              await randomizeMatrix();
+            }}
+          />
+          <ButtonSelect
+            value={state.position_generator}
+            buttonText="Regenerate Positions"
+            placeholder="Select position generator..."
+            options={[
+              { value: 'Random', label: 'Random' },
+              { value: 'Center', label: 'Center' },
+              { value: 'UniformCircle', label: 'UniformCircle' },
+              { value: 'CenteredCircle', label: 'CenteredCircle' },
+              { value: 'Ring', label: 'Ring' },
+              { value: 'Line', label: 'Line' },
+              { value: 'Spiral', label: 'Spiral' },
+            ]}
+            on:change={({ detail }) => updatePositionGenerator(detail.value)}
+            on:buttonclick={async () => {
+              await regeneratePositions();
+            }}
+          />
+          <ButtonSelect
+            value={state.type_generator}
+            buttonText="Regenerate Types"
+            placeholder="Select type generator..."
+            options={[
+              { value: 'Radial', label: 'Radial' },
+              { value: 'Polar', label: 'Polar' },
+              { value: 'StripesH', label: 'Stripes H' },
+              { value: 'StripesV', label: 'Stripes V' },
+              { value: 'Random', label: 'Random' },
+              { value: 'LineH', label: 'Line H' },
+              { value: 'LineV', label: 'Line V' },
+              { value: 'Spiral', label: 'Spiral' },
+              { value: 'Dithered', label: 'Dithered' },
+              { value: 'WavyLineH', label: 'Wavy Lines H' },
+              { value: 'WavyLineV', label: 'Wavy Lines V' },
+            ]}
+            on:change={({ detail }) => updateTypeGenerator(detail.value)}
+            on:buttonclick={async () => {
+              await regenerateTypes();
+            }}
+          />
+        </div>
+
+        <div class="control-group">
+          <label for="particleCount">Particle Count</label>
+          <NumberDragBox
+            value={state.particle_count}
+            min={1}
+            max={50000}
+            step={1000}
+            precision={0}
+            on:change={(e) => updateParticleCount(e.detail)}
+          />
+
+          <label for="speciesCount">Species Count</label>
+          <NumberDragBox
+            value={settings.species_count}
+            min={2}
+            max={8}
+            step={1}
+            precision={0}
+            on:change={(e) => updateSpeciesCount(e.detail)}
+          />
+        </div>
+
+        <!-- Interaction Matrix -->
+        <div class="control-group">
+          <div class="matrix-info">
+            <p>Click and drag to edit values.</p>
+          </div>
+        </div>
+
+        <div class="matrix-and-setup-container">
+          <div class="matrix-section">
+            <InteractionMatrix
+              {settings}
+              {speciesColors}
+              on:matrixUpdate={handleMatrixUpdate}
+              on:matrixTransform={handleMatrixTransform}
+            />
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Physics Equation Visualization -->
+      <CollapsibleFieldset title="Physics" bind:open={show_physics_diagram}>
+        <div class="diagram-content">
+          <InteractivePhysicsDiagram
+            maxForce={settings.max_force}
+            maxDistance={settings.max_distance}
+            forceBeta={settings.force_beta}
+            friction={settings.friction}
+            brownianMotion={settings.brownian_motion}
+            on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
+          />
+        </div>
+      </CollapsibleFieldset>
+    </form>
   {/if}
-</div>
+</SimulationLayout>
+
+<!-- Shared camera controls component -->
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import LutSelector from './components/shared/LutSelector.svelte';
   import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
+  import InteractionMatrix from './components/particle-life/InteractionMatrix.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import Selector from './components/inputs/Selector.svelte';
@@ -489,7 +298,6 @@
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import './shared-theme.css';
-  import './particle_life_mode.css';
 
   const dispatch = createEventDispatcher();
 
@@ -524,39 +332,10 @@
   }
 
   // Simulation state
-  let settings: Settings = {
-    species_count: 4,
-    force_matrix: [
-      [-0.1, 0.2, -0.1, 0.1],
-      [0.2, -0.1, 0.3, -0.1],
-      [-0.1, 0.3, -0.1, 0.2],
-      [0.1, -0.1, 0.2, -0.1],
-    ],
-    max_force: 1.0,
-    max_distance: 0.03,
-    friction: 0.85,
-    wrap_edges: true,
-    force_beta: 0.3,
-    brownian_motion: 0.1,
-  };
+  let settings: Settings | undefined = undefined;
 
   // Runtime state
-  let state: State = {
-    particle_count: 15000,
-    random_seed: 0,
-    dt: 0.01,
-    cursor_size: 0.2,
-    cursor_strength: 5.0,
-    traces_enabled: false,
-    trace_fade: 0.95,
-    edge_fade_strength: 0.0,
-    position_generator: 'Random',
-    type_generator: 'Random',
-    matrix_generator: 'Random',
-    current_lut: '',
-    lut_reversed: false,
-    color_mode: 'Lut',
-  };
+  let state: State | undefined = undefined;
 
   // UI state
   let current_preset = '';
@@ -584,6 +363,8 @@
 
   // Function to update species colors from backend
   async function updateSpeciesColors() {
+    if (!state || !settings) return;
+
     try {
       console.log('Requesting species colors from backend...');
       const colors = await invoke<[number, number, number, number][]>('get_species_colors');
@@ -646,6 +427,7 @@
   // Reactive statement to ensure force matrix is always properly initialized
   $: {
     if (
+      settings &&
       settings.species_count &&
       (!settings.force_matrix ||
         !Array.isArray(settings.force_matrix) ||
@@ -678,6 +460,8 @@
 
   // Two-way binding handlers
   async function updateSpeciesCount(value: number) {
+    if (!settings) return;
+
     const newCount = Math.max(2, Math.min(8, Math.round(value)));
     if (newCount === settings.species_count) return;
 
@@ -744,30 +528,9 @@
     }
   }
 
-  async function updateForceMatrix(speciesA: number, speciesB: number, value: number) {
-    // Ensure force matrix exists and has proper dimensions
-    if (
-      !settings.force_matrix ||
-      !settings.force_matrix[speciesA] ||
-      settings.force_matrix[speciesA][speciesB] === undefined
-    ) {
-      console.warn('Force matrix not properly initialized, skipping update');
-      return;
-    }
-
-    settings.force_matrix[speciesA][speciesB] = Math.max(-1, Math.min(1, value));
-
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'force_matrix',
-        value: settings.force_matrix,
-      });
-    } catch (e) {
-      console.error('Failed to update force matrix:', e);
-    }
-  }
-
   async function updateSetting(settingName: string, value: number | boolean) {
+    if (!settings) return;
+
     try {
       // Update local state first for immediate UI feedback
       switch (settingName) {
@@ -801,6 +564,8 @@
   }
 
   async function updateParticleCount(value: number) {
+    if (!state) return;
+
     const newCount = Math.max(1000, Math.min(50000, Math.round(value)));
     if (newCount === state.particle_count) return;
 
@@ -940,111 +705,16 @@
   async function syncSettingsFromBackend() {
     try {
       const backendSettings = await invoke('get_current_settings');
+      const backendState = await invoke('get_current_state');
+
       if (backendSettings) {
-        settings = { ...settings, ...backendSettings };
-
-        // Ensure force matrix is properly initialized
-        if (!settings.force_matrix || !Array.isArray(settings.force_matrix)) {
-          // Initialize with default matrix if missing
-          const count = settings.species_count || 4;
-          settings.force_matrix = Array(count)
-            .fill(null)
-            .map(() => Array(count).fill(0.0));
-        }
-
-        // Ensure matrix dimensions match species count
-        const currentSize = settings.force_matrix.length;
-        const targetSize = settings.species_count || 4;
-
-        if (currentSize !== targetSize) {
-          // Resize matrix to match species count
-          const newMatrix = Array(targetSize)
-            .fill(null)
-            .map((_, i) =>
-              Array(targetSize)
-                .fill(null)
-                .map((_, j) => {
-                  if (
-                    i < currentSize &&
-                    j < currentSize &&
-                    settings.force_matrix[i] &&
-                    settings.force_matrix[i][j] !== undefined
-                  ) {
-                    return settings.force_matrix[i][j];
-                  }
-                  return (Math.random() - 0.5) * 0.6; // Random default value
-                })
-            );
-          settings.force_matrix = newMatrix;
-        }
+        // Use backend settings directly
+        settings = backendSettings as Settings;
       }
 
-      const backendState = await invoke('get_current_state');
-      console.log('Backend state received:', backendState);
       if (backendState) {
-        const oldParticleCount = state.particle_count;
-
-        // Preserve UI-only state that shouldn't be overwritten by backend
-        const preservedState = {
-          type_generator: state.type_generator,
-          position_generator: state.position_generator,
-          matrix_generator: state.matrix_generator,
-        };
-
-        state = { ...state, ...backendState, ...preservedState };
-
-        // Ensure particle_count is properly set from state
-        if (backendState && typeof backendState === 'object' && 'particle_count' in backendState) {
-          state.particle_count =
-            (backendState as { particle_count?: number }).particle_count || 15000;
-        }
-
-        // Sync LUT state from backend
-        if (backendState && typeof backendState === 'object') {
-          if ('current_lut_name' in backendState) {
-            const backendLut =
-              (backendState as { current_lut_name?: string }).current_lut_name || '';
-            // Always sync LUT from backend to ensure consistency
-            if (backendLut !== state.current_lut) {
-              state.current_lut = backendLut;
-              console.log(`Synced LUT from backend: ${state.current_lut}`);
-            }
-          }
-          if ('lut_reversed' in backendState) {
-            const newReversed = (backendState as { lut_reversed?: boolean }).lut_reversed || false;
-            if (newReversed !== state.lut_reversed) {
-              state.lut_reversed = newReversed;
-              console.log(`Synced LUT reversed from backend: ${state.lut_reversed}`);
-            }
-          }
-          if ('color_mode' in backendState) {
-            const backendColorMode = (backendState as { color_mode?: string }).color_mode || 'LUT';
-            console.log(
-              `Backend color mode: ${backendColorMode}, frontend color mode: ${state.color_mode}`
-            );
-            if (backendColorMode !== state.color_mode) {
-              state.color_mode = backendColorMode;
-              console.log(`Synced color mode from backend: ${state.color_mode}`);
-            }
-          } else {
-            console.log(
-              'No color_mode in backend state, keeping frontend default:',
-              state.color_mode
-            );
-          }
-        }
-
-        // Log particle count changes for debugging
-        if (oldParticleCount !== state.particle_count) {
-          console.log(
-            `Frontend particle count updated: ${oldParticleCount} -> ${state.particle_count}`
-          );
-        }
-
-        // Update species colors after syncing settings from backend
-        if (isSimulationRunning) {
-          await updateSpeciesColors();
-        }
+        // Use backend state directly
+        state = backendState as State;
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -1323,6 +993,33 @@
     }
   }
 
+  // Add type for event parameter (Svelte custom event)
+  async function handleMatrixUpdate(e: CustomEvent<{ i: number; j: number; value: number }>) {
+    // Only reference e.detail to avoid unused variable warning
+    void e.detail;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'force_matrix',
+        value: settings.force_matrix,
+      });
+    } catch (error) {
+      console.error('Failed to update force matrix:', error);
+    }
+  }
+
+  async function handleMatrixTransform(e: CustomEvent<{ type: string; matrix: number[][] }>) {
+    // Only use matrix from e.detail
+    const { matrix } = e.detail;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'force_matrix',
+        value: matrix,
+      });
+    } catch (error) {
+      console.error('Failed to update force matrix:', error);
+    }
+  }
+
   // Generator update functions (local state only)
   function updatePositionGenerator(value: string) {
     state.position_generator = value;
@@ -1556,165 +1253,6 @@
     }
   }
 
-  async function scaleMatrix(scaleFactor: number) {
-    // Ensure force matrix exists and has proper dimensions
-    if (
-      !settings.force_matrix ||
-      !settings.force_matrix[0] ||
-      settings.force_matrix[0].length !== settings.species_count
-    ) {
-      console.warn('Force matrix not properly initialized, skipping scaling');
-      return;
-    }
-
-    const newMatrix: number[][] = [];
-    for (let i = 0; i < settings.species_count; i++) {
-      newMatrix[i] = [];
-      for (let j = 0; j < settings.species_count; j++) {
-        if (i === j) {
-          newMatrix[i][j] = settings.force_matrix[i][j]; // Keep diagonal values unchanged
-        } else {
-          newMatrix[i][j] = Math.max(-1, Math.min(1, settings.force_matrix[i][j] * scaleFactor));
-        }
-      }
-    }
-
-    settings.force_matrix = newMatrix;
-
-    try {
-      await invoke('scale_force_matrix', { scaleFactor });
-      console.log(`Matrix scaled by factor: ${scaleFactor}`);
-    } catch (e) {
-      console.error('Failed to scale force matrix:', e);
-    }
-  }
-
-  async function flipMatrixHorizontal() {
-    try {
-      await invoke('flip_force_matrix_horizontal');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix flipped horizontally');
-    } catch (e) {
-      console.error('Failed to flip force matrix horizontally:', e);
-    }
-  }
-
-  async function flipMatrixVertical() {
-    try {
-      await invoke('flip_force_matrix_vertical');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix flipped vertically');
-    } catch (e) {
-      console.error('Failed to flip force matrix vertically:', e);
-    }
-  }
-
-  async function rotateMatrixClockwise() {
-    try {
-      await invoke('rotate_force_matrix_clockwise');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix rotated clockwise');
-    } catch (e) {
-      console.error('Failed to rotate force matrix clockwise:', e);
-    }
-  }
-
-  async function rotateMatrixCounterclockwise() {
-    try {
-      await invoke('rotate_force_matrix_counterclockwise');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix rotated counterclockwise');
-    } catch (e) {
-      console.error('Failed to rotate force matrix counterclockwise:', e);
-    }
-  }
-
-  async function shiftMatrixLeft() {
-    try {
-      await invoke('shift_force_matrix_left');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix shifted left');
-    } catch (e) {
-      console.error('Failed to shift force matrix left:', e);
-    }
-  }
-
-  async function shiftMatrixRight() {
-    try {
-      await invoke('shift_force_matrix_right');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix shifted right');
-    } catch (e) {
-      console.error('Failed to shift force matrix right:', e);
-    }
-  }
-
-  async function shiftMatrixUp() {
-    try {
-      await invoke('shift_force_matrix_up');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix shifted up');
-    } catch (e) {
-      console.error('Failed to shift force matrix up:', e);
-    }
-  }
-
-  async function shiftMatrixDown() {
-    try {
-      await invoke('shift_force_matrix_down');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix shifted down');
-    } catch (e) {
-      console.error('Failed to shift force matrix down:', e);
-    }
-  }
-
-  async function zeroMatrix() {
-    try {
-      await invoke('zero_force_matrix');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix set to zero');
-    } catch (e) {
-      console.error('Failed to zero force matrix:', e);
-    }
-  }
-
-  async function flipMatrixSign() {
-    try {
-      await invoke('flip_force_matrix_sign');
-      // Sync settings from backend to update the UI
-      await syncSettingsFromBackend();
-      console.log('Matrix signs flipped');
-    } catch (e) {
-      console.error('Failed to flip force matrix signs:', e);
-    }
-  }
-
-  function matrixValueIsNeutral(value: number) {
-    return Math.abs(value) <= 0.1;
-  }
-
-  function matrixValueIsWeak(value: number) {
-    return (value > 0.1 && value <= 0.3) || (value < -0.1 && value >= -0.3);
-  }
-
-  function matrixValueIsModerate(value: number) {
-    return (value > 0.3 && value <= 0.5) || (value < -0.3 && value >= -0.5);
-  }
-
-  function matrixValueIsStrong(value: number) {
-    return value > 0.5 || value < -0.5;
-  }
-
   async function updateColorMode(value: string) {
     try {
       console.log(`Updating color mode to: ${value}`);
@@ -1815,206 +1353,6 @@
 
   .matrix-section {
     flex: 1;
-  }
-
-  /* Force Matrix Styles */
-  .force-matrix {
-    display: grid;
-    grid-template-columns: 40px repeat(var(--species-count), 60px);
-    grid-template-rows: 40px repeat(var(--species-count), 60px);
-    gap: 2px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 6px;
-    padding: 8px;
-    margin-bottom: 1rem;
-    justify-content: center;
-    padding-bottom: 35px;
-  }
-
-  .matrix-labels {
-    display: contents;
-  }
-
-  .corner {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .col-label {
-    grid-row: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 4px;
-  }
-
-  .row-label {
-    grid-column: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 4px;
-  }
-
-  .matrix-row {
-    display: contents;
-  }
-
-  .matrix-cell {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    transition: all 0.2s ease;
-    width: 60px;
-    height: 60px;
-  }
-
-  .matrix-cell.repulsion.weak {
-    background: rgb(59, 130, 246);
-    border-color: rgb(59, 130, 246);
-  }
-
-  .matrix-cell.repulsion.moderate {
-    background: rgb(37, 99, 235);
-    border-color: rgb(37, 99, 235);
-  }
-
-  .matrix-cell.repulsion.strong {
-    background: rgb(29, 78, 216);
-    border-color: rgb(29, 78, 216);
-  }
-
-  .matrix-cell.weak {
-    background: rgb(239, 68, 68);
-    border-color: rgb(239, 68, 68);
-  }
-
-  .matrix-cell.moderate {
-    background: rgb(220, 38, 38);
-    border-color: rgb(220, 38, 38);
-  }
-
-  .matrix-cell.strong {
-    background: rgb(185, 28, 28);
-    border-color: rgb(185, 28, 28);
-  }
-
-  .matrix-cell.neutral {
-    background: rgb(138, 138, 138);
-    border-color: rgb(138, 138, 138);
-  }
-
-  .matrix-placeholder {
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 0.8rem;
-    font-family: monospace;
-  }
-
-  .matrix-legend {
-    display: flex;
-    gap: 1rem;
-    justify-content: center;
-    margin-bottom: 1rem;
-    font-size: 0.8rem;
-    flex-wrap: wrap;
-  }
-
-  .matrix-legend span {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .matrix-legend .negative {
-    color: #336aea;
-  }
-
-  .matrix-legend .neutral {
-    color: #a4a4a4;
-  }
-
-  .matrix-legend .positive {
-    color: #c42f1c;
-  }
-
-  .icon-btn.scale-down {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: rgba(239, 68, 68, 0.4);
-  }
-
-  .icon-btn.scale-down:hover {
-    background: rgba(239, 68, 68, 0.4);
-    border-color: rgba(239, 68, 68, 0.6);
-  }
-
-  .icon-btn.scale-up {
-    background: rgba(34, 197, 94, 0.2);
-    border-color: rgba(34, 197, 94, 0.4);
-  }
-
-  .icon-btn.scale-up:hover {
-    background: rgba(34, 197, 94, 0.4);
-    border-color: rgba(34, 197, 94, 0.6);
-  }
-
-  .icon-transformation-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .icon-button-pair {
-    display: flex;
-    gap: 2px;
-    justify-content: center;
-    align-items: center;
-  }
-
-  .icon-btn {
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 4px;
-    background: rgba(59, 130, 246, 0.2);
-    color: white;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-size: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-  }
-
-  .icon-btn:hover {
-    background: rgba(59, 130, 246, 0.4);
-    border-color: rgba(59, 130, 246, 0.6);
-    transform: scale(1.1);
-  }
-
-  .icon-btn:active {
-    transform: scale(0.95);
-  }
-
-  .scaling-info {
-    text-align: center;
-  }
-
-  .scaling-info small {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 0.75rem;
   }
 
   .interaction-controls-grid {

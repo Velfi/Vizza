@@ -28,6 +28,20 @@
 </script>
 
 <style>
+  fieldset {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  legend {
+    font-weight: bold;
+    padding: 0 0.5rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1em;
+  }
+
   .fieldset-toggle {
     background: none;
     border: none;

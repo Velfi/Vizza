@@ -2,17 +2,14 @@
 {#if showUI}
   <div class="controls">
     <div class="left-controls">
-      <Button class="back-button" on:click={handleBackClick}>← Back to Menu</Button>
-      <Button class="hide-ui-button" on:click={handleToggleUI}>
+      <Button variant="default" on:click={handleBackClick}>← Back to Menu</Button>
+      <Button variant="default" on:click={handleToggleUI}>
         👁 {showUI ? 'Hide UI' : 'Show UI'}
       </Button>
     </div>
 
     <div class="center-controls">
-      <Button
-        class={`pause-resume-button${running ? ' running' : ''}`}
-        on:click={handlePauseResume}
-      >
+      <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
         {running ? '⏸ Pause' : '▶ Resume'}
       </Button>
       <span class="status-text">
@@ -44,15 +41,12 @@
     aria-label="Auto-hiding control bar - interact to show controls"
   >
     <div class="left-controls">
-      <Button class="back-button" on:click={handleBackClick}>← Back to Menu</Button>
-      <Button class="hide-ui-button" on:click={handleToggleUI}>👁 Show UI</Button>
+      <Button variant="default" on:click={handleBackClick}>← Back to Menu</Button>
+      <Button variant="default" on:click={handleToggleUI}>👁 Show UI</Button>
     </div>
 
     <div class="center-controls">
-      <Button
-        class={`pause-resume-button${running ? ' running' : ''}`}
-        on:click={handlePauseResume}
-      >
+      <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
         {running ? '⏸ Pause' : '▶ Resume'}
       </Button>
       <span class="status-text">

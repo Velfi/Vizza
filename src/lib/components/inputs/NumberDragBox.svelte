@@ -111,7 +111,11 @@
 
     const deltaX = event.clientX - dragStartX;
     const deltaValue = (deltaX / 100) * step;
-    const newValue = clamp(dragStartValue + deltaValue);
+    const rawValue = dragStartValue + deltaValue;
+
+    // Snap to step increments
+    const steppedValue = Math.round(rawValue / step) * step;
+    const newValue = clamp(steppedValue);
 
     if (newValue !== value) {
       value = newValue;
