@@ -14,6 +14,83 @@ use super::shaders::{
 };
 use crate::simulations::shared::{camera::Camera, LutManager};
 use crate::simulations::traits::Simulation;
+use std::collections::HashMap;
+
+// === Species definitions based on the design document ===
+// Number of high-level roles (Recycler, Producer, Predator)
+pub const ROLES: usize = 3;
+// Each role currently has three variants
+pub const VARIANTS_PER_ROLE: usize = 3;
+// Total distinct species in the simulation (fixed for now)
+pub const TOTAL_SPECIES: usize = ROLES * VARIANTS_PER_ROLE;
+
+/// High-level ecological role an agent can play in the ecosystem.
+/// These `repr(u32)` values map directly to the integers consumed by WGSL shaders
+/// so keep them in sync with the shader code.
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum EcologicalRole {
+    Recycler = 0,
+    Producer = 1,
+    Predator = 2,
+}
+
+/// Variants for the **Recycler** role
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum RecyclerVariant {
+    Bacteria = 0,
+    Fungi = 1,
+    DecomposerProtozoan = 2,
+}
+
+/// Variants for the **Producer** role
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ProducerVariant {
+    Algae = 0,
+    Cyanobacteria = 1,
+    PhotosyntheticProtist = 2,
+}
+
+/// Variants for the **Predator** role
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum PredatorVariant {
+    PredatoryBacteria = 0,
+    Virus = 1,
+    PredatoryProtozoan = 2,
+}
+
+/// Convenience metadata describing a single species (role + variant)
+#[derive(Debug, Copy, Clone)]
+pub struct SpeciesInfo {
+    pub role: EcologicalRole,
+    pub variant: u32, // Stored as `u32` for direct GPU transfer
+    pub name: &'static str,
+}
+
+/// Static lookup table for all species currently supported by the simulation.
+/// The index in this array doubles as the **species id** used on the GPU side.
+///
+/// Order: all recyclers (3) → all producers (3) → all predators (3).
+/// Keep this order stable because shaders assume it when mapping `role` & `variant`
+/// integers back to species indices.
+pub const SPECIES_INFO: [SpeciesInfo; TOTAL_SPECIES] = [
+    // Recyclers
+    SpeciesInfo { role: EcologicalRole::Recycler, variant: RecyclerVariant::Bacteria as u32, name: "Bacteria" },
+    SpeciesInfo { role: EcologicalRole::Recycler, variant: RecyclerVariant::Fungi as u32, name: "Fungi" },
+    SpeciesInfo { role: EcologicalRole::Recycler, variant: RecyclerVariant::DecomposerProtozoan as u32, name: "Decomposer Protozoan" },
+    // Producers
+    SpeciesInfo { role: EcologicalRole::Producer, variant: ProducerVariant::Algae as u32, name: "Algae" },
+    SpeciesInfo { role: EcologicalRole::Producer, variant: ProducerVariant::Cyanobacteria as u32, name: "Cyanobacteria" },
+    SpeciesInfo { role: EcologicalRole::Producer, variant: ProducerVariant::PhotosyntheticProtist as u32, name: "Photosynthetic Protist" },
+    // Predators
+    SpeciesInfo { role: EcologicalRole::Predator, variant: PredatorVariant::PredatoryBacteria as u32, name: "Predatory Bacteria" },
+    SpeciesInfo { role: EcologicalRole::Predator, variant: PredatorVariant::Virus as u32, name: "Virus" },
+    SpeciesInfo { role: EcologicalRole::Predator, variant: PredatorVariant::PredatoryProtozoan as u32, name: "Predatory Protozoan" },
+];
+// === End species definitions ===
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
