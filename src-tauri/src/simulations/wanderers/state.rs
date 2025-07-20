@@ -43,8 +43,8 @@ impl Default for State {
             mouse_mode: 0,
             mouse_position: [0.0, 0.0], // Center of [-1,1] space
             mouse_previous_position: [0.0, 0.0],
-            cursor_size: 0.1,
-            cursor_strength: 0.1,
+            cursor_size: 0.35,
+            cursor_strength: 0.02,
             grabbed_particles: Vec::new(),
             current_lut_name: "MATPLOTLIB_viridis".to_string(),
             lut_reversed: false,

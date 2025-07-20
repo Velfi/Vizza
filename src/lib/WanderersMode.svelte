@@ -125,9 +125,9 @@
             id="gravitationalConstant"
             value={settings?.gravitational_constant ?? 0.0}
             min={0.0}
-            max={0.02}
-            step={0.001}
-            precision={3}
+            max={0.00001}
+            step={1e-8}
+            precision={8}
             on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
           />
         </div>
@@ -136,7 +136,7 @@
           <NumberDragBox
             id="energyDamping"
             value={settings?.energy_damping ?? 0.999}
-            min={0.95}
+            min={0.0}
             max={0.9999}
             step={0.001}
             precision={3}
@@ -148,10 +148,10 @@
           <NumberDragBox
             id="collisionDamping"
             bind:value={settings.collision_damping}
-            min={0.5}
-            max={0.99}
-            step={0.01}
-            precision={2}
+            min={0.0}
+            max={0.9999}
+            step={0.001}
+            precision={4}
             on:change={({ detail }) => updateSetting('collision_damping', detail)}
           />
         </div>
@@ -221,12 +221,12 @@
             <CursorConfig
               {cursorSize}
               {cursorStrength}
-              sizeMin={0.05}
+              sizeMin={0.01}
               sizeMax={1.0}
-              sizeStep={0.05}
+              sizeStep={0.01}
               strengthMin={0}
               strengthMax={1.0}
-              strengthStep={0.05}
+              strengthStep={0.01}
               sizePrecision={2}
               strengthPrecision={2}
               on:sizechange={(e) => updateCursorSize(e.detail)}
@@ -309,7 +309,7 @@
   let current_preset = '';
   let available_luts: string[] = [];
   let cursorSize = 0.5;
-  let cursorStrength = 0.1;
+  let cursorStrength = 0.01;
 
 
   let renderLoopId: number | null = null;

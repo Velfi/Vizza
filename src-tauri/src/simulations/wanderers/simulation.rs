@@ -59,7 +59,7 @@ pub struct RapierPhysics {
 }
 
 impl RapierPhysics {
-    pub fn new(gravitational_constant: f32) -> Self {
+    pub fn new(_gravitational_constant: f32) -> Self {
         let integration_parameters = IntegrationParameters {
             dt: 1.0 / 120.0, // Higher frequency for better collision detection
             ..Default::default()
@@ -76,7 +76,7 @@ impl RapierPhysics {
             impulse_joints: ImpulseJointSet::new(),
             multibody_joints: MultibodyJointSet::new(),
             query_pipeline: QueryPipeline::new(),
-            gravity: vector![0.0, -gravitational_constant],
+            gravity: vector![0.0, 0.0], // No built-in gravity, using mutual forces instead
             integration_parameters,
             body_handles: Vec::new(),
         }
@@ -186,8 +186,9 @@ impl RapierPhysics {
         );
     }
 
-    pub fn update_gravity(&mut self, gravitational_constant: f32) {
-        self.gravity = vector![0.0, -gravitational_constant];
+    pub fn update_gravity(&mut self, _gravitational_constant: f32) {
+        // Disable Rapier's built-in gravity since we're using mutual gravitational forces
+        self.gravity = vector![0.0, 0.0];
     }
 
     pub fn update_energy_damping(&mut self, energy_damping: f32) {
@@ -202,7 +203,7 @@ impl RapierPhysics {
         }
     }
 
-    pub fn reset(&mut self, gravitational_constant: f32) {
+    pub fn reset(&mut self, _gravitational_constant: f32) {
         self.bodies = RigidBodySet::new();
         self.colliders = ColliderSet::new();
         self.body_handles.clear();
@@ -216,7 +217,7 @@ impl RapierPhysics {
         self.multibody_joints = MultibodyJointSet::new();
         self.query_pipeline = QueryPipeline::new();
 
-        self.gravity = vector![0.0, -gravitational_constant];
+        self.gravity = vector![0.0, 0.0]; // No built-in gravity, using mutual forces instead
         self.integration_parameters = IntegrationParameters {
             dt: 1.0 / 120.0,
             ..Default::default()
@@ -940,6 +941,11 @@ impl WanderersModel {
             self.apply_mouse_interaction_forces();
         }
 
+        // Apply mutual gravitational forces between particles
+        if self.settings.gravitational_constant > 0.0 {
+            self.apply_mutual_gravitational_forces();
+        }
+
         // Step Rapier physics world with proper collision detection
         self.rapier.step();
 
@@ -1239,6 +1245,114 @@ impl WanderersModel {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Apply mutual gravitational forces between all particle pairs
+    fn apply_mutual_gravitational_forces(&mut self) {
+        let gravitational_constant = self.settings.gravitational_constant;
+        let gravity_softening = self.settings.gravity_softening;
+        let dt = self.rapier.integration_parameters.dt;
+
+        // Scale down gravitational constant to prevent chaos
+        let scaled_gravitational_constant = gravitational_constant * 0.1; // Increased multiplier for stronger forces
+
+        // Use spatial hashing for O(n) performance instead of O(n²)
+        let cell_size = 0.1; // Fixed cell size for better performance
+        let mut spatial_grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
+            std::collections::HashMap::new();
+
+        // Build spatial grid
+        for (i, particle) in self.particles.iter().enumerate() {
+            let clamped_x = particle.position[0].clamp(-1000.0, 1000.0);
+            let clamped_y = particle.position[1].clamp(-1000.0, 1000.0);
+            let cell_x = (clamped_x / cell_size).floor() as i32;
+            let cell_y = (clamped_y / cell_size).floor() as i32;
+            spatial_grid.entry((cell_x, cell_y)).or_default().push(i);
+        }
+
+        // Calculate gravitational forces using spatial grid
+        let positions: Vec<[f32; 2]> = self.particles.iter().map(|p| p.position).collect();
+        let masses: Vec<f32> = self.particles.iter().map(|p| p.mass).collect();
+
+        for (i, &handle_i) in self.rapier.body_handles.iter().enumerate() {
+            if let Some(rb_i) = self.rapier.bodies.get_mut(handle_i) {
+                let pos_i = rb_i.translation();
+                let mass_i = masses[i];
+
+                // Clamp positions to prevent integer overflow in cell calculation
+                let clamped_x = pos_i.x.clamp(-1000.0, 1000.0);
+                let clamped_y = pos_i.y.clamp(-1000.0, 1000.0);
+                let cell_x = (clamped_x / cell_size).floor() as i32;
+                let cell_y = (clamped_y / cell_size).floor() as i32;
+
+                let mut total_force = vector![0.0, 0.0];
+
+                // Check current cell and neighboring cells
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        if let Some(particles_in_cell) = spatial_grid.get(&(cell_x + dx, cell_y + dy)) {
+                            for &j in particles_in_cell {
+                                if i != j {
+                                    let pos_j = positions[j];
+                                    let mass_j = masses[j];
+
+                                    // Calculate wrapped distance
+                                    let mut dx = pos_i.x - pos_j[0];
+                                    let mut dy = pos_i.y - pos_j[1];
+
+                                    // Wrap distances to account for toroidal space
+                                    if dx > 1.0 {
+                                        dx -= 2.0;
+                                    } else if dx < -1.0 {
+                                        dx += 2.0;
+                                    }
+                                    if dy > 1.0 {
+                                        dy -= 2.0;
+                                    } else if dy < -1.0 {
+                                        dy += 2.0;
+                                    }
+
+                                    let dist_sq = dx * dx + dy * dy;
+                                    let dist = dist_sq.sqrt();
+
+                                    // Minimum distance threshold to prevent excessive forces
+                                    if dist > 0.01 && dist < 0.5 {
+                                        // Apply gravity softening to prevent infinite forces at small distances
+                                        let softened_dist_sq = dist_sq + gravity_softening * gravity_softening;
+                                        let softened_dist = softened_dist_sq.sqrt();
+
+                                        // Newton's law of gravitation with distance attenuation
+                                        let force_magnitude = scaled_gravitational_constant * mass_i * mass_j / softened_dist_sq;
+                                        
+                                        // Add distance-based attenuation to prevent chaos
+                                        let distance_factor = (0.5 - dist) / 0.5; // Stronger at closer distances, weaker at far distances
+                                        let attenuated_force = force_magnitude * distance_factor.max(0.0);
+                                        
+                                        let force_x = -(dx / softened_dist) * attenuated_force;
+                                        let force_y = -(dy / softened_dist) * attenuated_force;
+
+                                        total_force += vector![force_x, force_y];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Apply the total gravitational force as an impulse
+                let impulse = total_force * dt;
+                
+                // Much more conservative impulse limiting to prevent chaos
+                let max_impulse = 0.01; // Much smaller limit
+                let clamped_impulse = if impulse.norm() > max_impulse {
+                    impulse.normalize() * max_impulse
+                } else {
+                    impulse
+                };
+
+                rb_i.apply_impulse(clamped_impulse, true);
+            }
         }
     }
 }
@@ -1666,7 +1780,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
 
     fn reset_runtime_state(
         &mut self,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Clear all existing rigid bodies and colliders by creating new instances
@@ -1686,12 +1800,26 @@ impl crate::simulations::traits::Simulation for WanderersModel {
             self.settings.collision_damping,
         );
 
-        // Update particle buffer
-        queue.write_buffer(
-            &self.particle_buffer,
-            0,
-            bytemuck::cast_slice(&self.particles),
-        );
+        // Check if we need to recreate the buffer (if it's too small)
+        let required_buffer_size = self.particles.len() * std::mem::size_of::<Particle>();
+        if self.particle_buffer.size() < required_buffer_size as u64 {
+            // Recreate the particle buffer with the new size
+            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Wanderers Particle Buffer"),
+                contents: bytemuck::cast_slice(&self.particles),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
+
+            // Recreate the bind groups since the buffer changed
+            self.recreate_bind_groups(device)?;
+        } else {
+            // Update existing GPU buffer
+            queue.write_buffer(
+                &self.particle_buffer,
+                0,
+                bytemuck::cast_slice(&self.particles),
+            );
+        }
 
         // Reset camera
         self.camera.reset();

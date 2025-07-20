@@ -65,7 +65,7 @@ impl Default for Settings {
             random_seed: 0,
             background_type: "black".to_string(),
             // Physics tuned for pool ball vs clumping modes
-            gravitational_constant: 0.005, // Moderate gravity to keep particles moving
+            gravitational_constant: 2e-7, // Very small value: 0.0000002
             // Uniform mass for all particles
             min_particle_mass: 1.0,
             max_particle_mass: 1.0,
