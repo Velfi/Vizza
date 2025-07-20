@@ -48,15 +48,11 @@
         <legend>Display Settings</legend>
         <div class="control-group">
           <label for="background-select">Background</label>
-          <select
-            id="background-select"
+          <Selector
+            options={['Black', 'White', 'Vector Field']}
             bind:value={backgroundValue}
-            on:change={(e) => updateBackground((e.target as HTMLSelectElement).value)}
-          >
-            <option value="Black">Black</option>
-            <option value="White">White</option>
-            <option value="Vector Field">Vector Field</option>
-          </select>
+            on:change={(e) => updateBackground(e.detail.value)}
+          />
         </div>
 
         <LutSelector
@@ -122,24 +118,25 @@
           <div class="settings-grid">
             <div class="setting-item">
               <span class="setting-label">Noise Type:</span>
-              <select
-                value={settings.noise_type}
-                on:change={(e) => updateNoiseType((e.target as HTMLSelectElement).value)}
-              >
-                <option value="Perlin">Perlin</option>
-                <option value="Simplex">Simplex</option>
-                <option value="OpenSimplex">OpenSimplex</option>
-                <option value="Worley">Worley</option>
-                <option value="Value">Value</option>
-                <option value="FBM">FBM</option>
-                <option value="FBMBillow">FBM Billow</option>
-                <option value="FBMClouds">FBM Clouds</option>
-                <option value="FBMRidged">FBM Ridged</option>
-                <option value="Billow">Billow</option>
-                <option value="RidgedMulti">Ridged Multi</option>
-                <option value="Cylinders">Cylinders</option>
-                <option value="Checkerboard">Checkerboard</option>
-              </select>
+              <Selector
+                options={[
+                  'Perlin',
+                  'Simplex',
+                  'OpenSimplex',
+                  'Worley',
+                  'Value',
+                  'FBM',
+                  'FBMBillow',
+                  'FBMClouds',
+                  'FBMRidged',
+                  'Billow',
+                  'RidgedMulti',
+                  'Cylinders',
+                  'Checkerboard',
+                ]}
+                bind:value={settings.noise_type}
+                on:change={(e) => updateNoiseType(e.detail.value)}
+              />
             </div>
             <div class="setting-item">
               <span class="setting-label">Noise Seed:</span>
@@ -220,16 +217,11 @@
             </div>
             <div class="setting-item">
               <span class="setting-label">Particle Shape:</span>
-              <select
-                value={settings.particle_shape}
-                on:change={(e) => updateParticleShape((e.target as HTMLSelectElement).value)}
-              >
-                <option value="Circle">Circle</option>
-                <option value="Square">Square</option>
-                <option value="Triangle">Triangle</option>
-                <option value="Flower">Flower</option>
-                <option value="Diamond">Diamond</option>
-              </select>
+              <Selector
+                options={['Circle', 'Square', 'Triangle', 'Flower', 'Diamond']}
+                bind:value={settings.particle_shape}
+                on:change={(e) => updateParticleShape(e.detail.value)}
+              />
             </div>
             <div class="setting-item">
               <span class="setting-label">
@@ -325,6 +317,7 @@
   import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import LutSelector from './components/shared/LutSelector.svelte';
+  import Selector from './components/inputs/Selector.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';

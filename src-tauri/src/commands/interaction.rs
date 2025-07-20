@@ -111,3 +111,45 @@ pub async fn seed_random_noise(
         }
     }
 }
+
+#[tauri::command]
+pub async fn update_cursor_size(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    size: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_cursor_size(size, &gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("Cursor size updated to {}", size);
+            Ok("Cursor size updated successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to update cursor size: {}", e);
+            Err(format!("Failed to update cursor size: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn update_cursor_strength(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    strength: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_cursor_strength(strength, &gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("Cursor strength updated to {}", strength);
+            Ok("Cursor strength updated successfully".to_string())
+        }
+        Err(e) => {
+            tracing::error!("Failed to update cursor strength: {}", e);
+            Err(format!("Failed to update cursor strength: {}", e))
+        }
+    }
+}

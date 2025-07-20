@@ -9,6 +9,7 @@
 - SM: Slime Mold. A simulation of slime molds.
 - EM: Ecosystem. A simulation of an ecosystem.
 - FF: Flow Field. A simulation of a flow field.
+- WS: Wanderers. A particles and gravity simulation.
 
 ## LUTs (Color Schemes)
 

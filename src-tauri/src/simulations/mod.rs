@@ -6,3 +6,4 @@ pub mod particle_life;
 pub mod shared;
 pub mod slime_mold;
 pub mod traits;
+pub mod wanderers;

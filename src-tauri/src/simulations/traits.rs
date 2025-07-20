@@ -143,6 +143,7 @@ pub enum SimulationType {
     ParticleLife(crate::simulations::particle_life::ParticleLifeModel),
     Ecosystem(crate::simulations::ecosystem::EcosystemModel),
     Flow(crate::simulations::flow::simulation::FlowModel),
+    Wanderers(Box<crate::simulations::wanderers::WanderersModel>),
     MainMenu(crate::simulations::main_menu::MainMenuModel),
 }
 
@@ -220,6 +221,17 @@ impl SimulationType {
                 )?;
                 Ok(SimulationType::Flow(simulation))
             }
+            "wanderers" => {
+                let settings = crate::simulations::wanderers::settings::Settings::default();
+                let simulation = crate::simulations::wanderers::WanderersModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    lut_manager,
+                )?;
+                Ok(SimulationType::Wanderers(Box::new(simulation)))
+            }
             "main_menu" => {
                 let simulation = crate::simulations::main_menu::MainMenuModel::new(
                     device,
@@ -245,6 +257,7 @@ impl SimulationType {
             }
             SimulationType::Ecosystem(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::Flow(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::Wanderers(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
@@ -271,6 +284,9 @@ impl Simulation for SimulationType {
                 simulation.render_frame(device, queue, surface_view)
             }
             SimulationType::Flow(sim) => sim.render_frame(device, queue, surface_view),
+            SimulationType::Wanderers(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
@@ -297,6 +313,9 @@ impl Simulation for SimulationType {
                 simulation.render_frame_static(device, queue, surface_view)
             }
             SimulationType::Flow(sim) => sim.render_frame_static(device, queue, surface_view),
+            SimulationType::Wanderers(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
@@ -317,6 +336,7 @@ impl Simulation for SimulationType {
             }
             SimulationType::Ecosystem(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Flow(sim) => sim.resize(device, queue, new_config),
+            SimulationType::Wanderers(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
         }
     }
@@ -342,6 +362,9 @@ impl Simulation for SimulationType {
                 simulation.update_setting(setting_name, value, device, queue)
             }
             SimulationType::Flow(sim) => sim.update_setting(setting_name, value, device, queue),
+            SimulationType::Wanderers(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
             }
@@ -355,6 +378,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.get_settings(),
             SimulationType::Ecosystem(simulation) => simulation.get_settings(),
             SimulationType::Flow(sim) => sim.get_settings(),
+            SimulationType::Wanderers(simulation) => simulation.get_settings(),
             SimulationType::MainMenu(simulation) => simulation.get_settings(),
         }
     }
@@ -366,6 +390,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.get_state(),
             SimulationType::Ecosystem(simulation) => simulation.get_state(),
             SimulationType::Flow(sim) => sim.get_state(),
+            SimulationType::Wanderers(simulation) => simulation.get_state(),
             SimulationType::MainMenu(simulation) => simulation.get_state(),
         }
     }
@@ -394,6 +419,9 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => {
                 sim.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }
+            SimulationType::Wanderers(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }
@@ -419,6 +447,9 @@ impl Simulation for SimulationType {
                 simulation.handle_mouse_release(mouse_button, queue)
             }
             SimulationType::Flow(sim) => sim.handle_mouse_release(mouse_button, queue),
+            SimulationType::Wanderers(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_release(mouse_button, queue)
             }
@@ -432,6 +463,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::Ecosystem(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::Flow(sim) => sim.pan_camera(delta_x, delta_y),
+            SimulationType::Wanderers(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::MainMenu(simulation) => simulation.pan_camera(delta_x, delta_y),
         }
     }
@@ -443,6 +475,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.zoom_camera(delta),
             SimulationType::Ecosystem(simulation) => simulation.zoom_camera(delta),
             SimulationType::Flow(sim) => sim.zoom_camera(delta),
+            SimulationType::Wanderers(simulation) => simulation.zoom_camera(delta),
             SimulationType::MainMenu(simulation) => simulation.zoom_camera(delta),
         }
     }
@@ -462,6 +495,9 @@ impl Simulation for SimulationType {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
             SimulationType::Flow(sim) => sim.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
+            SimulationType::Wanderers(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
@@ -475,6 +511,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.reset_camera(),
             SimulationType::Ecosystem(simulation) => simulation.reset_camera(),
             SimulationType::Flow(sim) => sim.reset_camera(),
+            SimulationType::Wanderers(simulation) => simulation.reset_camera(),
             SimulationType::MainMenu(simulation) => simulation.reset_camera(),
         }
     }
@@ -486,6 +523,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.get_camera_state(),
             SimulationType::Ecosystem(simulation) => simulation.get_camera_state(),
             SimulationType::Flow(sim) => sim.get_camera_state(),
+            SimulationType::Wanderers(simulation) => simulation.get_camera_state(),
             SimulationType::MainMenu(simulation) => simulation.get_camera_state(),
         }
     }
@@ -497,6 +535,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.save_preset(preset_name),
             SimulationType::Ecosystem(simulation) => simulation.save_preset(preset_name),
             SimulationType::Flow(sim) => sim.save_preset(preset_name),
+            SimulationType::Wanderers(simulation) => simulation.save_preset(preset_name),
             SimulationType::MainMenu(simulation) => simulation.save_preset(preset_name),
         }
     }
@@ -508,6 +547,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::Ecosystem(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::Flow(sim) => sim.load_preset(preset_name, queue),
+            SimulationType::Wanderers(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::MainMenu(simulation) => simulation.load_preset(preset_name, queue),
         }
     }
@@ -532,6 +572,9 @@ impl Simulation for SimulationType {
                 simulation.apply_settings(settings, device, queue)
             }
             SimulationType::Flow(sim) => sim.apply_settings(settings, device, queue),
+            SimulationType::Wanderers(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
             SimulationType::MainMenu(simulation) => {
                 simulation.apply_settings(settings, device, queue)
             }
@@ -551,6 +594,7 @@ impl Simulation for SimulationType {
             }
             SimulationType::Ecosystem(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::Flow(sim) => sim.reset_runtime_state(device, queue),
+            SimulationType::Wanderers(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
@@ -562,6 +606,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.toggle_gui(),
             SimulationType::Ecosystem(simulation) => simulation.toggle_gui(),
             SimulationType::Flow(sim) => sim.toggle_gui(),
+            SimulationType::Wanderers(simulation) => simulation.toggle_gui(),
             SimulationType::MainMenu(simulation) => simulation.toggle_gui(),
         }
     }
@@ -573,6 +618,7 @@ impl Simulation for SimulationType {
             SimulationType::ParticleLife(simulation) => simulation.is_gui_visible(),
             SimulationType::Ecosystem(simulation) => simulation.is_gui_visible(),
             SimulationType::Flow(sim) => sim.is_gui_visible(),
+            SimulationType::Wanderers(simulation) => simulation.is_gui_visible(),
             SimulationType::MainMenu(simulation) => simulation.is_gui_visible(),
         }
     }
@@ -590,6 +636,7 @@ impl Simulation for SimulationType {
             }
             SimulationType::Ecosystem(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::Flow(sim) => sim.randomize_settings(device, queue),
+            SimulationType::Wanderers(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
         }
     }

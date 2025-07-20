@@ -1,6 +1,6 @@
 [package]
 name = "Vizzy"
-version = "0.4.1"
+version = "0.5.0"
 description = "A desktop application featuring interactive simulations built with Tauri, Svelte, and WebGPU."
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"
@@ -20,6 +20,7 @@ include_dir = "0.7"
 lazy_static = "1.5.0"
 noise = "0.8"
 rand = "0.9.1"
+rapier2d = { version = "0.26.1", features = ["simd-stable"] }
 serde = "1.0.219"
 serde_json = "1.0"
 tauri = { version = "2", features = ["macos-private-api"] }
@@ -37,3 +38,5 @@ wgpu = "24"
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
+# Enable nightly SIMD features for better performance
+simd-nightly = []

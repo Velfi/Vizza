@@ -51,3 +51,28 @@ cargo tauri dev
 ```bash
 cargo tauri build
 ```
+
+## Performance Optimizations
+
+Vizzy includes several performance optimizations for smooth simulation performance:
+
+### SIMD Acceleration
+
+- **Rapier Physics**: Enabled with `simd-stable`, `simd-nightly`, and `wasm-simd` features
+- **Compiler Optimizations**: Native CPU targeting with AVX2, FMA, and BMI2 instructions
+- **Link-time Optimization**: Fat LTO for maximum performance in release builds
+
+### Algorithm Optimizations
+
+- **Spatial Hashing**: O(n) particle density calculation instead of O(n²)
+- **Batch Processing**: Optimized particle synchronization with cache-friendly memory access
+- **Reduced Physics Iterations**: Balanced performance and stability for real-time simulation
+
+### Build Configuration
+
+The project uses optimized build settings in `.cargo/config.toml`:
+
+- Native CPU targeting for maximum SIMD utilization
+- Link-time optimization for cross-module optimization
+- Reduced debug information in release builds
+- Optimized code generation units for better parallel compilation

@@ -398,16 +398,11 @@
           <div class="settings-grid">
             <div class="setting-item">
               <span class="setting-label">Gradient Type:</span>
-              <select
-                id="gradientType"
+              <Selector
+                options={['disabled', 'radial', 'linear', 'spiral']}
                 bind:value={settings.gradient_type}
                 on:change={handleGradientType}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="radial">Radial</option>
-                <option value="linear">Linear</option>
-                <option value="spiral">Spiral</option>
-              </select>
+              />
             </div>
             {#if settings.gradient_type !== 'disabled'}
               <div class="setting-item">
@@ -506,6 +501,7 @@
   import Button from './components/shared/Button.svelte';
   import AgentCountInput from './components/slime-mold/AgentCountInput.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
+  import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -1100,8 +1096,7 @@
     margin-bottom: 0.5rem;
   }
 
-  input[type='number'],
-  select {
+  input[type='number'] {
     width: 100%;
     padding: 0.5rem;
     border: 1px solid #ccc;
@@ -1177,7 +1172,6 @@
     border-bottom: none;
   }
 
-  .setting-item select,
   .setting-item input[type='number'] {
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);

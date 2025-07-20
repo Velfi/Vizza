@@ -1,0 +1,16 @@
+[build]
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "link-arg=-Wl,-O3",
+]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+strip = true
+
+[profile.dev]
+opt-level = 1
+debug = false 

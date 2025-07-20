@@ -25,6 +25,12 @@
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
+  {:else if currentMode === 'wanderers'}
+    <WanderersMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
   {:else if currentMode === 'ecosystem'}
     <EcosystemMode
       menuPosition={appSettings.menu_position}
@@ -53,6 +59,7 @@
   import GrayScottMode from './lib/GrayScottMode.svelte';
   import ParticleLifeMode from './lib/ParticleLifeMode.svelte';
   import FlowMode from './lib/FlowMode.svelte';
+  import WanderersMode from './lib/WanderersMode.svelte';
   import EcosystemMode from './lib/EcosystemMode.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
@@ -63,6 +70,7 @@
     | 'gray-scott'
     | 'particle-life'
     | 'flow'
+    | 'wanderers'
     | 'ecosystem'
     | 'how-to-play'
     | 'settings';

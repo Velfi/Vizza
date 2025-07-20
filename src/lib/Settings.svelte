@@ -149,11 +149,11 @@
           </div>
           <div class="setting-item">
             <span class="setting-label">Menu Position:</span>
-            <select bind:value={settings.menu_position} on:change={() => scheduleAutoSave()}>
-              <option value="left">Left</option>
-              <option value="middle">Middle</option>
-              <option value="right">Right</option>
-            </select>
+            <Selector
+              options={['left', 'middle', 'right']}
+              bind:value={settings.menu_position}
+              on:change={() => scheduleAutoSave()}
+            />
           </div>
         </div>
       </fieldset>
@@ -184,6 +184,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
+  import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -440,58 +441,6 @@
   .setting-item input[type='checkbox'] {
     width: auto;
     margin: 0;
-  }
-
-  .setting-item select {
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    font-family: inherit;
-    font-size: 0.875rem;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.6)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right 0.5rem center;
-    background-size: 1rem;
-    padding-right: 2rem;
-  }
-
-  .setting-item select:focus {
-    outline: none;
-    border-color: rgba(255, 255, 255, 0.5);
-    background-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .setting-item select:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-  }
-
-  .setting-item select option {
-    background: #2a2a2a;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .capture-size-button {
-    padding: 0.5rem 1rem;
-    background: rgba(100, 149, 237, 0.2);
-    border: 1px solid rgba(100, 149, 237, 0.4);
-    border-radius: 4px;
-    color: #6495ed;
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.3s ease;
-    font-size: 0.875rem;
-    white-space: nowrap;
-  }
-
-  .capture-size-button:hover {
-    background: rgba(100, 149, 237, 0.3);
-    border-color: rgba(100, 149, 237, 0.6);
   }
 
   /* Responsive design */

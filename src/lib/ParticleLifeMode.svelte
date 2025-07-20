@@ -1281,58 +1281,6 @@
 
 <style>
   /* Particle Life specific styles */
-
-  /* Loading Screen Styles */
-  .loading-screen {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
-    color: white;
-  }
-
-  .loading-content {
-    text-align: center;
-    max-width: 400px;
-    padding: 2rem;
-  }
-
-  .loading-spinner {
-    width: 60px;
-    height: 60px;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top: 4px solid #51cf66;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 2rem;
-  }
-
-  @keyframes spin {
-    0% {
-      transform: rotate(0deg);
-    }
-    100% {
-      transform: rotate(360deg);
-    }
-  }
-
-  .loading-content h2 {
-    margin: 0 0 1rem 0;
-    font-size: 1.5rem;
-    font-weight: 600;
-  }
-
-  .loading-content p {
-    margin: 0;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 1rem;
-  }
-
-  button {
-    height: 35px;
-  }
-
   .matrix-info {
     padding: 0.5rem;
     background: rgba(255, 255, 255, 0.05);
@@ -1399,29 +1347,5 @@
     .cursor-settings-header {
       font-size: 0.85rem;
     }
-  }
-
-  /* Clear trails button */
-  .clear-trails-button {
-    padding: 0.5rem 1rem;
-    background: rgba(239, 68, 68, 0.2);
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 0.9rem;
-    transition: all 0.3s ease;
-    width: 100%;
-  }
-
-  .clear-trails-button:hover {
-    background: rgba(239, 68, 68, 0.4);
-    border-color: rgba(239, 68, 68, 0.6);
-    transform: translateY(-1px);
-  }
-
-  .clear-trails-button:active {
-    transform: translateY(0);
   }
 </style>

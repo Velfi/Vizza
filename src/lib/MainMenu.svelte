@@ -60,6 +60,11 @@
       <p>Particle flow through vector fields</p>
     </button>
 
+    <button class="simulation-card" on:click={() => selectSimulation('wanderers')}>
+      <h3>Wanderers</h3>
+      <p>2D particle physics with gravity and phase transitions</p>
+    </button>
+
     <!-- <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
       <h3>Ecosystem</h3>
       <p>Artificial life with chemotaxis</p>

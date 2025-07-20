@@ -177,6 +177,7 @@ fn main() {
             commands::start_particle_life_simulation,
             commands::start_ecosystem_simulation,
             commands::start_flow_simulation,
+            commands::start_wanderers_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
             commands::destroy_simulation,
@@ -239,6 +240,8 @@ fn main() {
             commands::handle_mouse_release,
             commands::update_cursor_position_screen,
             commands::seed_random_noise,
+            commands::update_cursor_size,
+            commands::update_cursor_strength,
             // Utility commands
             commands::check_gpu_context_ready,
             commands::toggle_gui,

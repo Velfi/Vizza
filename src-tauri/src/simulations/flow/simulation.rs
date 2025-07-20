@@ -162,7 +162,7 @@ impl FlowModel {
                 let value = ValueNoise::new(noise_seed);
                 value.get(sample_pos)
             }
-            NoiseType::FBM => {
+            NoiseType::Fbm => {
                 let fbm = Fbm::<Perlin>::new(noise_seed)
                     .set_octaves(6)
                     .set_frequency(1.0)
@@ -220,7 +220,7 @@ impl FlowModel {
         };
 
         // Create flow direction from noise value
-        let angle = noise_value * 6.28318530718; // 2 * PI
+        let angle = noise_value * std::f64::consts::TAU;
         [angle.cos() as f32, angle.sin() as f32]
     }
 
@@ -1125,8 +1125,8 @@ impl Simulation for FlowModel {
             compute_pass.set_pipeline(&self.trail_decay_diffusion_pipeline);
             compute_pass.set_bind_group(0, &self.trail_decay_diffusion_bind_group, &[]);
             compute_pass.dispatch_workgroups(
-                (self.trail_map_width + 15) / 16,
-                (self.trail_map_height + 15) / 16,
+                self.trail_map_width.div_ceil(16),
+                self.trail_map_height.div_ceil(16),
                 1,
             );
         }
@@ -1148,7 +1148,7 @@ impl Simulation for FlowModel {
             compute_pass.set_bind_group(0, &self.particle_update_bind_group, &[]);
             // Use max_particles for compute dispatch (1 million particles)
             let active_particles = self.particles.len() as u32;
-            compute_pass.dispatch_workgroups((active_particles + 63) / 64, 1, 1);
+            compute_pass.dispatch_workgroups(active_particles.div_ceil(64), 1, 1);
         }
 
         queue.submit(std::iter::once(compute_encoder.finish()));
@@ -1557,7 +1557,7 @@ impl Simulation for FlowModel {
                         "OpenSimplex" => NoiseType::OpenSimplex,
                         "Worley" => NoiseType::Worley,
                         "Value" => NoiseType::Value,
-                        "FBM" => NoiseType::FBM,
+                        "FBM" => NoiseType::Fbm,
                         "FBMBillow" => NoiseType::FBMBillow,
                         "FBMClouds" => NoiseType::FBMClouds,
                         "FBMRidged" => NoiseType::FBMRidged,
@@ -1865,11 +1865,11 @@ impl Simulation for FlowModel {
                 for _ in 0..initial_particle_limit {
                     // Create particles in a small area around the cursor
                     let radius = 0.05; // Small radius around cursor
-                    let angle = rng.random_range(0.0..2.0 * 3.14159);
+                    let angle = rng.random_range(0.0..std::f32::consts::TAU);
                     let distance = rng.random_range(0.0..radius);
 
-                    let x = world_x + (angle as f32).cos() * distance;
-                    let y = world_y + (angle as f32).sin() * distance;
+                    let x = world_x + angle.cos() * distance;
+                    let y = world_y + angle.sin() * distance;
                     let age = 0.0; // Start fresh
 
                     // Generate random color from LUT

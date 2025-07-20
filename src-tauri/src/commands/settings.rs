@@ -10,6 +10,12 @@ pub async fn update_simulation_setting(
     setting_name: String,
     value: serde_json::Value,
 ) -> Result<String, String> {
+    tracing::debug!(
+        "update_simulation_setting called with setting_name: '{}', value: {:?}",
+        setting_name,
+        value
+    );
+
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
