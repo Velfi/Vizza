@@ -14,8 +14,6 @@ use crate::simulation::preset_manager::{Preset, SlimeMoldPresetManager};
 pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
     use settings::{GradientType, Settings};
 
-    tracing::info!("Initializing slime mold presets...");
-
     // Add built-in presets
     preset_manager.add_preset(Preset::new("Default".to_string(), Settings::default()));
     preset_manager.add_preset(Preset::new(

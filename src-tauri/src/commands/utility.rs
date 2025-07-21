@@ -1,6 +1,6 @@
 use crate::simulation::SimulationManager;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
 
 #[tauri::command]
 pub async fn check_gpu_context_ready(
@@ -51,5 +51,33 @@ pub async fn set_fps_limit(
     } else {
         tracing::debug!("FPS limit disabled");
         Ok("FPS limit disabled".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn toggle_fullscreen(app: tauri::AppHandle) -> Result<String, String> {
+    // Get the main window
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
+
+    // Check current fullscreen state
+    let is_fullscreen = window
+        .is_fullscreen()
+        .map_err(|e| format!("Failed to get fullscreen state: {}", e))?;
+
+    // Toggle fullscreen state
+    if is_fullscreen {
+        window
+            .set_fullscreen(false)
+            .map_err(|e| format!("Failed to exit fullscreen: {}", e))?;
+        tracing::debug!("Exited fullscreen mode");
+        Ok("Exited fullscreen mode".to_string())
+    } else {
+        window
+            .set_fullscreen(true)
+            .map_err(|e| format!("Failed to enter fullscreen: {}", e))?;
+        tracing::debug!("Entered fullscreen mode");
+        Ok("Entered fullscreen mode".to_string())
     }
 }

@@ -11,8 +11,6 @@ use crate::simulation::preset_manager::{GrayScottPresetManager, Preset};
 pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
     use settings::{NutrientPattern, Settings};
 
-    tracing::info!("Initializing Gray-Scott presets...");
-
     // Add default presets
     let all_presets = [
         ("Brain Coral", (0.0545, 0.062)),

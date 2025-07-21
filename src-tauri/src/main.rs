@@ -247,6 +247,7 @@ fn main() {
             commands::toggle_gui,
             commands::get_gui_state,
             commands::set_fps_limit,
+            commands::toggle_fullscreen,
             // Reset commands
             commands::reset_trails,
             commands::reset_agents,

@@ -1,3 +1,22 @@
+//! # Wanderers State Module
+//! 
+//! Manages the runtime state of the Wanderers simulation, tracking transient data
+//! that changes during execution but is not part of the persistent configuration.
+//! This includes user interactions, camera positioning, and UI state.
+//! 
+//! ## State Philosophy
+//! 
+//! The state represents the current condition of the simulation at any moment.
+//! Unlike settings, which define how the simulation behaves, state captures
+//! what is happening right now. This separation allows for proper preset
+//! management and state restoration when simulations restart.
+//! 
+//! ## State Categories
+//! 
+//! The runtime state encompasses user interactions, visual presentation,
+//! and simulation execution status, providing the context needed for
+//! responsive and intuitive user experience.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7,10 +26,11 @@ pub struct State {
 
     /// Current mouse interaction state
     pub mouse_pressed: bool,
-    /// 0 = no mouse, 1 = grab (left), 2 = repel (right)
+    /// 0 = no mouse, 1 = attract (left click)
     pub mouse_mode: u32,
     pub mouse_position: [f32; 2],
-    pub mouse_previous_position: [f32; 2],
+    pub mouse_delta: [f32; 2],
+    pub mouse_screen_position: [f32; 2], // Raw screen coordinates from frontend
 
     /// Cursor interaction parameters
     pub cursor_size: f32,
@@ -42,9 +62,10 @@ impl Default for State {
             mouse_pressed: false,
             mouse_mode: 0,
             mouse_position: [0.0, 0.0], // Center of [-1,1] space
-            mouse_previous_position: [0.0, 0.0],
+            mouse_delta: [0.0, 0.0],
+            mouse_screen_position: [0.0, 0.0], // Raw screen coordinates
             cursor_size: 0.35,
-            cursor_strength: 0.02,
+            cursor_strength: 0.1, // Increased from 0.02 for more visible mouse interaction
             grabbed_particles: Vec::new(),
             current_lut_name: "MATPLOTLIB_viridis".to_string(),
             lut_reversed: false,
@@ -63,7 +84,9 @@ impl State {
         self.mouse_pressed = false;
         self.mouse_mode = 0;
         self.mouse_position = [0.0, 0.0]; // Center of [-1,1] space
-        self.mouse_previous_position = [0.0, 0.0];
+        self.mouse_delta = [0.0, 0.0];
+        self.mouse_screen_position = [0.0, 0.0];
+        self.grabbed_particles.clear();
         self.gui_visible = true;
         self.camera_position = [0.0, 0.0];
         self.camera_zoom = 1.0;
@@ -82,9 +105,10 @@ impl State {
         self.mouse_pressed = false;
         self.mouse_mode = 0;
         self.mouse_position = [0.0, 0.0]; // Center of [-1,1] space
-        self.mouse_previous_position = [0.0, 0.0];
+        self.mouse_delta = [0.0, 0.0];
+        self.mouse_screen_position = [0.0, 0.0];
+        self.grabbed_particles.clear();
         self.cursor_size = 0.1;
         self.cursor_strength = 0.1;
-        self.grabbed_particles.clear();
     }
 }

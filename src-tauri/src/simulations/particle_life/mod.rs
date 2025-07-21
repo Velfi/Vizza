@@ -11,8 +11,6 @@ use crate::simulation::preset_manager::{ParticleLifePresetManager, Preset};
 pub fn init_presets(preset_manager: &mut ParticleLifePresetManager) {
     use settings::Settings;
 
-    tracing::info!("Initializing Particle Life presets...");
-
     // Add default presets
     let all_presets = vec![("Default", Settings::default())];
 

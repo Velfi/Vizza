@@ -1,3 +1,23 @@
+//! # Simulation Traits Module
+//! 
+//! Defines the core interfaces that unify all simulations in the Vizzy application.
+//! This module establishes the contract that ensures consistent behavior across
+//! different simulation types while preserving their unique characteristics.
+//! 
+//! ## Design Philosophy
+//! 
+//! The trait system is designed to provide a unified interface for simulation
+//! management while maintaining the flexibility needed for diverse simulation
+//! types. This approach enables polymorphic handling of simulations while
+//! ensuring each can implement its unique behavior and requirements.
+//! 
+//! ## Core Concepts
+//! 
+//! The trait system emphasizes the distinction between configuration and
+//! runtime state, enabling proper preset management and state restoration.
+//! It also provides comprehensive user interaction capabilities that work
+//! consistently across all simulation types.
+
 use crate::error::SimulationResult;
 use serde_json::Value;
 use std::sync::Arc;

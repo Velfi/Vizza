@@ -116,7 +116,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleGui} on:togglePause={togglePause} />
+  <CameraControls enabled={true} on:toggleGui={toggleGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -332,6 +332,8 @@
       console.error('Failed to toggle GUI:', error);
     }
   }
+
+
 
   // Auto-hide functionality
   function startAutoHideTimer() {

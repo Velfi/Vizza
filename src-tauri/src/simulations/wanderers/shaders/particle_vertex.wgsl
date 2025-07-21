@@ -3,8 +3,10 @@ struct Particle {
     velocity: vec2<f32>,
     mass: f32,
     radius: f32,
-    merged_count: u32,
+    clump_id: u32,
     density: f32,
+    grabbed: u32,
+    _pad0: u32,
     previous_position: vec2<f32>,
 }
 
@@ -44,18 +46,18 @@ fn get_lut_color(index: u32) -> vec3<f32> {
 }
 
 fn get_particle_color(particle: Particle) -> vec3<f32> {
-    // Color based on mass and merge count
+    // Color based on mass and clump id
     // Scale mass (expected ~0.1-0.3) into 0-1 range for LUT selection
     let mass_factor = clamp(particle.mass * 3.33, 0.0, 1.0);
-    let merge_factor = clamp(f32(particle.merged_count) / 5.0, 0.0, 1.0);
+    let clump_factor = clamp(f32(particle.clump_id) / 5.0, 0.0, 1.0);
     
     // Use LUT based on mass (smaller particles = blue, larger = red)
     let mass_index = u32(mass_factor * 255.0);
     let base_color = get_lut_color(mass_index);
     
-    // Add brightness for merged particles
-    let merged_brightness = vec3<f32>(1.0, 1.0, 1.0) * merge_factor * 0.3;
-    return base_color + merged_brightness;
+    // Add brightness for clumped particles
+    let clumped_brightness = vec3<f32>(1.0, 1.0, 1.0) * clump_factor * 0.3;
+    return base_color + clumped_brightness;
 }
 
 @vertex

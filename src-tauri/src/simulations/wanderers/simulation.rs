@@ -1,11 +1,25 @@
+//! # Wanderers Simulation Implementation
+//! 
+//! The core engine that brings the Wanderers particle physics simulation to life.
+//! This module orchestrates the interaction between user input, GPU computation,
+//! and visual rendering to create a responsive and engaging simulation experience.
+//! 
+//! ## Simulation Philosophy
+//! 
+//! The simulation balances computational performance with user interactivity.
+//! By leveraging GPU parallelization for physics calculations while keeping
+//! user interface responsive on the CPU, it creates a seamless experience
+//! where users can explore and experiment with complex particle behaviors.
+//! 
+//! ## System Architecture
+//! 
+//! The simulation uses a hybrid architecture that separates concerns between
+//! configuration management, real-time computation, and user interaction.
+//! This design enables both high-performance physics simulation and
+//! intuitive user control over the system's behavior.
+
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
-use rapier2d::dynamics::ImpulseJointSet;
-use rapier2d::dynamics::IslandManager;
-use rapier2d::dynamics::MultibodyJointSet;
-use rapier2d::pipeline::PhysicsPipeline;
-use rapier2d::pipeline::QueryPipeline;
-use rapier2d::prelude::*;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -21,9 +35,41 @@ pub struct Particle {
     pub velocity: [f32; 2],
     pub mass: f32,
     pub radius: f32,
-    pub clump_id: u32,               // ID of the clump this particle belongs to
-    pub density: f32,                // Number of nearby particles
-    pub previous_position: [f32; 2], // For Verlet integration
+    pub clump_id: u32,
+    pub density: f32,
+    pub grabbed: u32,
+    pub _pad0: u32,
+    pub previous_position: [f32; 2], // Kept for compatibility
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+pub struct PhysicsParams {
+    pub mouse_position: [f32; 2],
+    pub mouse_delta: [f32; 2],
+    pub particle_count: u32,
+    pub gravitational_constant: f32,
+    pub energy_damping: f32,
+    pub collision_damping: f32,
+    pub dt: f32,
+    pub gravity_softening: f32,
+    pub interaction_radius: f32,
+    pub mouse_pressed: u32,
+    pub mouse_mode: u32,
+    pub cursor_size: f32,
+    pub cursor_strength: f32,
+    pub particle_size: f32, // Calculated particle size for consistent collision and rendering
+    pub aspect_ratio: f32,  // Screen aspect ratio for collision correction
+    pub long_range_gravity_strength: f32, // Controls orbital motion strength
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+pub struct DensityParams {
+    pub particle_count: u32,
+    pub density_radius: f32,
+    pub coloring_mode: u32,
+    pub _padding: u32,
 }
 
 #[repr(C)]
@@ -32,217 +78,40 @@ pub struct RenderParams {
     pub particle_size: f32,
     pub screen_width: f32,
     pub screen_height: f32,
-    pub coloring_mode: u32, // 0 = density, 1 = velocity
+    pub coloring_mode: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct BackgroundParams {
-    pub background_type: u32,            // 0 = black, 1 = white, 2 = density
-    pub density_texture_resolution: u32, // Add texture resolution for proper sampling
+    pub background_type: u32,
+    pub density_texture_resolution: u32,
 }
 
-pub struct RapierPhysics {
-    pub bodies: RigidBodySet,
-    pub colliders: ColliderSet,
-    pub physics_pipeline: PhysicsPipeline,
-    pub island_manager: IslandManager,
-    pub broad_phase: BroadPhaseMultiSap,
-    pub narrow_phase: NarrowPhase,
-    pub impulse_joints: ImpulseJointSet,
-    pub multibody_joints: MultibodyJointSet,
-    pub ccd_solver: CCDSolver,
-    pub query_pipeline: QueryPipeline,
-    pub gravity: Vector<f32>,
-    pub integration_parameters: IntegrationParameters,
-    pub body_handles: Vec<RigidBodyHandle>,
-}
-
-impl RapierPhysics {
-    pub fn new(_gravitational_constant: f32) -> Self {
-        let integration_parameters = IntegrationParameters {
-            dt: 1.0 / 120.0, // Higher frequency for better collision detection
-            ..Default::default()
-        };
-
-        Self {
-            bodies: RigidBodySet::new(),
-            colliders: ColliderSet::new(),
-            physics_pipeline: PhysicsPipeline::new(),
-            island_manager: IslandManager::new(),
-            broad_phase: BroadPhaseMultiSap::new(),
-            narrow_phase: NarrowPhase::new(),
-            ccd_solver: CCDSolver::new(),
-            impulse_joints: ImpulseJointSet::new(),
-            multibody_joints: MultibodyJointSet::new(),
-            query_pipeline: QueryPipeline::new(),
-            gravity: vector![0.0, 0.0], // No built-in gravity, using mutual forces instead
-            integration_parameters,
-            body_handles: Vec::new(),
-        }
-    }
-
-    pub fn create_boundary_walls(&mut self) {
-        let wall_thickness = 0.05; // Thinner walls
-        let wall_restitution = 0.98; // Very bouncy walls
-        let wall_friction = 0.01; // Very low friction to prevent sticking
-
-        // Bottom wall
-        let bottom_wall = RigidBodyBuilder::fixed()
-            .translation(vector![0.0, -1.0 - wall_thickness / 2.0])
-            .build();
-        let bottom_wall_handle = self.bodies.insert(bottom_wall);
-        let bottom_collider = ColliderBuilder::cuboid(1.0, wall_thickness / 2.0)
-            .restitution(wall_restitution)
-            .friction(wall_friction)
-            .build();
-        self.colliders
-            .insert_with_parent(bottom_collider, bottom_wall_handle, &mut self.bodies);
-
-        // Top wall
-        let top_wall = RigidBodyBuilder::fixed()
-            .translation(vector![0.0, 1.0 + wall_thickness / 2.0])
-            .build();
-        let top_wall_handle = self.bodies.insert(top_wall);
-        let top_collider = ColliderBuilder::cuboid(1.0, wall_thickness / 2.0)
-            .restitution(wall_restitution)
-            .friction(wall_friction)
-            .build();
-        self.colliders
-            .insert_with_parent(top_collider, top_wall_handle, &mut self.bodies);
-
-        // Left wall
-        let left_wall = RigidBodyBuilder::fixed()
-            .translation(vector![-1.0 - wall_thickness / 2.0, 0.0])
-            .build();
-        let left_wall_handle = self.bodies.insert(left_wall);
-        let left_collider = ColliderBuilder::cuboid(wall_thickness / 2.0, 1.0)
-            .restitution(wall_restitution)
-            .friction(wall_friction)
-            .build();
-        self.colliders
-            .insert_with_parent(left_collider, left_wall_handle, &mut self.bodies);
-
-        // Right wall
-        let right_wall = RigidBodyBuilder::fixed()
-            .translation(vector![1.0 + wall_thickness / 2.0, 0.0])
-            .build();
-        let right_wall_handle = self.bodies.insert(right_wall);
-        let right_collider = ColliderBuilder::cuboid(wall_thickness / 2.0, 1.0)
-            .restitution(wall_restitution)
-            .friction(wall_friction)
-            .build();
-        self.colliders
-            .insert_with_parent(right_collider, right_wall_handle, &mut self.bodies);
-    }
-
-    pub fn create_particle_bodies(
-        &mut self,
-        particles: &[Particle],
-        particle_size: f32,
-        energy_damping: f32,
-        collision_damping: f32,
-    ) {
-        self.body_handles.clear();
-        self.body_handles.reserve(particles.len());
-
-        for p in particles {
-            let rb = RigidBodyBuilder::dynamic()
-                .translation(vector![p.position[0], p.position[1]])
-                .linvel(vector![p.velocity[0], p.velocity[1]])
-                .lock_rotations() // Keep particles as circles, no rotation
-                .linear_damping(1.0 - energy_damping)
-                .build();
-            let rb_handle = self.bodies.insert(rb);
-
-            // Create circular collider with proper collision properties
-            let collider = ColliderBuilder::ball(particle_size)
-                .restitution(1.0 - collision_damping)
-                .friction(0.05) // Lower friction for smoother particle movement
-                .density(1.0) // Uniform density for all particles
-                .sensor(false) // Make sure it's not a sensor
-                .build();
-            self.colliders
-                .insert_with_parent(collider, rb_handle, &mut self.bodies);
-            self.body_handles.push(rb_handle);
-        }
-    }
-
-    pub fn step(&mut self) {
-        self.physics_pipeline.step(
-            &self.gravity,
-            &self.integration_parameters,
-            &mut self.island_manager,
-            &mut self.broad_phase,
-            &mut self.narrow_phase,
-            &mut self.bodies,
-            &mut self.colliders,
-            &mut self.impulse_joints,
-            &mut self.multibody_joints,
-            &mut self.ccd_solver,
-            Some(&mut self.query_pipeline),
-            &(),
-            &(),
-        );
-    }
-
-    pub fn update_gravity(&mut self, _gravitational_constant: f32) {
-        // Disable Rapier's built-in gravity since we're using mutual gravitational forces
-        self.gravity = vector![0.0, 0.0];
-    }
-
-    pub fn update_energy_damping(&mut self, energy_damping: f32) {
-        for (_, rb) in self.bodies.iter_mut() {
-            rb.set_linear_damping(1.0 - energy_damping);
-        }
-    }
-
-    pub fn update_collision_damping(&mut self, collision_damping: f32) {
-        for (_, collider) in self.colliders.iter_mut() {
-            collider.set_restitution(1.0 - collision_damping);
-        }
-    }
-
-    pub fn reset(&mut self, _gravitational_constant: f32) {
-        self.bodies = RigidBodySet::new();
-        self.colliders = ColliderSet::new();
-        self.body_handles.clear();
-
-        // Reset physics pipeline components to clear stale collision data
-        self.island_manager = IslandManager::new();
-        self.broad_phase = BroadPhaseMultiSap::new();
-        self.narrow_phase = NarrowPhase::new();
-        self.ccd_solver = CCDSolver::new();
-        self.impulse_joints = ImpulseJointSet::new();
-        self.multibody_joints = MultibodyJointSet::new();
-        self.query_pipeline = QueryPipeline::new();
-
-        self.gravity = vector![0.0, 0.0]; // No built-in gravity, using mutual forces instead
-        self.integration_parameters = IntegrationParameters {
-            dt: 1.0 / 120.0,
-            ..Default::default()
-        };
-
-        // Recreate boundary walls
-        self.create_boundary_walls();
-    }
-}
+// GPU-based physics implementation - no Rapier needed
 
 pub struct WanderersModel {
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
+    pub physics_params_buffer: wgpu::Buffer,
+    pub density_params_buffer: wgpu::Buffer,
     pub render_params_buffer: wgpu::Buffer,
     pub background_params_buffer: wgpu::Buffer,
     pub lut_buffer: wgpu::Buffer,
+
+    // Compute pipelines
+    pub physics_compute_pipeline: wgpu::ComputePipeline,
+    pub density_compute_pipeline: wgpu::ComputePipeline,
+
+    // Compute bind groups
+    pub physics_bind_group: wgpu::BindGroup,
+    pub density_bind_group: wgpu::BindGroup,
 
     // Render pipeline
     pub render_pipeline: wgpu::RenderPipeline,
     pub render_bind_group: wgpu::BindGroup,
     pub background_pipeline: wgpu::RenderPipeline,
     pub background_bind_group: wgpu::BindGroup,
-
-    // Physics engine
-    pub rapier: RapierPhysics,
 
     // Simulation state
     pub particles: Vec<Particle>,
@@ -253,6 +122,10 @@ pub struct WanderersModel {
 
     // Surface configuration
     pub surface_config: SurfaceConfiguration,
+
+    // Performance optimization
+    pub frame_count: u64,
+    pub density_update_frequency: u64,
 }
 
 impl WanderersModel {
@@ -338,15 +211,53 @@ impl WanderersModel {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        // Initialize Rapier physics world
-        let mut rapier = RapierPhysics::new(settings.gravitational_constant);
-        rapier.create_boundary_walls();
-        rapier.create_particle_bodies(
-            &particles,
-            settings.particle_size,
-            settings.energy_damping,
-            settings.collision_damping,
-        );
+        // Create physics params buffer
+        // For now, use the original particle size directly to restore collision functionality
+        // TODO: Refine this to match exact visual size calculation
+        let collision_particle_size = settings.particle_size;
+
+        let physics_params = PhysicsParams {
+            mouse_position: [0.0, 0.0],
+            mouse_delta: [0.0, 0.0],
+            particle_count: settings.particle_count,
+            gravitational_constant: settings.gravitational_constant,
+            energy_damping: settings.energy_damping,
+            collision_damping: settings.collision_damping,
+            dt: 1.0 / 60.0, // 60 FPS target
+            gravity_softening: settings.gravity_softening,
+            interaction_radius: 0.5, // Limit interaction range for performance
+            mouse_pressed: 0,
+            mouse_mode: 0,
+            cursor_size: state.cursor_size,
+            cursor_strength: state.cursor_strength,
+            particle_size: collision_particle_size,
+            aspect_ratio: surface_config.width as f32 / surface_config.height as f32,
+            long_range_gravity_strength: 0.0, // Initialize new field
+        };
+
+        let physics_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Wanderers Physics Params Buffer"),
+            contents: bytemuck::cast_slice(&[physics_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create density params buffer
+        let density_params = DensityParams {
+            particle_count: settings.particle_count,
+            density_radius: settings.density_radius,
+            coloring_mode: if settings.coloring_mode == "velocity" {
+                1
+            } else {
+                0
+            },
+            _padding: 0,
+        };
+
+        let density_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Wanderers Density Params Buffer"),
+            contents: bytemuck::cast_slice(&[density_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create render pipeline
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -449,6 +360,109 @@ impl WanderersModel {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+        });
+
+        // Create compute shaders
+        let physics_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Wanderers Physics Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::PHYSICS_COMPUTE_SHADER.into()),
+        });
+
+        let density_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Wanderers Density Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::DENSITY_COMPUTE_SHADER.into()),
+        });
+
+        // Create compute bind group layouts
+        let physics_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Wanderers Physics Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        // Create compute pipelines
+        let physics_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Wanderers Physics Compute Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Wanderers Physics Pipeline Layout"),
+                        bind_group_layouts: &[&physics_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &physics_shader,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
+
+        let density_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Wanderers Density Compute Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Wanderers Density Pipeline Layout"),
+                        bind_group_layouts: &[&physics_bind_group_layout], // Reuse same layout
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &density_shader,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
+
+        // Create compute bind groups
+        let physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Wanderers Physics Bind Group"),
+            layout: &physics_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: physics_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let density_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Wanderers Density Bind Group"),
+            layout: &physics_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: density_params_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -586,21 +600,28 @@ impl WanderersModel {
         });
 
         Ok(WanderersModel {
-            background_bind_group,
-            background_params_buffer,
-            background_pipeline,
-            camera,
-            lut_buffer,
-            lut_manager: Arc::new(lut_manager.clone()),
             particle_buffer,
-            particles,
-            rapier,
-            render_bind_group,
+            physics_params_buffer,
+            density_params_buffer,
             render_params_buffer,
+            background_params_buffer,
+            lut_buffer,
+            physics_compute_pipeline,
+            density_compute_pipeline,
+            physics_bind_group,
+            density_bind_group,
             render_pipeline,
+            render_bind_group,
+            background_pipeline,
+            background_bind_group,
+            particles,
             settings: settings.clone(),
             state,
+            camera,
+            lut_manager: Arc::new(lut_manager.clone()),
             surface_config: surface_config.clone(),
+            frame_count: 0,
+            density_update_frequency: 3, // Update density every 3 frames for performance
         })
     }
 
@@ -611,38 +632,61 @@ impl WanderersModel {
 
         if count == 1 {
             let mass = 1.0;
+            let radius_particle = settings.particle_size;
+            // Give single particle some initial motion
+            let velocity = [0.1, 0.1];
+            let dt = 0.016;
+            let prev_x = 0.0 - velocity[0] * dt;
+            let prev_y = 0.0 - velocity[1] * dt;
+
             particles.push(Particle {
                 position: [0.0, 0.0],
-                velocity: [0.0, 0.0],
+                velocity,
                 mass,
-                radius: 0.008,
+                radius: radius_particle,
                 clump_id: 0,
                 density: 0.0,
-                previous_position: [0.0, 0.0], // Stationary particle
+                grabbed: 0,
+                _pad0: 0,
+                previous_position: [prev_x, prev_y],
             });
         } else if count == 2 {
             // Place two particles side-by-side near the centre so both are visible
             let mass = 1.0;
+            let radius_particle = settings.particle_size;
             let offset = 0.02; // small horizontal separation in world units
+
+            // Give particles some initial motion
+            let velocity1 = [0.1, 0.05];
+            let velocity2 = [-0.1, -0.05];
+            let dt = 0.016;
+            let prev_x1 = -offset - velocity1[0] * dt;
+            let prev_y1 = 0.0 - velocity1[1] * dt;
+            let prev_x2 = offset - velocity2[0] * dt;
+            let prev_y2 = 0.0 - velocity2[1] * dt;
 
             particles.push(Particle {
                 position: [-offset, 0.0],
-                velocity: [0.0, 0.0],
+                velocity: velocity1,
                 mass,
-                radius: 0.008,
+                radius: radius_particle,
                 clump_id: 0,
                 density: 0.0,
-                previous_position: [-offset, 0.0], // Stationary particle
+                grabbed: 0,
+                _pad0: 0,
+                previous_position: [prev_x1, prev_y1],
             });
 
             particles.push(Particle {
                 position: [offset, 0.0],
-                velocity: [0.0, 0.0],
+                velocity: velocity2,
                 mass,
-                radius: 0.008,
+                radius: radius_particle,
                 clump_id: 0,
                 density: 0.0,
-                previous_position: [offset, 0.0], // Stationary particle
+                grabbed: 0,
+                _pad0: 0,
+                previous_position: [prev_x2, prev_y2],
             });
         } else {
             // Simple random placement for all particles
@@ -673,12 +717,116 @@ impl WanderersModel {
                     radius: radius_particle,
                     clump_id: 0, // All initial particles belong to clump 0
                     density: 0.0,
+                    grabbed: 0,
+                    _pad0: 0,
                     previous_position: [prev_x, prev_y],
                 });
             }
         }
 
         particles
+    }
+
+    pub fn step_physics(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        self.frame_count += 1;
+
+        // Update physics parameters
+        self.update_physics_params(queue);
+
+        // Dispatch physics compute shader
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Wanderers Physics Compute Encoder"),
+        });
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Wanderers Physics Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            compute_pass.set_pipeline(&self.physics_compute_pipeline);
+            compute_pass.set_bind_group(0, &self.physics_bind_group, &[]);
+
+            // Dispatch with optimal workgroup size
+            let workgroup_size = 64;
+            let num_workgroups =
+                self.settings.particle_count.div_ceil(workgroup_size);
+            compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
+        }
+
+        // Update density every few frames for performance
+        if self.frame_count % self.density_update_frequency == 0 {
+            self.update_density_params(queue);
+
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Wanderers Density Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            compute_pass.set_pipeline(&self.density_compute_pipeline);
+            compute_pass.set_bind_group(0, &self.density_bind_group, &[]);
+
+            let workgroup_size = 64;
+            let num_workgroups =
+                self.settings.particle_count.div_ceil(workgroup_size);
+            compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
+    fn update_physics_params(&self, queue: &Arc<Queue>) {
+        // For now, use the original particle size directly
+        let collision_particle_size = self.settings.particle_size;
+
+        let physics_params = PhysicsParams {
+            mouse_position: self.state.mouse_position,
+            mouse_delta: self.state.mouse_delta,
+            particle_count: self.settings.particle_count,
+            gravitational_constant: self.settings.gravitational_constant,
+            energy_damping: self.settings.energy_damping,
+            collision_damping: self.settings.collision_damping,
+            dt: 1.0 / 60.0,
+            gravity_softening: self.settings.gravity_softening,
+            interaction_radius: 0.5,
+            mouse_pressed: if self.state.mouse_pressed { 1 } else { 0 },
+            mouse_mode: self.state.mouse_mode,
+            cursor_size: self.state.cursor_size,
+            cursor_strength: self.state.cursor_strength,
+            particle_size: collision_particle_size,
+            aspect_ratio: self.surface_config.width as f32 / self.surface_config.height as f32,
+            long_range_gravity_strength: self.settings.long_range_gravity_strength,
+        };
+
+        queue.write_buffer(
+            &self.physics_params_buffer,
+            0,
+            bytemuck::cast_slice(&[physics_params]),
+        );
+    }
+
+    fn update_density_params(&self, queue: &Arc<Queue>) {
+        let density_params = DensityParams {
+            particle_count: self.settings.particle_count,
+            density_radius: self.settings.density_radius,
+            coloring_mode: if self.settings.coloring_mode == "velocity" {
+                1
+            } else {
+                0
+            },
+            _padding: 0,
+        };
+
+        queue.write_buffer(
+            &self.density_params_buffer,
+            0,
+            bytemuck::cast_slice(&[density_params]),
+        );
     }
 
     fn update_particle_count(
@@ -688,63 +836,37 @@ impl WanderersModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         let current_count = self.particles.len() as u32;
+        tracing::debug!(
+            "Updating particle count: {} -> {}",
+            current_count,
+            new_count
+        );
 
         if new_count > current_count {
             // Add particles
             let particles_to_add = new_count - current_count;
+            tracing::debug!("Adding {} particles", particles_to_add);
             let new_particles = Self::initialize_particles(particles_to_add, &self.settings);
-
-            // Add corresponding Rapier bodies and colliders
-            for p in &new_particles {
-                let rb = RigidBodyBuilder::dynamic()
-                    .translation(vector![p.position[0], p.position[1]])
-                    .linvel(vector![p.velocity[0], p.velocity[1]])
-                    .lock_rotations() // Keep particles as circles, no rotation
-                    .linear_damping(1.0 - self.settings.energy_damping)
-                    .build();
-                let rb_handle = self.rapier.bodies.insert(rb);
-
-                let collider = ColliderBuilder::ball(self.settings.particle_size)
-                    .restitution(1.0 - self.settings.collision_damping)
-                    .friction(0.05) // Lower friction for smoother particle movement
-                    .density(1.0) // Uniform density for all particles
-                    .sensor(false) // Make sure it's not a sensor
-                    .build();
-                self.rapier.colliders.insert_with_parent(
-                    collider,
-                    rb_handle,
-                    &mut self.rapier.bodies,
-                );
-
-                self.rapier.body_handles.push(rb_handle);
-            }
-
             self.particles.extend(new_particles);
         } else if new_count < current_count {
-            // Remove particles and corresponding Rapier bodies
+            // Remove particles
+            let particles_to_remove = current_count - new_count;
+            tracing::debug!("Removing {} particles", particles_to_remove);
             self.particles.truncate(new_count as usize);
-
-            // Remove excess rigid bodies and colliders
-            while self.rapier.body_handles.len() > new_count as usize {
-                if let Some(handle) = self.rapier.body_handles.pop() {
-                    self.rapier.bodies.remove(
-                        handle,
-                        &mut self.rapier.island_manager,
-                        &mut self.rapier.colliders,
-                        &mut self.rapier.impulse_joints,
-                        &mut self.rapier.multibody_joints,
-                        true,
-                    );
-                }
-            }
         }
 
         // Update settings
         self.settings.particle_count = new_count;
+        tracing::debug!("Updated settings.particle_count to {}", new_count);
 
         // Check if we need to recreate the buffer (if it's too small)
         let required_buffer_size = self.particles.len() * std::mem::size_of::<Particle>();
         if self.particle_buffer.size() < required_buffer_size as u64 {
+            tracing::debug!(
+                "Recreating particle buffer: current_size={}, required_size={}",
+                self.particle_buffer.size(),
+                required_buffer_size
+            );
             // Recreate the particle buffer with the new size
             self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Wanderers Particle Buffer"),
@@ -753,9 +875,14 @@ impl WanderersModel {
             });
 
             // Recreate the bind groups since the buffer changed
+            tracing::debug!("Recreating bind groups after buffer change");
             self.recreate_bind_groups(device)?;
         } else {
             // Update existing GPU buffer
+            tracing::debug!(
+                "Updating existing GPU buffer with {} particles",
+                self.particles.len()
+            );
             queue.write_buffer(
                 &self.particle_buffer,
                 0,
@@ -763,10 +890,74 @@ impl WanderersModel {
             );
         }
 
+        tracing::debug!(
+            "Particle count update complete: {} particles",
+            self.particles.len()
+        );
         Ok(())
     }
 
     fn recreate_bind_groups(&mut self, device: &Arc<Device>) -> SimulationResult<()> {
+        // Recreate compute bind group layouts
+        let physics_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Wanderers Physics Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        // Recreate physics compute bind group
+        self.physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Wanderers Physics Bind Group"),
+            layout: &physics_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.physics_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Recreate density compute bind group
+        self.density_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Wanderers Density Bind Group"),
+            layout: &physics_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.density_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         // Recreate render bind group
         let render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -896,185 +1087,6 @@ impl WanderersModel {
         );
     }
 
-    fn update_collider_sizes(&mut self) {
-        // Recreate all colliders with the new particle size
-        // First, collect all collider handles to remove
-        let mut collider_handles_to_remove = Vec::new();
-        for handle in &self.rapier.body_handles {
-            if let Some(rb) = self.rapier.bodies.get(*handle) {
-                collider_handles_to_remove.extend(rb.colliders());
-            }
-        }
-
-        // Remove all colliders
-        for collider_handle in collider_handles_to_remove {
-            self.rapier.colliders.remove(
-                collider_handle,
-                &mut self.rapier.island_manager,
-                &mut self.rapier.bodies,
-                true,
-            );
-        }
-
-        // Create new colliders with updated size and proper collision properties
-        for handle in self.rapier.body_handles.iter() {
-            if let Some(_rb) = self.rapier.bodies.get_mut(*handle) {
-                let collider = ColliderBuilder::ball(self.settings.particle_size)
-                    .restitution(1.0 - self.settings.collision_damping)
-                    .friction(0.05) // Lower friction for smoother particle movement
-                    .density(1.0) // Uniform density for all particles
-                    .sensor(false) // Make sure it's not a sensor
-                    .build();
-                self.rapier.colliders.insert_with_parent(
-                    collider,
-                    *handle,
-                    &mut self.rapier.bodies,
-                );
-            }
-        }
-    }
-
-    /// Step Rapier physics world and sync positions/velocities to self.particles
-    pub fn step_rapier_and_sync_particles(&mut self) {
-        // Apply mouse interaction forces before physics step
-        if self.state.mouse_pressed {
-            self.apply_mouse_interaction_forces();
-        }
-
-        // Apply mutual gravitational forces between particles
-        if self.settings.gravitational_constant > 0.0 {
-            self.apply_mutual_gravitational_forces();
-        }
-
-        // Step Rapier physics world with proper collision detection
-        self.rapier.step();
-
-        // Sync positions/velocities to self.particles using stored handles
-        for (i, &handle) in self.rapier.body_handles.iter().enumerate() {
-            if let Some(rb) = self.rapier.bodies.get(handle) {
-                let pos = rb.translation();
-                let vel = rb.linvel();
-
-                // More aggressive bounds checking to prevent physics engine panic
-                let clamped_pos = [pos.x.clamp(-0.99, 0.99), pos.y.clamp(-0.99, 0.99)];
-
-                // More aggressive velocity clamping
-                let clamped_vel = [vel.x.clamp(-3.0, 3.0), vel.y.clamp(-3.0, 3.0)];
-
-                // Update particle data
-                if i < self.particles.len() {
-                    self.particles[i].position = clamped_pos;
-                    self.particles[i].velocity = clamped_vel;
-                }
-            }
-        }
-
-        // Update Rapier bodies in a separate loop to avoid borrow conflicts
-        for &handle in &self.rapier.body_handles {
-            if let Some(rb) = self.rapier.bodies.get(handle) {
-                let pos = rb.translation();
-                let vel = rb.linvel();
-
-                let clamped_pos = [pos.x.clamp(-0.99, 0.99), pos.y.clamp(-0.99, 0.99)];
-
-                let clamped_vel = [vel.x.clamp(-3.0, 3.0), vel.y.clamp(-3.0, 3.0)];
-
-                // Always update Rapier body to ensure it stays within bounds
-                if let Some(rb_mut) = self.rapier.bodies.get_mut(handle) {
-                    rb_mut.set_translation(vector![clamped_pos[0], clamped_pos[1]], true);
-                    rb_mut.set_linvel(vector![clamped_vel[0], clamped_vel[1]], true);
-                }
-            }
-        }
-    }
-
-    /// Calculate particle density for coloring based on nearby particles using spatial hashing
-    fn calculate_particle_density(&mut self) {
-        // Scale density radius by particle size so that tightly packed particles
-        // always register as dense regardless of their absolute size
-        let scaled_density_radius =
-            self.settings.density_radius * (self.settings.particle_size / 0.01); // Normalize to reference size
-        let density_radius_sq = scaled_density_radius * scaled_density_radius;
-
-        // Use spatial hashing for O(n) performance instead of O(n²)
-        let cell_size = scaled_density_radius * 2.0;
-        let mut spatial_grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
-            std::collections::HashMap::new();
-
-        // Build spatial grid
-        for (i, particle) in self.particles.iter().enumerate() {
-            // Clamp positions to prevent integer overflow in cell calculation
-            let clamped_x = particle.position[0].clamp(-1000.0, 1000.0);
-            let clamped_y = particle.position[1].clamp(-1000.0, 1000.0);
-            let cell_x = (clamped_x / cell_size).floor() as i32;
-            let cell_y = (clamped_y / cell_size).floor() as i32;
-            spatial_grid.entry((cell_x, cell_y)).or_default().push(i);
-        }
-
-        // Calculate density using spatial grid
-        // First collect all positions to avoid borrow checker issues
-        let positions: Vec<[f32; 2]> = self.particles.iter().map(|p| p.position).collect();
-
-        for (i, particle) in self.particles.iter_mut().enumerate() {
-            let mut density = 0.0;
-            let pos_i = particle.position;
-
-            // Clamp positions to prevent integer overflow in cell calculation
-            let clamped_x = pos_i[0].clamp(-1000.0, 1000.0);
-            let clamped_y = pos_i[1].clamp(-1000.0, 1000.0);
-            let cell_x = (clamped_x / cell_size).floor() as i32;
-            let cell_y = (clamped_y / cell_size).floor() as i32;
-
-            // Check current cell and neighboring cells
-            for dx in -1..=1 {
-                for dy in -1..=1 {
-                    if let Some(particles_in_cell) = spatial_grid.get(&(cell_x + dx, cell_y + dy)) {
-                        for &j in particles_in_cell {
-                            if i != j {
-                                let pos_j = positions[j];
-
-                                // Calculate wrapped distance
-                                let mut dx = pos_i[0] - pos_j[0];
-                                let mut dy = pos_i[1] - pos_j[1];
-
-                                // Wrap distances to account for toroidal space
-                                if dx > 1.0 {
-                                    dx -= 2.0;
-                                } else if dx < -1.0 {
-                                    dx += 2.0;
-                                }
-                                if dy > 1.0 {
-                                    dy -= 2.0;
-                                } else if dy < -1.0 {
-                                    dy += 2.0;
-                                }
-
-                                let dist_sq = dx * dx + dy * dy;
-
-                                if dist_sq < density_radius_sq {
-                                    density += 1.0 / (1.0 + dist_sq);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            particle.density = density;
-        }
-    }
-
-    /// Calculate particle velocity magnitude for coloring
-    fn calculate_particle_velocity(&mut self) {
-        for particle in &mut self.particles {
-            let velocity_magnitude = (particle.velocity[0] * particle.velocity[0]
-                + particle.velocity[1] * particle.velocity[1])
-                .sqrt();
-            // Scale velocity for better visualization (typical velocities are 0.1-0.5)
-            particle.density = velocity_magnitude * 8.0; // Reuse density field for velocity
-        }
-    }
-
     pub fn update_lut(
         &mut self,
         _device: &Arc<Device>,
@@ -1103,258 +1115,7 @@ impl WanderersModel {
         Ok(())
     }
 
-    /// Select particles to grab based on cursor position
-    fn select_particles_to_grab(&mut self, world_x: f32, world_y: f32) {
-        // Clamp cursor position to valid bounds
-        let cursor_x = world_x.clamp(-1.0, 1.0);
-        let cursor_y = world_y.clamp(-1.0, 1.0);
-        let cursor_pos = vector![cursor_x, cursor_y];
-        let cursor_radius = self.state.cursor_size;
-
-        // Clear any previously grabbed particles
-        self.state.grabbed_particles.clear();
-
-        // Find particles within cursor radius
-        for (i, &handle) in self.rapier.body_handles.iter().enumerate() {
-            if let Some(rb) = self.rapier.bodies.get(handle) {
-                let pos = rb.translation();
-
-                // Safety check: skip if position is invalid
-                if pos.x.is_nan() || pos.y.is_nan() || pos.x.is_infinite() || pos.y.is_infinite() {
-                    continue;
-                }
-
-                // Ensure position is within valid bounds
-                let clamped_pos = vector![pos.x.clamp(-1.0, 1.0), pos.y.clamp(-1.0, 1.0)];
-
-                // Calculate distance to cursor (no wrapping for grab selection)
-                let dx = cursor_pos.x - clamped_pos.x;
-                let dy = cursor_pos.y - clamped_pos.y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq < cursor_radius * cursor_radius {
-                    self.state.grabbed_particles.push(i);
-                }
-            }
-        }
-
-        // Limit the number of particles that can be grabbed at once to prevent performance issues
-        if self.state.grabbed_particles.len() > 10 {
-            self.state.grabbed_particles.truncate(10);
-        }
-    }
-
-    /// Apply mouse interaction forces to particles
-    fn apply_mouse_interaction_forces(&mut self) {
-        // Clamp cursor position to valid bounds
-        let cursor_x = self.state.mouse_position[0].clamp(-1.0, 1.0);
-        let cursor_y = self.state.mouse_position[1].clamp(-1.0, 1.0);
-        let cursor_pos = vector![cursor_x, cursor_y];
-        let cursor_radius = self.state.cursor_size;
-        let force_strength = self.state.cursor_strength;
-
-        match self.state.mouse_mode {
-            1 => {
-                // Attract mode: pull nearby particles toward the cursor
-                for &handle in self.rapier.body_handles.iter() {
-                    if let Some(rb) = self.rapier.bodies.get_mut(handle) {
-                        let pos = rb.translation();
-
-                        // Safety check: skip if position is invalid
-                        if pos.x.is_nan()
-                            || pos.y.is_nan()
-                            || pos.x.is_infinite()
-                            || pos.y.is_infinite()
-                        {
-                            continue;
-                        }
-
-                        // Ensure position is within valid bounds
-                        let clamped_pos = vector![pos.x.clamp(-1.0, 1.0), pos.y.clamp(-1.0, 1.0)];
-
-                        // Calculate distance to cursor (no wrapping for attract mode)
-                        let dx = cursor_pos.x - clamped_pos.x;
-                        let dy = cursor_pos.y - clamped_pos.y;
-                        let diff = vector![dx, dy];
-                        let dist = diff.norm();
-
-                        if dist < cursor_radius && dist > 0.001 {
-                            let dt = self.rapier.integration_parameters.dt;
-
-                            // Attraction force: weaker when closer to prevent overshooting
-                            // Force decreases quadratically with proximity to provide smooth attraction
-                            let distance_factor = (dist / cursor_radius).clamp(0.1, 1.0); // Minimum 10% force when very close
-                            let attract_force =
-                                diff.normalize() * force_strength * distance_factor * 0.3; // Scale down overall force
-                            let attract_impulse = attract_force * dt; // Convert to impulse
-
-                            // Limit impulse magnitude to prevent overshooting
-                            let max_impulse = 0.02; // Much lower limit to prevent launching
-                            let clamped_impulse = if attract_impulse.norm() > max_impulse {
-                                attract_impulse.normalize() * max_impulse
-                            } else {
-                                attract_impulse
-                            };
-
-                            rb.apply_impulse(clamped_impulse, true);
-                        }
-                    }
-                }
-            }
-            2 => {
-                // Repel mode: push particles away from cursor
-                for &handle in self.rapier.body_handles.iter() {
-                    if let Some(rb) = self.rapier.bodies.get_mut(handle) {
-                        let pos = rb.translation();
-
-                        // Safety check: skip if position is invalid
-                        if pos.x.is_nan()
-                            || pos.y.is_nan()
-                            || pos.x.is_infinite()
-                            || pos.y.is_infinite()
-                        {
-                            continue;
-                        }
-
-                        // Ensure position is within valid bounds
-                        let clamped_pos = vector![pos.x.clamp(-1.0, 1.0), pos.y.clamp(-1.0, 1.0)];
-
-                        // Calculate distance to cursor (no wrapping for repel mode)
-                        let dx = clamped_pos.x - cursor_pos.x;
-                        let dy = clamped_pos.y - cursor_pos.y;
-                        let diff = vector![dx, dy];
-                        let dist = diff.norm();
-
-                        if dist < cursor_radius && dist > 0.001 {
-                            let dt = self.rapier.integration_parameters.dt;
-                            let repel_force =
-                                diff.normalize() * force_strength * (1.0 - dist / cursor_radius);
-                            let repel_impulse = repel_force * dt; // Convert to impulse
-
-                            // Safety check: limit impulse magnitude
-                            let max_impulse = 0.1; // Maximum impulse per frame
-                            let clamped_impulse = if repel_impulse.norm() > max_impulse {
-                                repel_impulse.normalize() * max_impulse
-                            } else {
-                                repel_impulse
-                            };
-
-                            rb.apply_impulse(clamped_impulse, true);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Apply mutual gravitational forces between all particle pairs
-    fn apply_mutual_gravitational_forces(&mut self) {
-        let gravitational_constant = self.settings.gravitational_constant;
-        let gravity_softening = self.settings.gravity_softening;
-        let dt = self.rapier.integration_parameters.dt;
-
-        // Scale down gravitational constant to prevent chaos
-        let scaled_gravitational_constant = gravitational_constant * 0.1; // Increased multiplier for stronger forces
-
-        // Use spatial hashing for O(n) performance instead of O(n²)
-        let cell_size = 0.1; // Fixed cell size for better performance
-        let mut spatial_grid: std::collections::HashMap<(i32, i32), Vec<usize>> =
-            std::collections::HashMap::new();
-
-        // Build spatial grid
-        for (i, particle) in self.particles.iter().enumerate() {
-            let clamped_x = particle.position[0].clamp(-1000.0, 1000.0);
-            let clamped_y = particle.position[1].clamp(-1000.0, 1000.0);
-            let cell_x = (clamped_x / cell_size).floor() as i32;
-            let cell_y = (clamped_y / cell_size).floor() as i32;
-            spatial_grid.entry((cell_x, cell_y)).or_default().push(i);
-        }
-
-        // Calculate gravitational forces using spatial grid
-        let positions: Vec<[f32; 2]> = self.particles.iter().map(|p| p.position).collect();
-        let masses: Vec<f32> = self.particles.iter().map(|p| p.mass).collect();
-
-        for (i, &handle_i) in self.rapier.body_handles.iter().enumerate() {
-            if let Some(rb_i) = self.rapier.bodies.get_mut(handle_i) {
-                let pos_i = rb_i.translation();
-                let mass_i = masses[i];
-
-                // Clamp positions to prevent integer overflow in cell calculation
-                let clamped_x = pos_i.x.clamp(-1000.0, 1000.0);
-                let clamped_y = pos_i.y.clamp(-1000.0, 1000.0);
-                let cell_x = (clamped_x / cell_size).floor() as i32;
-                let cell_y = (clamped_y / cell_size).floor() as i32;
-
-                let mut total_force = vector![0.0, 0.0];
-
-                // Check current cell and neighboring cells
-                for dx in -1..=1 {
-                    for dy in -1..=1 {
-                        if let Some(particles_in_cell) = spatial_grid.get(&(cell_x + dx, cell_y + dy)) {
-                            for &j in particles_in_cell {
-                                if i != j {
-                                    let pos_j = positions[j];
-                                    let mass_j = masses[j];
-
-                                    // Calculate wrapped distance
-                                    let mut dx = pos_i.x - pos_j[0];
-                                    let mut dy = pos_i.y - pos_j[1];
-
-                                    // Wrap distances to account for toroidal space
-                                    if dx > 1.0 {
-                                        dx -= 2.0;
-                                    } else if dx < -1.0 {
-                                        dx += 2.0;
-                                    }
-                                    if dy > 1.0 {
-                                        dy -= 2.0;
-                                    } else if dy < -1.0 {
-                                        dy += 2.0;
-                                    }
-
-                                    let dist_sq = dx * dx + dy * dy;
-                                    let dist = dist_sq.sqrt();
-
-                                    // Minimum distance threshold to prevent excessive forces
-                                    if dist > 0.01 && dist < 0.5 {
-                                        // Apply gravity softening to prevent infinite forces at small distances
-                                        let softened_dist_sq = dist_sq + gravity_softening * gravity_softening;
-                                        let softened_dist = softened_dist_sq.sqrt();
-
-                                        // Newton's law of gravitation with distance attenuation
-                                        let force_magnitude = scaled_gravitational_constant * mass_i * mass_j / softened_dist_sq;
-                                        
-                                        // Add distance-based attenuation to prevent chaos
-                                        let distance_factor = (0.5 - dist) / 0.5; // Stronger at closer distances, weaker at far distances
-                                        let attenuated_force = force_magnitude * distance_factor.max(0.0);
-                                        
-                                        let force_x = -(dx / softened_dist) * attenuated_force;
-                                        let force_y = -(dy / softened_dist) * attenuated_force;
-
-                                        total_force += vector![force_x, force_y];
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Apply the total gravitational force as an impulse
-                let impulse = total_force * dt;
-                
-                // Much more conservative impulse limiting to prevent chaos
-                let max_impulse = 0.01; // Much smaller limit
-                let clamped_impulse = if impulse.norm() > max_impulse {
-                    impulse.normalize() * max_impulse
-                } else {
-                    impulse
-                };
-
-                rb_i.apply_impulse(clamped_impulse, true);
-            }
-        }
-    }
+    // GPU compute shaders handle all physics interactions
 }
 
 impl std::fmt::Debug for WanderersModel {
@@ -1376,21 +1137,8 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
-        // Step physics simulation
-        self.step_rapier_and_sync_particles();
-
-        // Calculate particle coloring based on mode
-        match self.settings.coloring_mode.as_str() {
-            "velocity" => self.calculate_particle_velocity(),
-            _ => self.calculate_particle_density(), // Default to density
-        }
-
-        // Update particle buffer with new positions and density
-        queue.write_buffer(
-            &self.particle_buffer,
-            0,
-            bytemuck::cast_slice(&self.particles),
-        );
+        // Step GPU physics simulation
+        self.step_physics(device, queue)?;
 
         // Update camera with smoothing
         self.camera.update(0.016); // Assume 60 FPS for now
@@ -1540,10 +1288,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
                         constant
                     );
                     self.settings.gravitational_constant = constant as f32;
-                    // Update Rapier gravity
-                    self.rapier
-                        .update_gravity(self.settings.gravitational_constant);
-                    tracing::debug!("Updated Rapier gravity to {:?}", self.rapier.gravity);
+                    // GPU compute shaders will use the updated value
                 }
             }
             "min_particle_mass" => {
@@ -1562,8 +1307,6 @@ impl crate::simulations::traits::Simulation for WanderersModel {
                     // Update all particle radii and GPU buffers immediately
                     self.update_particle_radii(queue);
                     self.update_render_params(queue);
-                    // Update Rapier collider sizes
-                    self.update_collider_sizes();
                 }
             }
             "clump_distance" => {
@@ -1579,13 +1322,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
             "energy_damping" => {
                 if let Some(damping) = value.as_f64() {
                     self.settings.energy_damping = damping as f32;
-                    // Update Rapier damping on all bodies
-                    self.rapier
-                        .update_energy_damping(self.settings.energy_damping);
-                    tracing::debug!(
-                        "Updated Rapier energy damping to {}",
-                        self.settings.energy_damping
-                    );
+                    // GPU compute shaders will use the updated value
                 }
             }
             "gravity_softening" => {
@@ -1616,13 +1353,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
             "collision_damping" => {
                 if let Some(damping) = value.as_f64() {
                     self.settings.collision_damping = damping as f32;
-                    // Update collider restitution for all particles
-                    self.rapier
-                        .update_collision_damping(self.settings.collision_damping);
-                    tracing::debug!(
-                        "Updated Rapier collision damping to {}",
-                        self.settings.collision_damping
-                    );
+                    // GPU compute shaders will use the updated value
                 }
             }
             "random_seed" => {
@@ -1688,28 +1419,25 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         let clamped_x = world_x.clamp(-1.0, 1.0);
         let clamped_y = world_y.clamp(-1.0, 1.0);
 
-        // Store previous position before updating to new position
-        if self.state.mouse_pressed {
-            self.state.mouse_previous_position = self.state.mouse_position;
-        } else {
-            // First time pressing, set previous to current to avoid initial jump
-            self.state.mouse_previous_position = [clamped_x, clamped_y];
-        }
+        // Always calculate mouse velocity, even when not pressed
+        let previous_position = self.state.mouse_position;
+        self.state.mouse_delta = [
+            clamped_x - previous_position[0],
+            clamped_y - previous_position[1],
+        ];
 
-        // Encode mouse button into mode: 0 none, 1 left(grab), 2 right(repel)
+        // Encode mouse button into mode: 0 none, 1 left(attraction)
         let mode = match mouse_button {
-            2 => 2u32, // Right click for repulsion
-            _ => 1u32, // Left/middle defaults to grab
+            0 => 1u32, // Left click for attraction
+            _ => 0u32, // Other buttons do nothing
         };
 
         self.state.mouse_pressed = true;
         self.state.mouse_mode = mode;
         self.state.mouse_position = [clamped_x, clamped_y];
 
-        // If this is a grab action, select particles to grab (allow continuous grabbing)
-        if mode == 1 {
-            self.select_particles_to_grab(clamped_x, clamped_y);
-        }
+        // Clear grabbed particles list when starting new interaction
+        self.state.grabbed_particles.clear();
 
         Ok(())
     }
@@ -1722,7 +1450,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         self.state.mouse_pressed = false;
         self.state.mouse_mode = 0;
 
-        // Release all grabbed particles
+        // Clear the grabbed particles list
         self.state.grabbed_particles.clear();
 
         Ok(())
@@ -1783,22 +1511,8 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Clear all existing rigid bodies and colliders by creating new instances
-        self.rapier.reset(self.settings.gravitational_constant);
-
-        // Recreate boundary walls
-        self.rapier.create_boundary_walls();
-
         // Reinitialize particles
         self.particles = Self::initialize_particles(self.settings.particle_count, &self.settings);
-
-        // Recreate Rapier bodies and colliders for new particles
-        self.rapier.create_particle_bodies(
-            &self.particles,
-            self.settings.particle_size,
-            self.settings.energy_damping,
-            self.settings.collision_damping,
-        );
 
         // Check if we need to recreate the buffer (if it's too small)
         let required_buffer_size = self.particles.len() * std::mem::size_of::<Particle>();
@@ -1826,6 +1540,9 @@ impl crate::simulations::traits::Simulation for WanderersModel {
 
         // Reset state
         self.state.reset();
+
+        // Reset frame counter
+        self.frame_count = 0;
 
         Ok(())
     }

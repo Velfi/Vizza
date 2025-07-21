@@ -106,6 +106,6 @@ pub async fn handle_window_resize(
         return Err(format!("Failed to handle simulation resize: {}", e));
     }
 
-    tracing::info!("Window resized to {}x{}", width, height);
+    tracing::trace!("Window resized to {}x{}", width, height);
     Ok(())
 }

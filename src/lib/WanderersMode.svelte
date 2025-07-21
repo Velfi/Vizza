@@ -18,13 +18,13 @@
       <!-- About this simulation -->
       <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
         <p>
-          Wanderers simulates particle collisions with simple physics. Particles bounce off each other
-          and respond to mouse interactions for attraction and repulsion.
+          Wanderers simulates particle collisions with pixel-perfect collision detection. Particles bounce off each other
+          using a 3-phase collision system: broad phase, narrow phase, and overlap resolution.
         </p>
         <p>
-          The simulation uses Euler integration for stable physics and includes collision damping
+          The simulation uses 4th-order Runge-Kutta integration for stable physics and includes collision damping
           to prevent particles from accelerating indefinitely. Mouse interactions allow you to
-          attract or repel particles by clicking and dragging.
+          attract particles by left-clicking and dragging.
         </p>
         <p>
           Experiment with different particle counts, collision damping, and initial velocities
@@ -126,10 +126,28 @@
             value={settings?.gravitational_constant ?? 0.0}
             min={0.0}
             max={0.00001}
-            step={1e-8}
-            precision={8}
+            step={1e-6}
+            precision={6}
             on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
           />
+        </div>
+        <div class="control-group">
+          <label for="longRangeGravityStrength">Long-Range Gravity Strength</label>
+          <NumberDragBox
+            id="longRangeGravityStrength"
+            value={settings?.long_range_gravity_strength ?? 0.0}
+            min={0.0}
+            max={1.0}
+            step={0.01}
+            precision={2}
+            on:change={({ detail }) => updateSetting('long_range_gravity_strength', detail)}
+          />
+          <div class="setting-description">
+            <small>
+              <strong>Higher values:</strong> Clumps can orbit each other at larger distances.<br>
+              <strong>Lower values:</strong> Only local clumping, no orbital motion.
+            </small>
+          </div>
         </div>
         <div class="control-group">
           <label for="energyDamping">Energy Damping</label>
@@ -154,6 +172,12 @@
             precision={4}
             on:change={({ detail }) => updateSetting('collision_damping', detail)}
           />
+          <div class="setting-description">
+            <small>
+              <strong>Higher values:</strong> Particles bounce more elastically off each other.<br>
+              <strong>Lower values:</strong> Particles lose more energy during collisions.
+            </small>
+          </div>
         </div>
       </fieldset>
 
@@ -203,7 +227,7 @@
         <div class="interaction-controls-grid">
           <div class="interaction-help">
             <div class="control-group">
-              <span>🖱️ Left click: Attract particles | Right click: Repel particles</span>
+              <span>🖱️ Left click: Attract particles</span>
             </div>
             <div class="control-group">
               <button type="button" on:click={() => dispatch('navigate', 'how-to-play')}>
@@ -242,7 +266,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
@@ -280,6 +304,7 @@
     cohesive_strength?: number;
     gravity_softening?: number;
     density_radius?: number;
+    long_range_gravity_strength?: number;
   }
 
   interface WanderersState {
@@ -310,6 +335,7 @@
   let available_luts: string[] = [];
   let cursorSize = 0.5;
   let cursorStrength = 0.01;
+
 
 
   let renderLoopId: number | null = null;
@@ -680,6 +706,8 @@
       console.error('Failed to toggle GUI:', error);
     }
   };
+
+
 
   const startRenderLoop = () => {
     if (renderLoopId) return;

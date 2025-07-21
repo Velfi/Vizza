@@ -1,3 +1,22 @@
+//! # Wanderers Settings Module
+//! 
+//! Defines the user-configurable parameters that control the behavior and appearance
+//! of the Wanderers simulation. These settings determine how particles interact,
+//! how the system evolves over time, and how it appears to the user.
+//! 
+//! ## Configuration Philosophy
+//! 
+//! The settings are designed to provide intuitive control over complex behaviors.
+//! Small changes to parameters can dramatically alter the simulation's character,
+//! from stable orbital systems to chaotic particle storms. All settings are
+//! serializable for preset management and reproducible experimentation.
+//! 
+//! ## Parameter Categories
+//! 
+//! Settings are organized into logical groups that control different aspects
+//! of the simulation, from basic particle properties to advanced physics
+//! behaviors and visual presentation.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,32 +69,31 @@ pub struct Settings {
 
     /// Coloring mode: "density" or "velocity"
     pub coloring_mode: String,
+
+    /// Long-range gravity strength for orbital motion (0.0 = no orbital motion, 1.0 = strong orbital motion)
+    pub long_range_gravity_strength: f32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            // Default tuned for pool ball behavior with thousands of particles
-            particle_count: 1000,
-            particle_size: 0.008,
-            collision_damping: 0.1, // Small damping to prevent particles from getting stuck
-            // Give particles initial motion for natural interaction
-            initial_velocity_max: 0.3,
-            initial_velocity_min: 0.1,
+            particle_count: 5000,
+            particle_size: 0.012,
+            collision_damping: 0.3,
+            initial_velocity_max: 0.15,
+            initial_velocity_min: 0.05,
             random_seed: 0,
             background_type: "black".to_string(),
-            // Physics tuned for pool ball vs clumping modes
-            gravitational_constant: 2e-7, // Very small value: 0.0000002
-            // Uniform mass for all particles
+            gravitational_constant: 1e-6,
             min_particle_mass: 1.0,
             max_particle_mass: 1.0,
             clump_distance: 0.02,
-            // No cohesion in basic mode
             cohesive_strength: 0.0,
-            energy_damping: 0.01, // Small energy loss to prevent infinite motion
+            energy_damping: 0.995,
             gravity_softening: 0.003,
             density_radius: 0.04,
             coloring_mode: "density".to_string(),
+            long_range_gravity_strength: 0.0,
         }
     }
 }
@@ -101,5 +119,6 @@ impl Settings {
         self.energy_damping = rng.random_range(0.995..0.999);
         self.gravity_softening = rng.random_range(0.003..0.008);
         self.density_radius = rng.random_range(0.02..0.05);
+        self.long_range_gravity_strength = rng.random_range(0.0..1.0);
     }
 }

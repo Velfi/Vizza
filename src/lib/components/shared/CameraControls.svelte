@@ -5,6 +5,14 @@
   import { invoke } from '@tauri-apps/api/core';
   import { createEventDispatcher } from 'svelte';
 
+  async function toggleFullscreen() {
+    try {
+      await invoke('toggle_fullscreen');
+    } catch (error) {
+      console.error('Failed to toggle fullscreen:', error);
+    }
+  }
+
   const dispatch = createEventDispatcher();
 
   export let enabled: boolean = true;
@@ -26,6 +34,15 @@
 
     if (isInputFocused) {
       return; // Let the form element handle the keyboard input
+    }
+
+    // Check for fullscreen toggle shortcuts
+    // Windows/Linux: Alt+Enter, macOS: Cmd+F
+    if ((event.key === 'Enter' && event.altKey) || (event.key === 'f' && event.metaKey)) {
+      event.preventDefault();
+      // Handle fullscreen toggle directly
+      toggleFullscreen();
+      return;
     }
 
     if (event.key === '/') {
