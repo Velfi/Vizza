@@ -280,17 +280,6 @@ impl SimulationManager {
                     let texture_x = (world.x + 1.0) * 0.5;
                     let texture_y = (world.y + 1.0) * 0.5;
 
-                    tracing::debug!(
-                        "Gray-Scott mouse interaction: screen=({:.2}, {:.2}), world=({:.3}, {:.3}), texture=({:.3}, {:.3}), button={}",
-                        screen_x,
-                        screen_y,
-                        world.x,
-                        world.y,
-                        texture_x,
-                        texture_y,
-                        mouse_button
-                    );
-
                     simulation.handle_mouse_interaction(
                         texture_x,
                         texture_y,
