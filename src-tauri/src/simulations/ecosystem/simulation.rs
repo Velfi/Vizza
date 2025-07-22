@@ -12,7 +12,7 @@ use super::settings::Settings;
 use super::shaders::{
     AGENT_UPDATE_SHADER, CHEMICAL_DIFFUSION_SHADER, FLUID_DYNAMICS_SHADER, RENDER_SHADER,
 };
-use crate::simulations::shared::{camera::Camera, LutManager};
+use crate::simulations::shared::{LutManager, camera::Camera};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]
@@ -1150,8 +1150,15 @@ impl EcosystemModel {
 
                     // Debug first few agents and a few random ones
                     if i < 3 || (i % 500 == 0 && i < 1500) {
-                        tracing::debug!("Agent {}: species={}, energy={:.2}, age={:.2}, position=({:.2}, {:.2})", 
-                                       i, agent.ecological_role, agent.energy, agent.age, agent.position[0], agent.position[1]);
+                        tracing::debug!(
+                            "Agent {}: species={}, energy={:.2}, age={:.2}, position=({:.2}, {:.2})",
+                            i,
+                            agent.ecological_role,
+                            agent.energy,
+                            agent.age,
+                            agent.position[0],
+                            agent.position[1]
+                        );
                     }
                 }
 
@@ -1161,8 +1168,14 @@ impl EcosystemModel {
                     0.0
                 };
 
-                tracing::debug!("GPU population analysis: total={}, living={}, avg_energy={:.2}, min_energy={:.2}, max_energy={:.2}", 
-                               total_agents, living_agents, avg_energy, min_energy, max_energy);
+                tracing::debug!(
+                    "GPU population analysis: total={}, living={}, avg_energy={:.2}, min_energy={:.2}, max_energy={:.2}",
+                    total_agents,
+                    living_agents,
+                    avg_energy,
+                    min_energy,
+                    max_energy
+                );
                 tracing::debug!("GPU species counts: {:?}", counts);
 
                 return counts;

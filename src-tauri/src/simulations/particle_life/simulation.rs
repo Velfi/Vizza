@@ -9,7 +9,7 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::{MatrixGenerator, Settings, TypeGenerator};
 use super::shaders;
-use crate::simulations::shared::{camera::Camera, LutManager, PositionGenerator};
+use crate::simulations::shared::{LutManager, PositionGenerator, camera::Camera};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]

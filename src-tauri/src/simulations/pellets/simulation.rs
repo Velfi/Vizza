@@ -26,7 +26,7 @@ use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::{settings::Settings, state::State};
-use crate::simulations::shared::{camera::Camera, LutManager};
+use crate::simulations::shared::{LutManager, camera::Camera};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -1391,7 +1391,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 return Err(SimulationError::InvalidSetting {
                     setting_name: setting_name.to_string(),
                     message: "Unknown setting".to_string(),
-                })
+                });
             }
         }
         Ok(())

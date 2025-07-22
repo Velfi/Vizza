@@ -3,17 +3,17 @@ use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
     TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
-use crate::simulations::shared::camera::Camera;
 use crate::simulations::shared::LutManager;
+use crate::simulations::shared::camera::Camera;
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
 use noise::{
     Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti,
     Simplex, Value as ValueNoise, Worley,
 };
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::cell::RefCell;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;

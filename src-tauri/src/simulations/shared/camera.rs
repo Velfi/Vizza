@@ -245,7 +245,11 @@ impl Camera {
 
         tracing::debug!(
             "Camera zoom to cursor: cursor=({:.2}, {:.2}), target_zoom={:.2}, target_pos=({:.2}, {:.2})",
-            cursor_x, cursor_y, self.target_zoom, self.target_position[0], self.target_position[1]
+            cursor_x,
+            cursor_y,
+            self.target_zoom,
+            self.target_position[0],
+            self.target_position[1]
         );
     }
 

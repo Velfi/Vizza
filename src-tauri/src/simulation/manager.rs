@@ -1,18 +1,18 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
 use crate::error::{AppError, AppResult};
 use crate::simulation::preset_manager::SimulationPresetManager;
-use crate::simulations::gray_scott::{settings::Settings as GrayScottSettings, GrayScottModel};
+use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
 use crate::simulations::particle_life::{
-    settings::Settings as ParticleLifeSettings, simulation::ColorMode, ParticleLifeModel,
+    ParticleLifeModel, settings::Settings as ParticleLifeSettings, simulation::ColorMode,
 };
 use crate::simulations::shared::LutData;
-use crate::simulations::shared::{coordinates::ScreenCoords, LutManager, SimulationLutManager};
-use crate::simulations::slime_mold::{settings::Settings as SlimeMoldSettings, SlimeMoldModel};
+use crate::simulations::shared::{LutManager, SimulationLutManager, coordinates::ScreenCoords};
+use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
 use crate::simulations::traits::{Simulation, SimulationType};
 
 pub struct SimulationManager {
@@ -282,7 +282,13 @@ impl SimulationManager {
 
                     tracing::debug!(
                         "Gray-Scott mouse interaction: screen=({:.2}, {:.2}), world=({:.3}, {:.3}), texture=({:.3}, {:.3}), button={}",
-                        screen_x, screen_y, world.x, world.y, texture_x, texture_y, mouse_button
+                        screen_x,
+                        screen_y,
+                        world.x,
+                        world.y,
+                        texture_x,
+                        texture_y,
+                        mouse_button
                     );
 
                     simulation.handle_mouse_interaction(

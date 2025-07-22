@@ -9,7 +9,7 @@ use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
-use crate::simulations::shared::{camera::Camera, LutData, LutManager};
+use crate::simulations::shared::{LutData, LutManager, camera::Camera};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -175,7 +175,12 @@ impl SlimeMoldModel {
             let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
             tracing::warn!(
                 "Trail map buffer size {} bytes exceeds GPU limit {} bytes. Scaling down from {}x{} to {}x{}",
-                trail_map_size_bytes, max_storage_buffer_size, physical_width, physical_height, new_width, new_height
+                trail_map_size_bytes,
+                max_storage_buffer_size,
+                physical_width,
+                physical_height,
+                new_width,
+                new_height
             );
             (new_width, new_height)
         } else {
@@ -401,7 +406,12 @@ impl SlimeMoldModel {
             let new_height = (physical_height as f64 * scale_factor * 0.95) as u32;
             tracing::warn!(
                 "Trail map buffer size {} bytes exceeds GPU limit {} bytes. Scaling down from {}x{} to {}x{}",
-                trail_map_size_bytes, max_storage_buffer_size, physical_width, physical_height, new_width, new_height
+                trail_map_size_bytes,
+                max_storage_buffer_size,
+                physical_width,
+                physical_height,
+                new_width,
+                new_height
             );
             (new_width, new_height)
         } else {
@@ -1346,7 +1356,13 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
         tracing::debug!(
             "Slime mold cursor interaction: world=({:.3}, {:.3}), sim=({:.1}, {:.1}), mode={}, dimensions={}x{}",
-            world_x, world_y, sim_x, sim_y, cursor_mode, self.current_width, self.current_height
+            world_x,
+            world_y,
+            sim_x,
+            sim_y,
+            cursor_mode,
+            self.current_width,
+            self.current_height
         );
 
         self.update_cursor_params(queue);

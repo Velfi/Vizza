@@ -1,6 +1,6 @@
+use crate::GpuContext;
 use crate::simulation::SimulationManager;
 use crate::simulations::traits::SimulationType;
-use crate::GpuContext;
 use std::sync::Arc;
 use tauri::State;
 

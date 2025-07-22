@@ -1,6 +1,6 @@
 use crate::commands::get_settings_dir;
 use crate::error::{LutError, LutResult};
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use rand::Rng;
 use std::collections::HashMap;
 use std::io;
