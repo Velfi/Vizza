@@ -17,6 +17,7 @@
 //! and simulation execution status, providing the context needed for
 //! responsive and intuitive user experience.
 
+use crate::simulations::shared::{CursorState, LutState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,16 +31,12 @@ pub struct State {
     pub mouse_screen_position: [f32; 2], // Raw screen coordinates from frontend
     pub last_mouse_time: f64,     // Timestamp of last mouse interaction for velocity calculation
 
-    /// Cursor interaction parameters
-    pub cursor_size: f32,
-    pub cursor_strength: f32,
-
     /// Grabbed particles for drag interaction
     pub grabbed_particles: Vec<usize>, // Indices of particles being dragged
 
-    /// Current LUT state (runtime)
-    pub current_lut_name: String,
-    pub lut_reversed: bool,
+    /// Shared state
+    pub cursor: CursorState,
+    pub lut_state: LutState,
 
     /// UI visibility state
     pub gui_visible: bool,
@@ -62,11 +59,15 @@ impl Default for State {
             mouse_velocity: [0.0, 0.0],
             mouse_screen_position: [0.0, 0.0], // Raw screen coordinates
             last_mouse_time: 0.0,
-            cursor_size: 0.20,
-            cursor_strength: 1.0, // Increased for better throwing visibility
             grabbed_particles: Vec::new(),
-            current_lut_name: "MATPLOTLIB_bone".to_string(),
-            lut_reversed: true,
+            cursor: CursorState {
+                active_mode: 0,
+                world_x: 0.0,
+                world_y: 0.0,
+                size: 0.20,
+                strength: 1.0,
+            },
+            lut_state: LutState::with_values("MATPLOTLIB_bone".to_string(), true),
             gui_visible: true,
             camera_position: [0.0, 0.0],
             camera_zoom: 1.0,
@@ -86,6 +87,7 @@ impl State {
         self.mouse_screen_position = [0.0, 0.0];
         self.last_mouse_time = 0.0;
         self.grabbed_particles.clear();
+        self.cursor.reset();
         self.gui_visible = true;
         self.camera_position = [0.0, 0.0];
         self.camera_zoom = 1.0;
@@ -108,7 +110,8 @@ impl State {
         self.mouse_screen_position = [0.0, 0.0];
         self.last_mouse_time = 0.0;
         self.grabbed_particles.clear();
-        self.cursor_size = 0.1;
-        self.cursor_strength = 1.0; // Increased for better throwing
+        self.cursor.reset();
+        self.cursor.size = 0.1;
+        self.cursor.strength = 1.0;
     }
 }

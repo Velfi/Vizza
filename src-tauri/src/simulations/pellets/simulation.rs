@@ -22,11 +22,13 @@ use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
+
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::{settings::Settings, state::State};
-use crate::simulations::shared::{LutManager, camera::Camera};
+use crate::simulations::shared::{
+    BufferUtils, LutManager, MouseInteractionHandler, TimingState, camera::Camera,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -122,6 +124,10 @@ pub struct PelletsModel {
     pub camera: Camera,
     pub lut_manager: Arc<LutManager>,
 
+    // Shared state
+    pub mouse_handler: MouseInteractionHandler,
+    pub timing: TimingState,
+
     // Surface configuration
     pub surface_config: SurfaceConfiguration,
 
@@ -142,11 +148,8 @@ impl PelletsModel {
         let particles = Self::initialize_particles(settings.particle_count, &settings);
 
         // Create buffers
-        let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Pellets Particle Buffer"),
-            contents: bytemuck::cast_slice(&particles),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let particle_buffer =
+            BufferUtils::create_storage_buffer(device, "Pellets Particle Buffer", &particles);
 
         let camera = Camera::new(
             device,
@@ -168,17 +171,19 @@ impl PelletsModel {
 
         // Initialize LUT
         let mut lut = lut_manager
-            .get(&state.current_lut_name)
-            .map_err(|e| format!("Failed to load LUT '{}': {}", state.current_lut_name, e))?;
-        if state.lut_reversed {
+            .get(&state.lut_state.current_lut_name)
+            .map_err(|e| {
+                format!(
+                    "Failed to load LUT '{}': {}",
+                    state.lut_state.current_lut_name, e
+                )
+            })?;
+        if state.lut_state.reversed {
             lut = lut.reversed();
         }
         let lut_data_u32 = lut.to_u32_buffer();
-        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Pellets LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_u32),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let lut_buffer =
+            BufferUtils::create_storage_buffer(device, "Pellets LUT Buffer", &lut_data_u32);
 
         let render_params = RenderParams {
             particle_size: settings.particle_size,
@@ -191,11 +196,11 @@ impl PelletsModel {
             },
         };
 
-        let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Pellets Render Params Buffer"),
-            contents: bytemuck::cast_slice(&[render_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let render_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Pellets Render Params Buffer",
+            &render_params,
+        );
 
         let background_params = BackgroundParams {
             background_type: if settings.background_type == "white" {
@@ -206,12 +211,11 @@ impl PelletsModel {
             density_texture_resolution: 512, // Default texture resolution
         };
 
-        let background_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Pellets Background Params Buffer"),
-                contents: bytemuck::cast_slice(&[background_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        let background_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Pellets Background Params Buffer",
+            &background_params,
+        );
 
         // Create physics params buffer
         // For now, use the original particle size directly to restore collision functionality
@@ -230,18 +234,18 @@ impl PelletsModel {
             interaction_radius: 0.5, // Limit interaction range for performance
             mouse_pressed: 0,
             mouse_mode: 0,
-            cursor_size: state.cursor_size,
-            cursor_strength: state.cursor_strength,
+            cursor_size: state.cursor.size,
+            cursor_strength: state.cursor.strength,
             particle_size: collision_particle_size,
             aspect_ratio: surface_config.width as f32 / surface_config.height as f32,
             long_range_gravity_strength: 0.0, // Initialize new field
         };
 
-        let physics_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Pellets Physics Params Buffer"),
-            contents: bytemuck::cast_slice(&[physics_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let physics_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Pellets Physics Params Buffer",
+            &physics_params,
+        );
 
         // Create density params buffer
         let density_params = DensityParams {
@@ -255,11 +259,11 @@ impl PelletsModel {
             _padding: 0,
         };
 
-        let density_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Pellets Density Params Buffer"),
-            contents: bytemuck::cast_slice(&[density_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let density_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Pellets Density Params Buffer",
+            &density_params,
+        );
 
         // Create render pipeline
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -622,6 +626,11 @@ impl PelletsModel {
             state,
             camera,
             lut_manager: Arc::new(lut_manager.clone()),
+
+            // Shared state
+            mouse_handler: MouseInteractionHandler::new(),
+            timing: TimingState::new(),
+
             surface_config: surface_config.clone(),
             frame_count: 0,
             density_update_frequency: 3, // Update density every 3 frames for performance
@@ -807,8 +816,8 @@ impl PelletsModel {
             interaction_radius: 0.5,
             mouse_pressed: if self.state.mouse_pressed { 1 } else { 0 },
             mouse_mode: self.state.mouse_mode,
-            cursor_size: self.state.cursor_size,
-            cursor_strength: self.state.cursor_strength,
+            cursor_size: self.state.cursor.size,
+            cursor_strength: self.state.cursor.strength,
             particle_size: collision_particle_size,
             aspect_ratio: self.surface_config.width as f32 / self.surface_config.height as f32,
             long_range_gravity_strength: self.settings.long_range_gravity_strength,
@@ -879,11 +888,11 @@ impl PelletsModel {
                 required_buffer_size
             );
             // Recreate the particle buffer with the new size
-            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Pellets Particle Buffer"),
-                contents: bytemuck::cast_slice(&self.particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
+            self.particle_buffer = BufferUtils::create_storage_buffer(
+                device,
+                "Pellets Particle Buffer",
+                &self.particles,
+            );
 
             // Recreate the bind groups since the buffer changed
             tracing::debug!("Recreating bind groups after buffer change");
@@ -1120,8 +1129,8 @@ impl PelletsModel {
         let lut_data_u32 = lut.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
 
-        self.state.current_lut_name = lut_name.to_string();
-        self.state.lut_reversed = lut_reversed;
+        self.state.lut_state.set_lut_name(lut_name.to_string());
+        self.state.lut_state.set_reversed(lut_reversed);
 
         Ok(())
     }
@@ -1182,15 +1191,15 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     timestamp_writes: None,
                 });
 
-                // Render background
+                // Render background with 3x3 grid
                 render_pass.set_pipeline(&self.background_pipeline);
                 render_pass.set_bind_group(0, &self.background_bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
+                render_pass.draw(0..3, 0..9); // 3x3 grid = 9 instances
 
-                // Render particles
+                // Render particles with 3x3 grid (9 instances per particle)
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-                render_pass.draw(0..6, 0..self.particles.len() as u32);
+                render_pass.draw(0..6, 0..self.particles.len() as u32 * 9); // 3x3 grid = 9 instances
             }
         }
 
@@ -1234,11 +1243,11 @@ impl crate::simulations::traits::Simulation for PelletsModel {
 
             render_pass.set_pipeline(&self.background_pipeline);
             render_pass.set_bind_group(0, &self.background_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
+            render_pass.draw(0..3, 0..9); // 3x3 grid = 9 instances
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..6, 0..self.particles.len() as u32);
+            render_pass.draw(0..6, 0..self.particles.len() as u32 * 9); // 3x3 grid = 9 instances
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1356,7 +1365,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             }
             "random_seed" => {
                 if let Some(seed) = value.as_u64() {
-                    self.settings.random_seed = seed as u32;
+                    self.settings.random_seed_state.set_seed(seed as u32);
                 }
             }
             "background_type" => {
@@ -1368,23 +1377,23 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             }
             "currentLut" => {
                 if let Some(lut_name) = value.as_str() {
-                    self.update_lut(device, queue, lut_name, self.state.lut_reversed)?;
+                    self.update_lut(device, queue, lut_name, self.state.lut_state.reversed)?;
                 }
             }
             "lut_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    let lut_name = self.state.current_lut_name.clone();
+                    let lut_name = self.state.lut_state.current_lut_name.clone();
                     self.update_lut(device, queue, &lut_name, reversed)?;
                 }
             }
             "cursor_size" => {
                 if let Some(size) = value.as_f64() {
-                    self.state.cursor_size = (size as f32).clamp(0.05, 1.0);
+                    self.state.cursor.size = (size as f32).clamp(0.05, 1.0);
                 }
             }
             "cursor_strength" => {
                 if let Some(strength) = value.as_f64() {
-                    self.state.cursor_strength = (strength as f32).clamp(0.0, 1.0);
+                    self.state.cursor.strength = (strength as f32).clamp(0.0, 1.0);
                 }
             }
             _ => {
@@ -1411,78 +1420,93 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         world_y: f32,
         mouse_button: u32,
         _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Clamp world coordinates to valid bounds
-        let clamped_x = world_x.clamp(-1.0, 1.0);
-        let clamped_y = world_y.clamp(-1.0, 1.0);
+        // Use shared mouse interaction handler
+        self.mouse_handler.handle_mouse_interaction(
+            world_x,
+            world_y,
+            mouse_button,
+            queue,
+            |_cursor, _queue| {
+                // Pellets-specific mouse interaction logic
+                // Clamp world coordinates to valid bounds
+                let clamped_x = world_x.clamp(-1.0, 1.0);
+                let clamped_y = world_y.clamp(-1.0, 1.0);
 
-        // Calculate mouse velocity based on time difference
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
+                // Calculate mouse velocity based on time difference
+                let current_time = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64();
 
-        let time_delta = current_time - self.state.last_mouse_time;
+                let time_delta = current_time - self.state.last_mouse_time;
 
-        // Only update velocity if we have a meaningful time difference (avoid division by very small numbers)
-        if time_delta > 0.001 && self.state.last_mouse_time > 0.0 {
-            // Calculate velocity in world units per second
-            let previous_position = self.state.mouse_position;
-            let position_delta = [
-                clamped_x - previous_position[0],
-                clamped_y - previous_position[1],
-            ];
+                // Only update velocity if we have a meaningful time difference (avoid division by very small numbers)
+                if time_delta > 0.001 && self.state.last_mouse_time > 0.0 {
+                    // Calculate velocity in world units per second
+                    let previous_position = self.state.mouse_position;
+                    let position_delta = [
+                        clamped_x - previous_position[0],
+                        clamped_y - previous_position[1],
+                    ];
 
-            let new_velocity = [
-                position_delta[0] / time_delta as f32,
-                position_delta[1] / time_delta as f32,
-            ];
+                    let new_velocity = [
+                        position_delta[0] / time_delta as f32,
+                        position_delta[1] / time_delta as f32,
+                    ];
 
-            // Apply velocity smoothing (exponential moving average)
-            let smoothing_factor = 0.7; // Adjust this for more/less smoothing
-            self.state.mouse_velocity = [
-                self.state.mouse_velocity[0] * (1.0 - smoothing_factor)
-                    + new_velocity[0] * smoothing_factor,
-                self.state.mouse_velocity[1] * (1.0 - smoothing_factor)
-                    + new_velocity[1] * smoothing_factor,
-            ];
-        }
+                    // Apply velocity smoothing (exponential moving average)
+                    let smoothing_factor = 0.7; // Adjust this for more/less smoothing
+                    self.state.mouse_velocity = [
+                        self.state.mouse_velocity[0] * (1.0 - smoothing_factor)
+                            + new_velocity[0] * smoothing_factor,
+                        self.state.mouse_velocity[1] * (1.0 - smoothing_factor)
+                            + new_velocity[1] * smoothing_factor,
+                    ];
+                }
 
-        // Encode mouse button into mode: 0 none, 1 left(attraction)
-        let mode = match mouse_button {
-            0 => 1u32, // Left click for attraction
-            _ => 0u32, // Other buttons do nothing
-        };
+                // Encode mouse button into mode: 0 none, 1 left(attraction)
+                let mode = match mouse_button {
+                    0 => 1u32, // Left click for attraction
+                    _ => 0u32, // Other buttons do nothing
+                };
 
-        self.state.mouse_pressed = true;
-        self.state.mouse_mode = mode;
-        self.state.mouse_position = [clamped_x, clamped_y];
-        self.state.last_mouse_time = current_time;
+                self.state.mouse_pressed = true;
+                self.state.mouse_mode = mode;
+                self.state.mouse_position = [clamped_x, clamped_y];
+                self.state.last_mouse_time = current_time;
 
-        // Clear grabbed particles list when starting new interaction
-        self.state.grabbed_particles.clear();
+                // Clear grabbed particles list when starting new interaction
+                self.state.grabbed_particles.clear();
 
-        Ok(())
+                Ok(())
+            },
+        )
     }
 
     fn handle_mouse_release(
         &mut self,
-        _mouse_button: u32,
-        _queue: &Arc<Queue>,
+        mouse_button: u32,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Keep the current velocity for throwing, don't clear it immediately
-        // The shader will use this velocity when releasing particles
-        self.state.mouse_pressed = false;
-        self.state.mouse_mode = 0;
+        // Use shared mouse interaction handler
+        self.mouse_handler
+            .handle_mouse_release(mouse_button, queue, |_cursor, _queue| {
+                // Pellets-specific mouse release logic
+                // Keep the current velocity for throwing, don't clear it immediately
+                // The shader will use this velocity when releasing particles
+                self.state.mouse_pressed = false;
+                self.state.mouse_mode = 0;
 
-        // Clear the grabbed particles list
-        self.state.grabbed_particles.clear();
+                // Clear the grabbed particles list
+                self.state.grabbed_particles.clear();
 
-        // Start velocity decay after a short delay
-        // This will be handled in the physics step
+                // Start velocity decay after a short delay
+                // This will be handled in the physics step
 
-        Ok(())
+                Ok(())
+            })
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
@@ -1547,11 +1571,11 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         let required_buffer_size = self.particles.len() * std::mem::size_of::<Particle>();
         if self.particle_buffer.size() < required_buffer_size as u64 {
             // Recreate the particle buffer with the new size
-            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Pellets Particle Buffer"),
-                contents: bytemuck::cast_slice(&self.particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
+            self.particle_buffer = BufferUtils::create_storage_buffer(
+                device,
+                "Pellets Particle Buffer",
+                &self.particles,
+            );
 
             // Recreate the bind groups since the buffer changed
             self.recreate_bind_groups(device)?;

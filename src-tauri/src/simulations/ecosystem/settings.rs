@@ -1,3 +1,4 @@
+use crate::simulations::shared::RandomSeedState;
 use serde::{Deserialize, Serialize};
 
 /// Settings for the Ecosystem simulation
@@ -8,8 +9,8 @@ pub struct Settings {
     pub agent_count: u32,
     /// Simulation time step
     pub time_step: f32,
-    /// Random seed for reproducible results
-    pub random_seed: u32,
+    /// Random seed state for reproducible results
+    pub random_seed_state: RandomSeedState,
     /// Whether to wrap edges or use boundaries
     pub wrap_edges: bool,
 
@@ -178,7 +179,7 @@ impl Default for Settings {
             // Basic simulation parameters
             agent_count: 1500,
             time_step: 0.016,
-            random_seed: 42,
+            random_seed_state: RandomSeedState::new(42),
             wrap_edges: true,
 
             // Agent physical properties
@@ -289,7 +290,7 @@ impl Settings {
         // Randomize basic simulation parameters
         self.agent_count = rng.random_range(1000..2000);
         self.time_step = rng.random_range(0.005..0.05);
-        self.random_seed = rng.random();
+        self.random_seed_state.randomize();
         self.wrap_edges = rng.random();
 
         // Randomize agent physical properties
@@ -388,7 +389,7 @@ impl Settings {
         self.chemical_field_opacity = rng.random_range(0.1..0.5);
         self.environmental_opacity = rng.random_range(0.05..0.3);
 
-        self.random_seed = rng.random();
+        self.random_seed_state.randomize();
     }
 
     /// Set visual mode to one of the preset configurations

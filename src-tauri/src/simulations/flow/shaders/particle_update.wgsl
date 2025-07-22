@@ -103,7 +103,7 @@ fn is_inside_particle_shape(offset_x: f32, offset_y: f32, radius: f32, shape: u3
             let triangle_y = normalized_y * 1.732; // Scale Y for equilateral triangle
             return abs(triangle_y) <= 1.0 - abs(normalized_x);
         }
-        case 3u: { // Star (Flower)
+        case 3u: { // Flower
             let angle = atan2(normalized_y, normalized_x);
             let radius_dist = sqrt(normalized_x * normalized_x + normalized_y * normalized_y);
             let star_radius = 1.0;

@@ -30,7 +30,7 @@
     tabindex="-1"
     on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
   >
-    <div class="dialog-content gradient-editor-content" role="document" on:click|stopPropagation>
+    <div class="dialog-content gradient-editor-content" role="document">
       <h3 id="gradient-editor-title">Color Scheme Editor</h3>
 
       <!-- LUT Name Input -->
@@ -113,7 +113,6 @@
             </div>
             {#if gradientStops.length > 2}
               <div class="control-group">
-                <label>&nbsp;</label>
                 <button
                   type="button"
                   class="delete-stop-btn"

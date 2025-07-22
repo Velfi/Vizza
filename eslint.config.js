@@ -43,6 +43,7 @@ export default [
       'svelte/no-unknown-style-directive-property': 'error',
       'svelte/no-unused-svelte-ignore': 'error',
       'svelte/system': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
 

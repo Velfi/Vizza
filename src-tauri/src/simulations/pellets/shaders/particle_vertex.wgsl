@@ -31,6 +31,7 @@ struct VertexOutput {
     @location(2) density: f32,
     @location(3) uv: vec2<f32>,
     @location(4) coloring_mode: f32,
+    @location(5) grid_fade_factor: f32,
 }
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
@@ -65,8 +66,10 @@ fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    // Each instance represents one particle. Use instance_index to select the particle.
-    let particle_index = instance_index;
+    // 3x3 grid mode: render each particle 9 times
+    // Each particle gets rendered in a 3x3 grid with fade factors
+    let particle_index = instance_index / 9u; // 9 instances per particle (3x3 grid)
+    let grid_instance = instance_index % 9u; // Which grid cell (0-8)
     let vertex_id = vertex_index; // 0-5 within the quad
     
     let particle = particles[particle_index];
@@ -79,6 +82,7 @@ fn vs_main(
             0.0,
             0.0,
             vec2<f32>(0.0),
+            0.0,
             0.0
         );
     }
@@ -97,11 +101,35 @@ fn vs_main(
     let pos = positions[vertex_id];
     let uv = uvs[vertex_id];
     
+    // Calculate grid cell position (0-8, arranged as 3x3 grid)
+    let grid_x = i32(grid_instance % 3u) - 1; // -1, 0, 1
+    let grid_y = i32(grid_instance / 3u) - 1; // -1, 0, 1
+    
+    // Calculate fade factor based on distance from center
+    let center_distance = abs(grid_x) + abs(grid_y);
+    var grid_fade_factor: f32;
+    if (center_distance == 0) {
+        grid_fade_factor = 1.0; // Center cell - full opacity
+    } else if (center_distance == 1) {
+        grid_fade_factor = 0.4; // Adjacent cells - medium fade
+    } else {
+        grid_fade_factor = 0.2; // Corner cells - strong fade
+    }
+    
     // Use particle size from settings (uniform size for all particles)
     let particle_size_pixels = params.particle_size * 1000.0; // Convert from world units to pixels
     let world_size = particle_size_pixels / min(params.screen_width, params.screen_height);
     let size = world_size * 2.0; // Uniform size for all particles, no mass scaling
-    let world_pos = particle.position + pos * size;
+    
+    // Start with base world position and offset by grid cell
+    // Each grid cell represents a full world tile offset (width/height = 2.0)
+    var world_pos = vec2<f32>(
+        particle.position.x + f32(grid_x) * 2.0, // Offset by full world width
+        particle.position.y + f32(grid_y) * 2.0  // Offset by full world height
+    );
+    
+    // Add particle quad offset
+    world_pos = world_pos + pos * size;
     
     // Convert to clip coordinates using camera transformation
     let clip_pos = vec4<f32>(world_pos.x, world_pos.y, 0.0, 1.0);
@@ -116,6 +144,7 @@ fn vs_main(
         particle.mass,
         particle.density,
         uv,
-        f32(params.coloring_mode)
+        f32(params.coloring_mode),
+        grid_fade_factor
     );
 } 

@@ -79,10 +79,10 @@ pub struct Settings {
     ///
     /// Defaults to 1.
     pub decay_frequency: u32,
-    /// Random seed for reproducible randomization.
+    /// Random seed state for reproducible randomization.
     ///
     /// Defaults to 0.
-    pub random_seed: u32,
+    pub random_seed_state: crate::simulations::shared::RandomSeedState,
 }
 
 // Custom serialization for Range<f32>
@@ -134,7 +134,7 @@ impl Default for Settings {
             gradient_angle: 0.0,
             diffusion_frequency: 1,
             decay_frequency: 1,
-            random_seed: 0,
+            random_seed_state: crate::simulations::shared::RandomSeedState::new(0),
         }
     }
 }
@@ -142,9 +142,6 @@ impl Default for Settings {
 impl Settings {
     /// Randomize all settings within reasonable bounds
     pub fn randomize(&mut self) {
-        use rand::Rng;
-        let mut rng = rand::rng();
-
         self.agent_speed_min = rand::random::<f32>() * 500.0;
         self.agent_speed_max =
             self.agent_speed_min + rand::random::<f32>() * (500.0 - self.agent_speed_min);
@@ -171,6 +168,6 @@ impl Settings {
 
         self.diffusion_frequency = 1;
         self.decay_frequency = 1;
-        self.random_seed = rng.random();
+        self.random_seed_state.randomize();
     }
 }

@@ -135,13 +135,13 @@ mod tests {
         let mut matrix = vec![vec![0.0; size]; size];
 
         // Fill with test values: diagonal = -0.1, others = small sequential values
-        for i in 0..size {
-            for j in 0..size {
+        for (i, row) in matrix.iter_mut().enumerate().take(size) {
+            for (j, cell) in row.iter_mut().enumerate().take(size) {
                 if i == j {
-                    matrix[i][j] = -0.1; // Self-repulsion
+                    *cell = -0.1; // Self-repulsion
                 } else {
                     // Use smaller values that won't get clamped when scaled
-                    matrix[i][j] = (i * size + j) as f32 * 0.01; // Sequential values
+                    *cell = (i * size + j) as f32 * 0.01; // Sequential values
                 }
             }
         }
@@ -412,24 +412,24 @@ mod tests {
 
         // Test scaling by 0 (should zero out all elements)
         scale_force_matrix(&mut matrix, 0.0);
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!((matrix[i][j] - 0.0).abs() < 0.001);
+        for row in &matrix {
+            for &value in row {
+                assert!((value - 0.0).abs() < 0.001);
             }
         }
 
         // Test scaling by negative value
         matrix = create_test_matrix(3);
         scale_force_matrix(&mut matrix, -1.0);
-        for i in 0..3 {
-            for j in 0..3 {
+        for (i, row) in matrix.iter().enumerate().take(3) {
+            for (j, &value) in row.iter().enumerate().take(3) {
                 // All elements should be negated
                 let expected = if i == j {
                     -(-0.1) // Diagonal elements were -0.1, so negated becomes 0.1
                 } else {
                     -((i * 3 + j) as f32) * 0.01
                 };
-                assert!((matrix[i][j] - expected).abs() < 0.001);
+                assert!((value - expected).abs() < 0.001);
             }
         }
     }
@@ -514,9 +514,9 @@ mod tests {
 
         // Test that zeroing sets all values to 0
         zero_matrix(&mut matrix);
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!((matrix[i][j] - 0.0).abs() < 0.001);
+        for row in &matrix {
+            for &value in row {
+                assert!((value - 0.0).abs() < 0.001);
             }
         }
 
@@ -524,9 +524,9 @@ mod tests {
         for size in 2..=6 {
             let mut matrix = create_test_matrix(size);
             zero_matrix(&mut matrix);
-            for i in 0..size {
-                for j in 0..size {
-                    assert!((matrix[i][j] - 0.0).abs() < 0.001);
+            for row in &matrix {
+                for &value in row {
+                    assert!((value - 0.0).abs() < 0.001);
                 }
             }
         }
@@ -539,9 +539,9 @@ mod tests {
 
         // Test that flipping sign negates all values
         flip_sign(&mut matrix);
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!((matrix[i][j] - (-original_matrix[i][j])).abs() < 0.001);
+        for (i, row) in matrix.iter().enumerate().take(3) {
+            for (j, &value) in row.iter().enumerate().take(3) {
+                assert!((value - (-original_matrix[i][j])).abs() < 0.001);
             }
         }
 

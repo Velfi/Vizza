@@ -289,7 +289,7 @@ impl SimulationManager {
                     )?;
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    let camera = &simulation.camera;
+                    let camera = &simulation.camera.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
 
@@ -320,7 +320,7 @@ impl SimulationManager {
                     )?;
                 }
                 SimulationType::SlimeMold(simulation) => {
-                    let camera = &simulation.camera;
+                    let camera = &simulation.camera.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
@@ -334,7 +334,7 @@ impl SimulationManager {
                     )?;
                 }
                 SimulationType::Flow(simulation) => {
-                    let camera = &simulation.camera;
+                    let camera = &simulation.camera.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
                     let world_x = world.x;
@@ -523,12 +523,12 @@ impl SimulationManager {
                         )
                     })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.lut_state.reversed {
                         lut_data.reverse();
                     }
 
                     simulation.update_lut(&lut_data, queue);
-                    simulation.current_lut_name = lut_name.to_string();
+                    simulation.lut_state.set_lut_name(lut_name.to_string());
 
                     tracing::info!("LUT '{}' applied to slime mold simulation", lut_name);
                 }
@@ -540,12 +540,12 @@ impl SimulationManager {
                         )
                     })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.lut_state.reversed {
                         lut_data.reverse();
                     }
 
                     simulation.renderer.update_lut(&lut_data, queue);
-                    simulation.current_lut_name = lut_name.to_string();
+                    simulation.lut_state.set_lut_name(lut_name.to_string());
 
                     tracing::info!("LUT '{}' applied to Gray-Scott simulation", lut_name);
                 }
@@ -595,21 +595,23 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
                     // Toggle the reversed flag and reload the LUT
-                    simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data =
-                        self.lut_manager
-                            .get(&simulation.current_lut_name)
-                            .map_err(|e| {
-                                AppError::Simulation(
-                                    format!(
-                                        "Failed to load LUT '{}': {}",
-                                        simulation.current_lut_name, e
-                                    )
-                                    .into(),
+                    simulation
+                        .lut_state
+                        .set_reversed(!simulation.lut_state.reversed);
+                    let mut lut_data = self
+                        .lut_manager
+                        .get(&simulation.lut_state.current_lut_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load LUT '{}': {}",
+                                    simulation.lut_state.current_lut_name, e
                                 )
-                            })?;
+                                .into(),
+                            )
+                        })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.lut_state.reversed {
                         lut_data.reverse();
                     }
 
@@ -618,21 +620,23 @@ impl SimulationManager {
                 }
                 SimulationType::GrayScott(simulation) => {
                     // Toggle the reversed flag and reload the LUT
-                    simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data =
-                        self.lut_manager
-                            .get(&simulation.current_lut_name)
-                            .map_err(|e| {
-                                AppError::Simulation(
-                                    format!(
-                                        "Failed to load LUT '{}': {}",
-                                        simulation.current_lut_name, e
-                                    )
-                                    .into(),
+                    simulation
+                        .lut_state
+                        .set_reversed(!simulation.lut_state.reversed);
+                    let mut lut_data = self
+                        .lut_manager
+                        .get(&simulation.lut_state.current_lut_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load LUT '{}': {}",
+                                    simulation.lut_state.current_lut_name, e
                                 )
-                            })?;
+                                .into(),
+                            )
+                        })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.lut_state.reversed {
                         lut_data.reverse();
                     }
 
@@ -641,9 +645,9 @@ impl SimulationManager {
                 }
                 SimulationType::ParticleLife(simulation) => {
                     // For particle life, we need to update the LUT with reversed flag
-                    let current_reversed = simulation.state.lut_reversed;
+                    let current_reversed = simulation.state.lut_state.reversed;
                     let color_mode = simulation.state.color_mode;
-                    let current_lut_name = simulation.state.current_lut_name.clone();
+                    let current_lut_name = simulation.state.lut_state.current_lut_name.clone();
                     let lut_manager = &self.lut_manager;
                     simulation.update_lut(
                         device,
@@ -660,7 +664,7 @@ impl SimulationManager {
                 }
                 SimulationType::Flow(simulation) => {
                     // For Flow, use the built-in LUT reversal mechanism
-                    let current_reversed = simulation.settings.lut_reversed;
+                    let current_reversed = simulation.lut_state.reversed;
                     simulation.update_setting(
                         "lutReversed",
                         serde_json::json!(!current_reversed),
@@ -671,7 +675,7 @@ impl SimulationManager {
                 }
                 SimulationType::Pellets(simulation) => {
                     // For Pellets, use the built-in LUT reversal mechanism
-                    let current_reversed = simulation.state.lut_reversed;
+                    let current_reversed = simulation.state.lut_state.reversed;
                     simulation.update_setting(
                         "lut_reversed",
                         serde_json::json!(!current_reversed),
@@ -721,7 +725,7 @@ impl SimulationManager {
                         })?;
 
                     let color_mode = simulation.state.color_mode;
-                    let lut_reversed = simulation.state.lut_reversed;
+                    let lut_reversed = simulation.state.lut_state.reversed;
 
                     simulation.update_lut(
                         device,

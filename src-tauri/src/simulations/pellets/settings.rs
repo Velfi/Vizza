@@ -17,6 +17,7 @@
 //! of the simulation, from basic particle properties to advanced physics
 //! behaviors and visual presentation.
 
+use crate::simulations::shared::RandomSeedState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +38,8 @@ pub struct Settings {
     /// Minimum initial velocity for particles
     pub initial_velocity_min: f32,
 
-    /// Random seed for reproducible simulations
-    pub random_seed: u32,
+    /// Random seed state for reproducible simulations
+    pub random_seed_state: RandomSeedState,
 
     /// Background type: "black" or "white"
     pub background_type: String,
@@ -71,7 +72,7 @@ impl Default for Settings {
             collision_damping: 1.0,
             initial_velocity_max: 0.15,
             initial_velocity_min: 0.05,
-            random_seed: 0,
+            random_seed_state: RandomSeedState::default(),
             background_type: "white".to_string(),
             gravitational_constant: 1e-6,
             energy_damping: 1.0,
@@ -93,7 +94,7 @@ impl Settings {
         self.collision_damping = rng.random_range(0.5..0.95); // Similar range to energy_damping
         self.initial_velocity_max = rng.random_range(0.1..0.5);
         self.initial_velocity_min = rng.random_range(0.05..self.initial_velocity_max * 0.7);
-        self.random_seed = rng.random();
+        self.random_seed_state.randomize();
 
         // Randomize physics fields
         self.gravitational_constant = rng.random_range(0.003..0.012);

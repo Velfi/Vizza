@@ -2,7 +2,7 @@ use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
+
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::renderer::Renderer;
@@ -10,6 +10,9 @@ use super::settings::{NutrientPattern, Settings};
 use super::shaders::REACTION_DIFFUSION_SHADER;
 use super::shaders::noise_seed::NoiseSeedCompute;
 use crate::simulations::shared::coordinates::TextureCoords;
+use crate::simulations::shared::{
+    BufferUtils, CursorState, LutState, MouseInteractionHandler, TimingState,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -42,20 +45,19 @@ pub struct GrayScottModel {
     pub settings: Settings,
     pub width: u32,
     pub height: u32,
-    pub lut_reversed: bool,
     uvs_buffers: [wgpu::Buffer; 2], // Double buffering
     current_buffer: usize,
     params_buffer: wgpu::Buffer,
     bind_groups: [wgpu::BindGroup; 2], // Double buffering
     compute_pipeline: wgpu::ComputePipeline,
     noise_seed_compute: NoiseSeedCompute,
-    last_frame_time: std::time::Instant,
-    show_gui: bool,
-    pub current_lut_name: String,
+    pub gui_visible: bool,
 
-    // Cursor configuration (runtime state, not saved in presets)
-    pub cursor_size: f32,
-    pub cursor_strength: f32,
+    // Shared state
+    pub lut_state: LutState,
+    pub timing: TimingState,
+    pub cursor: CursorState,
+    pub mouse_handler: MouseInteractionHandler,
 }
 
 impl GrayScottModel {
@@ -143,11 +145,7 @@ impl GrayScottModel {
             cursor_strength: 0.5,
         };
 
-        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Params Buffer"),
-            contents: bytemuck::cast_slice(&[params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let params_buffer = BufferUtils::create_uniform_buffer(device, "Params Buffer", &params);
 
         // Create bind group layout and pipeline
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -255,23 +253,22 @@ impl GrayScottModel {
             settings,
             width,
             height,
-            current_lut_name: "MATPLOTLIB_prism".to_string(),
-            lut_reversed: false,
             uvs_buffers,
             current_buffer: 0,
             params_buffer,
             bind_groups,
             compute_pipeline,
             noise_seed_compute,
-            last_frame_time: std::time::Instant::now(),
-            show_gui: true,
-            cursor_size: 40.0,
-            cursor_strength: 0.5,
+            gui_visible: true,
+            lut_state: LutState::with_values("MATPLOTLIB_prism".to_string(), false),
+            timing: TimingState::new(),
+            cursor: CursorState::default(),
+            mouse_handler: MouseInteractionHandler::new(),
         };
 
         // Apply initial LUT
-        if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
-            if simulation.lut_reversed {
+        if let Ok(mut lut_data) = lut_manager.get(&simulation.lut_state.current_lut_name) {
+            if simulation.lut_state.reversed {
                 lut_data.reverse();
             }
             simulation.renderer.update_lut(&lut_data, queue);
@@ -294,10 +291,10 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            cursor_x: self.cursor.world_x,
+            cursor_y: self.cursor.world_y,
+            cursor_size: self.cursor.size,
+            cursor_strength: self.cursor.strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -426,12 +423,12 @@ impl GrayScottModel {
             }
             "cursor_size" => {
                 if let Some(v) = value.as_f64() {
-                    self.cursor_size = v as f32;
+                    self.cursor.set_size(v as f32);
                 }
             }
             "cursor_strength" => {
                 if let Some(v) = value.as_f64() {
-                    self.cursor_strength = v as f32;
+                    self.cursor.set_strength(v as f32);
                 }
             }
             _ => {}
@@ -448,10 +445,10 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            cursor_x: self.cursor.world_x,
+            cursor_y: self.cursor.world_y,
+            cursor_size: self.cursor.size,
+            cursor_strength: self.cursor.strength,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -467,9 +464,7 @@ impl GrayScottModel {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Calculate delta time
-        let now = std::time::Instant::now();
-        let delta_time = now.duration_since(self.last_frame_time).as_secs_f32();
-        self.last_frame_time = now;
+        let delta_time = self.timing.delta_time();
 
         // Update camera for smooth movement
         self.renderer.camera.update(delta_time);
@@ -523,8 +518,8 @@ impl GrayScottModel {
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             cursor_x: x,
             cursor_y: y,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            cursor_size: self.cursor.size,
+            cursor_strength: self.cursor.strength,
         };
 
         // Update params buffer
@@ -541,10 +536,7 @@ impl GrayScottModel {
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // texture_x and texture_y are in [0,1] range
-        // Update cursor position (for UI feedback, etc.)
-        self.update_cursor_position(texture_x, texture_y, queue)?;
-
+        // Use shared mouse interaction handler but extract values first to avoid borrow issues
         let texture_coords = TextureCoords::new(texture_x, texture_y);
 
         // Debug output
@@ -562,88 +554,109 @@ impl GrayScottModel {
             return Ok(()); // Outside simulation bounds
         }
 
-        let tx = (texture_coords.x * self.width as f32) as i32;
-        let ty = (texture_coords.y * self.height as f32) as i32;
+        // Update cursor position (for UI feedback, etc.)
+        self.update_cursor_position(texture_x, texture_y, queue)?;
 
-        // Apply interaction in a circular area
-        let radius = self.cursor_size as i32; // Use configurable cursor size
+        // Use shared mouse interaction handler
+        let width = self.width;
+        let height = self.height;
+        let uvs_buffer_0 = &self.uvs_buffers[0];
+        let uvs_buffer_1 = &self.uvs_buffers[1];
 
-        // Collect all updates into a batch
-        let mut updates: Vec<(usize, UVPair)> = Vec::new();
+        self.mouse_handler.handle_mouse_interaction(
+            texture_x,
+            texture_y,
+            mouse_button,
+            queue,
+            |cursor, queue| {
+                let tx = (cursor.world_x * width as f32) as i32;
+                let ty = (cursor.world_y * height as f32) as i32;
 
-        for dy in -radius..=radius {
-            for dx in -radius..=radius {
-                let px = tx + dx;
-                let py = ty + dy;
+                // Apply interaction in a circular area
+                let radius = cursor.size as i32; // Use configurable cursor size
 
-                // Check bounds
-                if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
-                    let distance = ((dx * dx + dy * dy) as f32).sqrt();
-                    if distance <= radius as f32 {
-                        let index = (py * self.width as i32 + px) as usize;
-                        let factor = (1.0 - (distance / radius as f32)) * self.cursor_strength;
+                // Collect all updates into a batch
+                let mut updates: Vec<(usize, UVPair)> = Vec::new();
 
-                        let uv_pair = if mouse_button == 0 {
-                            // Left mouse button: seed the reaction with higher V concentration
-                            UVPair {
-                                u: 0.2 + 0.3 * factor,
-                                v: 0.8 + 0.2 * factor,
+                for dy in -radius..=radius {
+                    for dx in -radius..=radius {
+                        let px = tx + dx;
+                        let py = ty + dy;
+
+                        // Check bounds
+                        if px >= 0 && px < width as i32 && py >= 0 && py < height as i32 {
+                            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+                            if distance <= radius as f32 {
+                                let index = (py * width as i32 + px) as usize;
+                                let factor = (1.0 - (distance / radius as f32)) * cursor.strength;
+
+                                let uv_pair = if cursor.active_mode == 1 {
+                                    // Left mouse button: seed the reaction with higher V concentration
+                                    UVPair {
+                                        u: 0.2 + 0.3 * factor,
+                                        v: 0.8 + 0.2 * factor,
+                                    }
+                                } else if cursor.active_mode == 2 {
+                                    // Right mouse button: create voids/erase
+                                    UVPair { u: 1.0, v: 0.0 }
+                                } else {
+                                    // Middle mouse button or other: no effect
+                                    continue;
+                                };
+
+                                updates.push((index, uv_pair));
                             }
-                        } else if mouse_button == 2 {
-                            // Right mouse button: create voids/erase
-                            UVPair { u: 1.0, v: 0.0 }
-                        } else {
-                            // Middle mouse button or other: no effect
-                            continue;
-                        };
-
-                        updates.push((index, uv_pair));
+                        }
                     }
                 }
-            }
-        }
 
-        // Batch write all updates at once
-        if !updates.is_empty() {
-            // Group consecutive updates for more efficient buffer writes
-            updates.sort_by_key(|&(index, _)| index);
+                // Batch write all updates at once
+                if !updates.is_empty() {
+                    // Group consecutive updates for more efficient buffer writes
+                    updates.sort_by_key(|&(index, _)| index);
 
-            // Find consecutive ranges and batch them
-            let mut i = 0;
-            while i < updates.len() {
-                let start_idx = updates[i].0;
-                let mut end_idx = start_idx;
-                let mut batch_data = vec![updates[i].1];
+                    // Find consecutive ranges and batch them
+                    let mut i = 0;
+                    while i < updates.len() {
+                        let start_idx = updates[i].0;
+                        let mut end_idx = start_idx;
+                        let mut batch_data = vec![updates[i].1];
 
-                // Collect consecutive indices
-                let mut j = i + 1;
-                while j < updates.len() && updates[j].0 == end_idx + 1 {
-                    end_idx = updates[j].0;
-                    batch_data.push(updates[j].1);
-                    j += 1;
+                        // Collect consecutive indices
+                        let mut j = i + 1;
+                        while j < updates.len() && updates[j].0 == end_idx + 1 {
+                            end_idx = updates[j].0;
+                            batch_data.push(updates[j].1);
+                            j += 1;
+                        }
+
+                        // Write the batch
+                        let offset = (start_idx * std::mem::size_of::<UVPair>()) as u64;
+                        let data = bytemuck::cast_slice(&batch_data);
+
+                        // Write to both buffers for immediate visibility
+                        queue.write_buffer(uvs_buffer_0, offset, data);
+                        queue.write_buffer(uvs_buffer_1, offset, data);
+
+                        i = j;
+                    }
                 }
 
-                // Write the batch
-                let offset = (start_idx * std::mem::size_of::<UVPair>()) as u64;
-                let data = bytemuck::cast_slice(&batch_data);
-
-                // Write to both buffers for immediate visibility
-                queue.write_buffer(&self.uvs_buffers[0], offset, data);
-                queue.write_buffer(&self.uvs_buffers[1], offset, data);
-
-                i = j;
-            }
-        }
-
-        Ok(())
+                Ok(())
+            },
+        )
     }
 
-    fn handle_mouse_release(&mut self, _queue: &Arc<Queue>) -> SimulationResult<()> {
-        // For Gray-Scott, mouse release doesn't need special handling
-        // The cursor position is already updated in handle_mouse_interaction
-        // and the interaction is immediate (no continuous effect)
-        tracing::debug!("Gray-Scott mouse release: no special handling needed");
-        Ok(())
+    fn handle_mouse_release(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        // Use shared mouse interaction handler
+        self.mouse_handler
+            .handle_mouse_release(0, queue, |_cursor, _queue| {
+                // For Gray-Scott, mouse release doesn't need special handling
+                // The cursor position is already updated in handle_mouse_interaction
+                // and the interaction is immediate (no continuous effect)
+                tracing::debug!("Gray-Scott mouse release: no special handling needed");
+                Ok(())
+            })
     }
 
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
@@ -665,12 +678,12 @@ impl GrayScottModel {
     }
 
     pub(crate) fn toggle_gui(&mut self) -> bool {
-        self.show_gui = !self.show_gui;
-        self.show_gui
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     pub(crate) fn is_gui_visible(&self) -> bool {
-        self.show_gui
+        self.gui_visible
     }
 }
 
@@ -682,9 +695,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Calculate delta time
-        let now = std::time::Instant::now();
-        let delta_time = now.duration_since(self.last_frame_time).as_secs_f32();
-        self.last_frame_time = now;
+        let delta_time = self.timing.delta_time();
 
         // Update camera for smooth movement
         self.renderer.camera.update(delta_time);
@@ -733,11 +744,11 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         serde_json::json!({
             "width": self.width,
             "height": self.height,
-            "lut_reversed": self.lut_reversed,
-            "current_lut_name": self.current_lut_name,
-            "show_gui": self.show_gui,
-            "cursor_size": self.cursor_size,
-            "cursor_strength": self.cursor_strength,
+            "lut_reversed": self.lut_state.reversed,
+            "current_lut_name": self.lut_state.current_lut_name,
+            "gui_visible": self.gui_visible,
+            "cursor_size": self.cursor.size,
+            "cursor_strength": self.cursor.strength,
             "camera": {
                 "position": self.renderer.camera.position,
                 "zoom": self.renderer.camera.zoom

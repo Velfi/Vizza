@@ -1,10 +1,9 @@
 use crate::error::SimulationResult;
-use crate::simulations::shared::LutManager;
+use crate::simulations::shared::{BufferUtils, LutManager};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Instant;
-use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguration, TextureView};
 
 #[derive(Debug)]
@@ -24,12 +23,8 @@ impl MainMenuModel {
         lut_manager: &LutManager,
     ) -> SimulationResult<Self> {
         // Create the time uniform buffer and bind group
-        let time_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Main Menu Time Buffer"),
-            size: std::mem::size_of::<f32>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let time_buffer =
+            BufferUtils::create_uniform_buffer(device, "Main Menu Time Buffer", &0.0f32);
 
         let time_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -58,11 +53,8 @@ impl MainMenuModel {
         // Create LUT buffer from a random LUT and create bind group
         let lut_data = lut_manager.get_random_lut()?;
         let lut_data_u32 = lut_data.to_u32_buffer();
-        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Main Menu LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_u32),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let lut_buffer =
+            BufferUtils::create_storage_buffer(device, "Main Menu LUT Buffer", &lut_data_u32);
 
         let lut_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

@@ -26,7 +26,7 @@
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'pellets'}
-<PelletsMode
+    <PelletsMode
       menuPosition={appSettings.menu_position}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}

@@ -1,6 +1,6 @@
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
-use rand::{Rng, SeedableRng};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -9,7 +9,10 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::{MatrixGenerator, Settings, TypeGenerator};
 use super::shaders;
-use crate::simulations::shared::{LutManager, PositionGenerator, camera::Camera};
+use crate::simulations::shared::{
+    BufferUtils, CameraState, CursorState, LutManager, LutState, MouseInteractionHandler,
+    PositionGenerator, RandomSeedState, TimingState,
+};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]
@@ -111,7 +114,7 @@ impl SimParams {
             wrap_edges: if settings.wrap_edges { 1 } else { 0 },
             width: width as f32,
             height: height as f32,
-            random_seed: state.random_seed,
+            random_seed: state.random_seed_state.get_seed(),
             dt: state.dt,
             beta: settings.force_beta,
             cursor_x: 0.0, // Initialize cursor position to center
@@ -135,7 +138,7 @@ impl SimParams {
 pub struct State {
     pub particle_count: usize,
     pub particles: Vec<Particle>,
-    pub random_seed: u32,
+    pub random_seed_state: RandomSeedState,
     pub dt: f32,
     pub cursor_size: f32,
     pub cursor_strength: f32,
@@ -146,8 +149,7 @@ pub struct State {
     pub type_generator: TypeGenerator,
     pub matrix_generator: MatrixGenerator,
     // LUT management (moved from main struct)
-    pub current_lut_name: String,
-    pub lut_reversed: bool,
+    pub lut_state: LutState,
     pub color_mode: ColorMode,
     /// Pre-computed exact RGBA colors for each species, used for both UI display and GPU rendering
     /// In LUT mode: contains species_count + 1 colors (background + species)
@@ -164,7 +166,8 @@ impl State {
         random_seed: u32,
     ) -> Self {
         let mut particles = Vec::with_capacity(particle_count);
-        let mut rng = rand::rngs::StdRng::seed_from_u64(random_seed as u64);
+        let random_seed_state = RandomSeedState::new(random_seed);
+        let mut rng = random_seed_state.create_rng();
 
         // Distribute particles evenly among species
         for i in 0..particle_count {
@@ -184,7 +187,7 @@ impl State {
         Self {
             particle_count,
             particles,
-            random_seed,
+            random_seed_state,
             dt: 0.016,
             cursor_size: 0.5,
             cursor_strength: 1.0,
@@ -194,8 +197,7 @@ impl State {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_lut_name: "MATPLOTLIB_nipy_spectral".to_string(), // Use a proper default
-            lut_reversed: false,
+            lut_state: LutState::with_values("MATPLOTLIB_nipy_spectral".to_string(), false),
             color_mode: ColorMode::Lut, // Use LUT mode as default to match main constructor
             // Placeholder values - will be properly initialized when LUT is loaded in main constructor
             species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
@@ -256,7 +258,6 @@ pub struct ParticleLifeModel {
     pub render_particles_bind_group_layout: wgpu::BindGroupLayout,
     pub render_bind_group: wgpu::BindGroup,
     pub lut_bind_group: wgpu::BindGroup,
-    pub camera_bind_group: wgpu::BindGroup,
 
     // Fade pipeline for traces
     pub fade_pipeline: wgpu::RenderPipeline,
@@ -276,7 +277,7 @@ pub struct ParticleLifeModel {
     // Simulation state and settings
     pub settings: Settings,
     pub state: State,
-    pub show_gui: bool,
+    pub gui_visible: bool,
 
     // LUT management
     pub lut_manager: Arc<LutManager>, // Store reference to LUT manager
@@ -286,15 +287,12 @@ pub struct ParticleLifeModel {
     pub height: u32,
 
     // Camera for viewport control
-    pub camera: Camera,
+    pub camera: CameraState,
 
-    // Frame timing for smooth camera movement
-    last_frame_time: std::time::Instant,
-
-    // Cursor interaction state
-    pub cursor_active_mode: u32, // 0=inactive, 1=attract, 2=repel
-    pub cursor_world_x: f32,
-    pub cursor_world_y: f32,
+    // Shared state
+    pub timing: TimingState,
+    pub cursor: CursorState,
+    pub mouse_handler: MouseInteractionHandler,
 }
 
 impl ParticleLifeModel {
@@ -381,7 +379,7 @@ impl ParticleLifeModel {
         let state = State {
             particle_count,
             particles: vec![], // Empty - will be initialized on GPU
-            random_seed: 0,
+            random_seed_state: RandomSeedState::new(0),
             dt: 0.016,
             cursor_size: 0.5,
             cursor_strength: 1.0,
@@ -391,8 +389,7 @@ impl ParticleLifeModel {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_lut_name,
-            lut_reversed: false,
+            lut_state: LutState::with_values(current_lut_name.clone(), false),
             color_mode,
             species_colors: lut_colors.clone(), // Will be properly computed in update_lut
         };
@@ -420,32 +417,24 @@ impl ParticleLifeModel {
 
         // Create simulation parameters buffer
         let sim_params = SimParams::new(width, height, particle_count as u32, &settings, &state);
-        let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sim Params Buffer"),
-            contents: bytemuck::cast_slice(&[sim_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let sim_params_buffer =
+            BufferUtils::create_uniform_buffer(device, "Sim Params Buffer", &sim_params);
 
         // Create force matrix buffer (flatten 2D matrix to 1D array)
         let force_matrix_data = Self::flatten_force_matrix(&settings.force_matrix);
-        let force_matrix_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Force Matrix Buffer"),
-            contents: bytemuck::cast_slice(&force_matrix_data),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let force_matrix_buffer =
+            BufferUtils::create_storage_buffer(device, "Force Matrix Buffer", &force_matrix_data);
 
         let lut_data_u32 = state
             .species_colors
             .iter()
             .flat_map(|&[r, g, b, a]| [r, g, b, a])
             .collect::<Vec<_>>();
-        let lut_buffer = Arc::new(
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("LUT Buffer"),
-                contents: bytemuck::cast_slice(&lut_data_u32),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            }),
-        );
+        let lut_buffer = Arc::new(BufferUtils::create_storage_buffer(
+            device,
+            "LUT Buffer",
+            &lut_data_u32,
+        ));
 
         // Create compute shader and pipeline
         let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -580,18 +569,15 @@ impl ParticleLifeModel {
             species_count: settings.species_count,
             width: width as f32,
             height: height as f32,
-            random_seed: state.random_seed,
+            random_seed: state.random_seed_state.get_seed(),
             position_generator: state.position_generator as u32,
             type_generator: state.type_generator as u32,
             _pad1: 0,
             _pad2: 0,
         };
 
-        let init_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Init Params Buffer"),
-            contents: bytemuck::cast_slice(&[init_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let init_params_buffer =
+            BufferUtils::create_uniform_buffer(device, "Init Params Buffer", &init_params);
 
         let init_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Init Bind Group"),
@@ -620,12 +606,11 @@ impl ParticleLifeModel {
             new_force: 0.0,
             species_count: settings.species_count,
         };
-        let force_update_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Force Update Params Buffer"),
-                contents: bytemuck::cast_slice(&[force_update_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        let force_update_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Force Update Params Buffer",
+            &force_update_params,
+        );
 
         let force_update_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -694,16 +679,15 @@ impl ParticleLifeModel {
 
         let force_randomize_params = ForceRandomizeParams {
             species_count: settings.species_count,
-            random_seed: state.random_seed,
+            random_seed: state.random_seed_state.get_seed(),
             min_force: -1.0,
             max_force: 1.0,
         };
-        let force_randomize_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Force Randomize Params Buffer"),
-                contents: bytemuck::cast_slice(&[force_randomize_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        let force_randomize_params_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "Force Randomize Params Buffer",
+            &force_randomize_params,
+        );
 
         let force_randomize_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -821,29 +805,12 @@ impl ParticleLifeModel {
 
         let render_bind_group_layout = lut_bind_group_layout.clone();
 
-        // Camera bind group layout
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Particle Life Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &render_bind_group_layout_particles,
                     &render_bind_group_layout,
-                    &camera_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -948,11 +915,11 @@ impl ParticleLifeModel {
         );
 
         // Create LUT size uniform buffer
-        let lut_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LUT Size Buffer"),
-            contents: bytemuck::cast_slice(&[state.species_colors.len() as u32]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let lut_size_buffer = BufferUtils::create_uniform_buffer(
+            device,
+            "LUT Size Buffer",
+            &(state.species_colors.len() as u32),
+        );
 
         // Create color mode uniform buffer
         let color_mode_value = match color_mode {
@@ -961,11 +928,8 @@ impl ParticleLifeModel {
             ColorMode::Black => 2u32,
             ColorMode::Lut => 3u32,
         };
-        let color_mode_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Color Mode Buffer"),
-            contents: bytemuck::cast_slice(&[color_mode_value]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let color_mode_buffer =
+            BufferUtils::create_uniform_buffer(device, "Color Mode Buffer", &color_mode_value);
 
         // Create species colors buffer
         let species_colors_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -997,18 +961,8 @@ impl ParticleLifeModel {
             }],
         });
 
-        // Create camera
-        let camera = Camera::new(device, width as f32, height as f32)?;
-
-        // Create camera bind group
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Camera Bind Group"),
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera.buffer().as_entire_binding(),
-            }],
-        });
+        // Create camera state
+        let camera = CameraState::new(device, width as f32, height as f32)?;
 
         // Create fade pipeline for traces
         let fade_vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1269,7 +1223,6 @@ impl ParticleLifeModel {
             render_particles_bind_group_layout: render_bind_group_layout_particles,
             render_bind_group,
             lut_bind_group,
-            camera_bind_group,
             fade_pipeline,
             fade_bind_group_layout,
             fade_bind_group,
@@ -1281,15 +1234,14 @@ impl ParticleLifeModel {
             blit_bind_group,
             settings,
             state,
-            show_gui: true,
+            gui_visible: true,
             lut_manager: Arc::new(lut_manager.clone()),
             width,
             height,
             camera,
-            last_frame_time: std::time::Instant::now(),
-            cursor_active_mode: 0,
-            cursor_world_x: 0.0,
-            cursor_world_y: 0.0,
+            timing: TimingState::new(),
+            cursor: CursorState::default(),
+            mouse_handler: MouseInteractionHandler::new(),
         };
 
         // Initialize LUT and species colors properly
@@ -1344,10 +1296,10 @@ impl ParticleLifeModel {
         );
 
         // Override with stored cursor values if cursor is active
-        sim_params.cursor_x = self.cursor_world_x;
-        sim_params.cursor_y = self.cursor_world_y;
-        sim_params.cursor_active = self.cursor_active_mode;
-        if self.cursor_active_mode > 0 {
+        sim_params.cursor_x = self.cursor.world_x;
+        sim_params.cursor_y = self.cursor.world_y;
+        sim_params.cursor_active = self.cursor.active_mode;
+        if self.cursor.is_active() {
             sim_params.cursor_strength =
                 self.state.cursor_strength * self.settings.max_force * 10.0;
         }
@@ -1371,7 +1323,7 @@ impl ParticleLifeModel {
             species_count: self.settings.species_count,
             width: self.width as f32,
             height: self.height as f32,
-            random_seed: self.state.random_seed,
+            random_seed: self.state.random_seed_state.get_seed(),
             position_generator: self.state.position_generator as u32,
             type_generator: self.state.type_generator as u32,
             _pad1: 0,
@@ -1417,8 +1369,7 @@ impl ParticleLifeModel {
         );
 
         // Update random seed for reset
-        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
-        self.state.random_seed = rng.random();
+        self.state.random_seed_state.randomize();
 
         // Update sim params with new random seed and current particle count
         self.update_sim_params(device, queue);
@@ -1483,9 +1434,8 @@ impl ParticleLifeModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Update random seed
-        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
-        let new_seed = rng.random();
+        // Generate new random seed
+        let new_seed = rand::random::<u32>();
 
         let randomize_params = ForceRandomizeParams {
             species_count: self.settings.species_count,
@@ -1563,7 +1513,7 @@ impl ParticleLifeModel {
         self.state.color_mode = color_mode;
 
         // Get LUT name and validate
-        let lut_name = lut_name.unwrap_or(&self.state.current_lut_name);
+        let lut_name = lut_name.unwrap_or(&self.state.lut_state.current_lut_name);
         if lut_name.is_empty() {
             return Err(SimulationError::InvalidSetting {
                 setting_name: "lut_name".to_string(),
@@ -1641,13 +1591,13 @@ impl ParticleLifeModel {
         // Update stored colors and LUT info
         self.state.species_colors = species_colors;
         // Store the original LUT name, not the reversed LUT name
-        self.state.current_lut_name = lut_name.to_string();
-        self.state.lut_reversed = lut_reversed;
+        self.state.lut_state.set_lut_name(lut_name.to_string());
+        self.state.lut_state.set_reversed(lut_reversed);
 
         tracing::debug!(
             "Updated LUT: name={}, reversed={}, species_colors.len={}",
-            self.state.current_lut_name,
-            self.state.lut_reversed,
+            self.state.lut_state.current_lut_name,
+            self.state.lut_state.reversed,
             self.state.species_colors.len()
         );
 
@@ -1767,11 +1717,7 @@ impl Simulation for ParticleLifeModel {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Calculate delta time for smooth camera movement
-        let current_time = std::time::Instant::now();
-        let delta_time = current_time
-            .duration_since(self.last_frame_time)
-            .as_secs_f32();
-        self.last_frame_time = current_time;
+        let delta_time = self.timing.delta_time();
 
         // Clamp delta time to prevent large jumps (e.g., when tab is inactive)
         let delta_time = delta_time.min(1.0 / 30.0); // Max 30 FPS equivalent
@@ -1836,7 +1782,7 @@ impl Simulation for ParticleLifeModel {
                 trail_render_pass.set_pipeline(&self.render_pipeline);
                 trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
                 trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+                trail_render_pass.set_bind_group(2, &self.camera.bind_group, &[]);
 
                 let instance_count = self.state.particle_count as u32 * 9;
                 trail_render_pass.draw(0..6, 0..instance_count);
@@ -1884,7 +1830,7 @@ impl Simulation for ParticleLifeModel {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.camera.bind_group, &[]);
 
                 let instance_count = self.state.particle_count as u32 * 9;
                 render_pass.draw(0..6, 0..instance_count);
@@ -1902,14 +1848,7 @@ impl Simulation for ParticleLifeModel {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         // Calculate delta time for smooth camera movement
-        let current_time = std::time::Instant::now();
-        let delta_time = current_time
-            .duration_since(self.last_frame_time)
-            .as_secs_f32();
-        self.last_frame_time = current_time;
-
-        // Clamp delta time to prevent large jumps (e.g., when tab is inactive)
-        let delta_time = delta_time.min(1.0 / 30.0); // Max 30 FPS equivalent
+        let delta_time = self.timing.delta_time().min(1.0 / 30.0); // Max 30 FPS equivalent
 
         // Update GPU buffers with current state
         self.update_sim_params(device, queue);
@@ -2024,7 +1963,7 @@ impl Simulation for ParticleLifeModel {
                 trail_render_pass.set_pipeline(&self.render_pipeline);
                 trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
                 trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+                trail_render_pass.set_bind_group(2, &self.camera.bind_group, &[]);
 
                 let instance_count = self.state.particle_count as u32 * 9;
                 trail_render_pass.draw(0..6, 0..instance_count);
@@ -2072,7 +2011,7 @@ impl Simulation for ParticleLifeModel {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(2, &self.camera.bind_group, &[]);
 
                 let instance_count = self.state.particle_count as u32 * 9;
                 render_pass.draw(0..6, 0..instance_count);
@@ -2125,8 +2064,8 @@ impl Simulation for ParticleLifeModel {
                     self.recreate_bind_groups_with_force_matrix(device);
 
                     // Update LUT colors for new species count
-                    let current_lut_name = self.state.current_lut_name.clone();
-                    let lut_reversed = self.state.lut_reversed;
+                    let current_lut_name = self.state.lut_state.current_lut_name.clone();
+                    let lut_reversed = self.state.lut_state.reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -2244,7 +2183,7 @@ impl Simulation for ParticleLifeModel {
             }
             "random_seed" => {
                 if let Some(seed) = value.as_u64() {
-                    self.state.random_seed = seed as u32;
+                    self.state.random_seed_state.set_seed(seed as u32);
                 }
             }
             "position_generator" => {
@@ -2333,8 +2272,8 @@ impl Simulation for ParticleLifeModel {
                         _ => ColorMode::Lut,
                     };
                     // Update LUT with new color mode
-                    let current_lut_name = self.state.current_lut_name.clone();
-                    let lut_reversed = self.state.lut_reversed;
+                    let current_lut_name = self.state.lut_state.current_lut_name.clone();
+                    let lut_reversed = self.state.lut_state.reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -2349,7 +2288,7 @@ impl Simulation for ParticleLifeModel {
             "lut_name" => {
                 if let Some(lut_name) = value.as_str() {
                     let color_mode = self.state.color_mode;
-                    let lut_reversed = self.state.lut_reversed;
+                    let lut_reversed = self.state.lut_state.reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -2364,7 +2303,7 @@ impl Simulation for ParticleLifeModel {
             "lut_reversed" => {
                 if let Some(reversed) = value.as_bool() {
                     let color_mode = self.state.color_mode;
-                    let current_lut_name = self.state.current_lut_name.clone();
+                    let current_lut_name = self.state.lut_state.current_lut_name.clone();
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -2389,7 +2328,7 @@ impl Simulation for ParticleLifeModel {
         serde_json::json!({
             "particle_count": self.state.particle_count,
             "species_count": self.settings.species_count,
-            "random_seed": self.state.random_seed,
+            "random_seed": self.state.random_seed_state.get_seed(),
             "dt": self.state.dt,
             "cursor_size": self.state.cursor_size,
             "cursor_strength": self.state.cursor_strength,
@@ -2399,8 +2338,8 @@ impl Simulation for ParticleLifeModel {
             "position_generator": self.state.position_generator,
             "type_generator": self.state.type_generator,
             "matrix_generator": self.state.matrix_generator,
-            "current_lut_name": self.state.current_lut_name,
-            "lut_reversed": self.state.lut_reversed,
+            "current_lut_name": self.state.lut_state.current_lut_name,
+            "lut_reversed": self.state.lut_state.reversed,
             "color_mode": self.state.color_mode,
         })
     }
@@ -2413,105 +2352,71 @@ impl Simulation for ParticleLifeModel {
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Determine cursor mode based on mouse_button
-        let cursor_mode = if mouse_button == 0 {
-            1 // left click = attract
-        } else if mouse_button == 2 {
-            2 // right click = repel
-        } else {
-            0 // middle click or other = no interaction
-        };
+        // Extract values needed for the callback
+        let width = self.width;
+        let height = self.height;
+        let particle_count = self.state.particle_count as u32;
+        let settings = &self.settings;
+        let state = &self.state;
+        let sim_params_buffer = &self.sim_params_buffer;
+        let max_force = settings.max_force;
 
-        // Store coordinates directly - conversion is handled in the manager
-        let sim_x = world_x;
-        let sim_y = world_y;
+        // Use shared mouse interaction handler
+        self.mouse_handler.handle_mouse_interaction(
+            world_x,
+            world_y,
+            mouse_button,
+            queue,
+            move |cursor, queue| {
+                // Update sim params with new cursor values
+                let mut sim_params = SimParams::new(width, height, particle_count, settings, state);
 
-        // Store cursor values in the model
-        self.cursor_active_mode = cursor_mode;
-        self.cursor_world_x = sim_x;
-        self.cursor_world_y = sim_y;
+                // Override with cursor values from shared handler
+                sim_params.cursor_x = cursor.world_x;
+                sim_params.cursor_y = cursor.world_y;
+                sim_params.cursor_active = cursor.active_mode;
+                if cursor.active_mode > 0 {
+                    sim_params.cursor_strength = cursor.strength * max_force * 10.0;
+                }
 
-        tracing::debug!(
-            world_x = sim_x,
-            world_y = sim_y,
-            cursor_mode = cursor_mode,
-            cursor_mode_name = match cursor_mode {
-                0 => "inactive",
-                1 => "attract",
-                2 => "repel",
-                _ => "unknown",
+                // Upload to GPU immediately
+                queue.write_buffer(sim_params_buffer, 0, bytemuck::cast_slice(&[sim_params]));
+
+                Ok(())
             },
-            cursor_size = self.state.cursor_size,
-            cursor_strength = self.state.cursor_strength,
-            scaled_strength = self.state.cursor_strength * self.settings.max_force * 10.0,
-            sim_width = self.width,
-            sim_height = self.height,
-            "Mouse interaction updated"
-        );
-
-        // Update sim params immediately with new cursor values
-        let mut sim_params = SimParams::new(
-            self.width,
-            self.height,
-            self.state.particle_count as u32,
-            &self.settings,
-            &self.state,
-        );
-
-        // Override with cursor values
-        sim_params.cursor_x = sim_x;
-        sim_params.cursor_y = sim_y;
-        sim_params.cursor_active = cursor_mode;
-        if cursor_mode > 0 {
-            sim_params.cursor_strength =
-                self.state.cursor_strength * self.settings.max_force * 10.0;
-        }
-
-        // Upload to GPU immediately
-        queue.write_buffer(
-            &self.sim_params_buffer,
-            0,
-            bytemuck::cast_slice(&[sim_params]),
-        );
-
-        Ok(())
+        )
     }
 
     fn handle_mouse_release(
         &mut self,
-        _mouse_button: u32,
+        mouse_button: u32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Turn off cursor interaction
-        self.cursor_active_mode = 0;
-        self.cursor_world_x = 0.0;
-        self.cursor_world_y = 0.0;
+        // Extract values needed for the callback
+        let width = self.width;
+        let height = self.height;
+        let particle_count = self.state.particle_count as u32;
+        let settings = &self.settings;
+        let state = &self.state;
+        let sim_params_buffer = &self.sim_params_buffer;
 
-        tracing::debug!("ParticleLife mouse release: cursor interaction disabled");
+        // Use shared mouse interaction handler
+        self.mouse_handler
+            .handle_mouse_release(mouse_button, queue, move |cursor, queue| {
+                // Update sim params with cursor disabled
+                let mut sim_params = SimParams::new(width, height, particle_count, settings, state);
 
-        // Update sim params immediately with cursor disabled
-        let mut sim_params = SimParams::new(
-            self.width,
-            self.height,
-            self.state.particle_count as u32,
-            &self.settings,
-            &self.state,
-        );
+                // Override with cursor values (disabled)
+                sim_params.cursor_x = cursor.world_x;
+                sim_params.cursor_y = cursor.world_y;
+                sim_params.cursor_active = cursor.active_mode;
+                sim_params.cursor_strength = 0.0;
 
-        // Override with cursor values (disabled)
-        sim_params.cursor_x = 0.0;
-        sim_params.cursor_y = 0.0;
-        sim_params.cursor_active = 0;
-        sim_params.cursor_strength = 0.0;
+                // Upload to GPU immediately
+                queue.write_buffer(sim_params_buffer, 0, bytemuck::cast_slice(&[sim_params]));
 
-        // Upload to GPU immediately
-        queue.write_buffer(
-            &self.sim_params_buffer,
-            0,
-            bytemuck::cast_slice(&[sim_params]),
-        );
-
-        Ok(())
+                Ok(())
+            })
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
@@ -2590,9 +2495,7 @@ impl Simulation for ParticleLifeModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Update random seed for reset
-        use rand::Rng;
-        let mut rng = rand::rng();
-        self.state.random_seed = rng.random();
+        self.state.random_seed_state.randomize();
 
         // Update sim params with new random seed
         self.update_sim_params(device, queue);
@@ -2607,12 +2510,12 @@ impl Simulation for ParticleLifeModel {
     }
 
     fn toggle_gui(&mut self) -> bool {
-        self.show_gui = !self.show_gui;
-        self.show_gui
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     fn is_gui_visible(&self) -> bool {
-        self.show_gui
+        self.gui_visible
     }
 
     fn randomize_settings(
@@ -2635,8 +2538,7 @@ impl Simulation for ParticleLifeModel {
         );
 
         // Update random seed for consistency
-        let mut rng = rand::rngs::StdRng::seed_from_u64(self.state.random_seed as u64);
-        self.state.random_seed = rng.random();
+        self.state.random_seed_state.randomize();
 
         // Update sim params with new random seed
         self.update_sim_params(device, queue);

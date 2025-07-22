@@ -4,10 +4,15 @@
   aria-modal="true"
   aria-labelledby="save-preset-title"
   tabindex="-1"
-  on:click={() => dispatch('close')}
   on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
 >
-  <div class="dialog" role="document" on:click|stopPropagation>
+  <button
+    type="button"
+    class="backdrop-button"
+    aria-label="Close dialog"
+    on:click={() => dispatch('close')}
+  ></button>
+  <div class="dialog" role="document">
     <h3 id="save-preset-title">Save Preset</h3>
     <div class="input-group">
       <label for="preset-name-input">Preset Name</label>
@@ -127,5 +132,17 @@
     justify-content: flex-end;
     gap: 0.75rem;
     margin-top: 1.5rem;
+  }
+
+  .backdrop-button {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    z-index: -1;
   }
 </style>

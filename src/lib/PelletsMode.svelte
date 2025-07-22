@@ -18,17 +18,18 @@
       <!-- About this simulation -->
       <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
         <p>
-          Pellets simulates particle collisions with pixel-perfect collision detection. Particles bounce off each other
-          using a 3-phase collision system: broad phase, narrow phase, and overlap resolution.
+          Pellets simulates particle collisions with pixel-perfect collision detection. Particles
+          bounce off each other using a 3-phase collision system: broad phase, narrow phase, and
+          overlap resolution.
         </p>
         <p>
-          The simulation uses 4th-order Runge-Kutta integration for stable physics and includes collision damping
-          to prevent particles from accelerating indefinitely. Mouse interactions allow you to
-          attract particles by left-clicking and dragging.
+          The simulation uses 4th-order Runge-Kutta integration for stable physics and includes
+          collision damping to prevent particles from accelerating indefinitely. Mouse interactions
+          allow you to attract particles by left-clicking and dragging.
         </p>
         <p>
-          Experiment with different particle counts, collision damping, and initial velocities
-          to observe various collision behaviors and particle dynamics.
+          Experiment with different particle counts, collision damping, and initial velocities to
+          observe various collision behaviors and particle dynamics.
         </p>
       </CollapsibleFieldset>
 
@@ -73,7 +74,8 @@
           />
           <div class="setting-description">
             <small>
-              <strong>Density:</strong> Particles are colored based on how many other particles are nearby.<br>
+              <strong>Density:</strong> Particles are colored based on how many other particles are
+              nearby.<br />
               <strong>Velocity:</strong> Particles are colored based on their speed (faster = brighter).
             </small>
           </div>
@@ -144,7 +146,7 @@
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> Clumps can orbit each other at larger distances.<br>
+              <strong>Higher values:</strong> Clumps can orbit each other at larger distances.<br />
               <strong>Lower values:</strong> Only local clumping, no orbital motion.
             </small>
           </div>
@@ -158,12 +160,14 @@
             max={100.0}
             step={0.1}
             precision={3}
-            on:change={({ detail }) => updateSetting('energy_damping', 1 - (detail / 100))}
+            on:change={({ detail }) => updateSetting('energy_damping', 1 - detail / 100)}
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> More energy lost each tick (particles slow down faster).<br>
-              <strong>Lower values:</strong> Less energy lost each tick (particles maintain speed longer).<br>
+              <strong>Higher values:</strong> More energy lost each tick (particles slow down
+              faster).<br />
+              <strong>Lower values:</strong> Less energy lost each tick (particles maintain speed
+              longer).<br />
             </small>
           </div>
         </div>
@@ -176,12 +180,12 @@
             max={100.0}
             step={0.1}
             precision={1}
-            on:change={({ detail }) => updateSetting('collision_damping', 1 - (detail / 100))}
+            on:change={({ detail }) => updateSetting('collision_damping', 1 - detail / 100)}
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> More energy lost during particle collisions.<br>
-              <strong>Lower values:</strong> More energy retained during particle collisions.<br>
+              <strong>Higher values:</strong> More energy lost during particle collisions.<br />
+              <strong>Lower values:</strong> More energy retained during particle collisions.<br />
             </small>
           </div>
         </div>
@@ -198,7 +202,7 @@
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> Softer gravity, prevents extreme accelerations.<br>
+              <strong>Higher values:</strong> Softer gravity, prevents extreme accelerations.<br />
               <strong>Lower values:</strong> Stronger gravity, more dramatic interactions.
             </small>
           </div>
@@ -216,7 +220,7 @@
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> Larger area for density calculation.<br>
+              <strong>Higher values:</strong> Larger area for density calculation.<br />
               <strong>Lower values:</strong> Smaller, more localized density effects.
             </small>
           </div>
@@ -260,7 +264,11 @@
             step={1}
             on:change={({ detail }) => updateSetting('random_seed', detail)}
           />
-          <button type="button" on:click={() => updateSetting('random_seed', Math.floor(Math.random() * 999999))}>🎲</button>
+          <button
+            type="button"
+            on:click={() => updateSetting('random_seed', Math.floor(Math.random() * 999999))}
+            >🎲</button
+          >
         </div>
       </fieldset>
 
@@ -278,7 +286,9 @@
               </button>
             </div>
             <div class="control-group">
-              <span>Camera controls not working? Click the control bar at the top of the screen.</span>
+              <span
+                >Camera controls not working? Click the control bar at the top of the screen.</span
+              >
             </div>
           </div>
           <div class="cursor-settings">
@@ -300,16 +310,14 @@
               on:strengthchange={(e) => updateCursorStrength(e.detail)}
             />
           </div>
-
         </div>
       </fieldset>
-
     </form>
   {/if}
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
@@ -362,7 +370,7 @@
   }
 
   let settings: PelletsSettings | null = null;
-let state: PelletsState | null = null;
+  let state: PelletsState | null = null;
   let running = false;
   let currentFps = 0;
   let showUI = true;
@@ -374,8 +382,6 @@ let state: PelletsState | null = null;
   let available_luts: string[] = [];
   let cursorSize = 0.5;
   let cursorStrength = 0.01;
-
-
 
   let renderLoopId: number | null = null;
   let fpsUpdateUnlisten: (() => void) | null = null;
@@ -518,7 +524,7 @@ let state: PelletsState | null = null;
     }
   }
 
-  const updateSetting = async (key: string, value: any) => {
+  const updateSetting = async (key: string, value: string | number | boolean) => {
     console.log('updateSetting called with:', key, value);
     if (!settings) {
       console.log('No settings available, returning');
@@ -526,7 +532,7 @@ let state: PelletsState | null = null;
     }
 
     // Special handling for particle count changes
-    if (key === 'particle_count') {
+    if (key === 'particle_count' && typeof value === 'number') {
       console.log('Handling particle_count change');
       await updateParticleCount(value);
       return;
@@ -536,7 +542,7 @@ let state: PelletsState | null = null;
       console.log('Calling update_simulation_setting for:', key, value);
       await invoke('update_simulation_setting', { settingName: key, value });
       // Update local settings
-      (settings as any)[key] = value;
+      (settings as PelletsSettings & Record<string, string | number | boolean>)[key] = value;
       console.log('Setting updated successfully');
     } catch (error) {
       console.error('Failed to update setting:', error);
@@ -548,7 +554,7 @@ let state: PelletsState | null = null;
 
     const newCount = Math.max(1, Math.min(50000, Math.round(value)));
     console.log(`updateParticleCount called: current=${settings.particle_count}, new=${newCount}`);
-    
+
     // Don't check if they're equal since the UI binding might have already updated the local value
     // Just proceed with the update
 
@@ -556,9 +562,15 @@ let state: PelletsState | null = null;
 
     try {
       console.log(`Sending particle count update to backend: ${newCount}`);
-      console.log('Invoking update_simulation_setting with:', { settingName: 'particle_count', value: newCount });
-      
-      const result = await invoke('update_simulation_setting', { settingName: 'particle_count', value: newCount });
+      console.log('Invoking update_simulation_setting with:', {
+        settingName: 'particle_count',
+        value: newCount,
+      });
+
+      const result = await invoke('update_simulation_setting', {
+        settingName: 'particle_count',
+        value: newCount,
+      });
       console.log('Backend response:', result);
 
       console.log(`Backend update complete, waiting for GPU operations...`);
@@ -598,7 +610,7 @@ let state: PelletsState | null = null;
     try {
       const response = await invoke('get_current_state');
       state = response as PelletsState;
-      
+
       // Sync cursor values from backend state
       if (state && state.cursor_size !== undefined) {
         cursorSize = state.cursor_size;
@@ -745,8 +757,6 @@ let state: PelletsState | null = null;
       console.error('Failed to toggle GUI:', error);
     }
   };
-
-
 
   const startRenderLoop = () => {
     if (renderLoopId) return;

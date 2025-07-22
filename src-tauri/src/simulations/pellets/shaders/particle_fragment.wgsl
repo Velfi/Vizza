@@ -11,6 +11,7 @@ struct FragmentInput {
     @location(2) density: f32,
     @location(3) uv: vec2<f32>,
     @location(4) coloring_mode: f32,
+    @location(5) grid_fade_factor: f32,
 }
 
 @group(0) @binding(3) var<storage, read> lut: array<u32>;
@@ -22,8 +23,6 @@ fn get_lut_color(index: u32) -> vec3<f32> {
     let b = f32(lut[index + 512]) / 255.0;
     return vec3<f32>(r, g, b);
 }
-
-
 
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
@@ -73,5 +72,13 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
         final_color = color + glow_color;
     }
     
-    return vec4<f32>(final_color, 1.0);
+    // Apply grid fade factor for 3x3 grid mode
+    let alpha = in.grid_fade_factor;
+    
+    // Discard completely transparent pixels for performance
+    if (alpha <= 0.0) {
+        discard;
+    }
+    
+    return vec4<f32>(final_color, alpha);
 } 

@@ -110,7 +110,7 @@ impl Default for ParticleShape {
 pub struct Settings {
     // Flow field parameters
     pub noise_type: NoiseType,
-    pub noise_seed: u32,
+    pub noise_seed_state: crate::simulations::shared::RandomSeedState,
     pub noise_scale: f64,
     pub vector_spacing: f32,
     pub vector_magnitude: f32,
@@ -133,8 +133,6 @@ pub struct Settings {
 
     // Visual parameters
     pub background: Background,
-    pub current_lut: String,
-    pub lut_reversed: bool,
     pub show_particles: bool,
 }
 
@@ -143,7 +141,7 @@ impl Default for Settings {
         Self {
             // Flow field parameters
             noise_type: NoiseType::Perlin,
-            noise_seed: 42,
+            noise_seed_state: crate::simulations::shared::RandomSeedState::new(42),
             noise_scale: 1.0,
             vector_spacing: 0.1,
             vector_magnitude: 0.1,
@@ -166,8 +164,6 @@ impl Default for Settings {
 
             // Visual parameters
             background: Background::Vectors,
-            current_lut: "MATPLOTLIB_viridis".to_string(),
-            lut_reversed: false,
             show_particles: true,
         }
     }
