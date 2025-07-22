@@ -238,12 +238,12 @@ pub async fn start_flow_simulation(
 }
 
 #[tauri::command]
-pub async fn start_wanderers_simulation(
+pub async fn start_pellets_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::debug!("start_wanderers_simulation called");
+    tracing::debug!("start_pellets_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -252,7 +252,7 @@ pub async fn start_wanderers_simulation(
 
     match sim_manager
         .start_simulation(
-            "wanderers".to_string(),
+            "pellets".to_string(),
             &gpu_ctx.device,
             &gpu_ctx.queue,
             &surface_config,
@@ -261,7 +261,7 @@ pub async fn start_wanderers_simulation(
         .await
     {
         Ok(_) => {
-            tracing::info!("Wanderers simulation started successfully");
+            tracing::info!("Pellets simulation started successfully");
 
             // Start the backend render loop
             sim_manager.start_render_loop(
@@ -275,7 +275,7 @@ pub async fn start_wanderers_simulation(
                 tracing::warn!("Failed to emit simulation-initialized event: {}", e);
             }
 
-            Ok("Wanderers simulation started successfully".to_string())
+            Ok("Pellets simulation started successfully".to_string())
         }
         Err(e) => {
             tracing::error!("Failed to start simulation: {}", e);

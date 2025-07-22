@@ -1,6 +1,6 @@
-//! # Wanderers Simulation Implementation
+//! # Pellets Simulation Implementation
 //! 
-//! The core engine that brings the Wanderers particle physics simulation to life.
+//! The core engine that brings the Pellets particle physics simulation to life.
 //! This module orchestrates the interaction between user input, GPU computation,
 //! and visual rendering to create a responsive and engaging simulation experience.
 //! 
@@ -46,7 +46,7 @@ pub struct Particle {
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct PhysicsParams {
     pub mouse_position: [f32; 2],
-    pub mouse_delta: [f32; 2],
+    pub mouse_velocity: [f32; 2], // Mouse velocity in world units per second
     pub particle_count: u32,
     pub gravitational_constant: f32,
     pub energy_damping: f32,
@@ -88,9 +88,13 @@ pub struct BackgroundParams {
     pub density_texture_resolution: u32,
 }
 
+
+
+
+
 // GPU-based physics implementation - no Rapier needed
 
-pub struct WanderersModel {
+pub struct PelletsModel {
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub physics_params_buffer: wgpu::Buffer,
@@ -130,7 +134,7 @@ pub struct WanderersModel {
     pub density_update_frequency: u64,
 }
 
-impl WanderersModel {
+impl PelletsModel {
     pub fn new(
         device: &Arc<Device>,
         _queue: &Arc<Queue>,
@@ -143,7 +147,7 @@ impl WanderersModel {
 
         // Create buffers
         let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wanderers Particle Buffer"),
+            label: Some("Pellets Particle Buffer"),
             contents: bytemuck::cast_slice(&particles),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
@@ -175,7 +179,7 @@ impl WanderersModel {
         }
         let lut_data_u32 = lut.to_u32_buffer();
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wanderers LUT Buffer"),
+            label: Some("Pellets LUT Buffer"),
             contents: bytemuck::cast_slice(&lut_data_u32),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
@@ -184,15 +188,15 @@ impl WanderersModel {
             particle_size: settings.particle_size,
             screen_width: surface_config.width as f32,
             screen_height: surface_config.height as f32,
-            coloring_mode: if settings.coloring_mode == "velocity" {
-                1
-            } else {
-                0
+            coloring_mode: match settings.coloring_mode.as_str() {
+                "velocity" => 1,
+                "liquid" => 2,
+                _ => 0, // Default to density
             },
         };
 
         let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wanderers Render Params Buffer"),
+            label: Some("Pellets Render Params Buffer"),
             contents: bytemuck::cast_slice(&[render_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -206,12 +210,12 @@ impl WanderersModel {
             density_texture_resolution: 512, // Default texture resolution
         };
 
-        let background_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Background Params Buffer"),
-                contents: bytemuck::cast_slice(&[background_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+                    let background_params_buffer =
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Pellets Background Params Buffer"),
+                    contents: bytemuck::cast_slice(&[background_params]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
 
         // Create physics params buffer
         // For now, use the original particle size directly to restore collision functionality
@@ -220,7 +224,7 @@ impl WanderersModel {
 
         let physics_params = PhysicsParams {
             mouse_position: [0.0, 0.0],
-            mouse_delta: [0.0, 0.0],
+            mouse_velocity: [0.0, 0.0],
             particle_count: settings.particle_count,
             gravitational_constant: settings.gravitational_constant,
             energy_damping: settings.energy_damping,
@@ -247,10 +251,10 @@ impl WanderersModel {
         let density_params = DensityParams {
             particle_count: settings.particle_count,
             density_radius: settings.density_radius,
-            coloring_mode: if settings.coloring_mode == "velocity" {
-                1
-            } else {
-                0
+            coloring_mode: match settings.coloring_mode.as_str() {
+                "velocity" => 1,
+                "liquid" => 2,
+                _ => 0, // Default to density
             },
             _padding: 0,
         };
@@ -601,7 +605,7 @@ impl WanderersModel {
             ],
         });
 
-        Ok(WanderersModel {
+        Ok(PelletsModel {
             particle_buffer,
             physics_params_buffer,
             density_params_buffer,
@@ -616,6 +620,7 @@ impl WanderersModel {
             render_bind_group,
             background_pipeline,
             background_bind_group,
+            
             particles,
             settings: settings.clone(),
             state,
@@ -782,13 +787,23 @@ impl WanderersModel {
         Ok(())
     }
 
-    fn update_physics_params(&self, queue: &Arc<Queue>) {
+    fn update_physics_params(&mut self, queue: &Arc<Queue>) {
         // For now, use the original particle size directly
         let collision_particle_size = self.settings.particle_size;
 
+        // Apply velocity decay when mouse is not pressed (after throwing)
+        if !self.state.mouse_pressed {
+            // Decay velocity over time to prevent persistent throwing
+            let decay_factor = 0.95; // Adjust this for faster/slower decay
+            self.state.mouse_velocity = [
+                self.state.mouse_velocity[0] * decay_factor,
+                self.state.mouse_velocity[1] * decay_factor,
+            ];
+        }
+
         let physics_params = PhysicsParams {
             mouse_position: self.state.mouse_position,
-            mouse_delta: self.state.mouse_delta,
+            mouse_velocity: self.state.mouse_velocity,
             particle_count: self.settings.particle_count,
             gravitational_constant: self.settings.gravitational_constant,
             energy_damping: self.settings.energy_damping,
@@ -816,10 +831,10 @@ impl WanderersModel {
         let density_params = DensityParams {
             particle_count: self.settings.particle_count,
             density_radius: self.settings.density_radius,
-            coloring_mode: if self.settings.coloring_mode == "velocity" {
-                1
-            } else {
-                0
+            coloring_mode: match self.settings.coloring_mode.as_str() {
+                "velocity" => 1,
+                "liquid" => 2,
+                _ => 0, // Default to density
             },
             _padding: 0,
         };
@@ -1044,10 +1059,10 @@ impl WanderersModel {
             particle_size: self.settings.particle_size,
             screen_width: self.surface_config.width as f32,
             screen_height: self.surface_config.height as f32,
-            coloring_mode: if self.settings.coloring_mode == "velocity" {
-                1
-            } else {
-                0
+            coloring_mode: match self.settings.coloring_mode.as_str() {
+                "velocity" => 1,
+                "liquid" => 2,
+                _ => 0, // Default to density
             },
         };
 
@@ -1120,9 +1135,9 @@ impl WanderersModel {
     // GPU compute shaders handle all physics interactions
 }
 
-impl std::fmt::Debug for WanderersModel {
+impl std::fmt::Debug for PelletsModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WanderersModel")
+        f.debug_struct("PelletsModel")
             .field("particles", &self.particles.len()) // Show count instead of full data
             .field("settings", &self.settings)
             .field("state", &self.state)
@@ -1131,7 +1146,7 @@ impl std::fmt::Debug for WanderersModel {
     }
 }
 
-impl crate::simulations::traits::Simulation for WanderersModel {
+impl crate::simulations::traits::Simulation for PelletsModel {
     fn render_frame(
         &mut self,
         device: &Arc<Device>,
@@ -1154,32 +1169,35 @@ impl crate::simulations::traits::Simulation for WanderersModel {
             label: Some("Wanderers Render Encoder"),
         });
 
-        // Render pass
+        // Standard particle rendering
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Wanderers Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: surface_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
+            // Standard particle rendering
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Wanderers Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: surface_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
 
-            // Render background
-            render_pass.set_pipeline(&self.background_pipeline);
-            render_pass.set_bind_group(0, &self.background_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
+                // Render background
+                render_pass.set_pipeline(&self.background_pipeline);
+                render_pass.set_bind_group(0, &self.background_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
 
-            // Render particles
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..6, 0..self.particles.len() as u32);
+                // Render particles
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+                render_pass.draw(0..6, 0..self.particles.len() as u32);
+            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1242,6 +1260,9 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         self.surface_config = new_config.clone();
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
+        
+        // No depth texture needed for 2D particle rendering
+        
         // Update render params to reflect new screen dimensions
         self.update_render_params(queue);
         Ok(())
@@ -1255,7 +1276,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         tracing::debug!(
-            "Wanderers::update_setting called with setting_name: '{}', value: {:?}",
+            "Pellets::update_setting called with setting_name: '{}', value: {:?}",
             setting_name,
             value
         );
@@ -1292,16 +1313,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
                     // GPU compute shaders will use the updated value
                 }
             }
-            "min_particle_mass" => {
-                if let Some(mass) = value.as_f64() {
-                    self.settings.min_particle_mass = mass as f32;
-                }
-            }
-            "max_particle_mass" => {
-                if let Some(mass) = value.as_f64() {
-                    self.settings.max_particle_mass = mass as f32;
-                }
-            }
+
             "particle_size" => {
                 if let Some(size) = value.as_f64() {
                     self.settings.particle_size = size as f32;
@@ -1310,16 +1322,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
                     self.update_render_params(queue);
                 }
             }
-            "clump_distance" => {
-                if let Some(distance) = value.as_f64() {
-                    self.settings.clump_distance = distance as f32;
-                }
-            }
-            "cohesive_strength" => {
-                if let Some(strength) = value.as_f64() {
-                    self.settings.cohesive_strength = strength as f32;
-                }
-            }
+
             "energy_damping" => {
                 if let Some(damping) = value.as_f64() {
                     self.settings.energy_damping = damping as f32;
@@ -1420,12 +1423,35 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         let clamped_x = world_x.clamp(-1.0, 1.0);
         let clamped_y = world_y.clamp(-1.0, 1.0);
 
-        // Always calculate mouse velocity, even when not pressed
-        let previous_position = self.state.mouse_position;
-        self.state.mouse_delta = [
-            clamped_x - previous_position[0],
-            clamped_y - previous_position[1],
-        ];
+        // Calculate mouse velocity based on time difference
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64();
+        
+        let time_delta = current_time - self.state.last_mouse_time;
+        
+        // Only update velocity if we have a meaningful time difference (avoid division by very small numbers)
+        if time_delta > 0.001 && self.state.last_mouse_time > 0.0 {
+            // Calculate velocity in world units per second
+            let previous_position = self.state.mouse_position;
+            let position_delta = [
+                clamped_x - previous_position[0],
+                clamped_y - previous_position[1],
+            ];
+            
+            let new_velocity = [
+                position_delta[0] / time_delta as f32,
+                position_delta[1] / time_delta as f32,
+            ];
+            
+            // Apply velocity smoothing (exponential moving average)
+            let smoothing_factor = 0.7; // Adjust this for more/less smoothing
+            self.state.mouse_velocity = [
+                self.state.mouse_velocity[0] * (1.0 - smoothing_factor) + new_velocity[0] * smoothing_factor,
+                self.state.mouse_velocity[1] * (1.0 - smoothing_factor) + new_velocity[1] * smoothing_factor,
+            ];
+        }
 
         // Encode mouse button into mode: 0 none, 1 left(attraction)
         let mode = match mouse_button {
@@ -1436,6 +1462,7 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         self.state.mouse_pressed = true;
         self.state.mouse_mode = mode;
         self.state.mouse_position = [clamped_x, clamped_y];
+        self.state.last_mouse_time = current_time;
 
         // Clear grabbed particles list when starting new interaction
         self.state.grabbed_particles.clear();
@@ -1448,11 +1475,16 @@ impl crate::simulations::traits::Simulation for WanderersModel {
         _mouse_button: u32,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
+        // Keep the current velocity for throwing, don't clear it immediately
+        // The shader will use this velocity when releasing particles
         self.state.mouse_pressed = false;
         self.state.mouse_mode = 0;
 
         // Clear the grabbed particles list
         self.state.grabbed_particles.clear();
+
+        // Start velocity decay after a short delay
+        // This will be handled in the physics step
 
         Ok(())
     }

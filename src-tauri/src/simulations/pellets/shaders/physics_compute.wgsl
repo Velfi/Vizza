@@ -1,4 +1,4 @@
-// Fourth Order Runge-Kutta GPU Physics for Wanderers
+// Fourth Order Runge-Kutta GPU Physics for Pellets
 // 
 // Pixel-Perfect Collision System with 3 Phases:
 // 1. Broad Phase: Spatial filtering to eliminate distant particles
@@ -26,7 +26,7 @@ struct Particle {
 
 struct PhysicsParams {
     mouse_position: vec2<f32>,
-    mouse_delta: vec2<f32>,
+    mouse_velocity: vec2<f32>, // Mouse velocity in world units per second
     particle_count: u32,
     gravitational_constant: f32,
     energy_damping: f32,
@@ -57,9 +57,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     
     // Check if mouse is pressed and in attraction mode
     if (params.mouse_pressed != 0u && params.mouse_mode == 1u) {
-        // Check if particle is within cursor range
+        // Check if particle is within cursor range with aspect ratio correction
         let delta = params.mouse_position - particle.position;
-        let distance_sq = dot(delta, delta);
+        let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
+        let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
         let cursor_radius_sq = params.cursor_size * params.cursor_size;
         
         if (distance_sq <= cursor_radius_sq) {
@@ -74,9 +75,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Mouse not pressed, release particle with mouse velocity
         if (particle.grabbed != 0u) {
             // Apply mouse velocity to the particle when releasing
-            if (params.dt > 0.0) {
-                particle.velocity = params.mouse_delta / params.dt;
-            }
+            // Use cursor_strength as velocity multiplier for throwing
+            // Give extra boost for better throwing feel
+            particle.velocity = params.mouse_velocity * params.cursor_strength * 2.0; // Doubled the multiplier
         }
         particle.grabbed = 0u;
     }
@@ -138,10 +139,11 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     particle.position += (params.dt / 6.0) * (k1_pos + 2.0 * k2_pos + 2.0 * k3_pos + k4_pos);
     particle.velocity += (params.dt / 6.0) * (k1_vel + 2.0 * k2_vel + 2.0 * k3_vel + k4_vel);
     
-    // Apply energy damping
-    particle.velocity *= params.energy_damping;
+    // Apply energy damping (reduced for better throwing)
+    let damping_factor = 0.999; // Very light damping to preserve throwing momentum
+    particle.velocity *= damping_factor;
     
-    // Additional velocity damping in dense areas to stabilize clumps
+    // Reduced density-based velocity damping for better throwing
     var nearby_count = 0u;
     for (var i = 0u; i < params.particle_count; i++) {
         if (i == index) {
@@ -168,9 +170,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
     
-    // Apply density-based velocity damping
-    let density_factor = min(f32(nearby_count) / 6.0, 1.0);
-    let velocity_damping = 1.0 - density_factor * 0.3; // Reduce velocity in dense areas
+    // Much lighter density-based velocity damping for better throwing
+    let density_factor = min(f32(nearby_count) / 10.0, 1.0); // Reduced from 6.0 to 10.0
+    let velocity_damping = 1.0 - density_factor * 0.1; // Reduced from 0.3 to 0.1
     particle.velocity *= velocity_damping;
     
     // Phase 3: Overlap resolution - fix any overlapping particles after integration
@@ -189,8 +191,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         particle.position.y += 2.0;
     }
     
-    // Clamp velocities
-    let max_velocity = 2.0;
+    // Clamp velocities (increased limit for better throwing)
+    let max_velocity = 5.0; // Increased from 2.0 to 5.0 for better throwing
     let velocity_magnitude = length(particle.velocity);
     if (velocity_magnitude > max_velocity) {
         particle.velocity = normalize(particle.velocity) * max_velocity;
@@ -279,14 +281,17 @@ fn compute_gravitational_force(particle: Particle, particle_index: u32) -> vec2<
 
 fn compute_mouse_force(particle: Particle) -> vec2<f32> {
     let delta = params.mouse_position - particle.position;
-    let distance = length(delta);
+    
+    // Apply aspect ratio correction to match visual rendering
+    let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
+    let distance = length(aspect_corrected_delta);
     
     if (distance > params.cursor_size || distance < 1e-6) {
         return vec2<f32>(0.0, 0.0);
     }
     
     let force_strength = params.cursor_strength * (1.0 - distance / params.cursor_size);
-    let force_direction = normalize(delta);
+    let force_direction = normalize(delta); // Use original delta for force direction
     
     // Only attraction mode (mode 1) is supported
     if (params.mouse_mode == 1u) {
@@ -356,10 +361,15 @@ fn compute_collision_forces(particle: Particle, particle_index: u32) -> vec2<f32
                 continue;
             }
             
-            // Calculate collision impulse (elastic collision with restitution)
-            let restitution = params.collision_damping;
-            var impulse_magnitude = -(1.0 + restitution) * velocity_along_normal;
+            // Calculate standard elastic collision impulse
+            var impulse_magnitude = -2.0 * velocity_along_normal;
             impulse_magnitude = impulse_magnitude / (1.0 / particle.mass + 1.0 / other.mass);
+            
+            // Apply collision damping as energy retention factor (like energy_damping)
+            // Higher values = more energy retained, lower values = more energy lost
+            // Now works just like energy_damping: multiply by damping factor
+            // Reduced damping for better throwing
+            impulse_magnitude *= 0.95; // Reduced from params.collision_damping to 0.95
             
             let impulse = collision_normal * impulse_magnitude;
             total_impulse += impulse / particle.mass;
@@ -367,8 +377,9 @@ fn compute_collision_forces(particle: Particle, particle_index: u32) -> vec2<f32
     }
     
     // Apply density-based damping to reduce chaotic motion in clumps
-    let density_factor = min(f32(nearby_count) / 8.0, 1.0); // Normalize to 0-1
-    let damping_factor = 1.0 - density_factor * 0.5; // Reduce impulse in dense areas
+    // Reduced damping for better throwing
+    let density_factor = min(f32(nearby_count) / 12.0, 1.0); // Increased from 8.0 to 12.0
+    let damping_factor = 1.0 - density_factor * 0.2; // Reduced from 0.5 to 0.2
     
     collision_impulse = total_impulse * damping_factor;
     

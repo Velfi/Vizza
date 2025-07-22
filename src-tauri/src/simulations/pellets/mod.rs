@@ -1,4 +1,4 @@
-//! # Wanderers Simulation Module
+//! # Pellets Simulation Module
 //! 
 //! A GPU-accelerated particle physics simulation that creates dynamic environments
 //! where particles interact through gravity, collisions, and user-controlled forces.
@@ -6,7 +6,7 @@
 //! 
 //! ## Concept
 //! 
-//! Wanderers simulates a universe of particles that respond to gravitational forces,
+//! Pellets simulates a universe of particles that respond to gravitational forces,
 //! creating complex orbital patterns, clumping behaviors, and chaotic motion. Users
 //! can interact with the system through mouse controls, adding attraction or repulsion
 //! forces to influence particle behavior in real-time.
@@ -34,16 +34,16 @@ pub mod state;
 mod tests;
 
 pub use settings::Settings;
-pub use simulation::WanderersModel;
+pub use simulation::PelletsModel;
 
-/// Initialize default presets for the Wanderers simulation.
+/// Initialize default presets for the Pellets simulation.
 /// 
 /// Creates a set of predefined configurations that users can quickly
 /// load to explore different simulation behaviors.
 pub fn init_presets(
-    preset_manager: &mut crate::simulation::preset_manager::WanderersPresetManager,
+    preset_manager: &mut crate::simulation::preset_manager::PelletsPresetManager,
 ) {
-    // Initialize default presets for Wanderers simulation
+    // Initialize default presets for Pellets simulation
     preset_manager.add_preset(crate::simulation::preset_manager::Preset::new(
         "Default".to_string(),
         Settings::default(),

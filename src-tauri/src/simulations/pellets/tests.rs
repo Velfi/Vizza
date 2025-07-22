@@ -1,6 +1,6 @@
-//! # Wanderers Testing Module
+//! # Pellets Testing Module
 //! 
-//! Comprehensive testing framework that ensures the Wanderers simulation operates
+//! Comprehensive testing framework that ensures the Pellets simulation operates
 //! correctly across different environments and configurations. These tests validate
 //! both the computational correctness and the integration between different
 //! components of the simulation system.
@@ -28,13 +28,13 @@ use super::simulation::{BackgroundParams, DensityParams, Particle, PhysicsParams
 use std::mem;
 use wgpu::util::DeviceExt;
 
-/// Test framework for validating Wanderers shader compilation and buffer binding
-struct WanderersValidator {
+/// Test framework for validating Pellets shader compilation and buffer binding
+struct PelletsValidator {
     device: wgpu::Device,
     _queue: wgpu::Queue,
 }
 
-impl WanderersValidator {
+impl PelletsValidator {
     async fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -70,56 +70,56 @@ impl WanderersValidator {
         }
     }
 
-    /// Validates that the Wanderers vertex shader compiles without errors
+    /// Validates that the Pellets vertex shader compiles without errors
     fn validate_vertex_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Vertex Shader"),
+                label: Some("Pellets Vertex Shader"),
                 source: wgpu::ShaderSource::Wgsl(PARTICLE_VERTEX_SHADER.into()),
             });
         Ok(())
     }
 
-    /// Validates that the Wanderers fragment shader compiles without errors
+    /// Validates that the Pellets fragment shader compiles without errors
     fn validate_fragment_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Fragment Shader"),
+                label: Some("Pellets Fragment Shader"),
                 source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_SHADER.into()),
             });
         Ok(())
     }
 
-    /// Validates that the Wanderers render shader compiles without errors
+    /// Validates that the Pellets render shader compiles without errors
     fn validate_render_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Render Shader"),
+                label: Some("Pellets Render Shader"),
                 source: wgpu::ShaderSource::Wgsl(RENDER_SHADER.into()),
             });
         Ok(())
     }
 
-    /// Validates that the Wanderers physics compute shader compiles without errors
+    /// Validates that the Pellets physics compute shader compiles without errors
     fn validate_physics_compute_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Physics Compute Shader"),
+                label: Some("Pellets Physics Compute Shader"),
                 source: wgpu::ShaderSource::Wgsl(PHYSICS_COMPUTE_SHADER.into()),
             });
         Ok(())
     }
 
-    /// Validates that the Wanderers density compute shader compiles without errors
+    /// Validates that the Pellets density compute shader compiles without errors
     fn validate_density_compute_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Density Compute Shader"),
+                label: Some("Pellets Density Compute Shader"),
                 source: wgpu::ShaderSource::Wgsl(DENSITY_COMPUTE_SHADER.into()),
             });
         Ok(())
@@ -159,7 +159,7 @@ impl WanderersValidator {
         let particle_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Particle Buffer"),
+                label: Some("Pellets Particle Buffer"),
                 contents: bytemuck::cast_slice(&dummy_particles),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
@@ -167,7 +167,7 @@ impl WanderersValidator {
         let render_params_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Render Params Buffer"),
+                    label: Some("Pellets Render Params Buffer"),
                     contents: bytemuck::cast_slice(&[dummy_render_params]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -175,7 +175,7 @@ impl WanderersValidator {
         let _background_params_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Background Params Buffer"),
+                    label: Some("Pellets Background Params Buffer"),
                     contents: bytemuck::cast_slice(&[dummy_background_params]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -184,7 +184,7 @@ impl WanderersValidator {
         let camera_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Camera Buffer"),
+                label: Some("Pellets Camera Buffer"),
                 contents: bytemuck::cast_slice(&[0.0f32; 16]), // 4x4 matrix
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
@@ -193,7 +193,7 @@ impl WanderersValidator {
         let lut_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers LUT Buffer"),
+                label: Some("Pellets LUT Buffer"),
                 contents: bytemuck::cast_slice(&[0u32; 256]), // 256 color entries
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
@@ -202,14 +202,14 @@ impl WanderersValidator {
         let vertex_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Vertex Shader"),
+                label: Some("Pellets Vertex Shader"),
                 source: wgpu::ShaderSource::Wgsl(PARTICLE_VERTEX_SHADER.into()),
             });
 
         let fragment_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Fragment Shader"),
+                label: Some("Pellets Fragment Shader"),
                 source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_SHADER.into()),
             });
 
@@ -217,7 +217,7 @@ impl WanderersValidator {
         let bind_group_layout =
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Wanderers Render Bind Group Layout"),
+                    label: Some("Pellets Render Bind Group Layout"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
@@ -264,7 +264,7 @@ impl WanderersValidator {
 
         // Create bind group (this will validate buffer binding)
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Render Bind Group"),
+            label: Some("Pellets Render Bind Group"),
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -290,7 +290,7 @@ impl WanderersValidator {
         let render_pipeline_layout =
             self.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Wanderers Render Pipeline Layout"),
+                    label: Some("Pellets Render Pipeline Layout"),
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
                 });
@@ -298,7 +298,7 @@ impl WanderersValidator {
         let _render_pipeline =
             self.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Wanderers Render Pipeline"),
+                    label: Some("Pellets Render Pipeline"),
                     layout: Some(&render_pipeline_layout),
                     cache: None,
                     vertex: wgpu::VertexState {
@@ -360,24 +360,16 @@ impl WanderersValidator {
         let particle_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Particle Buffer"),
+                label: Some("Pellets Particle Buffer"),
                 contents: bytemuck::cast_slice(&dummy_particles),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-
-        // Create shader module
-        let vertex_shader = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Particle Vertex Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_VERTEX_SHADER.into()),
             });
 
         // Create bind group layout that matches the actual runtime usage
         let bind_group_layout =
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Wanderers Particle Vertex Bind Group Layout"),
+                    label: Some("Pellets Particle Vertex Bind Group Layout"),
                     entries: &[wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::VERTEX,
@@ -392,7 +384,7 @@ impl WanderersValidator {
 
         // Create bind group (this will validate the exact buffer binding)
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Particle Vertex Bind Group"),
+            label: Some("Pellets Particle Vertex Bind Group"),
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -413,7 +405,7 @@ impl WanderersValidator {
         let background_params_buffer =
             self.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Background Params Buffer"),
+                    label: Some("Pellets Background Params Buffer"),
                     contents: bytemuck::cast_slice(&[dummy_background_params]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -422,13 +414,13 @@ impl WanderersValidator {
         let background_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Background Shader"),
+                label: Some("Pellets Background Shader"),
                 source: wgpu::ShaderSource::Wgsl(RENDER_SHADER.into()),
             });
 
         // Create dummy texture for density visualization
         let dummy_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Wanderers Dummy Density Texture"),
+            label: Some("Pellets Dummy Density Texture"),
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
@@ -448,7 +440,7 @@ impl WanderersValidator {
         let bind_group_layout =
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Wanderers Background Bind Group Layout"),
+                    label: Some("Pellets Background Bind Group Layout"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
@@ -477,7 +469,7 @@ impl WanderersValidator {
         let pipeline_layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Wanderers Background Pipeline Layout"),
+                label: Some("Pellets Background Pipeline Layout"),
                 bind_group_layouts: &[&bind_group_layout],
                 push_constant_ranges: &[],
             });
@@ -486,7 +478,7 @@ impl WanderersValidator {
         let _background_pipeline =
             self.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Wanderers Background Pipeline"),
+                    label: Some("Pellets Background Pipeline"),
                     layout: Some(&pipeline_layout),
                     cache: None,
                     vertex: wgpu::VertexState {
@@ -525,7 +517,7 @@ impl WanderersValidator {
 
         // Create bind group (this will validate buffer binding)
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Background Bind Group"),
+            label: Some("Pellets Background Bind Group"),
             layout: &bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -566,84 +558,18 @@ impl WanderersValidator {
     /// Validates that the physics compute shader can bind to the Rust structs
     /// This will catch buffer size mismatches between Rust and WGSL
     fn validate_physics_compute_shader_binding(&self) -> Result<(), String> {
-        // Create dummy data
-        let dummy_particles: Vec<Particle> = (0..10)
-            .map(|_| Particle {
-                position: [0.0, 0.0],
-                velocity: [0.0, 0.0],
-                mass: 1.0,
-                radius: 0.1,
-                clump_id: 0,
-                density: 0.0,
-                grabbed: 0,
-                _pad0: 0,
-                previous_position: [0.0, 0.0],
-            })
-            .collect();
-
-        let dummy_physics_params = PhysicsParams {
-            mouse_position: [0.0, 0.0],
-            mouse_delta: [0.0, 0.0],
-            particle_count: 10,
-            gravitational_constant: 0.0001,
-            energy_damping: 0.999,
-            collision_damping: 0.5,
-            dt: 1.0 / 60.0,
-            gravity_softening: 0.01,
-            interaction_radius: 0.5,
-            mouse_pressed: 0,
-            mouse_mode: 0,
-            cursor_size: 0.35,
-            cursor_strength: 0.02,
-            particle_size: 0.01,              // Dummy value for tests
-            aspect_ratio: 1.0,                // Dummy value for tests
-            long_range_gravity_strength: 0.3, // Dummy value for tests
-        };
-
-        let dummy_density_params = DensityParams {
-            particle_count: 10,
-            density_radius: 0.1,
-            coloring_mode: 0,
-            _padding: 0,
-        };
-
-        // Create buffers
-        let particle_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Particle Buffer"),
-                contents: bytemuck::cast_slice(&dummy_particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let physics_params_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Physics Params Buffer"),
-                    contents: bytemuck::cast_slice(&[dummy_physics_params]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let density_params_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Density Params Buffer"),
-                    contents: bytemuck::cast_slice(&[dummy_density_params]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
         // Create shader modules
         let physics_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Physics Compute Shader"),
+                label: Some("Pellets Physics Compute Shader"),
                 source: wgpu::ShaderSource::Wgsl(PHYSICS_COMPUTE_SHADER.into()),
             });
 
         let density_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Wanderers Density Compute Shader"),
+                label: Some("Pellets Density Compute Shader"),
                 source: wgpu::ShaderSource::Wgsl(DENSITY_COMPUTE_SHADER.into()),
             });
 
@@ -651,7 +577,7 @@ impl WanderersValidator {
         let bind_group_layout =
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Wanderers Compute Bind Group Layout"),
+                    label: Some("Pellets Compute Bind Group Layout"),
                     entries: &[
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
@@ -680,7 +606,7 @@ impl WanderersValidator {
         let physics_pipeline_layout =
             self.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Wanderers Physics Pipeline Layout"),
+                    label: Some("Pellets Physics Pipeline Layout"),
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
                 });
@@ -688,7 +614,7 @@ impl WanderersValidator {
         let density_pipeline_layout =
             self.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Wanderers Density Pipeline Layout"),
+                    label: Some("Pellets Density Pipeline Layout"),
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
                 });
@@ -697,7 +623,7 @@ impl WanderersValidator {
         let _physics_compute_pipeline =
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("Wanderers Physics Compute Pipeline"),
+                    label: Some("Pellets Physics Compute Pipeline"),
                     layout: Some(&physics_pipeline_layout),
                     module: &physics_shader,
                     entry_point: Some("main"),
@@ -708,7 +634,7 @@ impl WanderersValidator {
         let _density_compute_pipeline =
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("Wanderers Density Compute Pipeline"),
+                    label: Some("Pellets Density Compute Pipeline"),
                     layout: Some(&density_pipeline_layout),
                     module: &density_shader,
                     entry_point: Some("main"),
@@ -721,8 +647,8 @@ impl WanderersValidator {
 }
 
 #[tokio::test]
-async fn test_wanderers_shader_compilation() {
-    let validator = WanderersValidator::new().await;
+async fn test_pellets_shader_compilation() {
+    let validator = PelletsValidator::new().await;
 
     // Test shader compilation
     validator
@@ -746,8 +672,8 @@ async fn test_wanderers_shader_compilation() {
 }
 
 #[tokio::test]
-async fn test_wanderers_buffer_binding() {
-    let validator = WanderersValidator::new().await;
+async fn test_pellets_buffer_binding() {
+    let validator = PelletsValidator::new().await;
 
     // Test buffer binding for particle rendering
     validator
@@ -771,7 +697,7 @@ fn test_struct_layout_compatibility() {
     // by attempting to create buffers and bind groups with the actual shaders
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let validator = WanderersValidator::new().await;
+        let validator = PelletsValidator::new().await;
 
         // Test that physics compute shader can bind to our Rust structs
         match validator.validate_physics_compute_shader_binding() {
@@ -798,7 +724,7 @@ fn test_particle_vertex_shader_binding() {
     // This test specifically validates the particle vertex shader struct layout
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let validator = WanderersValidator::new().await;
+        let validator = PelletsValidator::new().await;
 
         // Test that particle vertex shader can bind to our Rust structs
         match validator.validate_particle_vertex_shader_binding() {
@@ -813,7 +739,7 @@ fn test_physics_compute_shader_binding() {
     // This test specifically validates the physics compute shader struct layout
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let validator = WanderersValidator::new().await;
+        let validator = PelletsValidator::new().await;
 
         // Test that physics compute shader can bind to our Rust structs
         match validator.validate_physics_compute_shader_binding() {
@@ -829,12 +755,12 @@ fn test_struct_layout_consistency() {
     // without hardcoding any expected values
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let validator = WanderersValidator::new().await;
+        let validator = PelletsValidator::new().await;
 
         // Test PhysicsParams struct
         let dummy_physics_params = PhysicsParams {
             mouse_position: [0.0, 0.0],
-            mouse_delta: [0.0, 0.0],
+            mouse_velocity: [0.0, 0.0],
             particle_count: 10,
             gravitational_constant: 0.0001,
             energy_damping: 0.999,
@@ -855,7 +781,7 @@ fn test_struct_layout_consistency() {
             validator
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Physics Params Buffer"),
+                    label: Some("Pellets Physics Params Buffer"),
                     contents: bytemuck::cast_slice(&[dummy_physics_params]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -887,7 +813,7 @@ fn test_struct_layout_consistency() {
             validator
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Wanderers Particle Buffer"),
+                    label: Some("Pellets Particle Buffer"),
                     contents: bytemuck::cast_slice(&dummy_particles),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 });

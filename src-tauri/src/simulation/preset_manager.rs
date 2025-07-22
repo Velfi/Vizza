@@ -192,7 +192,7 @@ pub type SlimeMoldPresetManager = PresetManager<crate::simulations::slime_mold::
 pub type GrayScottPresetManager = PresetManager<crate::simulations::gray_scott::settings::Settings>;
 pub type ParticleLifePresetManager =
     PresetManager<crate::simulations::particle_life::settings::Settings>;
-pub type WanderersPresetManager = PresetManager<crate::simulations::wanderers::settings::Settings>;
+pub type PelletsPresetManager = PresetManager<crate::simulations::pellets::settings::Settings>;
 
 // Trait for unified preset manager operations
 pub trait AnyPresetManager {
@@ -253,7 +253,7 @@ impl AnyPresetManager for ParticleLifePresetManager {
     }
 }
 
-impl AnyPresetManager for WanderersPresetManager {
+impl AnyPresetManager for PelletsPresetManager {
     fn get_preset_names(&self) -> Vec<String> {
         self.get_preset_names()
     }
@@ -263,7 +263,7 @@ impl AnyPresetManager for WanderersPresetManager {
     }
 
     fn save_user_preset_json(&self, name: &str, settings: &serde_json::Value) -> PresetResult<()> {
-        let typed_settings: crate::simulations::wanderers::settings::Settings =
+        let typed_settings: crate::simulations::pellets::settings::Settings =
             serde_json::from_value(settings.clone())
                 .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
         self.save_user_preset(name, &typed_settings)
@@ -275,7 +275,7 @@ pub enum PresetManagerType {
     SlimeMold(SlimeMoldPresetManager),
     GrayScott(GrayScottPresetManager),
     ParticleLife(ParticleLifePresetManager),
-    Wanderers(WanderersPresetManager),
+    Pellets(PelletsPresetManager),
 }
 
 impl PresetManagerType {
@@ -284,7 +284,7 @@ impl PresetManagerType {
             PresetManagerType::SlimeMold(manager) => manager,
             PresetManagerType::GrayScott(manager) => manager,
             PresetManagerType::ParticleLife(manager) => manager,
-            PresetManagerType::Wanderers(manager) => manager,
+            PresetManagerType::Pellets(manager) => manager,
         }
     }
 
@@ -293,7 +293,7 @@ impl PresetManagerType {
             PresetManagerType::SlimeMold(manager) => manager,
             PresetManagerType::GrayScott(manager) => manager,
             PresetManagerType::ParticleLife(manager) => manager,
-            PresetManagerType::Wanderers(manager) => manager,
+            PresetManagerType::Pellets(manager) => manager,
         }
     }
 
@@ -347,7 +347,7 @@ impl PresetManagerType {
                     Err(format!("Preset '{}' not found for Particle Life", preset_name).into())
                 }
             }
-            (PresetManagerType::Wanderers(manager), SimulationType::Wanderers(sim)) => {
+            (PresetManagerType::Pellets(manager), SimulationType::Pellets(sim)) => {
                 if let Some(settings) = manager.get_preset_settings(preset_name) {
                     let settings_json = serde_json::to_value(settings)
                         .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
@@ -355,10 +355,10 @@ impl PresetManagerType {
                         .map_err(|e| PresetError::SimulationError(e.to_string()))?;
                     sim.reset_runtime_state(device, queue)
                         .map_err(|e| PresetError::SimulationError(e.to_string()))?;
-                    tracing::info!("Applied Wanderers preset '{}'", preset_name);
+                    tracing::info!("Applied Pellets preset '{}'", preset_name);
                     Ok(())
                 } else {
-                    Err(format!("Preset '{}' not found for Wanderers", preset_name).into())
+                    Err(format!("Preset '{}' not found for Pellets", preset_name).into())
                 }
             }
             (_, SimulationType::Flow(_)) => {
@@ -384,12 +384,12 @@ impl SimulationPresetManager {
         let mut gray_scott_preset_manager = GrayScottPresetManager::new("gray_scott".to_string());
         let mut particle_life_preset_manager =
             ParticleLifePresetManager::new("particle_life".to_string());
-        let mut wanderers_preset_manager = WanderersPresetManager::new("wanderers".to_string());
+        let mut pellets_preset_manager = PelletsPresetManager::new("pellets".to_string());
 
         crate::simulations::slime_mold::init_presets(&mut slime_mold_preset_manager);
         crate::simulations::gray_scott::init_presets(&mut gray_scott_preset_manager);
         crate::simulations::particle_life::init_presets(&mut particle_life_preset_manager);
-        crate::simulations::wanderers::init_presets(&mut wanderers_preset_manager);
+        crate::simulations::pellets::init_presets(&mut pellets_preset_manager);
 
         let mut managers = HashMap::new();
         managers.insert(
@@ -405,8 +405,8 @@ impl SimulationPresetManager {
             PresetManagerType::ParticleLife(particle_life_preset_manager),
         );
         managers.insert(
-            "wanderers".to_string(),
-            PresetManagerType::Wanderers(wanderers_preset_manager),
+            "pellets".to_string(),
+            PresetManagerType::Pellets(pellets_preset_manager),
         );
 
         Self { managers }
@@ -417,7 +417,7 @@ impl SimulationPresetManager {
             SimulationType::SlimeMold(_) => "slime_mold",
             SimulationType::GrayScott(_) => "gray_scott",
             SimulationType::ParticleLife(_) => "particle_life",
-            SimulationType::Wanderers(_) => "wanderers",
+            SimulationType::Pellets(_) => "pellets",
             SimulationType::Ecosystem(_) => "ecosystem",
             SimulationType::Flow(_) => "flow",
             SimulationType::MainMenu(_) => "main_menu",

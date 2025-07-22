@@ -1,6 +1,6 @@
-//! # Wanderers State Module
+//! # Pellets State Module
 //! 
-//! Manages the runtime state of the Wanderers simulation, tracking transient data
+//! Manages the runtime state of the Pellets simulation, tracking transient data
 //! that changes during execution but is not part of the persistent configuration.
 //! This includes user interactions, camera positioning, and UI state.
 //! 
@@ -21,16 +21,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct State {
-    /// Current particle positions and properties (runtime data)
-    pub particles: Vec<[f32; 6]>, // position[2], velocity[2], mass, temperature
-
     /// Current mouse interaction state
     pub mouse_pressed: bool,
     /// 0 = no mouse, 1 = attract (left click)
     pub mouse_mode: u32,
     pub mouse_position: [f32; 2],
-    pub mouse_delta: [f32; 2],
+    pub mouse_velocity: [f32; 2], // Mouse velocity in world units per second
     pub mouse_screen_position: [f32; 2], // Raw screen coordinates from frontend
+    pub last_mouse_time: f64, // Timestamp of last mouse interaction for velocity calculation
 
     /// Cursor interaction parameters
     pub cursor_size: f32,
@@ -58,17 +56,17 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            particles: Vec::new(),
             mouse_pressed: false,
             mouse_mode: 0,
             mouse_position: [0.0, 0.0], // Center of [-1,1] space
-            mouse_delta: [0.0, 0.0],
+            mouse_velocity: [0.0, 0.0],
             mouse_screen_position: [0.0, 0.0], // Raw screen coordinates
-            cursor_size: 0.35,
-            cursor_strength: 0.1, // Increased from 0.02 for more visible mouse interaction
+            last_mouse_time: 0.0,
+            cursor_size: 0.20,
+            cursor_strength: 1.0, // Increased for better throwing visibility
             grabbed_particles: Vec::new(),
-            current_lut_name: "MATPLOTLIB_viridis".to_string(),
-            lut_reversed: false,
+            current_lut_name: "MATPLOTLIB_bone".to_string(),
+            lut_reversed: true,
             gui_visible: true,
             camera_position: [0.0, 0.0],
             camera_zoom: 1.0,
@@ -84,8 +82,9 @@ impl State {
         self.mouse_pressed = false;
         self.mouse_mode = 0;
         self.mouse_position = [0.0, 0.0]; // Center of [-1,1] space
-        self.mouse_delta = [0.0, 0.0];
+        self.mouse_velocity = [0.0, 0.0];
         self.mouse_screen_position = [0.0, 0.0];
+        self.last_mouse_time = 0.0;
         self.grabbed_particles.clear();
         self.gui_visible = true;
         self.camera_position = [0.0, 0.0];
@@ -105,10 +104,11 @@ impl State {
         self.mouse_pressed = false;
         self.mouse_mode = 0;
         self.mouse_position = [0.0, 0.0]; // Center of [-1,1] space
-        self.mouse_delta = [0.0, 0.0];
+        self.mouse_velocity = [0.0, 0.0];
         self.mouse_screen_position = [0.0, 0.0];
+        self.last_mouse_time = 0.0;
         self.grabbed_particles.clear();
         self.cursor_size = 0.1;
-        self.cursor_strength = 0.1;
+        self.cursor_strength = 1.0; // Increased for better throwing
     }
 }

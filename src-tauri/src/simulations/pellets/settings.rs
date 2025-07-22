@@ -1,7 +1,7 @@
-//! # Wanderers Settings Module
+//! # Pellets Settings Module
 //! 
 //! Defines the user-configurable parameters that control the behavior and appearance
-//! of the Wanderers simulation. These settings determine how particles interact,
+//! of the Pellets simulation. These settings determine how particles interact,
 //! how the system evolves over time, and how it appears to the user.
 //! 
 //! ## Configuration Philosophy
@@ -27,7 +27,8 @@ pub struct Settings {
     /// Size of each particle for rendering
     pub particle_size: f32,
 
-    /// Damping factor for particle collisions (0.0 = no damping, 1.0 = fully damped)
+    /// Energy retention factor during particle collisions (0.0 = no energy retained, 1.0 = all energy retained)
+    /// Works like energy_damping but only applies during collision impacts
     pub collision_damping: f32,
 
     /// Maximum initial velocity for particles
@@ -45,18 +46,6 @@ pub struct Settings {
     // Physics parameters
     /// Gravitational constant for physics calculations
     pub gravitational_constant: f32,
-
-    /// Minimum particle mass
-    pub min_particle_mass: f32,
-
-    /// Maximum particle mass
-    pub max_particle_mass: f32,
-
-    /// Distance at which particles form clumps
-    pub clump_distance: f32,
-
-    /// How strongly particles stick together in clumps
-    pub cohesive_strength: f32,
 
     /// Energy damping factor
     pub energy_damping: f32,
@@ -79,17 +68,13 @@ impl Default for Settings {
         Self {
             particle_count: 5000,
             particle_size: 0.012,
-            collision_damping: 0.3,
+            collision_damping: 1.0,
             initial_velocity_max: 0.15,
             initial_velocity_min: 0.05,
             random_seed: 0,
-            background_type: "black".to_string(),
+            background_type: "white".to_string(),
             gravitational_constant: 1e-6,
-            min_particle_mass: 1.0,
-            max_particle_mass: 1.0,
-            clump_distance: 0.02,
-            cohesive_strength: 0.0,
-            energy_damping: 0.995,
+            energy_damping: 1.0,
             gravity_softening: 0.003,
             density_radius: 0.04,
             coloring_mode: "density".to_string(),
@@ -105,18 +90,14 @@ impl Settings {
         let mut rng = rand::rng();
 
         self.particle_size = rng.random_range(0.001..0.005);
-        self.collision_damping = rng.random_range(0.9..0.99);
+        self.collision_damping = rng.random_range(0.5..0.95); // Similar range to energy_damping
         self.initial_velocity_max = rng.random_range(0.1..0.5);
         self.initial_velocity_min = rng.random_range(0.05..self.initial_velocity_max * 0.7);
         self.random_seed = rng.random();
 
         // Randomize physics fields
         self.gravitational_constant = rng.random_range(0.003..0.012);
-        self.min_particle_mass = rng.random_range(0.05..0.2);
-        self.max_particle_mass = rng.random_range(0.2..0.5);
-        self.clump_distance = rng.random_range(0.015..0.03);
-        self.cohesive_strength = rng.random_range(30.0..80.0);
-        self.energy_damping = rng.random_range(0.995..0.999);
+        self.energy_damping = rng.random_range(0.9..0.99); // Adjusted to match collision_damping range
         self.gravity_softening = rng.random_range(0.003..0.008);
         self.density_radius = rng.random_range(0.02..0.05);
         self.long_range_gravity_strength = rng.random_range(0.0..1.0);

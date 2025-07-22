@@ -20,7 +20,7 @@ Flow field simulation with particle movement patterns.
 
 ![Flow Mode Example](example-flow-mode.png)
 
-### Wanderers
+### Pellets
 Particle simulation with gravity and density-based interactions.
 
 ## Getting Started

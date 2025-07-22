@@ -184,19 +184,19 @@ impl SimulationManager {
                 self.resume();
                 Ok(())
             }
-            "wanderers" => {
-                // Initialize Wanderers simulation
-                let settings = crate::simulations::wanderers::settings::Settings::default();
-                let simulation = crate::simulations::wanderers::simulation::WanderersModel::new(
+            "pellets" => {
+                // Initialize Pellets simulation
+                let settings = crate::simulations::pellets::settings::Settings::default();
+                let simulation = crate::simulations::pellets::simulation::PelletsModel::new(
                     device,
                     queue,
                     surface_config,
                     settings,
                     &self.lut_manager,
                 )
-                .map_err(|e| format!("Failed to initialize Wanderers simulation: {}", e))?;
+                .map_err(|e| format!("Failed to initialize Pellets simulation: {}", e))?;
 
-                self.current_simulation = Some(SimulationType::Wanderers(Box::new(simulation)));
+                self.current_simulation = Some(SimulationType::Pellets(Box::new(simulation)));
                 self.resume();
                 Ok(())
             }
@@ -310,12 +310,12 @@ impl SimulationManager {
                         queue,
                     )?;
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     let camera = &simulation.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
 
-                    // Wanderers particles also live in [-1,1] world space
+                    // Pellets particles also live in [-1,1] world space
                     simulation.handle_mouse_interaction(
                         world.x,
                         world.y,
@@ -374,7 +374,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 _ => (),
@@ -572,15 +572,15 @@ impl SimulationManager {
                     )?;
                     tracing::info!("LUT '{}' applied to Flow simulation", lut_name);
                 }
-                SimulationType::Wanderers(simulation) => {
-                    // For Wanderers, use the existing update_setting method
+                SimulationType::Pellets(simulation) => {
+                    // For Pellets, use the existing update_setting method
                     simulation.update_setting(
                         "currentLut",
                         serde_json::json!(lut_name),
                         device,
                         queue,
                     )?;
-                    tracing::info!("LUT '{}' applied to Wanderers simulation", lut_name);
+                    tracing::info!("LUT '{}' applied to Pellets simulation", lut_name);
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
@@ -674,8 +674,8 @@ impl SimulationManager {
                     )?;
                     tracing::info!("LUT reversed for Flow simulation");
                 }
-                SimulationType::Wanderers(simulation) => {
-                    // For Wanderers, use the built-in LUT reversal mechanism
+                SimulationType::Pellets(simulation) => {
+                    // For Pellets, use the built-in LUT reversal mechanism
                     let current_reversed = simulation.state.lut_reversed;
                     simulation.update_setting(
                         "lut_reversed",
@@ -683,7 +683,7 @@ impl SimulationManager {
                         device,
                         queue,
                     )?;
-                    tracing::info!("LUT reversed for Wanderers simulation");
+                    tracing::info!("LUT reversed for Pellets simulation");
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support LUT changes
@@ -761,9 +761,9 @@ impl SimulationManager {
                     )?;
                     tracing::info!("Custom LUT applied to Flow simulation");
                 }
-                SimulationType::Wanderers(simulation) => {
-                    // For Wanderers, save the custom LUT temporarily and apply it
-                    let temp_lut_name = "custom_wanderers_lut";
+                SimulationType::Pellets(simulation) => {
+                    // For Pellets, save the custom LUT temporarily and apply it
+                    let temp_lut_name = "custom_pellets_lut";
                     self.lut_manager
                         .save_custom(temp_lut_name, lut_data)
                         .map_err(|e| {
@@ -778,7 +778,7 @@ impl SimulationManager {
                         device,
                         queue,
                     )?;
-                    tracing::info!("Custom LUT applied to Wanderers simulation");
+                    tracing::info!("Custom LUT applied to Pellets simulation");
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support custom LUTs
@@ -992,7 +992,7 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => simulation.camera.pan(delta_x, delta_y),
                 SimulationType::Ecosystem(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
-                SimulationType::Wanderers(simulation) => simulation.pan_camera(delta_x, delta_y),
+                SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::MainMenu(_) => {}
             }
         }
@@ -1007,7 +1007,7 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Ecosystem(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Flow(simulation) => simulation.camera.zoom(delta),
-                SimulationType::Wanderers(simulation) => simulation.camera.zoom(delta),
+                SimulationType::Pellets(simulation) => simulation.camera.zoom(delta),
                 SimulationType::MainMenu(_) => {}
             }
         }
@@ -1038,7 +1038,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
                 SimulationType::MainMenu(_) => {}
@@ -1055,7 +1055,7 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => simulation.camera.reset(),
                 SimulationType::Ecosystem(simulation) => simulation.camera.reset(),
                 SimulationType::Flow(simulation) => simulation.camera.reset(),
-                SimulationType::Wanderers(simulation) => simulation.camera.reset(),
+                SimulationType::Pellets(simulation) => simulation.camera.reset(),
                 SimulationType::MainMenu(_) => {}
             }
         }
@@ -1071,7 +1071,7 @@ impl SimulationManager {
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::Ecosystem(_simulation) => Some(serde_json::json!({})),
                 SimulationType::Flow(simulation) => Some(simulation.get_camera_state()),
-                SimulationType::Wanderers(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::Pellets(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
             }
         } else {
@@ -1099,7 +1099,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
@@ -1124,7 +1124,7 @@ impl SimulationManager {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::Flow(simulation) => simulation.camera.set_sensitivity(sensitivity),
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
@@ -1220,7 +1220,7 @@ impl SimulationManager {
                         )
                         .map_err(AppError::Simulation)?;
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation
                         .update_setting(
                             "cursor_size",
@@ -1284,7 +1284,7 @@ impl SimulationManager {
                         )
                         .map_err(AppError::Simulation)?;
                 }
-                SimulationType::Wanderers(simulation) => {
+                SimulationType::Pellets(simulation) => {
                     simulation
                         .update_setting(
                             "cursor_strength",
