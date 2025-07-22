@@ -1,18 +1,18 @@
 //! # Pellets Simulation Implementation
-//! 
+//!
 //! The core engine that brings the Pellets particle physics simulation to life.
 //! This module orchestrates the interaction between user input, GPU computation,
 //! and visual rendering to create a responsive and engaging simulation experience.
-//! 
+//!
 //! ## Simulation Philosophy
-//! 
+//!
 //! The simulation balances computational performance with user interactivity.
 //! By leveraging GPU parallelization for physics calculations while keeping
 //! user interface responsive on the CPU, it creates a seamless experience
 //! where users can explore and experiment with complex particle behaviors.
-//! 
+//!
 //! ## System Architecture
-//! 
+//!
 //! The simulation uses a hybrid architecture that separates concerns between
 //! configuration management, real-time computation, and user interaction.
 //! This design enables both high-performance physics simulation and
@@ -88,10 +88,6 @@ pub struct BackgroundParams {
     pub density_texture_resolution: u32,
 }
 
-
-
-
-
 // GPU-based physics implementation - no Rapier needed
 
 pub struct PelletsModel {
@@ -119,7 +115,7 @@ pub struct PelletsModel {
 
     // Particle data (simulation runtime, not UI state)
     pub particles: Vec<Particle>,
-    
+
     // Simulation state and settings
     pub settings: Settings,
     pub state: State,
@@ -210,12 +206,12 @@ impl PelletsModel {
             density_texture_resolution: 512, // Default texture resolution
         };
 
-                    let background_params_buffer =
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Pellets Background Params Buffer"),
-                    contents: bytemuck::cast_slice(&[background_params]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
+        let background_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pellets Background Params Buffer"),
+                contents: bytemuck::cast_slice(&[background_params]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create physics params buffer
         // For now, use the original particle size directly to restore collision functionality
@@ -242,7 +238,7 @@ impl PelletsModel {
         };
 
         let physics_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wanderers Physics Params Buffer"),
+            label: Some("Pellets Physics Params Buffer"),
             contents: bytemuck::cast_slice(&[physics_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -260,25 +256,25 @@ impl PelletsModel {
         };
 
         let density_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wanderers Density Params Buffer"),
+            label: Some("Pellets Density Params Buffer"),
             contents: bytemuck::cast_slice(&[density_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         // Create render pipeline
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wanderers Vertex Shader"),
+            label: Some("Pellets Vertex Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_VERTEX_SHADER.into()),
         });
 
         let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wanderers Fragment Shader"),
+            label: Some("Pellets Fragment Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_FRAGMENT_SHADER.into()),
         });
 
         let render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Wanderers Render Bind Group Layout"),
+                label: Some("Pellets Render Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -325,13 +321,13 @@ impl PelletsModel {
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Wanderers Render Pipeline Layout"),
+                label: Some("Pellets Render Pipeline Layout"),
                 bind_group_layouts: &[&render_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Wanderers Render Pipeline"),
+            label: Some("Pellets Render Pipeline"),
             layout: Some(&render_pipeline_layout),
             cache: None,
             vertex: wgpu::VertexState {
@@ -370,19 +366,19 @@ impl PelletsModel {
 
         // Create compute shaders
         let physics_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wanderers Physics Compute Shader"),
+            label: Some("Pellets Physics Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::PHYSICS_COMPUTE_SHADER.into()),
         });
 
         let density_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wanderers Density Compute Shader"),
+            label: Some("Pellets Density Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::DENSITY_COMPUTE_SHADER.into()),
         });
 
         // Create compute bind group layouts
         let physics_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Wanderers Physics Bind Group Layout"),
+                label: Some("Pellets Physics Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -410,10 +406,10 @@ impl PelletsModel {
         // Create compute pipelines
         let physics_compute_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Wanderers Physics Compute Pipeline"),
+                label: Some("Pellets Physics Compute Pipeline"),
                 layout: Some(
                     &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Wanderers Physics Pipeline Layout"),
+                        label: Some("Pellets Physics Pipeline Layout"),
                         bind_group_layouts: &[&physics_bind_group_layout],
                         push_constant_ranges: &[],
                     }),
@@ -426,10 +422,10 @@ impl PelletsModel {
 
         let density_compute_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Wanderers Density Compute Pipeline"),
+                label: Some("Pellets Density Compute Pipeline"),
                 layout: Some(
                     &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Wanderers Density Pipeline Layout"),
+                        label: Some("Pellets Density Pipeline Layout"),
                         bind_group_layouts: &[&physics_bind_group_layout], // Reuse same layout
                         push_constant_ranges: &[],
                     }),
@@ -442,7 +438,7 @@ impl PelletsModel {
 
         // Create compute bind groups
         let physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Physics Bind Group"),
+            label: Some("Pellets Physics Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -457,7 +453,7 @@ impl PelletsModel {
         });
 
         let density_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Density Bind Group"),
+            label: Some("Pellets Density Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -472,7 +468,7 @@ impl PelletsModel {
         });
 
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Render Bind Group"),
+            label: Some("Pellets Render Bind Group"),
             layout: &render_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -496,13 +492,13 @@ impl PelletsModel {
 
         // Create background pipeline
         let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Wanderers Background Shader"),
+            label: Some("Pellets Background Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::RENDER_SHADER.into()),
         });
 
         // Create dummy texture for density visualization
         let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Wanderers Dummy Density Texture"),
+            label: Some("Pellets Dummy Density Texture"),
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
@@ -520,7 +516,7 @@ impl PelletsModel {
 
         let background_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Wanderers Background Bind Group Layout"),
+                label: Some("Pellets Background Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -547,13 +543,13 @@ impl PelletsModel {
 
         let background_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Wanderers Background Pipeline Layout"),
+                label: Some("Pellets Background Pipeline Layout"),
                 bind_group_layouts: &[&background_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
         let background_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Wanderers Background Pipeline"),
+            label: Some("Pellets Background Pipeline"),
             layout: Some(&background_pipeline_layout),
             cache: None,
             vertex: wgpu::VertexState {
@@ -591,7 +587,7 @@ impl PelletsModel {
         });
 
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Background Bind Group"),
+            label: Some("Pellets Background Bind Group"),
             layout: &background_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -620,7 +616,7 @@ impl PelletsModel {
             render_bind_group,
             background_pipeline,
             background_bind_group,
-            
+
             particles,
             settings: settings.clone(),
             state,
@@ -746,12 +742,12 @@ impl PelletsModel {
 
         // Dispatch physics compute shader
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Wanderers Physics Compute Encoder"),
+            label: Some("Pellets Physics Compute Encoder"),
         });
 
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Wanderers Physics Compute Pass"),
+                label: Some("Pellets Physics Compute Pass"),
                 timestamp_writes: None,
             });
 
@@ -760,8 +756,7 @@ impl PelletsModel {
 
             // Dispatch with optimal workgroup size
             let workgroup_size = 64;
-            let num_workgroups =
-                self.settings.particle_count.div_ceil(workgroup_size);
+            let num_workgroups = self.settings.particle_count.div_ceil(workgroup_size);
             compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
         }
 
@@ -770,7 +765,7 @@ impl PelletsModel {
             self.update_density_params(queue);
 
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Wanderers Density Compute Pass"),
+                label: Some("Pellets Density Compute Pass"),
                 timestamp_writes: None,
             });
 
@@ -778,8 +773,7 @@ impl PelletsModel {
             compute_pass.set_bind_group(0, &self.density_bind_group, &[]);
 
             let workgroup_size = 64;
-            let num_workgroups =
-                self.settings.particle_count.div_ceil(workgroup_size);
+            let num_workgroups = self.settings.particle_count.div_ceil(workgroup_size);
             compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
         }
 
@@ -886,7 +880,7 @@ impl PelletsModel {
             );
             // Recreate the particle buffer with the new size
             self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Particle Buffer"),
+                label: Some("Pellets Particle Buffer"),
                 contents: bytemuck::cast_slice(&self.particles),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
@@ -918,7 +912,7 @@ impl PelletsModel {
         // Recreate compute bind group layouts
         let physics_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Wanderers Physics Bind Group Layout"),
+                label: Some("Pellets Physics Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -945,7 +939,7 @@ impl PelletsModel {
 
         // Recreate physics compute bind group
         self.physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Physics Bind Group"),
+            label: Some("Pellets Physics Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -961,7 +955,7 @@ impl PelletsModel {
 
         // Recreate density compute bind group
         self.density_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Density Bind Group"),
+            label: Some("Pellets Density Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -978,7 +972,7 @@ impl PelletsModel {
         // Recreate render bind group
         let render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Wanderers Render Bind Group Layout"),
+                label: Some("Pellets Render Bind Group Layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -1024,7 +1018,7 @@ impl PelletsModel {
             });
 
         self.render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Wanderers Render Bind Group"),
+            label: Some("Pellets Render Bind Group"),
             layout: &render_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -1166,7 +1160,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
 
         // Create command encoder
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Wanderers Render Encoder"),
+            label: Some("Pellets Render Encoder"),
         });
 
         // Standard particle rendering
@@ -1174,7 +1168,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             // Standard particle rendering
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Wanderers Render Pass"),
+                    label: Some("Pellets Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: surface_view,
                         resolve_target: None,
@@ -1219,12 +1213,12 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         self.update_background_params(queue);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Wanderers Static Render Encoder"),
+            label: Some("Pellets Static Render Encoder"),
         });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Wanderers Static Render Pass"),
+                label: Some("Pellets Static Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
@@ -1260,9 +1254,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         self.surface_config = new_config.clone();
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
-        
+
         // No depth texture needed for 2D particle rendering
-        
+
         // Update render params to reflect new screen dimensions
         self.update_render_params(queue);
         Ok(())
@@ -1428,9 +1422,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs_f64();
-        
+
         let time_delta = current_time - self.state.last_mouse_time;
-        
+
         // Only update velocity if we have a meaningful time difference (avoid division by very small numbers)
         if time_delta > 0.001 && self.state.last_mouse_time > 0.0 {
             // Calculate velocity in world units per second
@@ -1439,17 +1433,19 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 clamped_x - previous_position[0],
                 clamped_y - previous_position[1],
             ];
-            
+
             let new_velocity = [
                 position_delta[0] / time_delta as f32,
                 position_delta[1] / time_delta as f32,
             ];
-            
+
             // Apply velocity smoothing (exponential moving average)
             let smoothing_factor = 0.7; // Adjust this for more/less smoothing
             self.state.mouse_velocity = [
-                self.state.mouse_velocity[0] * (1.0 - smoothing_factor) + new_velocity[0] * smoothing_factor,
-                self.state.mouse_velocity[1] * (1.0 - smoothing_factor) + new_velocity[1] * smoothing_factor,
+                self.state.mouse_velocity[0] * (1.0 - smoothing_factor)
+                    + new_velocity[0] * smoothing_factor,
+                self.state.mouse_velocity[1] * (1.0 - smoothing_factor)
+                    + new_velocity[1] * smoothing_factor,
             ];
         }
 
@@ -1552,7 +1548,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         if self.particle_buffer.size() < required_buffer_size as u64 {
             // Recreate the particle buffer with the new size
             self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Wanderers Particle Buffer"),
+                label: Some("Pellets Particle Buffer"),
                 contents: bytemuck::cast_slice(&self.particles),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });

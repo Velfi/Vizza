@@ -1,18 +1,18 @@
 //! # Pellets Shaders Module
-//! 
+//!
 //! Contains the GPU programs that drive the Pellets simulation, implementing
 //! both the physics calculations and visual rendering. These shaders transform
 //! simple mathematical rules into complex emergent behaviors.
-//! 
+//!
 //! ## Shader Philosophy
-//! 
+//!
 //! The shaders implement the core simulation logic through parallel computation.
 //! By processing all particles simultaneously on the GPU, the simulation can
 //! handle thousands of interacting particles while maintaining real-time
 //! performance and responsive user interaction.
-//! 
+//!
 //! ## Computational Approach
-//! 
+//!
 //! The simulation uses a two-stage approach: compute shaders handle the physics
 //! calculations that determine particle behavior, while render shaders create
 //! the visual representation that reveals the underlying dynamics to the user.

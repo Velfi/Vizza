@@ -1,6 +1,6 @@
-//! # Wanderers Shaders Module
+//! # Pellets Shaders Module
 //! 
-//! Contains the GPU programs that drive the Wanderers simulation, implementing
+//! Contains the GPU programs that drive the Pellets simulation, implementing
 //! both the physics calculations and visual rendering. These shaders transform
 //! simple mathematical rules into complex emergent behaviors.
 //! 

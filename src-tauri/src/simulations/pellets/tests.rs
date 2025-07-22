@@ -1,20 +1,20 @@
 //! # Pellets Testing Module
-//! 
+//!
 //! Comprehensive testing framework that ensures the Pellets simulation operates
 //! correctly across different environments and configurations. These tests validate
 //! both the computational correctness and the integration between different
 //! components of the simulation system.
-//! 
+//!
 //! ## Testing Philosophy
-//! 
+//!
 //! The testing approach focuses on catching issues early in the development
 //! process, particularly those related to GPU compatibility and data structure
 //! alignment. By testing shader compilation and buffer binding independently,
 //! the framework can identify problems that might otherwise only manifest
 //! during runtime execution.
-//! 
+//!
 //! ## Test Strategy
-//! 
+//!
 //! Tests are designed to validate the simulation at multiple levels, from
 //! individual component functionality to complete system integration.
 //! This layered approach ensures that both isolated components and their

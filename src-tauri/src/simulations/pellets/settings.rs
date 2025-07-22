@@ -1,18 +1,18 @@
 //! # Pellets Settings Module
-//! 
+//!
 //! Defines the user-configurable parameters that control the behavior and appearance
 //! of the Pellets simulation. These settings determine how particles interact,
 //! how the system evolves over time, and how it appears to the user.
-//! 
+//!
 //! ## Configuration Philosophy
-//! 
+//!
 //! The settings are designed to provide intuitive control over complex behaviors.
 //! Small changes to parameters can dramatically alter the simulation's character,
 //! from stable orbital systems to chaotic particle storms. All settings are
 //! serializable for preset management and reproducible experimentation.
-//! 
+//!
 //! ## Parameter Categories
-//! 
+//!
 //! Settings are organized into logical groups that control different aspects
 //! of the simulation, from basic particle properties to advanced physics
 //! behaviors and visual presentation.

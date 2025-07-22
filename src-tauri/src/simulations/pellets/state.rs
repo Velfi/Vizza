@@ -1,18 +1,18 @@
 //! # Pellets State Module
-//! 
+//!
 //! Manages the runtime state of the Pellets simulation, tracking transient data
 //! that changes during execution but is not part of the persistent configuration.
 //! This includes user interactions, camera positioning, and UI state.
-//! 
+//!
 //! ## State Philosophy
-//! 
+//!
 //! The state represents the current condition of the simulation at any moment.
 //! Unlike settings, which define how the simulation behaves, state captures
 //! what is happening right now. This separation allows for proper preset
 //! management and state restoration when simulations restart.
-//! 
+//!
 //! ## State Categories
-//! 
+//!
 //! The runtime state encompasses user interactions, visual presentation,
 //! and simulation execution status, providing the context needed for
 //! responsive and intuitive user experience.
@@ -28,7 +28,7 @@ pub struct State {
     pub mouse_position: [f32; 2],
     pub mouse_velocity: [f32; 2], // Mouse velocity in world units per second
     pub mouse_screen_position: [f32; 2], // Raw screen coordinates from frontend
-    pub last_mouse_time: f64, // Timestamp of last mouse interaction for velocity calculation
+    pub last_mouse_time: f64,     // Timestamp of last mouse interaction for velocity calculation
 
     /// Cursor interaction parameters
     pub cursor_size: f32,
