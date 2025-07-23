@@ -8,20 +8,24 @@
       </Button>
     </div>
 
-    <div class="center-controls">
-      <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
-        {running ? '⏸ Pause' : '▶ Resume'}
-      </Button>
-      <span class="status-text">
-        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
-      </span>
-    </div>
+    {#if showCenterControls}
+      <div class="center-controls">
+        <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
+          {running ? '⏸ Pause' : '▶ Resume'}
+        </Button>
+        <span class="status-text">
+          {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+        </span>
+      </div>
+    {/if}
 
-    <div class="right-controls">
-      <span class="info-text">
-        {simulationName} at {currentFps} FPS
-      </span>
-    </div>
+    {#if showRightControls}
+      <div class="right-controls">
+        <span class="info-text">
+          {simulationName} at {currentFps} FPS
+        </span>
+      </div>
+    {/if}
   </div>
 {:else}
   <!-- Auto-hiding controls when UI is hidden -->
@@ -45,20 +49,24 @@
       <Button variant="default" on:click={handleToggleUI}>👁 Show UI</Button>
     </div>
 
-    <div class="center-controls">
-      <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
-        {running ? '⏸ Pause' : '▶ Resume'}
-      </Button>
-      <span class="status-text">
-        {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
-      </span>
-    </div>
+    {#if showCenterControls}
+      <div class="center-controls">
+        <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
+          {running ? '⏸ Pause' : '▶ Resume'}
+        </Button>
+        <span class="status-text">
+          {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
+        </span>
+      </div>
+    {/if}
 
-    <div class="right-controls">
-      <span class="info-text">
-        {simulationName} at {currentFps} FPS
-      </span>
-    </div>
+    {#if showRightControls}
+      <div class="right-controls">
+        <span class="info-text">
+          {simulationName} at {currentFps} FPS
+        </span>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -75,6 +83,8 @@
   export let currentFps: number = 0;
   export let simulationName: string = 'Simulation';
   export let controlsVisible: boolean = true; // For auto-hide functionality
+  export let showCenterControls: boolean = true; // Control center section visibility
+  export let showRightControls: boolean = true; // Control right section visibility
 
   function handleBackClick() {
     dispatch('back');
@@ -102,7 +112,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
+    padding: 0.5rem;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -110,7 +120,7 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 80px;
+    height: 60px;
     box-sizing: border-box;
   }
 

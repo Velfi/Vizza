@@ -97,6 +97,27 @@
       <div class="stop-controls">
         {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
           <h4>Color Stop {selectedStopIndex + 1}</h4>
+          
+          <!-- Color Space Selector -->
+          <div class="control-group">
+            <label for="colorSpace">Color Space</label>
+            <Selector
+              id="colorSpace"
+              options={['RGB', 'Lab', 'OkLab', 'Jzazbz', 'HSLuv']}
+              bind:value={selectedColorSpace}
+              on:change={handleColorSpaceChange}
+            />
+            <div class="color-space-info">
+              <small>
+                <strong>RGB:</strong> Linear interpolation in RGB space<br>
+                <strong>Lab:</strong> Perceptually uniform (CIE L*a*b*)<br>
+                <strong>OkLab:</strong> Modern perceptually uniform space<br>
+                <strong>Jzazbz:</strong> HDR-optimized perceptually uniform space<br>
+                <strong>HSLuv:</strong> Perceptually uniform HSL variant
+              </small>
+            </div>
+          </div>
+          
           <div class="control-row">
             <div class="control-group">
               <label for="stopColor">Color</label>
@@ -133,6 +154,7 @@
               <li>Click on a color stop to select and edit it</li>
               <li>Drag color stops to reposition them</li>
               <li>Use the delete button to remove selected stops</li>
+              <li>Choose a color space for interpolation (RGB, Lab, or OkLab)</li>
             </ul>
           </div>
         {/if}
@@ -160,6 +182,7 @@
   import { createEventDispatcher, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Selector from '../inputs/Selector.svelte';
+  import { interpolate, formatHex, rgb } from 'culori';
 
   export let available_luts: string[] = [];
   export let current_lut: string = '';
@@ -182,6 +205,7 @@
   let dragStopIndex = -1;
   let original_lut_name = ''; // Store the original LUT name to restore on cancel
   let isAddingStop = false; // Flag to track when a new stop is being added
+  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'OkLab'; // Default to OkLab for better perceptual uniformity
 
   // Reactive statements to handle prop changes
   // Note: Don't auto-select the first LUT when current_lut is empty,
@@ -214,9 +238,15 @@
     show_gradient_editor = false;
     custom_lut_name = '';
 
-    // Restore the original LUT
     try {
-      await invoke('apply_lut_by_name', { lutName: original_lut_name });
+      // Clear the temporary LUT first
+      await invoke('clear_temp_lut');
+      
+      // Then restore the original LUT to ensure it's properly applied
+      if (original_lut_name) {
+        await invoke('apply_lut_by_name', { lutName: original_lut_name });
+        console.log(`Restored original LUT: ${original_lut_name}`);
+      }
     } catch (e) {
       console.error('Failed to restore original LUT:', e);
     }
@@ -284,101 +314,61 @@
     return interpolateColor(leftStop.color, rightStop.color, t);
   }
 
-  // Convert RGB to linear RGB
-  function rgbToLinear(rgb: number): number {
-    const normalized = rgb / 255;
-    return normalized <= 0.04045 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
-  }
-
-  // Convert linear RGB to RGB
-  function linearToRgb(linear: number): number {
-    const result =
-      linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.pow(linear, 1.0 / 2.4) - 0.055;
-    return Math.round(Math.max(0, Math.min(255, result * 255)));
-  }
-
-  // Convert linear RGB to XYZ
-  function linearRgbToXyz(r: number, g: number, b: number): [number, number, number] {
-    const x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375;
-    const y = r * 0.2126729 + g * 0.7151522 + b * 0.072175;
-    const z = r * 0.0193339 + g * 0.119192 + b * 0.9503041;
-    return [x, y, z];
-  }
-
-  // Convert XYZ to linear RGB
-  function xyzToLinearRgb(x: number, y: number, z: number): [number, number, number] {
-    const r = x * 3.2404542 + y * -1.5371385 + z * -0.4985314;
-    const g = x * -0.969266 + y * 1.8760108 + z * 0.041556;
-    const b = x * 0.0556434 + y * -0.2040259 + z * 1.0572252;
-    return [r, g, b];
-  }
-
-  // Convert XYZ to oklab
-  function xyzToOklab(x: number, y: number, z: number): [number, number, number] {
-    const l = Math.cbrt(0.8189330101 * x + 0.3618667424 * y - 0.1288597137 * z);
-    const m = Math.cbrt(0.0329845436 * x + 0.9293118715 * y + 0.0361456387 * z);
-    const s = Math.cbrt(0.0482003018 * x + 0.2643662691 * y + 0.633851707 * z);
-
-    const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
-    const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
-    const bValue = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
-
-    return [L, a, bValue];
-  }
-
-  // Convert oklab to XYZ
-  function oklabToXyz(L: number, a: number, bValue: number): [number, number, number] {
-    const l = L + 0.3963377774 * a + 0.2158037573 * bValue;
-    const m = L - 0.1055613458 * a - 0.0638541728 * bValue;
-    const s = L - 0.0894841775 * a - 1.291485548 * bValue;
-
-    const l3 = l * l * l;
-    const m3 = m * m * m;
-    const s3 = s * s * s;
-
-    const x = 1.2268798733 * l3 - 0.5578149965 * m3 + 0.2813910456 * s3;
-    const y = -0.0405801784 * l3 + 1.1122568696 * m3 - 0.0716766787 * s3;
-    const z = -0.0763812845 * l3 - 0.4214819784 * m3 + 1.5861632204 * s3;
-
-    return [x, y, z];
-  }
-
-  // Convert hex color to oklab
-  function hexToOklab(hex: string): [number, number, number] {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-
-    const linearR = rgbToLinear(r);
-    const linearG = rgbToLinear(g);
-    const linearB = rgbToLinear(b);
-
-    const [x, y, z] = linearRgbToXyz(linearR, linearG, linearB);
-    return xyzToOklab(x, y, z);
-  }
-
-  // Convert oklab to hex color
-  function oklabToHex(L: number, a: number, bValue: number): string {
-    const [x, y, z] = oklabToXyz(L, a, bValue);
-    const [linearR, linearG, linearB] = xyzToLinearRgb(x, y, z);
-
-    const r = linearToRgb(linearR);
-    const g = linearToRgb(linearG);
-    const b = linearToRgb(linearB);
-
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-  }
-
-  // Interpolate between two colors in oklab space
+  // Simplified color interpolation using culori
   function interpolateColor(color1: string, color2: string, t: number): string {
-    const [L1, a1, bValue1] = hexToOklab(color1);
-    const [L2, a2, bValue2] = hexToOklab(color2);
-
-    const L = L1 + (L2 - L1) * t;
-    const a = a1 + (a2 - a1) * t;
-    const bValue = bValue1 + (bValue2 - bValue1) * t;
-
-    return oklabToHex(L, a, bValue);
+    try {
+      let colorSpace = 'rgb';
+      
+      switch (selectedColorSpace) {
+        case 'RGB':
+          colorSpace = 'rgb';
+          break;
+        case 'Lab':
+          colorSpace = 'lab';
+          break;
+        case 'OkLab':
+          colorSpace = 'oklab';
+          break;
+        case 'Jzazbz':
+          // Fallback to lab if jzazbz isn't supported
+          colorSpace = 'lab';
+          break;
+        case 'HSLuv':
+          // Fallback to hsl if hsluv isn't supported
+          colorSpace = 'hsl';
+          break;
+      }
+      
+      // Create interpolator with error handling
+      const interpolator = interpolate([color1, color2], colorSpace);
+      const result = interpolator(t);
+      
+      // Convert result to hex, with fallback
+      if (result) {
+        const hexResult = formatHex(result);
+        if (hexResult) {
+          return hexResult;
+        }
+      }
+      
+      // Fallback: simple RGB interpolation
+      const c1 = rgb(color1);
+      const c2 = rgb(color2);
+      if (c1 && c2) {
+        const rgbInterpolator = interpolate([c1, c2], 'rgb');
+        const rgbResult = rgbInterpolator(t);
+        const hexFallback = formatHex(rgbResult);
+        if (hexFallback) {
+          return hexFallback;
+        }
+      }
+      
+      // Final fallback
+      return color1;
+    } catch (error) {
+      console.error('Color interpolation error:', error);
+      return color1;
+    }
   }
 
   function handleStopMouseDown(event: MouseEvent, index: number) {
@@ -520,6 +510,9 @@
         lutData: lutData,
       });
 
+      // Clear the temporary LUT
+      await invoke('clear_temp_lut');
+
       // Update current LUT to the newly saved one
       current_lut = custom_lut_name;
 
@@ -535,6 +528,11 @@
     } catch (e) {
       console.error('Failed to save custom LUT:', e);
     }
+  }
+
+  function handleColorSpaceChange({ detail }: { detail: { value: string } }) {
+    selectedColorSpace = detail.value as 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv';
+    updateGradientPreview();
   }
 
   function removeSelectedStop() {
@@ -597,21 +595,23 @@
     left: 0;
     right: 0;
     bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     z-index: 1000;
+    background: rgba(0, 0, 0, 0.5);
   }
 
   .gradient-editor-content {
     background: white;
     padding: 2rem;
-    border-radius: 8px;
-    min-width: 500px;
-    max-width: 600px;
-    max-height: 90vh;
+    border-radius: 8px 8px 0 0;
+    min-width: 800px;
+    max-width: 95vw;
+    max-height: 80vh;
     overflow-y: auto;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   .gradient-editor-content h3 {
@@ -840,5 +840,18 @@
     border-color: #c82333;
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+  }
+
+  .color-space-info {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid #646cff;
+  }
+
+  .color-space-info small {
+    color: #6c757d;
+    line-height: 1.4;
   }
 </style>

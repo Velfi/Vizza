@@ -1284,7 +1284,7 @@
 <style>
   /* Particle Life specific styles */
   .matrix-info {
-    padding: 0.5rem;
+    padding: 0.3rem;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
   }
@@ -1297,7 +1297,7 @@
 
   .matrix-and-setup-container {
     display: flex;
-    gap: 2rem;
+    gap: 1rem;
     align-items: flex-start;
   }
 
@@ -1308,27 +1308,27 @@
   .interaction-controls-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.5rem;
     align-items: start;
   }
 
   .interaction-help {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.25rem;
   }
 
   .cursor-settings {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.25rem;
   }
 
   .cursor-settings-header {
     font-size: 0.9rem;
     font-weight: 500;
     color: rgba(255, 255, 255, 0.8);
-    padding: 0.25rem 0;
+    padding: 0.15rem 0;
   }
 
   /* Mobile responsive design */

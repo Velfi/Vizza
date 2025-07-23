@@ -402,20 +402,20 @@
   .settings-content {
     flex: 1;
     overflow-y: auto;
-    padding: 1rem;
+    padding: 0.5rem;
   }
 
   fieldset {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
     background: rgba(255, 255, 255, 0.05);
   }
 
   legend {
     font-weight: bold;
-    padding: 0 0.5rem;
+    padding: 0 0.3rem;
     color: rgba(255, 255, 255, 0.9);
     font-size: 1em;
   }
@@ -423,7 +423,7 @@
   .settings-grid {
     display: grid;
     grid-template-columns: 250px 150px;
-    gap: 0.5rem 1rem;
+    gap: 0.3rem 0.5rem;
     align-items: center;
   }
 
@@ -447,14 +447,14 @@
   @media (max-width: 768px) {
     .settings-grid {
       grid-template-columns: 1fr;
-      gap: 0.25rem;
+      gap: 0.15rem;
     }
 
     .setting-item {
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
-      padding: 0.5rem 0;
+      gap: 0.15rem;
+      padding: 0.3rem 0;
     }
 
     .setting-label {

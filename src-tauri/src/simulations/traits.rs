@@ -165,6 +165,7 @@ pub enum SimulationType {
     Flow(crate::simulations::flow::simulation::FlowModel),
     Pellets(Box<crate::simulations::pellets::PelletsModel>),
     MainMenu(crate::simulations::main_menu::MainMenuModel),
+    Gradient(crate::simulations::gradient::GradientSimulation),
 }
 
 impl SimulationType {
@@ -252,6 +253,14 @@ impl SimulationType {
                 )?;
                 Ok(SimulationType::Pellets(Box::new(simulation)))
             }
+            "gradient" => {
+                let simulation = crate::simulations::gradient::GradientSimulation::new(
+                    device,
+                    queue,
+                    surface_config.format,
+                );
+                Ok(SimulationType::Gradient(simulation))
+            }
             "main_menu" => {
                 let simulation = crate::simulations::main_menu::MainMenuModel::new(
                     device,
@@ -279,6 +288,7 @@ impl SimulationType {
             SimulationType::Flow(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
+            _ => Ok(()),
         }
     }
 }
@@ -310,6 +320,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame(device, queue, surface_view)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.render_frame(device, queue, surface_view)
+            }
         }
     }
 
@@ -339,6 +352,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
         }
     }
 
@@ -358,6 +374,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.resize(device, queue, new_config),
             SimulationType::Pellets(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::Gradient(simulation) => simulation.resize(device, queue, new_config),
         }
     }
 
@@ -388,6 +405,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
         }
     }
 
@@ -400,6 +420,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.get_settings(),
             SimulationType::Pellets(simulation) => simulation.get_settings(),
             SimulationType::MainMenu(simulation) => simulation.get_settings(),
+            SimulationType::Gradient(simulation) => simulation.get_settings(),
         }
     }
 
@@ -412,6 +433,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.get_state(),
             SimulationType::Pellets(simulation) => simulation.get_state(),
             SimulationType::MainMenu(simulation) => simulation.get_state(),
+            SimulationType::Gradient(simulation) => simulation.get_state(),
         }
     }
 
@@ -445,6 +467,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
+            }
         }
     }
 
@@ -473,6 +498,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.handle_mouse_release(mouse_button, queue)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
         }
     }
 
@@ -485,6 +513,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.pan_camera(delta_x, delta_y),
             SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::MainMenu(simulation) => simulation.pan_camera(delta_x, delta_y),
+            SimulationType::Gradient(simulation) => simulation.pan_camera(delta_x, delta_y),
         }
     }
 
@@ -497,6 +526,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.zoom_camera(delta),
             SimulationType::Pellets(simulation) => simulation.zoom_camera(delta),
             SimulationType::MainMenu(simulation) => simulation.zoom_camera(delta),
+            SimulationType::Gradient(simulation) => simulation.zoom_camera(delta),
         }
     }
 
@@ -521,6 +551,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
         }
     }
 
@@ -533,6 +566,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.reset_camera(),
             SimulationType::Pellets(simulation) => simulation.reset_camera(),
             SimulationType::MainMenu(simulation) => simulation.reset_camera(),
+            SimulationType::Gradient(simulation) => simulation.reset_camera(),
         }
     }
 
@@ -545,6 +579,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.get_camera_state(),
             SimulationType::Pellets(simulation) => simulation.get_camera_state(),
             SimulationType::MainMenu(simulation) => simulation.get_camera_state(),
+            SimulationType::Gradient(simulation) => simulation.get_camera_state(),
         }
     }
 
@@ -557,6 +592,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.save_preset(preset_name),
             SimulationType::Pellets(simulation) => simulation.save_preset(preset_name),
             SimulationType::MainMenu(simulation) => simulation.save_preset(preset_name),
+            SimulationType::Gradient(simulation) => simulation.save_preset(preset_name),
         }
     }
 
@@ -569,6 +605,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.load_preset(preset_name, queue),
             SimulationType::Pellets(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::MainMenu(simulation) => simulation.load_preset(preset_name, queue),
+            SimulationType::Gradient(simulation) => simulation.load_preset(preset_name, queue),
         }
     }
 
@@ -598,6 +635,9 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => {
                 simulation.apply_settings(settings, device, queue)
             }
+            SimulationType::Gradient(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
         }
     }
 
@@ -616,6 +656,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.reset_runtime_state(device, queue),
             SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::Gradient(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
 
@@ -628,6 +669,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.toggle_gui(),
             SimulationType::Pellets(simulation) => simulation.toggle_gui(),
             SimulationType::MainMenu(simulation) => simulation.toggle_gui(),
+            SimulationType::Gradient(simulation) => simulation.toggle_gui(),
         }
     }
 
@@ -640,6 +682,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.is_gui_visible(),
             SimulationType::Pellets(simulation) => simulation.is_gui_visible(),
             SimulationType::MainMenu(simulation) => simulation.is_gui_visible(),
+            SimulationType::Gradient(simulation) => simulation.is_gui_visible(),
         }
     }
 
@@ -658,6 +701,7 @@ impl Simulation for SimulationType {
             SimulationType::Flow(sim) => sim.randomize_settings(device, queue),
             SimulationType::Pellets(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
+            SimulationType::Gradient(simulation) => simulation.randomize_settings(device, queue),
         }
     }
 }

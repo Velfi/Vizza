@@ -200,6 +200,18 @@ impl SimulationManager {
                 self.resume();
                 Ok(())
             }
+            "gradient" => {
+                // Initialize Gradient simulation
+                let simulation = crate::simulations::gradient::GradientSimulation::new(
+                    device,
+                    queue,
+                    surface_config.format,
+                );
+
+                self.current_simulation = Some(SimulationType::Gradient(simulation));
+                self.resume();
+                Ok(())
+            }
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -581,6 +593,18 @@ impl SimulationManager {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT changes not supported for main menu simulation");
                 }
+                SimulationType::Gradient(simulation) => {
+                    // For gradient simulation, load the LUT data and apply it directly
+                    let lut_data = self.lut_manager.get(lut_name).map_err(|e| {
+                        AppError::Simulation(
+                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
+                        )
+                    })?;
+
+                    simulation.update_lut(device, queue, &lut_data);
+
+                    tracing::info!("LUT '{}' applied to gradient simulation", lut_name);
+                }
             }
         }
         Ok(())
@@ -684,6 +708,10 @@ impl SimulationManager {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
                 }
+                _ => {
+                    // Other simulations don't support LUT reversal
+                    tracing::warn!("LUT reversal not supported for this simulation type");
+                }
             }
         }
         Ok(())
@@ -696,6 +724,9 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
+        // Store the custom LUT in temporary storage
+        self.lut_manager.set_temp_lut(lut_data.clone());
+
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
@@ -707,19 +738,6 @@ impl SimulationManager {
                     tracing::info!("Custom LUT applied to Gray-Scott simulation");
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    // For particle life, we need to temporarily store the custom LUT in the manager
-                    // since the particle life update_lut method expects a LUT name, not LutData directly
-                    let temp_lut_name = "gradient_preview";
-
-                    // Store the custom LUT temporarily in the LUT manager
-                    self.lut_manager
-                        .save_custom(temp_lut_name, lut_data)
-                        .map_err(|e| {
-                            AppError::Simulation(
-                                format!("Failed to store temporary LUT: {}", e).into(),
-                            )
-                        })?;
-
                     let color_mode = simulation.state.color_mode;
                     let lut_reversed = simulation.state.lut_reversed;
 
@@ -728,7 +746,7 @@ impl SimulationManager {
                         queue,
                         &self.lut_manager,
                         color_mode,
-                        Some(temp_lut_name),
+                        Some("temp_lut"),
                         lut_reversed,
                     )?;
                     tracing::info!("Custom LUT applied to particle life simulation");
@@ -738,38 +756,18 @@ impl SimulationManager {
                     tracing::warn!("Custom LUT not yet implemented for ecosystem simulation");
                 }
                 SimulationType::Flow(simulation) => {
-                    // For Flow, save the custom LUT temporarily and apply it
-                    let temp_lut_name = "custom_flow_lut";
-                    self.lut_manager
-                        .save_custom(temp_lut_name, lut_data)
-                        .map_err(|e| {
-                            AppError::Simulation(
-                                format!("Failed to store temporary custom LUT: {}", e).into(),
-                            )
-                        })?;
-
                     simulation.update_setting(
                         "currentLut",
-                        serde_json::json!(temp_lut_name),
+                        serde_json::json!("temp_lut"),
                         device,
                         queue,
                     )?;
                     tracing::info!("Custom LUT applied to Flow simulation");
                 }
                 SimulationType::Pellets(simulation) => {
-                    // For Pellets, save the custom LUT temporarily and apply it
-                    let temp_lut_name = "custom_pellets_lut";
-                    self.lut_manager
-                        .save_custom(temp_lut_name, lut_data)
-                        .map_err(|e| {
-                            AppError::Simulation(
-                                format!("Failed to store temporary custom LUT: {}", e).into(),
-                            )
-                        })?;
-
                     simulation.update_setting(
                         "currentLut",
-                        serde_json::json!(temp_lut_name),
+                        serde_json::json!("temp_lut"),
                         device,
                         queue,
                     )?;
@@ -779,11 +777,11 @@ impl SimulationManager {
                     // Main menu doesn't support custom LUTs
                     tracing::warn!("Custom LUT not supported for main menu simulation");
                 }
+                SimulationType::Gradient(simulation) => {
+                    simulation.update_lut(device, queue, lut_data);
+                    tracing::info!("Custom LUT applied to gradient simulation");
+                }
             }
-        } else {
-            return Err(AppError::Simulation(
-                "No simulation is currently running".into(),
-            ));
         }
         Ok(())
     }
@@ -989,6 +987,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::MainMenu(_) => {}
+                _ => {}
             }
         }
     }
@@ -1004,6 +1003,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Pellets(simulation) => simulation.camera.zoom(delta),
                 SimulationType::MainMenu(_) => {}
+                _ => {}
             }
         }
     }
@@ -1037,6 +1037,7 @@ impl SimulationManager {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
                 SimulationType::MainMenu(_) => {}
+                _ => {}
             }
         }
     }
@@ -1052,6 +1053,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.camera.reset(),
                 SimulationType::Pellets(simulation) => simulation.camera.reset(),
                 SimulationType::MainMenu(_) => {}
+                _ => {}
             }
         }
     }
@@ -1068,6 +1070,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::Pellets(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
+                _ => Some(serde_json::json!({})), // No camera for other simulations
             }
         } else {
             None
@@ -1098,6 +1101,7 @@ impl SimulationManager {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
+                _ => {}                           // No camera for other simulations
             }
         }
     }
@@ -1123,6 +1127,7 @@ impl SimulationManager {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
+                _ => {}                           // No camera for other simulations
             }
         }
     }

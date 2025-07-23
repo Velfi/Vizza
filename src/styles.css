@@ -24,11 +24,11 @@
   --ui-bg-hover: rgba(0, 0, 0, 0.7);
   --ui-text: rgba(255, 255, 255, 0.9);
 
-  /* Spacing */
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 0.75rem;
-  --spacing-lg: 1rem;
+  /* Spacing - Reduced for more compact UI */
+  --spacing-xs: 0.15rem;
+  --spacing-sm: 0.3rem;
+  --spacing-md: 0.5rem;
+  --spacing-lg: 0.75rem;
 
   /* Border radius */
   --radius-sm: 4px;
@@ -36,8 +36,8 @@
   /* Transitions */
   --transition-fast: 0.15s ease;
 
-  /* Button height */
-  --button-height: 36px;
+  /* Button height - Reduced for more compact UI */
+  --button-height: 28px;
 
   /* Accent colors */
   --accent-primary: #646cff;

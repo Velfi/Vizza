@@ -15,6 +15,8 @@
     {showUI}
     {currentFps}
     {controlsVisible}
+    {showCenterControls}
+    {showRightControls}
     on:back={handleBack}
     on:toggleUI={handleToggleUI}
     on:pause={handlePause}
@@ -54,6 +56,8 @@
   export let currentFps: number = 0;
   export let controlsVisible: boolean = true;
   export let menuPosition: string = 'middle';
+  export let showCenterControls: boolean = true;
+  export let showRightControls: boolean = true;
 
   // Event handlers
   function handleBack() {

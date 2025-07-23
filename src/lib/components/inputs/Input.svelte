@@ -58,7 +58,7 @@
     color: var(--ui-text);
     font-family: inherit;
     font-size: 0.875rem;
-    height: var(--input-height);
+    height: calc(var(--button-height) - 4px);
     box-sizing: border-box;
     transition: var(--transition-fast);
     width: 100%;

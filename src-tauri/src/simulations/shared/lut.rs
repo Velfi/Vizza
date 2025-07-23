@@ -120,11 +120,13 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub struct LutManager;
+pub struct LutManager {
+    temp_lut: Option<LutData>,
+}
 
 impl LutManager {
     pub fn new() -> Self {
-        Self
+        Self { temp_lut: None }
     }
 
     pub fn all_luts(&self) -> Vec<String> {
@@ -140,6 +142,16 @@ impl LutManager {
     }
 
     pub fn get(&self, name: &str) -> LutResult<LutData> {
+        // Check for temporary LUT first
+        if name == "temp_lut" {
+            if let Some(temp_lut) = &self.temp_lut {
+                return Ok(temp_lut.clone());
+            }
+            return Err(LutError::DataError(
+                "No temporary LUT available".to_string(),
+            ));
+        }
+
         // Try to load from embedded LUTs first
         if let Some(&buffer) = EMBEDDED_LUTS.get(name) {
             // Each color component should be 256 bytes
@@ -157,6 +169,18 @@ impl LutManager {
 
         // If not found in embedded LUTs, try to load as a custom LUT
         self.get_custom(name)
+    }
+
+    pub fn set_temp_lut(&mut self, lut_data: LutData) {
+        self.temp_lut = Some(lut_data);
+    }
+
+    pub fn clear_temp_lut(&mut self) {
+        self.temp_lut = None;
+    }
+
+    pub fn has_temp_lut(&self) -> bool {
+        self.temp_lut.is_some()
     }
 
     fn lut_dir() -> LutResult<std::path::PathBuf> {

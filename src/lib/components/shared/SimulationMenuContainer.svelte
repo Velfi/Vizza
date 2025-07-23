@@ -47,7 +47,7 @@
 <style>
   .simulation-menu-container {
     position: relative;
-    padding: 1rem;
+    padding: 0.5rem;
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(10px);
   }
@@ -55,7 +55,7 @@
   .simulation-menu-container.left {
     position: fixed;
     left: 0;
-    top: 80px; /* Below the fixed control bar */
+    top: 60px; /* Below the fixed control bar */
     bottom: 0;
     max-width: 40%;
     min-width: 600px;
@@ -65,13 +65,13 @@
   .simulation-menu-container.middle {
     max-width: 40%;
     overflow-y: auto;
-    margin: 80px auto 0 auto; /* Account for fixed control bar */
+    margin: 60px auto 0 auto; /* Account for fixed control bar */
   }
 
   .simulation-menu-container.right {
     position: fixed;
     right: 0;
-    top: 80px; /* Below the fixed control bar */
+    top: 60px; /* Below the fixed control bar */
     bottom: 0;
     max-width: 40%;
     min-width: 600px;
@@ -89,7 +89,7 @@
       position: relative;
       width: 100%;
       max-width: 800px;
-      margin: 80px auto 0 auto; /* Account for fixed control bar */
+      margin: 60px auto 0 auto; /* Account for fixed control bar */
       top: auto;
       bottom: auto;
     }
@@ -99,7 +99,7 @@
     .simulation-menu-container.left,
     .simulation-menu-container.right,
     .simulation-menu-container.middle {
-      margin: 70px auto 0 auto; /* Account for smaller fixed control bar on mobile */
+      margin: 50px auto 0 auto; /* Account for smaller fixed control bar on mobile */
     }
   }
 
@@ -112,7 +112,7 @@
   /* Adjust fieldset styling for side panels */
   .simulation-menu-container.left :global(fieldset),
   .simulation-menu-container.right :global(fieldset) {
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
   }
 
   /* Make sure content doesn't get too cramped in side panels */
@@ -120,6 +120,6 @@
   .simulation-menu-container.right :global(.control-group) {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.5rem;
+    gap: 0.25rem;
   }
 </style>

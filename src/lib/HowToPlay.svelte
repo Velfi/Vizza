@@ -98,27 +98,24 @@
   }
 
   .content {
-    flex: 1;
-    padding: 1rem;
-    max-width: 1200px;
+    max-width: 800px;
     margin: 0 auto;
-    overflow-y: auto;
+    padding: 1rem;
   }
 
   .grid-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1rem;
-    height: 100%;
+    margin-top: 1rem;
   }
 
   .section {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 8px;
     padding: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    flex-direction: column;
+    backdrop-filter: blur(10px);
   }
 
   .section h2 {
@@ -138,11 +135,8 @@
   .control-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.4rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 
   .key {
@@ -180,7 +174,7 @@
 
     .grid-container {
       grid-template-columns: 1fr;
-      gap: 0.75rem;
+      gap: 0.5rem;
     }
 
     .camera-controls,
@@ -191,7 +185,7 @@
     .control-item {
       flex-direction: column;
       align-items: flex-start;
-      gap: 0.3rem;
+      gap: 0.2rem;
     }
 
     .key {
@@ -200,7 +194,7 @@
     }
 
     .section {
-      padding: 0.75rem;
+      padding: 0.5rem;
     }
   }
 </style>

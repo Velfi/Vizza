@@ -37,43 +37,51 @@
 
   <div class="simulation-grid">
     <button class="simulation-card how-to-play" on:click={() => selectSimulation('how-to-play')}>
-      <h3>How To Play</h3>
+      <h2>How To Play</h2>
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('slime-mold')}>
-      <h3>Slime Mold</h3>
+      <h2>Slime Mold</h2>
       <p>Agent collaboration simulation</p>
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('gray-scott')}>
-      <h3>Gray-Scott</h3>
+      <h2>Gray-Scott</h2>
       <p>Reaction-diffusion simulation</p>
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('particle-life')}>
-      <h3>Particle Life</h3>
+      <h2>Particle Life</h2>
       <p>Multi-species particle simulation</p>
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('flow')}>
-      <h3>Flow Field</h3>
+      <h2>Flow Field</h2>
       <p>Particle flow through vector fields</p>
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('pellets')}>
-<h3>Pellets</h3>
+      <h2>Pellets</h2>
       <p>2D particle physics with gravity and phase transitions</p>
     </button>
+
+    <button class="simulation-card" on:click={() => selectSimulation('gradient-editor')}>
+      <h2>Gradient Editor</h2>
+      <p>Advanced color gradient editor</p>
+    </button>
+
+    <div class="about-container">
+      <h2>About this program</h2>
+      
+      <p>Hi. My name is Zelda and I'm the author of Vizzy. Thanks for checking it out!</p>
+      <p>You can find the source code for this program on <a target="_blank" href="https://github.com/Velfi/vizzy">GitHub</a>.</p>
+      <p>You can find out more about me on my <a target="_blank" href="https://www.zeldas.page">website</a>.</p>
+    </div>
 
     <!-- <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
       <h3>Ecosystem</h3>
       <p>Artificial life with chemotaxis</p>
     </button> -->
-
-    <button class="simulation-card disabled" disabled>
-      <h3>Coming Soon</h3>
-      <p>More simulations</p>
-    </button>
   </div>
 </div>
 
@@ -137,6 +145,15 @@
     background: rgba(0, 0, 0, 0.8);
   }
 
+  .about-container {
+    grid-column: span 2;
+    min-height: 300px;
+
+    a {
+      color: white;
+    }
+  }
+
   .logo {
     width: 400px;
     height: 400px;
@@ -189,7 +206,7 @@
     cursor: not-allowed;
   }
 
-  .simulation-card h3 {
+  .simulation-card h2 {
     margin: 0 0 0.5rem 0;
     font-size: 1.5rem;
     color: rgba(255, 255, 255, 0.9);

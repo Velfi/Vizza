@@ -158,3 +158,13 @@ pub async fn get_species_colors(
         Err("No particle life simulation running".to_string())
     }
 }
+
+#[tauri::command]
+pub async fn clear_temp_lut(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    sim_manager.lut_manager.clear_temp_lut();
+    tracing::info!("Temporary LUT cleared");
+    Ok("Temporary LUT cleared".to_string())
+}

@@ -31,13 +31,13 @@
   fieldset {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 
   legend {
     font-weight: bold;
-    padding: 0 0.5rem;
+    padding: 0 0.3rem;
     color: rgba(255, 255, 255, 0.9);
     font-size: 1em;
   }
@@ -54,7 +54,7 @@
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
   }
 
   .fieldset-toggle:hover {
@@ -62,14 +62,14 @@
   }
 
   .fieldset-content {
-    padding: 1rem;
+    padding: 0.5rem;
     background: rgba(255, 255, 255, 0.05);
     border-radius: 4px;
-    margin-top: 0.5rem;
+    margin-top: 0.25rem;
   }
 
   .fieldset-content :global(p) {
-    margin: 0 0 1rem 0;
+    margin: 0 0 0.5rem 0;
     color: rgba(255, 255, 255, 0.9);
     line-height: 1.5;
   }

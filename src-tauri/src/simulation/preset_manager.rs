@@ -368,6 +368,7 @@ impl PresetManagerType {
                 Err("Ecosystem simulation presets not yet implemented".into())
             }
             (_, SimulationType::MainMenu(_)) => Err("Main menu does not support presets".into()),
+            (_, SimulationType::Gradient(_)) => Err("Gradient does not support presets".into()),
             _ => Err("Simulation type does not match preset manager type".into()),
         }
     }
@@ -421,6 +422,7 @@ impl SimulationPresetManager {
             SimulationType::Ecosystem(_) => "ecosystem",
             SimulationType::Flow(_) => "flow",
             SimulationType::MainMenu(_) => "main_menu",
+            SimulationType::Gradient(_) => "gradient",
         }
     }
 

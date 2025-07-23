@@ -1940,12 +1940,6 @@ impl Simulation for ParticleLifeModel {
 
                 let workgroup_size = 64;
                 let num_workgroups = self.state.particle_count.div_ceil(workgroup_size);
-                tracing::debug!(
-                    "Compute dispatch: particle_count={}, num_workgroups={}, buffer_size={}",
-                    self.state.particle_count,
-                    num_workgroups,
-                    self.particle_buffer.size()
-                );
                 compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
             }
         }
@@ -1965,14 +1959,6 @@ impl Simulation for ParticleLifeModel {
                 ColorMode::Lut => {
                     // Use last LUT color as background
                     if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
-                        tracing::debug!(
-                            "LUT background color: [{}, {}, {}, {}], species_colors.len: {}",
-                            r,
-                            g,
-                            b,
-                            a,
-                            self.state.species_colors.len()
-                        );
                         wgpu::Color {
                             r: r.into(),
                             g: g.into(),

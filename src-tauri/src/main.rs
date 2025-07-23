@@ -156,6 +156,7 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .manage(Arc::new(tokio::sync::Mutex::new(SimulationManager::new())))
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -217,6 +218,7 @@ fn main() {
             commands::get_available_luts,
             commands::get_current_lut_colors,
             commands::get_species_colors,
+            commands::clear_temp_lut,
             // Camera commands
             commands::pan_camera,
             commands::zoom_camera,
@@ -242,6 +244,8 @@ fn main() {
             commands::seed_random_noise,
             commands::update_cursor_size,
             commands::update_cursor_strength,
+            // Gradient commands
+            commands::set_gradient_display_mode,
             // Utility commands
             commands::check_gpu_context_ready,
             commands::toggle_gui,

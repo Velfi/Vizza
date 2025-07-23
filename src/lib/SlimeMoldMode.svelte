@@ -1080,27 +1080,27 @@
   fieldset {
     border: 1px solid #ccc;
     border-radius: 4px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
   }
 
   legend {
     font-weight: bold;
-    padding: 0 0.5rem;
+    padding: 0 0.3rem;
   }
 
   .control-group {
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
   }
 
   label {
     display: block;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
   }
 
   input[type='number'] {
     width: 100%;
-    padding: 0.5rem;
+    padding: 0.3rem;
     border: 1px solid #ccc;
     border-radius: 4px;
   }
@@ -1108,42 +1108,42 @@
   .interaction-controls-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.5rem;
     align-items: start;
   }
 
   .interaction-help {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.25rem;
   }
 
   .cursor-settings {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.25rem;
   }
 
   .cursor-settings-header {
     font-size: 0.9rem;
     font-weight: 500;
     color: rgba(255, 255, 255, 0.8);
-    padding: 0.25rem 0;
+    padding: 0.15rem 0;
   }
 
   /* Mobile responsive design */
   @media (max-width: 768px) {
     .interaction-controls-grid {
       grid-template-columns: 1fr;
-      gap: 0.75rem;
+      gap: 0.4rem;
     }
 
     .interaction-help {
-      gap: 0.4rem;
+      gap: 0.2rem;
     }
 
     .cursor-settings {
-      gap: 0.4rem;
+      gap: 0.2rem;
     }
 
     .cursor-settings-header {
@@ -1155,7 +1155,7 @@
   .settings-grid {
     display: grid;
     grid-template-columns: 200px 120px;
-    gap: 0.25rem 0.5rem;
+    gap: 0.15rem 0.3rem;
     justify-content: center;
   }
 
