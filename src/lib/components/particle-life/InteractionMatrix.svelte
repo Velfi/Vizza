@@ -168,12 +168,7 @@
   const dispatch = createEventDispatcher();
 
   // Props
-  interface ParticleLifeSettings {
-    species_count: number;
-    force_matrix: number[][];
-  }
-
-  export let settings: ParticleLifeSettings;
+  export let settings: any;
   export let speciesColors: string[] = [];
 
   // Matrix value classification functions

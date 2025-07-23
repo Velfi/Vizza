@@ -308,7 +308,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -427,6 +427,8 @@
       console.error('Failed to toggle GUI:', error);
     }
   }
+
+
 
   async function stopSimulation() {
     try {
@@ -1034,7 +1036,7 @@
 
       if (backendState) {
         // Update cursor state from backend
-        const state = backendState as { cursorSize?: number; cursorStrength?: number };
+        const state = backendState as any;
         if (state.cursorSize !== undefined) {
           cursorSize = state.cursorSize;
         }

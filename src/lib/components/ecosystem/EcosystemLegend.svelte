@@ -280,7 +280,7 @@
     try {
       const data = await invoke('get_ecosystem_population_data');
       populationData = data as PopulationData;
-    } catch {
+    } catch (error) {
       // Silently fail if ecosystem simulation isn't running
       populationData = {};
     }

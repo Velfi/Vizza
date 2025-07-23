@@ -485,7 +485,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -509,24 +509,7 @@
   export let menuPosition: string = 'middle';
 
   // Simulation state
-  interface SlimeMoldSettings {
-    pheromone_decay_rate: number;
-    pheromone_deposition_rate: number;
-    pheromone_diffusion_rate: number;
-    agent_speed_min: number;
-    agent_speed_max: number;
-    agent_turn_rate: number;
-    agent_jitter: number;
-    agent_sensor_angle: number;
-    agent_sensor_distance: number;
-    gradient_type: string;
-    gradient_size: number;
-    gradient_angle: number;
-    gradient_center_x: number;
-    gradient_center_y: number;
-  }
-
-  let settings: SlimeMoldSettings | undefined = undefined;
+  let settings: any | undefined = undefined;
 
   // State (not saved in presets)
   let position_generator = 'Random';
@@ -605,6 +588,8 @@
       console.error('Failed to toggle GUI:', error);
     }
   }
+
+
 
   async function stopSimulation() {
     try {
@@ -861,18 +846,12 @@
 
       if (backendSettings) {
         // Use backend settings directly
-        settings = backendSettings as SlimeMoldSettings;
+        settings = backendSettings as any;
       }
 
       if (backendState) {
         // Update LUT-related settings from state
-        const state = backendState as {
-          current_lut_name?: string;
-          lut_reversed?: boolean;
-          cursor_size?: number;
-          cursor_strength?: number;
-          position_generator?: string;
-        };
+        const state = backendState as any;
         if (state.current_lut_name !== undefined) {
           lut_name = state.current_lut_name;
         }

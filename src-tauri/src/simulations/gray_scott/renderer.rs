@@ -1,11 +1,11 @@
 use crate::error::SimulationResult;
 use std::sync::Arc;
-
+use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
 use super::shaders::RENDER_3X3_SHADER;
-use crate::simulations::shared::{BufferUtils, camera::Camera};
+use crate::simulations::shared::camera::Camera;
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -36,7 +36,11 @@ impl Renderer {
         // Create LUT buffer (convert u8 to u32 for shader compatibility)
         let lut_data = lut_manager.get_default();
         let lut_data_u32 = lut_data.to_u32_buffer();
-        let lut_buffer = BufferUtils::create_storage_buffer(device, "LUT Buffer", &lut_data_u32);
+        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("LUT Buffer"),
+            contents: bytemuck::cast_slice(&lut_data_u32),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create simulation data bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

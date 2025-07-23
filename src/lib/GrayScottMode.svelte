@@ -201,7 +201,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -419,12 +419,7 @@
 
       if (backendState) {
         // Update LUT-related settings from state
-        const state = backendState as {
-          current_lut_name?: string;
-          lut_reversed?: boolean;
-          cursor_size?: number;
-          cursor_strength?: number;
-        };
+        const state = backendState as any;
         if (state.current_lut_name !== undefined) {
           lut_name = state.current_lut_name;
         }
@@ -623,6 +618,8 @@
       console.error('Failed to toggle backend GUI:', err);
     }
   }
+
+
 
   // Auto-hide functionality
   function startAutoHideTimer() {

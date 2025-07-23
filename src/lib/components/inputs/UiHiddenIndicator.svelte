@@ -1,17 +1,8 @@
 <div
   class="ui-hidden-indicator"
   class:visible={isVisible}
-  role="button"
-  tabindex="0"
-  aria-label="UI Hidden - Press / to toggle or click to show UI"
   on:click={handleInteraction}
   on:mouseenter={handleInteraction}
-  on:keydown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleInteraction();
-    }
-  }}
 >
   <div class="ui-hidden-content">
     <span>UI Hidden - Press <kbd>/</kbd> to toggle</span>

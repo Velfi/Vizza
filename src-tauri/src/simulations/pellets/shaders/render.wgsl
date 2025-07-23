@@ -12,44 +12,17 @@ var density_texture: texture_2d<f32>;
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) grid_fade_factor: f32,
 }
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index) vertex_index: u32,
-    @builtin(instance_index) instance_index: u32,
-) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     // Full-screen quad
     let x = f32((vertex_index << 1u) & 2u);
     let y = f32(vertex_index & 2u);
     
-    // Calculate grid cell position (0-8, arranged as 3x3 grid)
-    let grid_x = i32(instance_index % 3u) - 1; // -1, 0, 1
-    let grid_y = i32(instance_index / 3u) - 1; // -1, 0, 1
-    
-    // Calculate fade factor based on distance from center
-    let center_distance = abs(grid_x) + abs(grid_y);
-    var grid_fade_factor: f32;
-    if (center_distance == 0) {
-        grid_fade_factor = 1.0; // Center cell - full opacity
-    } else if (center_distance == 1) {
-        grid_fade_factor = 0.4; // Adjacent cells - medium fade
-    } else {
-        grid_fade_factor = 0.2; // Corner cells - strong fade
-    }
-    
-    // Start with base world position and offset by grid cell
-    // Each grid cell represents a full world tile offset (width/height = 2.0)
-    let world_position = vec2<f32>(
-        (x * 2.0 - 1.0) + f32(grid_x) * 2.0, // Offset by full world width
-        (y * 2.0 - 1.0) + f32(grid_y) * 2.0  // Offset by full world height
-    );
-    
     var out: VertexOutput;
-    out.position = vec4<f32>(world_position, 0.0, 1.0);
+    out.position = vec4<f32>(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
     out.uv = vec2<f32>(x, y);
-    out.grid_fade_factor = grid_fade_factor;
     
     return out;
 }
@@ -58,10 +31,10 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (background_params.background_type == 0u) {
         // Black background
-        return vec4<f32>(0.0, 0.0, 0.0, in.grid_fade_factor);
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     } else if (background_params.background_type == 1u) {
         // White background
-        return vec4<f32>(1.0, 1.0, 1.0, in.grid_fade_factor);
+        return vec4<f32>(1.0, 1.0, 1.0, 1.0);
     } else if (background_params.background_type == 2u) {
         // Potential field visualization
         let tex_coord = vec2<i32>(
@@ -97,9 +70,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let brightness = 0.1 + normalized_potential * 0.9;
         let final_color = color * brightness;
         
-        return vec4<f32>(final_color, in.grid_fade_factor);
+        return vec4<f32>(final_color, 1.0);
     }
     
     // Default to black
-    return vec4<f32>(0.0, 0.0, 0.0, in.grid_fade_factor);
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 } 

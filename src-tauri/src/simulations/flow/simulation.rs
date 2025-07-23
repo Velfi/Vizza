@@ -3,10 +3,8 @@ use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
     TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
-use crate::simulations::shared::{
-    BufferUtils, CameraState, CursorState, LutManager, LutState, MouseInteractionHandler,
-    TimingState,
-};
+use crate::simulations::shared::LutManager;
+use crate::simulations::shared::camera::Camera;
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
 use noise::{
@@ -18,7 +16,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use std::cell::RefCell;
 use std::sync::Arc;
-
+use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 thread_local! {
@@ -105,6 +103,7 @@ pub struct FlowModel {
     // Particle render pipeline
     pub particle_render_pipeline: wgpu::RenderPipeline,
     pub particle_render_bind_group: wgpu::BindGroup,
+    pub camera_bind_group: wgpu::BindGroup,
 
     // Trail render pipeline
     pub trail_render_pipeline: wgpu::RenderPipeline,
@@ -115,19 +114,21 @@ pub struct FlowModel {
     pub background_render_bind_group: wgpu::BindGroup,
 
     // Runtime state
-    pub camera: CameraState,
+    pub camera: Camera,
     pub lut_manager: Arc<LutManager>,
     pub time: f32,
     pub particles: Vec<Particle>,
     pub flow_vectors: Vec<FlowVector>,
+    pub gui_visible: bool,
     pub trail_map_width: u32,
     pub trail_map_height: u32,
 
-    // Shared state
-    pub lut_state: LutState,
-    pub timing: TimingState,
-    pub cursor: CursorState,
-    pub mouse_handler: MouseInteractionHandler,
+    // Mouse interaction state
+    pub cursor_active_mode: u32, // 0 = inactive, 1 = attract, 2 = repel
+    pub cursor_world_x: f32,
+    pub cursor_world_y: f32,
+    pub cursor_size: u32,
+    pub cursor_strength: f32,
 }
 
 impl FlowModel {
@@ -241,7 +242,7 @@ impl FlowModel {
                     [world_x, world_y],
                     self.settings.noise_type,
                     self.settings.noise_scale,
-                    self.settings.noise_seed_state.get_seed(),
+                    self.settings.noise_seed,
                 );
                 let direction = [
                     direction[0] * self.settings.vector_magnitude,
@@ -269,7 +270,7 @@ impl FlowModel {
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed_state.get_seed(),
+            noise_seed: self.settings.noise_seed,
             time: self.time,
             width: 2.0,
             height: 2.0,
@@ -286,11 +287,11 @@ impl FlowModel {
             background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
-            cursor_x: self.cursor.world_x,
-            cursor_y: self.cursor.world_y,
-            cursor_active: self.cursor.active_mode,
-            cursor_size: self.cursor.size as u32,
-            cursor_strength: self.cursor.strength,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_active: self.cursor_active_mode,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
         };
@@ -312,7 +313,7 @@ impl FlowModel {
         lut_manager: &LutManager,
     ) -> Result<Self, crate::error::SimulationError> {
         // Initialize camera
-        let camera = CameraState::new(
+        let camera = Camera::new(
             device,
             surface_config.width as f32,
             surface_config.height as f32,
@@ -325,7 +326,7 @@ impl FlowModel {
 
         // Get LUT data for random colors
         let lut_data = lut_manager
-            .get("MATPLOTLIB_viridis")
+            .get(&settings.current_lut)
             .unwrap_or_else(|_| lut_manager.get_default());
 
         RNG.with(|rng| {
@@ -371,7 +372,7 @@ impl FlowModel {
                     [world_x, world_y],
                     settings.noise_type,
                     settings.noise_scale,
-                    settings.noise_seed_state.get_seed(),
+                    settings.noise_seed,
                 );
                 let direction = [
                     direction[0] * settings.vector_magnitude,
@@ -386,11 +387,17 @@ impl FlowModel {
         }
 
         // Create GPU buffers
-        let particle_buffer =
-            BufferUtils::create_storage_buffer(device, "Particle Buffer", &particles);
+        let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Particle Buffer"),
+            contents: bytemuck::cast_slice(&particles),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let flow_vector_buffer =
-            BufferUtils::create_storage_buffer(device, "Flow Vector Buffer", &flow_vectors);
+        let flow_vector_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Flow Vector Buffer"),
+            contents: bytemuck::cast_slice(&flow_vectors),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         let sim_params = SimParams {
             particle_limit: settings.particle_limit,
@@ -398,7 +405,7 @@ impl FlowModel {
             vector_count: flow_vectors.len() as u32,
             particle_lifetime: settings.particle_lifetime,
             particle_speed: settings.particle_speed,
-            noise_seed: settings.noise_seed_state.get_seed(),
+            noise_seed: settings.noise_seed,
             time: 0.0,
             width: 2.0,
             height: 2.0,
@@ -424,14 +431,20 @@ impl FlowModel {
             particle_spawn_rate: settings.particle_spawn_rate,
         };
 
-        let sim_params_buffer =
-            BufferUtils::create_uniform_buffer(device, "Sim Params Buffer", &sim_params);
+        let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Sim Params Buffer"),
+            contents: bytemuck::cast_slice(&[sim_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let lut_data = lut_manager
-            .get("MATPLOTLIB_viridis")
+            .get(&settings.current_lut)
             .unwrap_or_else(|_| lut_manager.get_default());
-        let lut_buffer =
-            BufferUtils::create_storage_buffer(device, "LUT Buffer", &lut_data.to_u32_buffer());
+        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("LUT Buffer"),
+            contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create trail texture
         let trail_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -790,6 +803,15 @@ impl FlowModel {
             ],
         });
 
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera.buffer().as_entire_binding(),
+            }],
+        });
+
         // Create trail render pipeline
         let trail_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Flow Trail Render Shader"),
@@ -997,7 +1019,7 @@ impl FlowModel {
         });
 
         Ok(Self {
-            settings: settings.clone(),
+            settings,
             particle_buffer,
             flow_vector_buffer,
             sim_params_buffer,
@@ -1012,12 +1034,14 @@ impl FlowModel {
             trail_decay_diffusion_bind_group,
             particle_render_pipeline,
             particle_render_bind_group,
+            camera_bind_group,
 
             camera,
             lut_manager: Arc::new(lut_manager.clone()),
             time: 0.0,
             particles,
             flow_vectors,
+            gui_visible: true,
             trail_map_width: surface_config.width,
             trail_map_height: surface_config.height,
             trail_render_pipeline,
@@ -1025,11 +1049,12 @@ impl FlowModel {
             background_render_pipeline,
             background_render_bind_group,
 
-            // Initialize shared state
-            lut_state: LutState::with_values("MATPLOTLIB_viridis".to_string(), false),
-            timing: TimingState::new(),
-            cursor: CursorState::default(),
-            mouse_handler: MouseInteractionHandler::new(),
+            // Initialize mouse interaction state
+            cursor_active_mode: 0, // Inactive
+            cursor_world_x: 0.0,
+            cursor_world_y: 0.0,
+            cursor_size: 10,
+            cursor_strength: 1.0,
         })
     }
 }
@@ -1051,7 +1076,7 @@ impl Simulation for FlowModel {
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed_state.get_seed(),
+            noise_seed: self.settings.noise_seed,
             time: self.time,
             width: 2.0,
             height: 2.0,
@@ -1068,11 +1093,11 @@ impl Simulation for FlowModel {
             background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
-            cursor_x: self.cursor.world_x,
-            cursor_y: self.cursor.world_y,
-            cursor_active: self.cursor.active_mode,
-            cursor_size: self.cursor.size as u32,
-            cursor_strength: self.cursor.strength,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_active: self.cursor_active_mode,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
         };
@@ -1152,20 +1177,20 @@ impl Simulation for FlowModel {
             // Render background based on type with 3x3 grid
             render_pass.set_pipeline(&self.background_render_pipeline);
             render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
 
             // Render trails on top of background
             render_pass.set_pipeline(&self.trail_render_pipeline);
             render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
 
             // Render particles with 3x3 grid (9 instances per particle) on top (only if show_particles is enabled)
             if self.settings.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                 // Use max_particles for rendering (1 million particles)
                 let active_particles = self.particles.len() as u32;
                 render_pass.draw(0..6, 0..active_particles * 9); // 3x3 grid = 9 instances
@@ -1210,20 +1235,20 @@ impl Simulation for FlowModel {
             // Render background based on type with 3x3 grid (same as normal render)
             render_pass.set_pipeline(&self.background_render_pipeline);
             render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
 
             // Render trails on top of background (same as normal render)
             render_pass.set_pipeline(&self.trail_render_pipeline);
             render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
 
             // Render particles with 3x3 grid (9 instances per particle) on top (only if show_particles is enabled)
             if self.settings.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera.bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                 // Use max_particles for rendering (1 million particles)
                 let active_particles = self.particles.len() as u32;
                 render_pass.draw(0..6, 0..active_particles * 9); // 3x3 grid = 9 instances
@@ -1456,7 +1481,7 @@ impl Simulation for FlowModel {
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed_state.get_seed(),
+            noise_seed: self.settings.noise_seed,
             time: self.time,
             width: 2.0,
             height: 2.0,
@@ -1473,11 +1498,11 @@ impl Simulation for FlowModel {
             background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
-            cursor_x: self.cursor.world_x,
-            cursor_y: self.cursor.world_y,
-            cursor_active: self.cursor.active_mode,
-            cursor_size: self.cursor.size as u32,
-            cursor_strength: self.cursor.strength,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_active: self.cursor_active_mode,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
         };
@@ -1487,6 +1512,31 @@ impl Simulation for FlowModel {
             0,
             bytemuck::cast_slice(&[sim_params]),
         );
+
+        // Recreate camera bind group with updated camera buffer
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Camera Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        self.camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Camera Bind Group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.camera.buffer().as_entire_binding(),
+            }],
+        });
 
         Ok(())
     }
@@ -1523,7 +1573,7 @@ impl Simulation for FlowModel {
             }
             "noiseSeed" => {
                 if let Some(seed) = value.as_u64() {
-                    self.settings.noise_seed_state.set_seed(seed as u32);
+                    self.settings.noise_seed = seed as u32;
                     // Regenerate flow vectors with new seed
                     self.regenerate_flow_vectors(queue)?;
                 }
@@ -1566,7 +1616,7 @@ impl Simulation for FlowModel {
                             vector_count: self.flow_vectors.len() as u32,
                             particle_lifetime: self.settings.particle_lifetime,
                             particle_speed: self.settings.particle_speed,
-                            noise_seed: self.settings.noise_seed_state.get_seed(),
+                            noise_seed: self.settings.noise_seed,
                             time: self.time,
                             width: 2.0,
                             height: 2.0,
@@ -1583,11 +1633,11 @@ impl Simulation for FlowModel {
                             background_type: self.settings.background as u32,
                             screen_width: self.trail_map_width,
                             screen_height: self.trail_map_height,
-                            cursor_x: self.cursor.world_x,
-                            cursor_y: self.cursor.world_y,
-                            cursor_active: self.cursor.active_mode,
-                            cursor_size: self.cursor.size as u32,
-                            cursor_strength: self.cursor.strength,
+                            cursor_x: self.cursor_world_x,
+                            cursor_y: self.cursor_world_y,
+                            cursor_active: self.cursor_active_mode,
+                            cursor_size: self.cursor_size,
+                            cursor_strength: self.cursor_strength,
                             particle_autospawn: self.settings.particle_autospawn as u32,
                             particle_spawn_rate: self.settings.particle_spawn_rate,
                         };
@@ -1627,14 +1677,14 @@ impl Simulation for FlowModel {
             }
             "currentLut" => {
                 if let Some(lut_name) = value.as_str() {
-                    self.lut_state.set_lut_name(lut_name.to_string());
+                    self.settings.current_lut = lut_name.to_string();
                     let mut lut_data = self
                         .lut_manager
-                        .get(&self.lut_state.current_lut_name)
+                        .get(&self.settings.current_lut)
                         .unwrap_or_else(|_| self.lut_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.lut_state.reversed {
+                    if self.settings.lut_reversed {
                         lut_data = lut_data.reversed();
                     }
 
@@ -1664,16 +1714,16 @@ impl Simulation for FlowModel {
             }
             "lutReversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    self.lut_state.set_reversed(reversed);
+                    self.settings.lut_reversed = reversed;
 
                     // Reload the current LUT with new reversal state
                     let mut lut_data = self
                         .lut_manager
-                        .get(&self.lut_state.current_lut_name)
+                        .get(&self.settings.current_lut)
                         .unwrap_or_else(|_| self.lut_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.lut_state.reversed {
+                    if self.settings.lut_reversed {
                         lut_data = lut_data.reversed();
                     }
 
@@ -1736,12 +1786,12 @@ impl Simulation for FlowModel {
             }
             "cursorSize" => {
                 if let Some(size) = value.as_f64() {
-                    self.cursor.set_size((size as f32).clamp(10.0, 500.0)); // Clamp to reasonable range
+                    self.cursor_size = (size as u32).clamp(10, 500); // Clamp to reasonable range
                 }
             }
             "cursorStrength" => {
                 if let Some(strength) = value.as_f64() {
-                    self.cursor.set_strength((strength as f32).clamp(0.0, 1.0)); // Clamp to 0.0-1.0 range
+                    self.cursor_strength = (strength as f32).clamp(0.0, 1.0); // Clamp to 0.0-1.0 range
                 }
             }
             "particleAutospawn" => {
@@ -1772,9 +1822,9 @@ impl Simulation for FlowModel {
     fn get_state(&self) -> serde_json::Value {
         serde_json::json!({
             "time": self.time,
-            "guiVisible": true, // Flow simulation doesn't have gui_visible field
-            "cursorSize": self.cursor.size,
-            "cursorStrength": self.cursor.strength,
+            "guiVisible": self.gui_visible,
+            "cursorSize": self.cursor_size,
+            "cursorStrength": self.cursor_strength,
         })
     }
 
@@ -1786,137 +1836,156 @@ impl Simulation for FlowModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
-        // Use shared mouse interaction handler
-        self.mouse_handler.handle_mouse_interaction(
-            world_x,
-            world_y,
-            mouse_button,
-            queue,
-            |cursor, queue| {
-                // Determine cursor mode from shared handler (but translate for flow-specific use)
-                let cursor_mode = cursor.active_mode;
+        // Determine cursor mode based on mouse_button
+        let cursor_mode = if mouse_button == 0 {
+            1 // left click = spawn particles
+        } else if mouse_button == 2 {
+            2 // right click = destroy particles
+        } else {
+            0 // middle click or other = no interaction
+        };
 
-                // If we're trying to spawn particles but have none, create a small batch
-                if cursor_mode == 1 && self.settings.particle_limit == 0 {
-                    // Create a small initial batch of particles for painting
-                    let initial_particle_limit = 100;
-                    self.settings.particle_limit = initial_particle_limit;
+        // If we're trying to spawn particles but have none, create a small batch
+        if cursor_mode == 1 && self.settings.particle_limit == 0 {
+            // Create a small initial batch of particles for painting
+            let initial_particle_limit = 100;
+            self.settings.particle_limit = initial_particle_limit;
 
-                    // Create particles near the cursor position
-                    let mut particles = Vec::with_capacity(initial_particle_limit as usize);
+            // Create particles near the cursor position
+            let mut particles = Vec::with_capacity(initial_particle_limit as usize);
 
-                    // Get LUT data for colors
-                    let lut_data = self
-                        .lut_manager
-                        .get(&self.lut_state.current_lut_name)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+            // Get LUT data for colors
+            let lut_data = self
+                .lut_manager
+                .get(&self.settings.current_lut)
+                .unwrap_or_else(|_| self.lut_manager.get_default());
 
-                    RNG.with(|rng| {
-                        let mut rng = rng.borrow_mut();
-                        for _ in 0..initial_particle_limit {
-                            // Create particles in a small area around the cursor
-                            let radius = 0.05; // Small radius around cursor
-                            let angle = rng.random_range(0.0..std::f32::consts::TAU);
-                            let distance = rng.random_range(0.0..radius);
+            RNG.with(|rng| {
+                let mut rng = rng.borrow_mut();
+                for _ in 0..initial_particle_limit {
+                    // Create particles in a small area around the cursor
+                    let radius = 0.05; // Small radius around cursor
+                    let angle = rng.random_range(0.0..std::f32::consts::TAU);
+                    let distance = rng.random_range(0.0..radius);
 
-                            let x = cursor.world_x + angle.cos() * distance;
-                            let y = cursor.world_y + angle.sin() * distance;
-                            let age = 0.0; // Start fresh
+                    let x = world_x + angle.cos() * distance;
+                    let y = world_y + angle.sin() * distance;
+                    let age = 0.0; // Start fresh
 
-                            // Generate random color from LUT
-                            let color_intensity = rng.random_range(0.0..1.0);
-                            let color_index = (color_intensity * 255.0) as usize;
-                            let color_index = color_index.min(255);
-                            let color = [
-                                lut_data.red[color_index] as f32 / 255.0,
-                                lut_data.green[color_index] as f32 / 255.0,
-                                lut_data.blue[color_index] as f32 / 255.0,
-                                0.9, // Alpha
-                            ];
+                    // Generate random color from LUT
+                    let color_intensity = rng.random_range(0.0..1.0);
+                    let color_index = (color_intensity * 255.0) as usize;
+                    let color_index = color_index.min(255);
+                    let color = [
+                        lut_data.red[color_index] as f32 / 255.0,
+                        lut_data.green[color_index] as f32 / 255.0,
+                        lut_data.blue[color_index] as f32 / 255.0,
+                        0.9, // Alpha
+                    ];
 
-                            let particle = Particle {
-                                position: [x, y],
-                                age,
-                                color,
-                                my_parent_was: 1, // Brush-spawned
-                            };
-                            particles.push(particle);
-                        }
-                    });
-
-                    // Update the particles vector
-                    self.particles = particles;
-
-                    // Recreate particle buffer with new particles
-                    self.particle_buffer = BufferUtils::create_storage_buffer(
-                        device,
-                        "Particle Buffer",
-                        &self.particles,
-                    );
-
-                    // Update sim params with new particle count
-                    let sim_params = SimParams {
-                        particle_limit: self.settings.particle_limit,
-                        autospawn_limit: self.settings.autospawn_limit,
-                        vector_count: self.flow_vectors.len() as u32,
-                        particle_lifetime: self.settings.particle_lifetime,
-                        particle_speed: self.settings.particle_speed,
-                        noise_seed: self.settings.noise_seed_state.get_seed(),
-                        time: self.time,
-                        width: 2.0,
-                        height: 2.0,
-                        noise_scale: self.settings.noise_scale as f32,
-                        vector_magnitude: self.settings.vector_magnitude,
-                        trail_decay_rate: self.settings.trail_decay_rate,
-                        trail_deposition_rate: self.settings.trail_deposition_rate,
-                        trail_diffusion_rate: self.settings.trail_diffusion_rate,
-                        trail_wash_out_rate: self.settings.trail_wash_out_rate,
-                        trail_map_width: self.trail_map_width,
-                        trail_map_height: self.trail_map_height,
-                        particle_shape: self.settings.particle_shape as u32,
-                        particle_size: self.settings.particle_size,
-                        background_type: self.settings.background as u32,
-                        screen_width: self.trail_map_width,
-                        screen_height: self.trail_map_height,
-                        cursor_x: cursor.world_x,
-                        cursor_y: cursor.world_y,
-                        cursor_active: cursor_mode,
-                        cursor_size: cursor.size as u32,
-                        cursor_strength: cursor.strength,
-                        particle_autospawn: self.settings.particle_autospawn as u32,
-                        particle_spawn_rate: self.settings.particle_spawn_rate,
+                    let particle = Particle {
+                        position: [x, y],
+                        age,
+                        color,
+                        my_parent_was: 1, // Brush-spawned
                     };
-
-                    queue.write_buffer(
-                        &self.sim_params_buffer,
-                        0,
-                        bytemuck::cast_slice(&[sim_params]),
-                    );
-
-                    tracing::debug!(
-                        initial_particle_limit = initial_particle_limit,
-                        world_x = cursor.world_x,
-                        world_y = cursor.world_y,
-                        "Created initial particles for painting after kill all"
-                    );
+                    particles.push(particle);
                 }
+            });
 
-                Ok(())
+            // Update the particles vector
+            self.particles = particles;
+
+            // Recreate particle buffer with new particles
+            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Particle Buffer"),
+                contents: bytemuck::cast_slice(&self.particles),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
+
+            // Update sim params with new particle count
+            let sim_params = SimParams {
+                particle_limit: self.settings.particle_limit,
+                autospawn_limit: self.settings.autospawn_limit,
+                vector_count: self.flow_vectors.len() as u32,
+                particle_lifetime: self.settings.particle_lifetime,
+                particle_speed: self.settings.particle_speed,
+                noise_seed: self.settings.noise_seed,
+                time: self.time,
+                width: 2.0,
+                height: 2.0,
+                noise_scale: self.settings.noise_scale as f32,
+                vector_magnitude: self.settings.vector_magnitude,
+                trail_decay_rate: self.settings.trail_decay_rate,
+                trail_deposition_rate: self.settings.trail_deposition_rate,
+                trail_diffusion_rate: self.settings.trail_diffusion_rate,
+                trail_wash_out_rate: self.settings.trail_wash_out_rate,
+                trail_map_width: self.trail_map_width,
+                trail_map_height: self.trail_map_height,
+                particle_shape: self.settings.particle_shape as u32,
+                particle_size: self.settings.particle_size,
+                background_type: self.settings.background as u32,
+                screen_width: self.trail_map_width,
+                screen_height: self.trail_map_height,
+                cursor_x: world_x,
+                cursor_y: world_y,
+                cursor_active: cursor_mode,
+                cursor_size: self.cursor_size,
+                cursor_strength: self.cursor_strength,
+                particle_autospawn: self.settings.particle_autospawn as u32,
+                particle_spawn_rate: self.settings.particle_spawn_rate,
+            };
+
+            queue.write_buffer(
+                &self.sim_params_buffer,
+                0,
+                bytemuck::cast_slice(&[sim_params]),
+            );
+
+            tracing::debug!(
+                initial_particle_limit = initial_particle_limit,
+                world_x = world_x,
+                world_y = world_y,
+                "Created initial particles for painting after kill all"
+            );
+        }
+
+        // Store cursor values in the model
+        self.cursor_active_mode = cursor_mode;
+        self.cursor_world_x = world_x;
+        self.cursor_world_y = world_y;
+        // Don't override cursor_size and cursor_strength - let them be controlled by frontend
+
+        tracing::debug!(
+            world_x = world_x,
+            world_y = world_y,
+            cursor_mode = cursor_mode,
+            cursor_mode_name = match cursor_mode {
+                0 => "inactive",
+                1 => "spawn",
+                2 => "destroy",
+                _ => "unknown",
             },
-        )
+            cursor_size = self.cursor_size,
+            "Flow mouse interaction updated"
+        );
+
+        Ok(())
     }
 
     fn handle_mouse_release(
         &mut self,
-        mouse_button: u32,
-        queue: &Arc<Queue>,
+        _mouse_button: u32,
+        _queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
-        // Use shared mouse interaction handler
-        self.mouse_handler
-            .handle_mouse_release(mouse_button, queue, |_cursor, _queue| {
-                tracing::debug!("Flow mouse release: cursor interaction disabled");
-                Ok(())
-            })
+        // Turn off cursor interaction and reset position
+        self.cursor_active_mode = 0;
+        self.cursor_world_x = 0.0;
+        self.cursor_world_y = 0.0;
+
+        tracing::debug!("Flow mouse release: cursor interaction disabled");
+
+        Ok(())
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
@@ -1936,7 +2005,10 @@ impl Simulation for FlowModel {
     }
 
     fn get_camera_state(&self) -> serde_json::Value {
-        self.camera.get_state()
+        serde_json::json!({
+            "position": [self.camera.position[0], self.camera.position[1]],
+            "zoom": self.camera.zoom,
+        })
     }
 
     fn save_preset(&self, _preset_name: &str) -> crate::error::SimulationResult<()> {
@@ -1976,7 +2048,7 @@ impl Simulation for FlowModel {
         // Get LUT data for random colors
         let lut_data = self
             .lut_manager
-            .get(&self.lut_state.current_lut_name)
+            .get(&self.settings.current_lut)
             .unwrap_or_else(|_| self.lut_manager.get_default());
 
         RNG.with(|rng| {
@@ -2058,13 +2130,12 @@ impl Simulation for FlowModel {
     }
 
     fn toggle_gui(&mut self) -> bool {
-        // Flow simulation doesn't have a gui_visible field, so we'll use a default implementation
-        true
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     fn is_gui_visible(&self) -> bool {
-        // Flow simulation doesn't have a gui_visible field, so we'll use a default implementation
-        true
+        self.gui_visible
     }
 
     fn randomize_settings(
@@ -2074,7 +2145,7 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         let mut rng = rand::rng();
 
-        self.settings.noise_seed_state.randomize();
+        self.settings.noise_seed = rng.random();
         self.settings.noise_scale = rng.random_range(0.5..3.0);
         self.settings.vector_magnitude = rng.random_range(0.05..0.2);
         self.settings.particle_speed = rng.random_range(0.01..0.05);
@@ -2098,11 +2169,11 @@ impl FlowModel {
             self.particles = Vec::new();
 
             // Recreate particle buffer with empty particles
-            self.particle_buffer = BufferUtils::create_storage_buffer(
-                device,
-                "Empty Particle Buffer",
-                &self.particles,
-            );
+            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Empty Particle Buffer"),
+                contents: bytemuck::cast_slice(&self.particles),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
 
             // Update sim params with zero particle count
             let sim_params = SimParams {
@@ -2111,7 +2182,7 @@ impl FlowModel {
                 vector_count: self.flow_vectors.len() as u32,
                 particle_lifetime: self.settings.particle_lifetime,
                 particle_speed: self.settings.particle_speed,
-                noise_seed: self.settings.noise_seed_state.get_seed(),
+                noise_seed: self.settings.noise_seed,
                 time: self.time,
                 width: 2.0,
                 height: 2.0,
@@ -2128,11 +2199,11 @@ impl FlowModel {
                 background_type: self.settings.background as u32,
                 screen_width: self.trail_map_width,
                 screen_height: self.trail_map_height,
-                cursor_x: self.cursor.world_x,
-                cursor_y: self.cursor.world_y,
-                cursor_active: self.cursor.active_mode,
-                cursor_size: self.cursor.size as u32,
-                cursor_strength: self.cursor.strength,
+                cursor_x: self.cursor_world_x,
+                cursor_y: self.cursor_world_y,
+                cursor_active: self.cursor_active_mode,
+                cursor_size: self.cursor_size,
+                cursor_strength: self.cursor_strength,
                 particle_autospawn: self.settings.particle_autospawn as u32,
                 particle_spawn_rate: self.settings.particle_spawn_rate,
             };
@@ -2199,7 +2270,7 @@ impl FlowModel {
         // Get LUT data for random colors
         let lut_data = self
             .lut_manager
-            .get(&self.lut_state.current_lut_name)
+            .get(&self.settings.current_lut)
             .unwrap_or_else(|_| self.lut_manager.get_default());
 
         for _ in 0..self.settings.particle_limit {
@@ -2232,8 +2303,11 @@ impl FlowModel {
         self.particles = particles;
 
         // Recreate particle buffer with reset particles
-        self.particle_buffer =
-            BufferUtils::create_storage_buffer(device, "Reset Particle Buffer", &self.particles);
+        self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Reset Particle Buffer"),
+            contents: bytemuck::cast_slice(&self.particles),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Update sim params with original particle count
         let sim_params = SimParams {
@@ -2242,7 +2316,7 @@ impl FlowModel {
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed_state.get_seed(),
+            noise_seed: self.settings.noise_seed,
             time: self.time,
             width: 2.0,
             height: 2.0,
@@ -2259,11 +2333,11 @@ impl FlowModel {
             background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
-            cursor_x: self.cursor.world_x,
-            cursor_y: self.cursor.world_y,
-            cursor_active: self.cursor.active_mode,
-            cursor_size: self.cursor.size as u32,
-            cursor_strength: self.cursor.strength,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_active: self.cursor_active_mode,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
         };

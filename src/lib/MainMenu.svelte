@@ -61,7 +61,7 @@
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('pellets')}>
-      <h3>Pellets</h3>
+<h3>Pellets</h3>
       <p>2D particle physics with gravity and phase transitions</p>
     </button>
 

@@ -1,5 +1,5 @@
 <SimulationLayout
-  simulationName="Pellets"
+  simulationName="Wanderers"
   {running}
   loading={loading || !settings}
   {showUI}
@@ -18,7 +18,7 @@
       <!-- About this simulation -->
       <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
         <p>
-          Pellets simulates particle collisions with pixel-perfect collision detection. Particles bounce off each other
+          Wanderers simulates particle collisions with pixel-perfect collision detection. Particles bounce off each other
           using a 3-phase collision system: broad phase, narrow phase, and overlap resolution.
         </p>
         <p>
@@ -90,7 +90,7 @@
             bind:value={settings.particle_count}
             min={1}
             max={50000}
-            step={1000}
+            step={1}
             on:change={({ detail }) => {
               console.log('NumberDragBox change event triggered:', detail);
               updateSetting('particle_count', detail);
@@ -125,7 +125,7 @@
             id="gravitationalConstant"
             value={settings?.gravitational_constant ?? 0.0}
             min={0.0}
-            max={1.0}
+            max={0.00001}
             step={1e-6}
             precision={6}
             on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
@@ -185,42 +185,6 @@
             </small>
           </div>
         </div>
-        <div class="control-group">
-          <label for="gravitySoftening">Gravity Softening</label>
-          <NumberDragBox
-            id="gravitySoftening"
-            value={settings?.gravity_softening ?? 0.003}
-            min={0.0}
-            max={0.1}
-            step={0.001}
-            precision={3}
-            on:change={({ detail }) => updateSetting('gravity_softening', detail)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> Softer gravity, prevents extreme accelerations.<br>
-              <strong>Lower values:</strong> Stronger gravity, more dramatic interactions.
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="densityRadius">Density Radius</label>
-          <NumberDragBox
-            id="densityRadius"
-            value={settings?.density_radius ?? 0.04}
-            min={0.01}
-            max={0.2}
-            step={0.01}
-            precision={2}
-            on:change={({ detail }) => updateSetting('density_radius', detail)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> Larger area for density calculation.<br>
-              <strong>Lower values:</strong> Smaller, more localized density effects.
-            </small>
-          </div>
-        </div>
       </fieldset>
 
       <!-- Initial Conditions -->
@@ -260,7 +224,6 @@
             step={1}
             on:change={({ detail }) => updateSetting('random_seed', detail)}
           />
-          <button type="button" on:click={() => updateSetting('random_seed', Math.floor(Math.random() * 999999))}>🎲</button>
         </div>
       </fieldset>
 
@@ -329,7 +292,7 @@
 
   const dispatch = createEventDispatcher();
 
-  interface PelletsSettings {
+  interface WanderersSettings {
     particle_count: number;
     particle_size: number;
     collision_damping: number;
@@ -341,12 +304,16 @@
     // Legacy fields that may still be present in backend but not used in UI
     gravitational_constant?: number;
     energy_damping?: number;
+    min_particle_mass?: number;
+    max_particle_mass?: number;
+    clump_distance?: number;
+    cohesive_strength?: number;
     gravity_softening?: number;
     density_radius?: number;
     long_range_gravity_strength?: number;
   }
 
-  interface PelletsState {
+  interface WanderersState {
     current_lut_name: string;
     lut_reversed: boolean;
     gui_visible: boolean;
@@ -361,8 +328,8 @@
     cursor_strength: number;
   }
 
-  let settings: PelletsSettings | null = null;
-let state: PelletsState | null = null;
+  let settings: WanderersSettings | null = null;
+  let state: WanderersState | null = null;
   let running = false;
   let currentFps = 0;
   let showUI = true;
@@ -588,7 +555,7 @@ let state: PelletsState | null = null;
   const loadSettings = async () => {
     try {
       const response = await invoke('get_current_settings');
-      settings = response as PelletsSettings;
+      settings = response as WanderersSettings;
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -597,7 +564,7 @@ let state: PelletsState | null = null;
   const loadState = async () => {
     try {
       const response = await invoke('get_current_state');
-      state = response as PelletsState;
+      state = response as WanderersState;
       
       // Sync cursor values from backend state
       if (state && state.cursor_size !== undefined) {
@@ -773,14 +740,14 @@ let state: PelletsState | null = null;
     loading = true;
 
     try {
-      await invoke('start_pellets_simulation');
+      await invoke('start_wanderers_simulation');
       loading = false;
       running = true;
 
       // Backend now handles the render loop, we just track state
       currentFps = 0;
     } catch (error) {
-      console.error('Failed to switch to pellets simulation:', error);
+      console.error('Failed to switch to wanderers simulation:', error);
     } finally {
       loading = false;
     }
@@ -810,7 +777,7 @@ let state: PelletsState | null = null;
         fpsUpdateUnlisten = unlisten;
       });
     } catch (error) {
-      console.error('Failed to initialize pellets simulation:', error);
+      console.error('Failed to initialize wanderers simulation:', error);
     }
   });
 

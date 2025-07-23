@@ -169,9 +169,9 @@ impl Camera {
         self.target_position[1] += adjusted_delta_y * pan_speed;
 
         // Clamp target position to reasonable bounds for [-1,1] world space
-        // Allow movement within [-1.5, 1.5] to provide some margin around the [-1,1] space
-        self.target_position[0] = self.target_position[0].clamp(-1.5, 1.5);
-        self.target_position[1] = self.target_position[1].clamp(-1.5, 1.5);
+        // Allow movement within [-2.0, 2.0] to provide some margin around the [-1,1] space
+        self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
+        self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
         tracing::debug!(
             "Camera pan: delta=({:.2}, {:.2}), sensitivity={:.2}, adjusted_delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2})",
@@ -240,8 +240,8 @@ impl Camera {
         self.target_position[1] += offset_y;
 
         // Clamp target position to reasonable bounds to prevent going too far out
-        self.target_position[0] = self.target_position[0].clamp(-1.5, 1.5);
-        self.target_position[1] = self.target_position[1].clamp(-1.5, 1.5);
+        self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
+        self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
 
         tracing::debug!(
             "Camera zoom to cursor: cursor=({:.2}, {:.2}), target_zoom={:.2}, target_pos=({:.2}, {:.2})",

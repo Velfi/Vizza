@@ -5,14 +5,14 @@ use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-
+use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
 use super::shaders::{
     AGENT_UPDATE_SHADER, CHEMICAL_DIFFUSION_SHADER, FLUID_DYNAMICS_SHADER, RENDER_SHADER,
 };
-use crate::simulations::shared::{BufferUtils, LutManager, camera::Camera};
+use crate::simulations::shared::{LutManager, camera::Camera};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]
@@ -402,7 +402,7 @@ impl SimParams {
             dead_zone_threshold: settings.dead_zone_threshold,
 
             wrap_edges: if settings.wrap_edges { 1 } else { 0 },
-            random_seed: settings.random_seed_state.get_seed(),
+            random_seed: settings.random_seed,
             time: 0.0,
             _pad: 0,
         }
@@ -473,8 +473,8 @@ impl EcosystemModel {
         // Initialize agents with random positions and properties
         // Use normalized coordinate system [-1, 1] to match other simulations
         let mut agents = Vec::with_capacity(agent_count as usize);
-        use rand::Rng;
-        let mut rng = settings.random_seed_state.create_rng();
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(settings.random_seed as u64);
 
         for i in 0..agent_count {
             let ecological_role = i % 3; // 0: Recycler, 1: Producer, 2: Predator
@@ -600,7 +600,14 @@ impl EcosystemModel {
             });
         }
 
-        let agent_buffer = BufferUtils::create_storage_buffer(device, "Agent Buffer", &agents);
+        let agent_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Agent Buffer"),
+            contents: bytemuck::cast_slice(&agents),
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
         tracing::info!("Agent struct size: {} bytes", mem::size_of::<Agent>());
         tracing::info!(
             "Agent buffer size: {} bytes ({} agents)",
@@ -666,28 +673,41 @@ impl EcosystemModel {
         });
 
         let sim_params = SimParams::from_settings(&settings, width, height, agent_count);
-        let sim_params_buffer =
-            BufferUtils::create_uniform_buffer(device, "Ecosystem Sim Params Buffer", &sim_params);
+        let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Ecosystem Sim Params Buffer"),
+            contents: bytemuck::cast_slice(&[sim_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         let chemical_diffusion_params = ChemicalDiffusionParams::from_settings(&settings);
-        let chemical_diffusion_params_buffer = BufferUtils::create_uniform_buffer(
-            device,
-            "Chemical Diffusion Params Buffer",
-            &chemical_diffusion_params,
-        );
+        let chemical_diffusion_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Chemical Diffusion Params Buffer"),
+                contents: bytemuck::cast_slice(&[chemical_diffusion_params]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         let render_params = RenderParams::from_settings(&settings);
-        let render_params_buffer =
-            BufferUtils::create_uniform_buffer(device, "Render Params Buffer", &render_params);
+        let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Render Params Buffer"),
+            contents: bytemuck::cast_slice(&[render_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let species_colors_buffer =
-            BufferUtils::create_storage_buffer(device, "Species Colors Buffer", &species_colors);
+        let species_colors_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Species Colors Buffer"),
+            contents: bytemuck::cast_slice(&species_colors),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create visibility buffer - one flag per species variant
         let total_species = 9; // Fixed at 3 roles * 3 variants = 9 species
         let visibility_flags = vec![1u32; total_species as usize]; // Start all visible
-        let visibility_buffer =
-            BufferUtils::create_storage_buffer(device, "Visibility Buffer", &visibility_flags);
+        let visibility_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Visibility Buffer"),
+            contents: bytemuck::cast_slice(&visibility_flags),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create fluid dynamics buffers
         let velocity_field_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -2458,8 +2478,8 @@ impl Simulation for EcosystemModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        let _rng = rand::rng();
-        self.settings.random_seed_state.randomize();
+        let mut rng = rand::rng();
+        self.settings.random_seed = rng.random();
 
         // Reset time
         self.time = 0.0;
@@ -2517,8 +2537,8 @@ impl Simulation for EcosystemModel {
 
         // Regenerate agents with current settings
         let mut agents = Vec::with_capacity(self.settings.agent_count as usize);
-        use rand::Rng;
-        let mut rng = self.settings.random_seed_state.create_rng();
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(self.settings.random_seed as u64);
 
         for i in 0..self.settings.agent_count {
             let ecological_role = i % 3; // 0: Recycler, 1: Producer, 2: Predator
