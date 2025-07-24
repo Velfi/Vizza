@@ -84,8 +84,6 @@
     dispatch('randomize');
   }
 
-
-
   function handleUserInteraction() {
     dispatch('userInteraction');
   }

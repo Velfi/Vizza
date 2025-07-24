@@ -61,6 +61,13 @@ pub struct Settings {
 
     /// Long-range gravity strength for orbital motion (0.0 = no orbital motion, 1.0 = strong orbital motion)
     pub long_range_gravity_strength: f32,
+
+    /// Whether to apply density-based velocity damping
+    pub density_damping_enabled: bool,
+
+    /// Strength of overlap resolution (0.0 = no separation, 1.0 = maximum separation)
+    /// Controls how aggressively overlapping particles are separated
+    pub overlap_resolution_strength: f32,
 }
 
 impl Default for Settings {
@@ -79,6 +86,8 @@ impl Default for Settings {
             density_radius: 0.04,
             coloring_mode: "density".to_string(),
             long_range_gravity_strength: 0.0,
+            density_damping_enabled: true,
+            overlap_resolution_strength: 0.02,
         }
     }
 }
@@ -101,5 +110,7 @@ impl Settings {
         self.gravity_softening = rng.random_range(0.003..0.008);
         self.density_radius = rng.random_range(0.02..0.05);
         self.long_range_gravity_strength = rng.random_range(0.0..1.0);
+        self.density_damping_enabled = rng.random_bool(0.5); // 50% chance of being enabled
+        self.overlap_resolution_strength = rng.random_range(0.01..0.1); // Conservative range
     }
 }

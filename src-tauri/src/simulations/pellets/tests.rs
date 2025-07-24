@@ -599,6 +599,26 @@ impl PelletsValidator {
                             },
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -775,6 +795,9 @@ fn test_struct_layout_consistency() {
             particle_size: 0.01,
             aspect_ratio: 1.0,
             long_range_gravity_strength: 0.3,
+            density_damping_enabled: 1,
+            overlap_resolution_strength: 0.02,
+            _padding: 0,
         };
 
         let physics_params_buffer =

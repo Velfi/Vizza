@@ -37,15 +37,19 @@
   <!-- Gradient Stops Overlay -->
   <div class="gradient-stops-overlay">
     <div class="stops-container">
-      <div class="gradient-bar" 
-           on:dblclick={addStopAtPosition}
-           on:keydown={(e) => e.key === 'Enter' && addStopAtPosition(e)}>
+      <div
+        class="gradient-bar"
+        on:dblclick={addStopAtPosition}
+        on:keydown={(e) => e.key === 'Enter' && addStopAtPosition(e)}
+      >
         {#each gradientStops as stop, index}
-          <div class="color-stop"
-               class:selected={selectedStopIndex === index}
-               style="left: {stop.position * 100}%; background-color: {stop.color}"
-               on:click={() => selectStop(index)}
-               on:mousedown={(e) => startDragging(e, index)}>
+          <div
+            class="color-stop"
+            class:selected={selectedStopIndex === index}
+            style="left: {stop.position * 100}%; background-color: {stop.color}"
+            on:click={() => selectStop(index)}
+            on:mousedown={(e) => startDragging(e, index)}
+          >
             <div class="stop-handle"></div>
           </div>
         {/each}
@@ -93,24 +97,41 @@
     {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
       <div class="stop-controls">
         <div class="stop-header">
-          <span class="stop-title">Stop {selectedStopIndex + 1} ({Math.round(gradientStops[selectedStopIndex].position * 100)}%)</span>
+          <span class="stop-title"
+            >Stop {selectedStopIndex + 1} ({Math.round(
+              gradientStops[selectedStopIndex].position * 100
+            )}%)</span
+          >
           <div class="stop-actions">
             <button type="button" on:click={duplicateStop} class="btn-compact">Copy</button>
             {#if gradientStops.length > 2}
-              <button type="button" on:click={deleteStop} class="btn-compact btn-danger">Delete</button>
+              <button type="button" on:click={deleteStop} class="btn-compact btn-danger"
+                >Delete</button
+              >
             {/if}
           </div>
         </div>
         <div class="stop-controls-grid">
           <div class="control-item">
             <label>Color</label>
-            <input type="color" bind:value={gradientStops[selectedStopIndex].color} on:input={handleColorInput} class="color-picker" />
+            <input
+              type="color"
+              bind:value={gradientStops[selectedStopIndex].color}
+              on:input={handleColorInput}
+              class="color-picker"
+            />
           </div>
           <div class="control-item">
             <label>Position</label>
-            <input type="range" min="0" max="1" step="0.01" 
-                   bind:value={gradientStops[selectedStopIndex].position} 
-                   on:input={handlePositionInput} class="position-slider" />
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              bind:value={gradientStops[selectedStopIndex].position}
+              on:input={handlePositionInput}
+              class="position-slider"
+            />
           </div>
         </div>
       </div>
@@ -131,20 +152,36 @@
           <div class="random-controls">
             <div class="random-row">
               <Selector
-                options={['Basic', 'Warm', 'Cool', 'Pastel', 'Neon', 'Earth', 'Monochrome', 'Complementary', 'Truly Random']}
+                options={[
+                  'Basic',
+                  'Warm',
+                  'Cool',
+                  'Pastel',
+                  'Neon',
+                  'Earth',
+                  'Monochrome',
+                  'Complementary',
+                  'Truly Random',
+                ]}
                 bind:value={selectedRandomScheme}
               />
-              <Selector
-                options={['Random', 'Even']}
-                bind:value={randomStopPlacement}
-              />
+              <Selector options={['Random', 'Even']} bind:value={randomStopPlacement} />
             </div>
             <div class="random-row">
               <div class="stops-control">
                 <span>Stops: {randomStopCount}</span>
-                <input type="range" min="2" max="8" step="1" bind:value={randomStopCount} class="stops-range" />
+                <input
+                  type="range"
+                  min="2"
+                  max="8"
+                  step="1"
+                  bind:value={randomStopCount}
+                  class="stops-range"
+                />
               </div>
-              <button type="button" on:click={triggerRandomization} class="btn-generate">Generate</button>
+              <button type="button" on:click={triggerRandomization} class="btn-generate"
+                >Generate</button
+              >
             </div>
           </div>
         </div>
@@ -177,7 +214,7 @@
   let randomStopCount: number = 3;
   let gradientStops = [
     { position: 0, color: '#0000ff' },
-    { position: 1, color: '#ffff00' }
+    { position: 1, color: '#ffff00' },
   ];
   let selectedStopIndex = 0;
   let isDragging = false;
@@ -202,7 +239,7 @@
   function interpolateColor(color1: string, color2: string, t: number): string {
     try {
       let colorSpace = 'rgb';
-      
+
       switch (selectedColorSpace) {
         case 'RGB':
           colorSpace = 'rgb';
@@ -222,11 +259,11 @@
           colorSpace = 'hsl';
           break;
       }
-      
+
       // Create interpolator with error handling
       const interpolator = interpolate([color1, color2], colorSpace);
       const result = interpolator(t);
-      
+
       // Convert result to hex, with fallback
       if (result) {
         const hexResult = formatHex(result);
@@ -234,7 +271,7 @@
           return hexResult;
         }
       }
-      
+
       // Fallback: simple RGB interpolation
       const c1 = rgb(color1);
       const c2 = rgb(color2);
@@ -246,7 +283,7 @@
           return hexFallback;
         }
       }
-      
+
       // Final fallback
       return color1;
     } catch (error) {
@@ -287,7 +324,9 @@
     const color = getColorAtPosition(position);
     gradientStops = [...gradientStops, { position, color }];
     gradientStops.sort((a, b) => a.position - b.position);
-    selectedStopIndex = gradientStops.findIndex(stop => Math.abs(stop.position - position) < 0.001);
+    selectedStopIndex = gradientStops.findIndex(
+      (stop) => Math.abs(stop.position - position) < 0.001
+    );
     updateGradient();
   }
 
@@ -305,7 +344,7 @@
     const newStop = { ...stop, position: Math.min(1, stop.position + 0.05) };
     gradientStops = [...gradientStops, newStop];
     gradientStops.sort((a, b) => a.position - b.position);
-    selectedStopIndex = gradientStops.findIndex(s => s === newStop);
+    selectedStopIndex = gradientStops.findIndex((s) => s === newStop);
     updateGradient();
   }
 
@@ -319,14 +358,14 @@
       if (!isDragging) return;
       const gradientBar = document.querySelector('.gradient-bar') as HTMLElement;
       if (!gradientBar) return;
-      
+
       const rect = gradientBar.getBoundingClientRect();
       const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      
+
       // Update position without sorting during drag for better performance
       gradientStops[dragStopIndex].position = position;
       gradientStops = [...gradientStops]; // Trigger reactivity
-      
+
       // Use immediate visual update during drag
       updateGradientImmediate();
     };
@@ -335,11 +374,13 @@
       isDragging = false;
       // Sort only when drag ends
       gradientStops = [...gradientStops].sort((a, b) => a.position - b.position);
-      dragStopIndex = gradientStops.findIndex(stop => Math.abs(stop.position - gradientStops[dragStopIndex].position) < 0.001);
+      dragStopIndex = gradientStops.findIndex(
+        (stop) => Math.abs(stop.position - gradientStops[dragStopIndex].position) < 0.001
+      );
       selectedStopIndex = dragStopIndex;
       // Final update with full LUT generation
       updateGradient();
-      
+
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -351,7 +392,7 @@
   function getColorAtPosition(position: number): string {
     // Clamp position to [0, 1]
     position = Math.max(0, Math.min(1, position));
-    
+
     // Handle edge cases quickly
     if (position <= gradientStops[0].position) {
       return gradientStops[0].color;
@@ -363,7 +404,7 @@
     // Binary search for better performance with many stops
     let left = 0;
     let right = gradientStops.length - 1;
-    
+
     while (right - left > 1) {
       const mid = Math.floor((left + right) / 2);
       if (gradientStops[mid].position <= position) {
@@ -376,7 +417,7 @@
     const leftStop = gradientStops[left];
     const rightStop = gradientStops[right];
     const t = (position - leftStop.position) / (rightStop.position - leftStop.position);
-    
+
     return interpolateColor(leftStop.color, rightStop.color, t);
   }
 
@@ -394,7 +435,9 @@
   // Handle position input with sorting
   function handlePositionInput() {
     gradientStops = [...gradientStops].sort((a, b) => a.position - b.position);
-    selectedStopIndex = gradientStops.findIndex(stop => Math.abs(stop.position - gradientStops[selectedStopIndex].position) < 0.001);
+    selectedStopIndex = gradientStops.findIndex(
+      (stop) => Math.abs(stop.position - gradientStops[selectedStopIndex].position) < 0.001
+    );
     updateGradient();
   }
 
@@ -403,7 +446,7 @@
     const rArr: number[] = [];
     const gArr: number[] = [];
     const bArr: number[] = [];
-    
+
     for (let i = 0; i < 256; i++) {
       const t = i / 255;
       const color = getColorAtPosition(t);
@@ -414,7 +457,7 @@
       gArr.push(g);
       bArr.push(b);
     }
-    
+
     // Create planar format: [r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]
     return [...rArr, ...gArr, ...bArr];
   }
@@ -424,12 +467,12 @@
     if (updateTimeout) {
       clearTimeout(updateTimeout);
     }
-    
+
     // Debounce the LUT update to avoid too many rapid calls
     updateTimeout = setTimeout(async () => {
       try {
         const lutData = generateLutData();
-        
+
         // Single optimized call to update gradient preview
         await invoke('update_gradient_preview', { lutData });
       } catch (e) {
@@ -437,8 +480,6 @@
       }
     }, 50); // Reduced debounce for better responsiveness
   }
-
-
 
   function applyPreset() {
     switch (selectedPreset) {
@@ -450,21 +491,21 @@
           { position: 0.5, color: '#00ff00' },
           { position: 0.67, color: '#0080ff' },
           { position: 0.83, color: '#8000ff' },
-          { position: 1, color: '#ff0080' }
+          { position: 1, color: '#ff0080' },
         ];
         break;
       case 'Heat':
         gradientStops = [
           { position: 0, color: '#000000' },
           { position: 0.5, color: '#ff0000' },
-          { position: 1, color: '#ffff00' }
+          { position: 1, color: '#ffff00' },
         ];
         break;
       case 'Cool':
         gradientStops = [
           { position: 0, color: '#0000ff' },
           { position: 0.5, color: '#00ffff' },
-          { position: 1, color: '#ffffff' }
+          { position: 1, color: '#ffffff' },
         ];
         break;
       case 'Viridis':
@@ -473,7 +514,7 @@
           { position: 0.25, color: '#31688e' },
           { position: 0.5, color: '#35b779' },
           { position: 0.75, color: '#fde725' },
-          { position: 1, color: '#fde725' }
+          { position: 1, color: '#fde725' },
         ];
         break;
       case 'Plasma':
@@ -482,7 +523,7 @@
           { position: 0.25, color: '#7e03a8' },
           { position: 0.5, color: '#cc4778' },
           { position: 0.75, color: '#f89441' },
-          { position: 1, color: '#f0f921' }
+          { position: 1, color: '#f0f921' },
         ];
         break;
       case 'Inferno':
@@ -491,7 +532,7 @@
           { position: 0.25, color: '#1b0c41' },
           { position: 0.5, color: '#4a0c6b' },
           { position: 0.75, color: '#781c6d' },
-          { position: 1, color: '#ed6925' }
+          { position: 1, color: '#ed6925' },
         ];
         break;
     }
@@ -500,10 +541,12 @@
   }
 
   function reverseGradient() {
-    gradientStops = gradientStops.map(stop => ({
-      ...stop,
-      position: 1 - stop.position
-    })).sort((a, b) => a.position - b.position);
+    gradientStops = gradientStops
+      .map((stop) => ({
+        ...stop,
+        position: 1 - stop.position,
+      }))
+      .sort((a, b) => a.position - b.position);
     updateGradient();
   }
 
@@ -513,25 +556,79 @@
 
   function generateRandomColors(scheme: string): string[] {
     let colors: string[] = [];
-    
+
     switch (scheme) {
       case 'Basic':
-        colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'];
+        colors = [
+          '#ff0000',
+          '#00ff00',
+          '#0000ff',
+          '#ffff00',
+          '#ff00ff',
+          '#00ffff',
+          '#ff8000',
+          '#8000ff',
+        ];
         break;
       case 'Warm':
-        colors = ['#ff4500', '#ff6347', '#ffa500', '#ff8c00', '#dc143c', '#b22222', '#cd853f', '#d2691e'];
+        colors = [
+          '#ff4500',
+          '#ff6347',
+          '#ffa500',
+          '#ff8c00',
+          '#dc143c',
+          '#b22222',
+          '#cd853f',
+          '#d2691e',
+        ];
         break;
       case 'Cool':
-        colors = ['#4169e1', '#0000cd', '#1e90ff', '#00bfff', '#87ceeb', '#20b2aa', '#008b8b', '#4682b4'];
+        colors = [
+          '#4169e1',
+          '#0000cd',
+          '#1e90ff',
+          '#00bfff',
+          '#87ceeb',
+          '#20b2aa',
+          '#008b8b',
+          '#4682b4',
+        ];
         break;
       case 'Pastel':
-        colors = ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff', '#e6baff', '#ffc9ba', '#c9baff'];
+        colors = [
+          '#ffb3ba',
+          '#ffdfba',
+          '#ffffba',
+          '#baffc9',
+          '#bae1ff',
+          '#e6baff',
+          '#ffc9ba',
+          '#c9baff',
+        ];
         break;
       case 'Neon':
-        colors = ['#ff073a', '#39ff14', '#00ffff', '#ff00ff', '#ffff00', '#ff4500', '#8a2be2', '#00ff7f'];
+        colors = [
+          '#ff073a',
+          '#39ff14',
+          '#00ffff',
+          '#ff00ff',
+          '#ffff00',
+          '#ff4500',
+          '#8a2be2',
+          '#00ff7f',
+        ];
         break;
       case 'Earth':
-        colors = ['#8b4513', '#a0522d', '#cd853f', '#daa520', '#b8860b', '#9acd32', '#6b8e23', '#556b2f'];
+        colors = [
+          '#8b4513',
+          '#a0522d',
+          '#cd853f',
+          '#daa520',
+          '#b8860b',
+          '#9acd32',
+          '#6b8e23',
+          '#556b2f',
+        ];
         break;
       case 'Monochrome':
         const baseHue = Math.floor(Math.random() * 360);
@@ -551,7 +648,7 @@
           hslToHex(hue1, 60, 70),
           hslToHex(hue2, 70, 50),
           hslToHex(hue2, 80, 30),
-          hslToHex(hue2, 60, 70)
+          hslToHex(hue2, 60, 70),
         ];
         break;
       case 'Truly Random':
@@ -560,11 +657,13 @@
           const r = Math.floor(Math.random() * 256);
           const g = Math.floor(Math.random() * 256);
           const b = Math.floor(Math.random() * 256);
-          colors.push(`#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`);
+          colors.push(
+            `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+          );
         }
         break;
     }
-    
+
     return colors;
   }
 
@@ -579,34 +678,32 @@
     } else {
       // Generate random positions
       const positions: number[] = [0, 1]; // Always include start and end
-      
+
       // Add intermediate positions
       for (let i = 2; i < count; i++) {
         positions.push(0.1 + Math.random() * 0.8); // Avoid edges
       }
-      
+
       return positions.sort((a, b) => a - b);
     }
   }
 
-
-
   function randomizeGradient(scheme: string = 'Basic') {
     // Generate colors for the scheme
     const colors = generateRandomColors(scheme);
-    
+
     // Use the slider value for stop count
     const stopCount = randomStopCount;
-    
+
     // Generate stop positions
     const positions = generateStopPositions(stopCount, randomStopPlacement);
-    
+
     // Create gradient stops by combining positions and random colors
-    gradientStops = positions.map(position => ({
+    gradientStops = positions.map((position) => ({
       position,
-      color: colors[Math.floor(Math.random() * colors.length)]
+      color: colors[Math.floor(Math.random() * colors.length)],
     }));
-    
+
     selectedStopIndex = 0;
     updateGradient();
   }
@@ -617,7 +714,7 @@
       const rArr: number[] = [];
       const gArr: number[] = [];
       const bArr: number[] = [];
-      
+
       for (let i = 0; i < 256; i++) {
         const t = i / 255;
         const color = getColorAtPosition(t);
@@ -628,27 +725,26 @@
         gArr.push(g);
         bArr.push(b);
       }
-      
+
       const lutData = [...rArr, ...gArr, ...bArr];
       await invoke('save_custom_lut', { name: lutName, lutData });
-      
+
       // Clear the temporary LUT
       await invoke('clear_temp_lut');
-      
+
       // Update the gradient simulation with the new LUT
       await invoke('apply_lut_by_name', { lutName });
-      
+
       // Clear any existing timeout
       if (saveSuccessTimeout) {
         clearTimeout(saveSuccessTimeout);
       }
-      
+
       // Show success message
       saveSuccessMessage = `LUT "${lutName}" saved successfully!`;
       saveSuccessTimeout = setTimeout(() => {
         saveSuccessMessage = '';
       }, 3000); // Hide after 3 seconds
-      
     } catch (e) {
       console.error('Failed to save LUT:', e);
       // Clear any existing timeout
@@ -673,7 +769,7 @@
       const b = parseInt(color.slice(5, 7), 16);
       lutData.push(r, g, b);
     }
-    
+
     const dataStr = lutData.join('\n');
     const dataBlob = new Blob([dataStr], { type: 'text/plain' });
     const url = URL.createObjectURL(dataBlob);
@@ -686,7 +782,7 @@
 
   function goBack() {
     // Clear the temporary LUT before going back
-    invoke('clear_temp_lut').catch(e => {
+    invoke('clear_temp_lut').catch((e) => {
       console.error('Failed to clear temporary LUT:', e);
     });
     dispatch('back');
@@ -774,7 +870,7 @@
     s /= 100;
     l /= 100;
     const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
     const m = l - c / 2;
 
     let r = 0;
@@ -818,7 +914,6 @@
     return `#${hexR}${hexG}${hexB}`;
   }
 
-
   onMount(async () => {
     try {
       // Listen for simulation-initialized event
@@ -844,7 +939,7 @@
     try {
       // Clear the temporary LUT
       await invoke('clear_temp_lut');
-      
+
       await invoke('destroy_simulation');
     } catch (error) {
       console.error('Failed to destroy simulation on component destroy:', error);
@@ -869,7 +964,7 @@
 
 <style>
   /* Gradient editor specific styles */
-  
+
   /* Custom GEM Header */
   .gem-header {
     display: flex;
@@ -1244,7 +1339,7 @@
     top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background-color: #4CAF50; /* Green background */
+    background-color: #4caf50; /* Green background */
     color: white;
     padding: 10px 20px;
     border-radius: 5px;
@@ -1254,9 +1349,17 @@
   }
 
   @keyframes fadeInOut {
-    0% { opacity: 0; }
-    20% { opacity: 1; }
-    80% { opacity: 1; }
-    100% { opacity: 0; }
+    0% {
+      opacity: 0;
+    }
+    20% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
   }
 </style>

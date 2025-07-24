@@ -308,7 +308,7 @@
 </SimulationLayout>
 
 <!-- Shared camera controls component -->
-  <CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
+<CameraControls enabled={true} on:toggleGui={toggleBackendGui} on:togglePause={togglePause} />
 
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
@@ -427,8 +427,6 @@
       console.error('Failed to toggle GUI:', error);
     }
   }
-
-
 
   async function stopSimulation() {
     try {

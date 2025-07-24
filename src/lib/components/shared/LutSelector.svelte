@@ -97,7 +97,7 @@
       <div class="stop-controls">
         {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
           <h4>Color Stop {selectedStopIndex + 1}</h4>
-          
+
           <!-- Color Space Selector -->
           <div class="control-group">
             <label for="colorSpace">Color Space</label>
@@ -109,15 +109,15 @@
             />
             <div class="color-space-info">
               <small>
-                <strong>RGB:</strong> Linear interpolation in RGB space<br>
-                <strong>Lab:</strong> Perceptually uniform (CIE L*a*b*)<br>
-                <strong>OkLab:</strong> Modern perceptually uniform space<br>
-                <strong>Jzazbz:</strong> HDR-optimized perceptually uniform space<br>
+                <strong>RGB:</strong> Linear interpolation in RGB space<br />
+                <strong>Lab:</strong> Perceptually uniform (CIE L*a*b*)<br />
+                <strong>OkLab:</strong> Modern perceptually uniform space<br />
+                <strong>Jzazbz:</strong> HDR-optimized perceptually uniform space<br />
                 <strong>HSLuv:</strong> Perceptually uniform HSL variant
               </small>
             </div>
           </div>
-          
+
           <div class="control-row">
             <div class="control-group">
               <label for="stopColor">Color</label>
@@ -241,7 +241,7 @@
     try {
       // Clear the temporary LUT first
       await invoke('clear_temp_lut');
-      
+
       // Then restore the original LUT to ensure it's properly applied
       if (original_lut_name) {
         await invoke('apply_lut_by_name', { lutName: original_lut_name });
@@ -318,7 +318,7 @@
   function interpolateColor(color1: string, color2: string, t: number): string {
     try {
       let colorSpace = 'rgb';
-      
+
       switch (selectedColorSpace) {
         case 'RGB':
           colorSpace = 'rgb';
@@ -338,11 +338,11 @@
           colorSpace = 'hsl';
           break;
       }
-      
+
       // Create interpolator with error handling
       const interpolator = interpolate([color1, color2], colorSpace);
       const result = interpolator(t);
-      
+
       // Convert result to hex, with fallback
       if (result) {
         const hexResult = formatHex(result);
@@ -350,7 +350,7 @@
           return hexResult;
         }
       }
-      
+
       // Fallback: simple RGB interpolation
       const c1 = rgb(color1);
       const c2 = rgb(color2);
@@ -362,7 +362,7 @@
           return hexFallback;
         }
       }
-      
+
       // Final fallback
       return color1;
     } catch (error) {

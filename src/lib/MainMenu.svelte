@@ -72,10 +72,18 @@
 
     <div class="about-container">
       <h2>About this program</h2>
-      
-      <p>Hi. My name is Zelda and I'm the author of Vizzy. Thanks for checking it out!</p>
-      <p>You can find the source code for this program on <a target="_blank" href="https://github.com/Velfi/vizzy">GitHub</a>.</p>
-      <p>You can find out more about me on my <a target="_blank" href="https://www.zeldas.page">website</a>.</p>
+
+      <p>
+        Hi. My name is Zelda and I'm the author of Vizzy. Thanks for checking it out!. I made this
+        for fun.
+      </p>
+      <p>
+        You can find the source code for this program on <a
+          target="_blank"
+          href="https://github.com/Velfi/vizzy">GitHub</a
+        >. You can find out more about me on my
+        <a target="_blank" href="https://www.zeldas.page">website</a>.
+      </p>
     </div>
 
     <!-- <button class="simulation-card" on:click={() => selectSimulation('ecosystem')}>
