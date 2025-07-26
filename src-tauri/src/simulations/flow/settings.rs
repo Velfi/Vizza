@@ -71,7 +71,7 @@ impl Display for Background {
 
 impl Default for Background {
     fn default() -> Self {
-        Self::Vectors
+        Self::Black
     }
 }
 
@@ -106,6 +106,33 @@ impl Default for ParticleShape {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum DisplayMode {
+    Age,
+    Random,
+    Direction,
+}
+
+impl Display for DisplayMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Age => "Age",
+                Self::Random => "Random",
+                Self::Direction => "Direction",
+            }
+        )
+    }
+}
+
+impl Default for DisplayMode {
+    fn default() -> Self {
+        Self::Age
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     // Flow field parameters
@@ -136,6 +163,7 @@ pub struct Settings {
     pub current_lut: String,
     pub lut_reversed: bool,
     pub show_particles: bool,
+    pub display_mode: DisplayMode,
 }
 
 impl Default for Settings {
@@ -165,10 +193,11 @@ impl Default for Settings {
             trail_wash_out_rate: 0.0,
 
             // Visual parameters
-            background: Background::Vectors,
+            background: Background::Black,
             current_lut: "MATPLOTLIB_viridis".to_string(),
             lut_reversed: false,
             show_particles: true,
+            display_mode: DisplayMode::Age,
         }
     }
 }

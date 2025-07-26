@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::Settings;
-use super::shaders::RENDER_3X3_SHADER;
+use super::shaders::RENDER_INFINITE_SHADER;
 use crate::simulations::shared::camera::Camera;
 
 #[derive(Debug)]
@@ -16,13 +16,26 @@ pub struct Renderer {
     height: u32,
     settings: Settings,
     lut_buffer: wgpu::Buffer,
-    render_3x3_pipeline: wgpu::RenderPipeline,
+    render_infinite_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group_layout: wgpu::BindGroupLayout,
     pub camera: Camera,
 }
 
 impl Renderer {
+    /// Calculate the number of tiles needed for infinite rendering based on zoom level
+    fn calculate_tile_count(&self) -> u32 {
+        let zoom = self.camera.zoom;
+        // At zoom 1.0, we need at least 5x5 tiles
+        // As zoom decreases (zooming out), we need more tiles
+        // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
+        let visible_world_size = 2.0 / zoom; // World size visible on screen
+        let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
+        let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        // Allow more tiles for proper infinite tiling, but cap at reasonable limit
+        tiles_needed.max(min_tiles).min(200) // Cap at 200x200 for performance
+    }
+
     pub fn new(
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -110,50 +123,51 @@ impl Renderer {
             push_constant_ranges: &[],
         });
 
-        // Create 3x3 shader
-        let shader_3x3 = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Render 3x3 Shader"),
-            source: wgpu::ShaderSource::Wgsl(RENDER_3X3_SHADER.into()),
+        // Create infinite shader
+        let shader_infinite = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Render Infinite Shader"),
+            source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
         });
 
-        // Create 3x3 render pipeline
-        let render_3x3_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render 3x3 Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader_3x3,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader_3x3,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+        // Create infinite render pipeline
+        let render_infinite_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Infinite Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader_infinite,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader_infinite,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
 
         Ok(Self {
             device: Arc::clone(device),
@@ -163,7 +177,7 @@ impl Renderer {
             height,
             settings,
             lut_buffer,
-            render_3x3_pipeline,
+            render_infinite_pipeline,
             bind_group_layout,
             camera_bind_group_layout,
             camera,
@@ -249,11 +263,13 @@ impl Renderer {
                 ..Default::default()
             });
 
-            // Always use 3x3 instanced rendering
-            render_pass.set_pipeline(&self.render_3x3_pipeline);
+            // Use infinite instanced rendering with dynamic tile count
+            let tile_count = self.calculate_tile_count();
+            let total_instances = tile_count * tile_count;
+            render_pass.set_pipeline(&self.render_infinite_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_bind_group(1, &camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
+            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

@@ -17,6 +17,7 @@
     {controlsVisible}
     {showCenterControls}
     {showRightControls}
+    {controlModeButton}
     on:back={handleBack}
     on:toggleUI={handleToggleUI}
     on:pause={handlePause}
@@ -58,6 +59,7 @@
   export let menuPosition: string = 'middle';
   export let showCenterControls: boolean = true;
   export let showRightControls: boolean = true;
+  export let controlModeButton: import('svelte').Snippet | undefined = undefined;
 
   // Event handlers
   function handleBack() {

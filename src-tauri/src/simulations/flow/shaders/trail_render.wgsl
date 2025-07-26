@@ -28,6 +28,7 @@ struct SimParams {
     cursor_strength: f32,
     particle_autospawn: u32, // 0=disabled, 1=enabled
     particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
+    display_mode: u32, // 0=Age, 1=Random, 2=Direction
 }
 
 struct CameraUniform {
@@ -44,15 +45,11 @@ struct CameraUniform {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) grid_fade_factor: f32,
-    @location(2) world_pos: vec2<f32>,
+    @location(1) world_pos: vec2<f32>,
 }
 
 @vertex
-fn vs_main(
-    @builtin(vertex_index) vertex_index: u32,
-    @builtin(instance_index) instance_index: u32,
-) -> VertexOutput {
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     // Full screen quad
     let positions = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0),
@@ -75,36 +72,12 @@ fn vs_main(
     let pos = positions[vertex_index];
     let uv = uvs[vertex_index];
     
-    // Calculate grid cell position (0-8, arranged as 3x3 grid)
-    let grid_x = i32(instance_index % 3u) - 1; // -1, 0, 1
-    let grid_y = i32(instance_index / 3u) - 1; // -1, 0, 1
-    
-    // Calculate fade factor based on distance from center
-    let center_distance = abs(grid_x) + abs(grid_y);
-    var grid_fade_factor: f32;
-    if (center_distance == 0) {
-        grid_fade_factor = 1.0; // Center cell - full opacity
-    } else if (center_distance == 1) {
-        grid_fade_factor = 0.4; // Adjacent cells - medium fade
-    } else {
-        grid_fade_factor = 0.2; // Corner cells - strong fade
-    }
-    
-    // Start with base world position and offset by grid cell
-    // Each grid cell represents a full world tile offset (width/height = 2.0)
-    let world_position = vec2<f32>(
-        pos.x + f32(grid_x) * 2.0,
-        pos.y + f32(grid_y) * 2.0
-    );
-    
-    // Apply camera transformation to the world position
-    let camera_pos = camera.transform_matrix * vec4<f32>(world_position, 0.0, 1.0);
+    // Don't apply camera transformation in offscreen pass - let 3x3 shader handle it
     
     return VertexOutput(
-        camera_pos,
+        vec4<f32>(pos, 0.0, 1.0),
         uv,
-        grid_fade_factor,
-        world_position,
+        pos,
     );
 }
 
@@ -118,7 +91,7 @@ fn world_to_trail_coords(world_pos: vec2<f32>) -> vec2<f32> {
 }
 
 @fragment
-fn fs_main(@location(0) uv: vec2<f32>, @location(1) grid_fade_factor: f32, @location(2) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) uv: vec2<f32>, @location(1) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
     let trail_uv = world_to_trail_coords(world_pos);
     let texel = vec2<i32>(
         i32(trail_uv.x * f32(sim_params.trail_map_width)),
@@ -130,6 +103,5 @@ fn fs_main(@location(0) uv: vec2<f32>, @location(1) grid_fade_factor: f32, @loca
     if (trail_intensity <= 0.01) {
         return vec4<f32>(0.0, 0.0, 0.0, 0.0);
     }
-    let alpha = trail_intensity * grid_fade_factor;
-    return vec4<f32>(trail_color, alpha);
+    return vec4<f32>(trail_color, trail_intensity);
 } 

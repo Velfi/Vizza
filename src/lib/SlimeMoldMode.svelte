@@ -399,40 +399,52 @@
             <div class="setting-item">
               <span class="setting-label">Gradient Type:</span>
               <Selector
-                options={['disabled', 'radial', 'linear', 'spiral']}
+                options={['disabled', 'radial', 'linear', 'ellipse', 'spiral', 'checkerboard']}
                 bind:value={settings.gradient_type}
                 on:change={handleGradientType}
               />
             </div>
             {#if settings.gradient_type !== 'disabled'}
               <div class="setting-item">
-                <span class="setting-label">Center X:</span>
-                <input
-                  type="number"
-                  id="gradientCenterX"
-                  min="0"
-                  max="100"
-                  step="1"
-                  bind:value={gradient_center_x_percent}
-                  on:change={(e: Event) => {
-                    const value = parseFloat((e.target as HTMLInputElement).value);
-                    updateGradientCenterX(value);
+                <span class="setting-label">Strength:</span>
+                <NumberDragBox
+                  bind:value={settings.gradient_strength}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  precision={2}
+                  on:change={async (e) => {
+                    try {
+                      await invoke('update_simulation_setting', {
+                        settingName: 'gradient_strength',
+                        value: e.detail,
+                      });
+                    } catch (err) {
+                      console.error('Failed to update gradient strength:', err);
+                    }
                   }}
                 />
               </div>
               <div class="setting-item">
+                <span class="setting-label">Center X:</span>
+                <NumberDragBox
+                  value={gradient_center_x_percent}
+                  min={0}
+                  max={100}
+                  step={1}
+                  precision={0}
+                  on:change={(e) => updateGradientCenterX(e.detail)}
+                />
+              </div>
+              <div class="setting-item">
                 <span class="setting-label">Center Y:</span>
-                <input
-                  type="number"
-                  id="gradientCenterY"
-                  min="0"
-                  max="100"
-                  step="1"
-                  bind:value={gradient_center_y_percent}
-                  on:change={(e: Event) => {
-                    const value = parseFloat((e.target as HTMLInputElement).value);
-                    updateGradientCenterY(value);
-                  }}
+                <NumberDragBox
+                  value={gradient_center_y_percent}
+                  min={0}
+                  max={100}
+                  step={1}
+                  precision={0}
+                  on:change={(e) => updateGradientCenterY(e.detail)}
                 />
               </div>
               <div class="setting-item">
@@ -522,8 +534,8 @@
   let currentAgentCount = 1_000_000;
 
   // Cursor interaction state (runtime, not saved in presets)
-  let cursorSize: number;
-  let cursorStrength: number;
+  let cursorSize: number = 300.0; // Default cursor size (matches backend)
+  let cursorStrength: number = 5.0; // Default cursor strength (matches backend)
 
   // Preset and LUT state
   let current_preset = '';
@@ -768,8 +780,8 @@
     }
   }
 
-  async function handleGradientType(e: Event) {
-    const value = (e.target as HTMLSelectElement).value;
+  async function handleGradientType(e: CustomEvent) {
+    const value = e.detail.value;
     if (settings) {
       settings.gradient_type = value;
       try {
@@ -1152,9 +1164,9 @@
   /* Key/Value pair settings layout */
   .settings-grid {
     display: grid;
-    grid-template-columns: 200px 120px;
+    grid-template-columns: 1fr auto;
     gap: 0.15rem 0.3rem;
-    justify-content: center;
+    width: 100%;
   }
 
   .setting-item {

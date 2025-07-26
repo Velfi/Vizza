@@ -225,7 +225,6 @@ fn main() {
             commands::zoom_camera_to_cursor,
             commands::reset_camera,
             commands::get_camera_state,
-            commands::stop_camera_pan,
             commands::set_camera_smoothing,
             commands::set_camera_sensitivity,
             // Settings commands

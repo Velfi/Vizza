@@ -226,11 +226,11 @@
 
   // Simulation control state
   let running = false;
-  let loading = false;
+  const loading = false;
   let showUI = true;
-  let currentFps = 0;
+  const currentFps = 0;
   let controlsVisible = true;
-  let menuPosition = 'middle';
+  const menuPosition = 'middle';
 
   // Auto-hide functionality for controls when UI is hidden
   let hideTimeout: number | null = null;

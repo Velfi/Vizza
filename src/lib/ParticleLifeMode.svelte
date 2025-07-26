@@ -60,7 +60,7 @@
             <label for="lutSelector">Color Scheme</label>
             <LutSelector
               bind:available_luts
-              bind:current_lut={state.current_lut}
+              bind:current_lut={state.current_lut_name}
               bind:reversed={state.lut_reversed}
               on:select={(e) => updateLut(e.detail.name)}
               on:reverse={(e) => updateLutReversed(e.detail.reversed)}
@@ -262,7 +262,8 @@
       </fieldset>
 
       <!-- Physics Equation Visualization -->
-      <CollapsibleFieldset title="Physics" bind:open={show_physics_diagram}>
+      <fieldset>
+        <legend>Physics</legend>
         <div class="diagram-content">
           <InteractivePhysicsDiagram
             maxForce={settings.max_force}
@@ -273,7 +274,7 @@
             on:update={(e) => updateSetting(e.detail.setting, e.detail.value)}
           />
         </div>
-      </CollapsibleFieldset>
+      </fieldset>
     </form>
   {/if}
 </SimulationLayout>
@@ -326,7 +327,7 @@
     position_generator: string;
     type_generator: string;
     matrix_generator: string;
-    current_lut: string;
+    current_lut_name: string;
     lut_reversed: boolean;
     color_mode: string;
   }
@@ -341,7 +342,7 @@
   let current_preset = '';
   let available_presets: string[] = [];
   let available_luts: string[] = [];
-  let show_physics_diagram = false; // Toggle for expandable physics diagram section
+
   let show_about_section = false; // Toggle for expandable about section
   let fps_display = 0;
   let isSimulationRunning = false;
@@ -1223,7 +1224,7 @@
   async function updateLut(lutName: string) {
     try {
       console.log(`Updating LUT to: ${lutName}`);
-      state.current_lut = lutName;
+      state.current_lut_name = lutName;
       await invoke('update_simulation_setting', {
         settingName: 'lut_name',
         value: lutName,
@@ -1238,7 +1239,7 @@
 
   async function updateLutReversed(reversed: boolean) {
     try {
-      console.log(`Updating LUT reversed to: ${reversed}, current LUT: ${state.current_lut}`);
+      console.log(`Updating LUT reversed to: ${reversed}, current LUT: ${state.current_lut_name}`);
       state.lut_reversed = reversed;
 
       await invoke('update_simulation_setting', {

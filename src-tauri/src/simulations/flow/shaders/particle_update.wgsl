@@ -40,6 +40,7 @@ struct SimParams {
     cursor_strength: f32,
     particle_autospawn: u32, // 0=disabled, 1=enabled
     particle_spawn_rate: f32, // 0 = no spawn, 1.0 = full spawn rate
+    display_mode: u32, // 0=Age, 1=Random, 2=Direction
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -317,24 +318,32 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (should_reset) {
         particle.position = vec2<f32>(spawn_x, spawn_y);
         particle.age = 0.0;
-        
-        // Generate new random color from LUT using multiple random seeds for better variation
-        let seed1 = f32(particle_index) * 0.1234;
-        let seed2 = f32(particle_index) * 0.5678;
-        let seed3 = f32(particle_index) * 0.9012;
-        
-        let random1 = fract(sin(seed1) * 43758.5453);
-        let random2 = fract(sin(seed2) * 43758.5453);
-        let random3 = fract(sin(seed3) * 43758.5453);
-        
-        // Combine multiple random values for better distribution
-        let color_intensity = fract((random1 + random2 + random3) / 3.0);
-        let new_color = get_lut_color(color_intensity);
-        particle.color = vec4<f32>(new_color, 0.9); // Keep alpha at 0.9
+    }
+    
+    // Set particle color based on display mode (every frame to handle mode changes)
+    if (sim_params.display_mode == 0u) { // Age mode
+        // Color will be set in render shader based on age
+        particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.9);
+    } else if (sim_params.display_mode == 1u) { // Random mode
+        // Generate random color based only on particle index (not time, so it stays constant)
+        let seed = f32(particle_index) * 0.1234;
+        let random_value = fract(sin(seed) * 43758.5453);
+        particle.color = vec4<f32>(random_value, 0.0, 0.0, 0.9);
+    } else if (sim_params.display_mode == 2u) { // Direction mode
+        // Color will be set based on velocity direction
+        particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.9);
     }
     
     // Get flow direction from nearest flow vector
     var direction = find_nearest_flow_vector(particle.position);
+    
+    // Update particle color based on display mode
+    if (sim_params.display_mode == 2u) { // Direction mode
+        // Set color based on velocity direction
+        let direction_angle = atan2(direction.y, direction.x);
+        let normalized_angle = (direction_angle + 3.14159) / (2.0 * 3.14159); // Normalize to [0, 1]
+        particle.color.r = normalized_angle;
+    }
     
     // Apply cursor interaction if active
     if (sim_params.cursor_active == 2u) {
@@ -357,10 +366,26 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     particle.position.x = fract(particle.position.x * 0.5 + 0.5) * 2.0 - 1.0;
     particle.position.y = fract(particle.position.y * 0.5 + 0.5) * 2.0 - 1.0;
     
-    // Deposit trail at particle position with particle color
-    deposit_trail(particle.position, particle.color);
+    // Deposit trail at particle position with LUT color based on display mode
+    var trail_color_intensity = 0.0;
     
-    // Keep original color from LUT, only adjust alpha based on age
+    if (sim_params.display_mode == 0u) { // Age mode
+        let age_ratio = particle.age / sim_params.particle_lifetime;
+        trail_color_intensity = 1.0 - age_ratio; // Younger particles = higher intensity
+    } else if (sim_params.display_mode == 1u) { // Random mode
+        trail_color_intensity = particle.color.r; // Use the random color value
+    } else if (sim_params.display_mode == 2u) { // Direction mode
+        trail_color_intensity = particle.color.r; // Use the direction-based color value
+    } else {
+        // Fallback to age mode
+        let age_ratio = particle.age / sim_params.particle_lifetime;
+        trail_color_intensity = 1.0 - age_ratio;
+    }
+    
+    let trail_color = get_lut_color(trail_color_intensity);
+    deposit_trail(particle.position, vec4<f32>(trail_color, particle.color.a));
+    
+    // Adjust alpha based on age
     let age_ratio = particle.age / sim_params.particle_lifetime;
     particle.color.a = 1.0 - age_ratio * 0.5;
     

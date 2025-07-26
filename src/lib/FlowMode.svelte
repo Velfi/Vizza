@@ -49,10 +49,28 @@
         <div class="control-group">
           <label for="background-select">Background</label>
           <Selector
-            options={['Black', 'White', 'Vector Field']}
+            options={['Black', 'White']}
             bind:value={backgroundValue}
             on:change={(e) => updateBackground(e.detail.value)}
           />
+        </div>
+
+        <div class="control-group">
+          <label for="display-mode-select">Display Mode</label>
+          <Selector
+            options={['Age', 'Random', 'Direction']}
+            bind:value={settings.display_mode}
+            on:change={(e) => updateDisplayMode(e.detail.value)}
+          />
+          <div class="setting-description">
+            <small>
+              <strong>Age:</strong> Particles are colored based on their age (younger = brighter).<br
+              />
+              <strong>Random:</strong> Particles have a random color chosen at creation that doesn't
+              change.<br />
+              <strong>Direction:</strong> Particles are colored based on their velocity direction.
+            </small>
+          </div>
         </div>
 
         <LutSelector
@@ -358,13 +376,14 @@
     current_lut: string;
     lut_reversed: boolean;
     show_particles: boolean;
+    display_mode: string;
   };
 
   let settings: Settings | undefined = undefined;
 
   // Local variables for binding
-  let backgroundValue = '';
-  let currentLutValue = '';
+  let backgroundValue = 'Black';
+  let currentLutValue = 'MATPLOTLIB_viridis';
   let lutReversedValue = false;
 
   // Preset and LUT state
@@ -974,6 +993,18 @@
     }
   }
 
+  async function updateDisplayMode(value: string) {
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'displayMode',
+        value,
+      });
+      await syncSettingsFromBackend();
+    } catch (e) {
+      console.error('Failed to update display mode:', e);
+    }
+  }
+
   async function updatePreset(value: string) {
     current_preset = value;
     try {
@@ -1026,10 +1057,16 @@
         // Use backend settings directly
         settings = backendSettings as Settings;
 
-        // Update local binding variables
-        backgroundValue = settings.background;
-        currentLutValue = settings.current_lut;
-        lutReversedValue = settings.lut_reversed;
+        // Update local binding variables with proper defaults
+        backgroundValue = settings.background || 'Black';
+        currentLutValue = settings.current_lut || 'MATPLOTLIB_viridis';
+        lutReversedValue = settings.lut_reversed || false;
+
+        console.log('Flow settings synced:', {
+          background: backgroundValue,
+          currentLut: currentLutValue,
+          lutReversed: lutReversedValue,
+        });
       }
 
       if (backendState) {

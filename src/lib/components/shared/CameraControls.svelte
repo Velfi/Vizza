@@ -16,6 +16,18 @@
   const dispatch = createEventDispatcher();
 
   export let enabled: boolean = true;
+  export let simulationType: string = '';
+  export let controlMode: 'camera' | 'simulation' = 'camera';
+
+  // Debug logging for control mode changes
+  $: {
+    console.log(
+      'CameraControls: controlMode changed to:',
+      controlMode,
+      'simulationType:',
+      simulationType
+    );
+  }
 
   const pressedKeys = new Set<string>();
   let animationFrameId: number | null = null;
@@ -59,7 +71,7 @@
       return;
     }
 
-    // Handle camera controls
+    // Handle camera controls based on control mode
     const cameraKeys = [
       'w',
       'a',
@@ -76,6 +88,14 @@
     if (cameraKeys.includes(event.key.toLowerCase()) && !isInputFocused) {
       event.preventDefault();
       pressedKeys.add(event.key.toLowerCase());
+      console.log(
+        'Key pressed:',
+        event.key.toLowerCase(),
+        'simulationType:',
+        simulationType,
+        'controlMode:',
+        controlMode
+      );
     }
   }
 
@@ -129,44 +149,108 @@
       return;
     }
 
-    const panAmount = 0.1;
+    // Debug: log pressed keys occasionally
+    if (pressedKeys.size > 0 && Math.random() < 0.01) {
+      // Log ~1% of the time when keys are pressed
+      console.log(
+        'Pressed keys:',
+        Array.from(pressedKeys),
+        'simulationType:',
+        simulationType,
+        'controlMode:',
+        controlMode
+      );
+    }
+
     let moved = false;
-    let deltaX = 0;
-    let deltaY = 0;
 
-    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-      deltaY += panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-      deltaY -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-      deltaX -= panAmount;
-      moved = true;
-    }
-    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-      deltaX += panAmount;
-      moved = true;
-    }
+    if (controlMode === 'camera') {
+      // Regular camera controls
+      const panAmount = 0.1;
+      let deltaX = 0;
+      let deltaY = 0;
 
-    // Apply combined movement if any keys are pressed
-    if (moved) {
-      panCamera(deltaX, deltaY);
-    }
+      if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+        console.log('CAMERA MODE: W/Up pressed - panning camera up');
+        deltaY += panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+        console.log('CAMERA MODE: S/Down pressed - panning camera down');
+        deltaY -= panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+        console.log('CAMERA MODE: A/Left pressed - panning camera left');
+        deltaX -= panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+        console.log('CAMERA MODE: D/Right pressed - panning camera right');
+        deltaX += panAmount;
+        moved = true;
+      }
 
-    if (pressedKeys.has('q')) {
-      zoomCamera(-0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('e')) {
-      zoomCamera(0.05);
-      moved = true;
-    }
-    if (pressedKeys.has('c')) {
-      resetCamera();
-      moved = true;
+      // Apply combined movement if any keys are pressed
+      if (moved) {
+        panCamera(deltaX, deltaY);
+      }
+
+      // Handle Q/E for zoom
+      if (pressedKeys.has('q')) {
+        zoomCamera(-0.05);
+        moved = true;
+      }
+      if (pressedKeys.has('e')) {
+        zoomCamera(0.05);
+        moved = true;
+      }
+
+      if (pressedKeys.has('c')) {
+        resetCamera();
+        moved = true;
+      }
+    } else {
+      // Simulation controls - let the backend handle mode switching
+      const panAmount = 0.1;
+      let deltaX = 0;
+      let deltaY = 0;
+
+      if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+        console.log('SIM MODE: W/Up pressed - sending to backend');
+        deltaY += panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+        console.log('SIM MODE: S/Down pressed - sending to backend');
+        deltaY -= panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+        console.log('SIM MODE: A/Left pressed - sending to backend');
+        deltaX -= panAmount;
+        moved = true;
+      }
+      if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+        console.log('SIM MODE: D/Right pressed - sending to backend');
+        deltaX += panAmount;
+        moved = true;
+      }
+
+      // Apply combined movement if any keys are pressed
+      if (moved) {
+        panCamera(deltaX, deltaY);
+      }
+
+      // Handle Q/E for zoom
+      if (pressedKeys.has('q')) {
+        zoomCamera(-0.05);
+        moved = true;
+      }
+      if (pressedKeys.has('e')) {
+        zoomCamera(0.05);
+        moved = true;
+      }
     }
 
     // Always schedule the next frame to keep the loop running

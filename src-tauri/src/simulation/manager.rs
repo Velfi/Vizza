@@ -289,8 +289,10 @@ impl SimulationManager {
 
                     // Convert world coordinates [-1,1] to texture coordinates [0,1]
                     // Gray-Scott simulation expects texture coordinates in [0,1] range
+                    // World space is [-1, 1] where (-1, -1) is bottom-left and (1, 1) is top-right
+                    // Texture space is [0, 1] where (0, 0) is top-left and (1, 1) is bottom-right
                     let texture_x = (world.x + 1.0) * 0.5;
-                    let texture_y = (world.y + 1.0) * 0.5;
+                    let texture_y = (1.0 - world.y) * 0.5; // Flip Y axis to match texture coordinates
 
                     simulation.handle_mouse_interaction(
                         texture_x,
@@ -452,7 +454,10 @@ impl SimulationManager {
             tracing::info!("{} presets: {:?}", simulation_type, presets);
             presets
         } else {
-            tracing::warn!("Unknown simulation type: {}", simulation_type);
+            tracing::warn!(
+                "No preset manager was created for simulation type: {}",
+                simulation_type
+            );
             vec![]
         }
     }

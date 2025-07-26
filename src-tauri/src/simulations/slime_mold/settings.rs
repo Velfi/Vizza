@@ -103,7 +103,7 @@ where
     Ok(start..end)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GradientType {
     Disabled,
     Linear,
@@ -111,6 +111,40 @@ pub enum GradientType {
     Ellipse,
     Spiral,
     Checkerboard,
+}
+
+impl serde::Serialize for GradientType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            GradientType::Disabled => serializer.serialize_str("disabled"),
+            GradientType::Linear => serializer.serialize_str("linear"),
+            GradientType::Radial => serializer.serialize_str("radial"),
+            GradientType::Ellipse => serializer.serialize_str("ellipse"),
+            GradientType::Spiral => serializer.serialize_str("spiral"),
+            GradientType::Checkerboard => serializer.serialize_str("checkerboard"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for GradientType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "disabled" => Ok(GradientType::Disabled),
+            "linear" => Ok(GradientType::Linear),
+            "radial" => Ok(GradientType::Radial),
+            "ellipse" => Ok(GradientType::Ellipse),
+            "spiral" => Ok(GradientType::Spiral),
+            "checkerboard" => Ok(GradientType::Checkerboard),
+            _ => Ok(GradientType::Disabled), // Default fallback
+        }
+    }
 }
 
 impl Default for Settings {

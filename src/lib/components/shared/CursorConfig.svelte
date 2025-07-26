@@ -7,7 +7,7 @@
     <input
       type="range"
       id="cursorSize"
-      value={cursorSize}
+      bind:value={cursorSize}
       min={sizeMin}
       max={sizeMax}
       step={sizeStep}
@@ -23,7 +23,7 @@
     <input
       type="range"
       id="cursorStrength"
-      value={cursorStrength}
+      bind:value={cursorStrength}
       min={strengthMin}
       max={strengthMax}
       step={strengthStep}

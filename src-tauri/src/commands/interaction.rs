@@ -85,8 +85,6 @@ pub async fn update_cursor_position_screen(
 ) -> Result<String, String> {
     let _sim_manager = manager.lock().await;
     let _gpu_ctx = gpu_context.lock().await;
-
-    // This is a placeholder for future cursor position tracking
     // Currently, cursor position is handled through mouse interaction commands
     tracing::debug!("Cursor position updated to ({}, {})", screen_x, screen_y);
     Ok("Cursor position updated successfully".to_string())

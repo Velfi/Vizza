@@ -1,1 +1,31 @@
-{"main-capability":{"identifier":"main-capability","description":"Capability for the main window","local":true,"windows":["main"],"permissions":["core:default","core:app:default","core:event:default","core:window:default","core:webview:default","core:path:default","core:resources:default","core:menu:default","core:tray:default","opener:default","dialog:default",{"identifier":"opener:allow-open-url","allow":[{"url":"https://*"},{"url":"http://*"},{"url":"mailto:*"},{"url":"tel:*"}]},"shell:default"]}}
+{
+  "main-capability": {
+    "identifier": "main-capability",
+    "description": "Capability for the main window",
+    "local": true,
+    "windows": ["main"],
+    "permissions": [
+      "core:default",
+      "core:app:default",
+      "core:event:default",
+      "core:window:default",
+      "core:webview:default",
+      "core:path:default",
+      "core:resources:default",
+      "core:menu:default",
+      "core:tray:default",
+      "opener:default",
+      "dialog:default",
+      {
+        "identifier": "opener:allow-open-url",
+        "allow": [
+          { "url": "https://*" },
+          { "url": "http://*" },
+          { "url": "mailto:*" },
+          { "url": "tel:*" }
+        ]
+      },
+      "shell:default"
+    ]
+  }
+}

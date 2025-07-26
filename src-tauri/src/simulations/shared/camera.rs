@@ -191,9 +191,14 @@ impl Camera {
         let adjusted_delta = delta * self.sensitivity;
         let zoom_factor = 1.0 + adjusted_delta * 0.3;
         let new_zoom = self.target_zoom * zoom_factor;
-        let clamped_zoom = new_zoom.clamp(0.1, 50.0);
+        let clamped_zoom = new_zoom.clamp(0.005, 50.0); // Set reasonable minimum zoom level
 
-        if (clamped_zoom - self.target_zoom).abs() > 0.001 {
+        // Use relative threshold to handle extreme zoom levels properly
+        let relative_threshold = self.target_zoom * 0.001; // 0.1% change threshold
+        let absolute_threshold = 0.000001; // Much smaller minimum absolute change for extreme zoom levels
+        let threshold = relative_threshold.max(absolute_threshold);
+
+        if (clamped_zoom - self.target_zoom).abs() > threshold {
             // Store the center point in world coordinates before zoom
             let center_world_x = self.target_position[0];
             let center_world_y = self.target_position[1];

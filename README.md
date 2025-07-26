@@ -14,9 +14,13 @@ Agent-based simulation where creatures follow trails to create emergent networks
 
 Reaction-diffusion simulation modeling chemical reactions that create organic patterns.
 
+![Gray-Scott Example](example-gray-scott.png)
+
 ### Particle Life
 
 Multi-species particle simulation with attraction/repulsion interactions.
+
+![Particle Life Example](example-particle-life.png)
 
 ### Flow
 
@@ -27,6 +31,14 @@ Flow field simulation with particle movement patterns.
 ### Pellets
 
 Particle simulation with gravity and density-based interactions.
+
+![Pellets Example](example-pellets.png)
+
+### Gradient Editor
+
+Create custom color schemes for the other simulations.
+
+![Gradient Editor Example](example-gradient-editor.png)
 
 ## Getting Started
 

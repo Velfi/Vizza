@@ -7,6 +7,7 @@ struct Particle {
 
 struct SimParams {
     particle_limit: u32,
+    autospawn_limit: u32,
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
@@ -34,6 +35,7 @@ struct SimParams {
     cursor_strength: f32,
     particle_autospawn: u32, // 0=disabled, 1=enabled
     particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
+    display_mode: u32, // 0=Age, 1=Random, 2=Direction
 }
 
 struct CameraUniform {
@@ -65,32 +67,11 @@ struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) particle_index: u32,
-    @location(2) grid_fade_factor: f32,
 }
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32) -> VertexOutput {
-    // 3x3 grid mode: render each particle 9 times like other simulations
-    let particles_per_grid = sim_params.particle_limit;
-    let actual_particle_index = instance_index % particles_per_grid;
-    let grid_cell_index = instance_index / particles_per_grid;
-    
-    let particle = particles[actual_particle_index];
-    
-    // Calculate grid cell position (0-8, arranged as 3x3 grid)
-    let grid_x = i32(grid_cell_index % 3u) - 1; // -1, 0, 1
-    let grid_y = i32(grid_cell_index / 3u) - 1; // -1, 0, 1
-    
-    // Calculate fade factor based on distance from center
-    let center_distance = abs(grid_x) + abs(grid_y);
-    var grid_fade_factor = 1.0;
-    if (center_distance == 0) {
-        grid_fade_factor = 1.0; // Center cell - full opacity
-    } else if (center_distance == 1) {
-        grid_fade_factor = 0.4; // Adjacent cells - medium fade
-    } else {
-        grid_fade_factor = 0.2; // Corner cells - strong fade
-    }
+    let particle = particles[instance_index];
     
     // Create a quad centered at particle position
     let positions = array<vec2<f32>, 6>(
@@ -117,23 +98,26 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) in
     // Calculate quad offset for this vertex
     let quad_offset = pos * f32(sim_params.particle_size) / vec2<f32>(f32(sim_params.screen_width), f32(sim_params.screen_height));
     
-    // Offset particle position by grid cell and add quad offset
-    let world_pos = particle.position + quad_offset + vec2<f32>(f32(grid_x) * 2.0, f32(grid_y) * 2.0);
+    // Add quad offset to particle position
+    let world_pos = particle.position + quad_offset;
     
-    // Apply camera transformation
-    let camera_pos = camera.transform_matrix * vec4<f32>(world_pos, 0.0, 1.0);
+    // Don't apply camera transformation in offscreen pass - let 3x3 shader handle it
     
     return VertexOutput(
-        camera_pos,
+        vec4<f32>(world_pos, 0.0, 1.0),
         uv,
-        actual_particle_index,
-        grid_fade_factor,
+        instance_index,
     );
 }
 
 @fragment
-fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32, @location(2) grid_fade_factor: f32) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32) -> @location(0) vec4<f32> {
     let particle = particles[particle_index];
+    
+    // Check if particle is dead (age >= lifetime) - if so, discard it completely
+    if (particle.age >= sim_params.particle_lifetime) {
+        discard;
+    }
     
     // Get particle shape from uniform
     let shape = sim_params.particle_shape;
@@ -172,6 +156,27 @@ fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32, @locati
     // Create smooth fade for particle edges
     let fade = 1.0 - smoothstep(0.0, 0.5, length(offset));
     
-    // Apply grid fade factor and particle fade
-    return vec4<f32>(particle.color.rgb * grid_fade_factor, particle.color.a * fade * grid_fade_factor);
+    // Calculate color based on display mode
+    var color_intensity = 0.0;
+    
+    if (sim_params.display_mode == 0u) { // Age mode
+        // Use particle age as the color intensity to create a gradient effect
+        let age_ratio = particle.age / sim_params.particle_lifetime;
+        color_intensity = 1.0 - age_ratio; // Younger particles = higher intensity
+    } else if (sim_params.display_mode == 1u) { // Random mode
+        // Use the stored color from the particle (set during creation)
+        color_intensity = particle.color.r; // Use red channel as intensity
+    } else if (sim_params.display_mode == 2u) { // Direction mode
+        // Use the stored color from the particle (set during update based on velocity)
+        color_intensity = particle.color.r; // Use red channel as intensity
+    } else {
+        // Fallback to age mode if display mode is invalid
+        let age_ratio = particle.age / sim_params.particle_lifetime;
+        color_intensity = 1.0 - age_ratio;
+    }
+    
+    let particle_color = get_lut_color(color_intensity);
+    
+    // Apply particle fade
+    return vec4<f32>(particle_color, particle.color.a * fade);
 } 

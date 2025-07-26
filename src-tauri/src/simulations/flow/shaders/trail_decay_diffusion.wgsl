@@ -1,5 +1,6 @@
 struct SimParams {
     particle_limit: u32,
+    autospawn_limit: u32,
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,

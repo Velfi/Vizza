@@ -193,7 +193,7 @@
     border: none;
     color: rgba(255, 255, 255, 0.8);
     cursor: pointer;
-    padding: 0.4rem 0.6rem;
+    padding: 0.75rem;
     font-size: 0.9rem;
     font-weight: bold;
     transition: all 0.2s ease;

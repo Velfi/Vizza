@@ -121,7 +121,7 @@ pub struct PelletsModel {
     pub render_params_buffer: wgpu::Buffer,
     pub background_params_buffer: wgpu::Buffer,
     pub lut_buffer: wgpu::Buffer,
-    
+
     // Spatial partitioning resources
     pub grid_buffer: wgpu::Buffer,
     pub grid_params_buffer: wgpu::Buffer,
@@ -159,7 +159,7 @@ pub struct PelletsModel {
     // Performance optimization
     pub frame_count: u64,
     pub density_update_frequency: u64,
-    
+
     // Grid parameters
     pub grid_width: u32,
     pub grid_height: u32,
@@ -677,12 +677,15 @@ impl PelletsModel {
         let grid_width = (2.0 / cell_size) as u32; // 20 cells across [-1,1]
         let grid_height = (2.0 / cell_size) as u32; // 20 cells across [-1,1]
         let total_cells = grid_width * grid_height;
-        
+
         // Initialize grid with empty cells
-        let grid_cells = vec![GridCell {
-            particle_count: 0,
-            particle_indices: [0; 32],
-        }; total_cells as usize];
+        let grid_cells = vec![
+            GridCell {
+                particle_count: 0,
+                particle_indices: [0; 32],
+            };
+            total_cells as usize
+        ];
 
         // Create grid buffer
         let grid_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -721,67 +724,69 @@ impl PelletsModel {
         });
 
         // Create grid bind group layouts
-        let grid_clear_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Pellets Grid Clear Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let grid_clear_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Pellets Grid Clear Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
-        let grid_populate_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Pellets Grid Populate Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+        let grid_populate_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Pellets Grid Populate Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                ],
+            });
 
         // Create grid bind groups
         let grid_clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -819,35 +824,37 @@ impl PelletsModel {
         });
 
         // Create grid compute pipelines
-        let grid_clear_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Pellets Grid Clear Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Pellets Grid Clear Pipeline Layout"),
-                    bind_group_layouts: &[&grid_clear_bind_group_layout],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &grid_clear_shader,
-            entry_point: Some("main"),
-            cache: None,
-            compilation_options: Default::default(),
-        });
+        let grid_clear_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Pellets Grid Clear Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Pellets Grid Clear Pipeline Layout"),
+                        bind_group_layouts: &[&grid_clear_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &grid_clear_shader,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
 
-        let grid_populate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Pellets Grid Populate Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Pellets Grid Populate Pipeline Layout"),
-                    bind_group_layouts: &[&grid_populate_bind_group_layout],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &grid_populate_shader,
-            entry_point: Some("main"),
-            cache: None,
-            compilation_options: Default::default(),
-        });
+        let grid_populate_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Pellets Grid Populate Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Pellets Grid Populate Pipeline Layout"),
+                        bind_group_layouts: &[&grid_populate_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &grid_populate_shader,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
 
         // Create physics bind group (after grid buffers are created)
         let physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1125,7 +1132,11 @@ impl PelletsModel {
             particle_size: collision_particle_size,
             aspect_ratio: self.surface_config.width as f32 / self.surface_config.height as f32,
             long_range_gravity_strength: self.settings.long_range_gravity_strength,
-            density_damping_enabled: if self.settings.density_damping_enabled { 1 } else { 0 },
+            density_damping_enabled: if self.settings.density_damping_enabled {
+                1
+            } else {
+                0
+            },
             overlap_resolution_strength: self.settings.overlap_resolution_strength,
             _padding: 0,
         };

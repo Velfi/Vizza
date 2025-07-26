@@ -202,7 +202,8 @@
           />
           <div class="setting-description">
             <small>
-              <strong>Higher values:</strong> More aggressive separation of overlapping particles.<br />
+              <strong>Higher values:</strong> More aggressive separation of overlapping particles.<br
+              />
               <strong>Lower values:</strong> Gentler separation, preserves collision response.<br />
             </small>
           </div>

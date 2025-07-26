@@ -195,9 +195,9 @@
   }
 
   .timestep-section {
-    background: #1f2937;
-    border: 1px solid #374151;
-    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
     padding: 1rem;
     margin-bottom: 1rem;
   }
@@ -211,12 +211,12 @@
 
   .timestep-header h4 {
     margin: 0;
-    color: #ffffff;
+    color: rgba(255, 255, 255, 0.9);
     font-size: 1rem;
   }
 
   .timestep-value {
-    color: #fbbf24;
+    color: rgba(255, 255, 255, 0.9);
     font-weight: bold;
     font-family: monospace;
     font-size: 1rem;
@@ -230,7 +230,7 @@
     width: 100%;
     height: 8px;
     border-radius: 4px;
-    background: #374151;
+    background: rgba(255, 255, 255, 0.2);
     outline: none;
     -webkit-appearance: none;
     appearance: none;
@@ -243,8 +243,8 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #a855f7;
-    border: 2px solid #9333ea;
+    background: rgba(255, 255, 255, 0.8);
+    border: 2px solid rgba(255, 255, 255, 0.3);
     cursor: pointer;
   }
 
@@ -252,8 +252,8 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #a855f7;
-    border: 2px solid #9333ea;
+    background: rgba(255, 255, 255, 0.8);
+    border: 2px solid rgba(255, 255, 255, 0.3);
     cursor: pointer;
     border: none;
   }
@@ -262,16 +262,16 @@
     display: flex;
     justify-content: space-between;
     margin-top: 0.5rem;
-    color: #9ca3af;
+    color: rgba(255, 255, 255, 0.6);
     font-size: 0.875rem;
   }
 
   .parameter-display {
     margin: 1rem 0;
     padding: 1rem;
-    background: #1f2937;
-    border-radius: 0.5rem;
-    border: 1px solid #374151;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .parameter-grid {
@@ -285,18 +285,18 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem;
-    background: #111827;
-    border-radius: 0.375rem;
-    border: 1px solid #374151;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .parameter-label {
-    color: #d1d5db;
+    color: rgba(255, 255, 255, 0.8);
     font-size: 0.875rem;
   }
 
   .parameter-value {
-    color: #fbbf24;
+    color: rgba(255, 255, 255, 0.9);
     font-weight: bold;
     font-family: monospace;
     font-size: 0.875rem;
@@ -305,21 +305,21 @@
   .controls-info {
     margin: 1rem 0;
     padding: 1rem;
-    background: #1f2937;
-    border-radius: 0.5rem;
-    border: 1px solid #374151;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .controls-header h4 {
     margin: 0 0 0.75rem 0;
-    color: #f9fafb;
+    color: rgba(255, 255, 255, 0.9);
     font-size: 1rem;
   }
 
   .controls-info ul {
     margin: 0 0 1rem 0;
     padding-left: 1.5rem;
-    color: #d1d5db;
+    color: rgba(255, 255, 255, 0.8);
   }
 
   .controls-info li {
@@ -329,10 +329,10 @@
 
   .equation-note {
     padding: 0.75rem;
-    background: #111827;
-    border-radius: 0.375rem;
-    border-left: 3px solid #3b82f6;
-    color: #9ca3af;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    border-left: 3px solid rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 0.8rem;
     line-height: 1.4;
     word-break: break-word;

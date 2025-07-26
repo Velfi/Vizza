@@ -148,6 +148,19 @@ pub struct SlimeMoldModel {
 }
 
 impl SlimeMoldModel {
+    /// Calculate the number of tiles needed for infinite rendering based on zoom level
+    fn calculate_tile_count(&self) -> u32 {
+        let zoom = self.camera.zoom;
+        // At zoom 1.0, we need at least 5x5 tiles
+        // As zoom decreases (zooming out), we need more tiles
+        // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
+        let visible_world_size = 2.0 / zoom; // World size visible on screen
+        let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
+        let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        // Allow more tiles for proper infinite tiling, but cap at reasonable limit
+        tiles_needed.max(min_tiles).min(200) // Cap at 200x200 for performance
+    }
+
     /// Create a new slime mold simulation using Tauri's shared GPU resources
     pub fn new(
         device: &Arc<Device>,
@@ -719,11 +732,13 @@ impl SlimeMoldModel {
                 occlusion_query_set: None,
             });
 
-            // Always use 3x3 instanced rendering
-            render_pass.set_pipeline(&self.pipeline_manager.render_3x3_pipeline);
+            // Use infinite instanced rendering with dynamic tile count
+            let tile_count = self.calculate_tile_count();
+            let total_instances = tile_count * tile_count;
+            render_pass.set_pipeline(&self.pipeline_manager.render_infinite_pipeline);
             render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
             render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
+            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1266,11 +1281,13 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                 occlusion_query_set: None,
             });
 
-            // Always use 3x3 instanced rendering
-            render_pass.set_pipeline(&self.pipeline_manager.render_3x3_pipeline);
+            // Use infinite instanced rendering with dynamic tile count
+            let tile_count = self.calculate_tile_count();
+            let total_instances = tile_count * tile_count;
+            render_pass.set_pipeline(&self.pipeline_manager.render_infinite_pipeline);
             render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
             render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
+            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
 
         queue.submit(std::iter::once(encoder.finish()));

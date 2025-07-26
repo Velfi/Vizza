@@ -6,6 +6,9 @@
       <Button variant="default" on:click={handleToggleUI}>
         👁 {showUI ? 'Hide UI' : 'Show UI'}
       </Button>
+      {#if controlModeButton}
+        {@render controlModeButton()}
+      {/if}
     </div>
 
     {#if showCenterControls}
@@ -47,6 +50,9 @@
     <div class="left-controls">
       <Button variant="default" on:click={handleBackClick}>← Back to Menu</Button>
       <Button variant="default" on:click={handleToggleUI}>👁 Show UI</Button>
+      {#if controlModeButton}
+        {@render controlModeButton()}
+      {/if}
     </div>
 
     {#if showCenterControls}
@@ -85,6 +91,7 @@
   export let controlsVisible: boolean = true; // For auto-hide functionality
   export let showCenterControls: boolean = true; // Control center section visibility
   export let showRightControls: boolean = true; // Control right section visibility
+  export let controlModeButton: import('svelte').Snippet | undefined = undefined;
 
   function handleBackClick() {
     dispatch('back');

@@ -164,7 +164,8 @@
       </fieldset>
 
       <!-- Reaction-Diffusion -->
-      <CollapsibleFieldset title="Reaction-Diffusion" bind:open={show_physics_diagram}>
+      <fieldset>
+        <legend>Reaction-Diffusion</legend>
         <GrayScottDiagram
           feedRate={settings.feed_rate}
           killRate={settings.kill_rate}
@@ -195,7 +196,7 @@
             }
           }}
         />
-      </CollapsibleFieldset>
+      </fieldset>
     </form>
   {/if}
 </SimulationLayout>
@@ -244,7 +245,6 @@
   let available_luts: string[] = [];
 
   // UI state
-  let show_physics_diagram = false;
   let show_about_section = false;
 
   // LUT state (runtime, not saved in presets)

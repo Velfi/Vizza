@@ -112,9 +112,9 @@ input[type='checkbox'] {
 /* Settings grid for key/value pairs */
 .settings-grid {
   display: grid;
-  grid-template-columns: 200px 120px;
+  grid-template-columns: 1fr auto;
   gap: 0.15rem 0.3rem;
-  justify-content: center;
+  width: 100%;
 }
 
 .setting-item {

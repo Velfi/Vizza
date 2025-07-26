@@ -422,9 +422,10 @@
 
   .settings-grid {
     display: grid;
-    grid-template-columns: 250px 150px;
+    grid-template-columns: 1fr auto;
     gap: 0.3rem 0.5rem;
     align-items: center;
+    width: 100%;
   }
 
   .setting-item {

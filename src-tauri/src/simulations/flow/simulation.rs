@@ -1,7 +1,7 @@
 use super::settings::{NoiseType, Settings};
 use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
-    TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
+    RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
 use crate::simulations::shared::LutManager;
 use crate::simulations::shared::camera::Camera;
@@ -74,6 +74,7 @@ pub struct SimParams {
     pub cursor_strength: f32,
     pub particle_autospawn: u32,  // 0=disabled, 1=enabled
     pub particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
+    pub display_mode: u32,        // 0=Age, 1=Random, 2=Direction
 }
 
 #[derive(Debug)]
@@ -107,11 +108,16 @@ pub struct FlowModel {
 
     // Trail render pipeline
     pub trail_render_pipeline: wgpu::RenderPipeline,
+    pub trail_display_render_pipeline: wgpu::RenderPipeline,
     pub trail_render_bind_group: wgpu::BindGroup,
 
     // Background render pipeline
     pub background_render_pipeline: wgpu::RenderPipeline,
+    pub background_display_render_pipeline: wgpu::RenderPipeline,
     pub background_render_bind_group: wgpu::BindGroup,
+
+    // Particle render pipeline
+    pub particle_display_render_pipeline: wgpu::RenderPipeline,
 
     // Runtime state
     pub camera: Camera,
@@ -129,9 +135,32 @@ pub struct FlowModel {
     pub cursor_world_y: f32,
     pub cursor_size: u32,
     pub cursor_strength: f32,
+
+    // Add display textures for infinite compositing
+    pub display_texture: wgpu::Texture, // Single mipmap for rendering
+    pub display_view: wgpu::TextureView,
+    pub display_mipmap_texture: wgpu::Texture, // Multiple mipmaps for sampling
+    pub display_mipmap_view: wgpu::TextureView,
+    pub display_sampler: wgpu::Sampler,
+    pub render_infinite_bind_group: wgpu::BindGroup,
+    pub render_infinite_pipeline: wgpu::RenderPipeline,
 }
 
 impl FlowModel {
+    // Calculate how many tiles we need based on zoom level
+    fn calculate_tile_count(&self) -> u32 {
+        // At zoom 1.0, we need at least 5x5 tiles
+        // As zoom decreases (zooming out), we need more tiles
+        // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
+        let visible_world_size = 2.0 / self.camera.zoom; // World size visible on screen
+        let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
+        let min_tiles = if self.camera.zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        // Allow more tiles for proper infinite tiling, but cap at reasonable limit
+        let final_tiles = tiles_needed.max(min_tiles).min(1024); // Cap at 200x200 for performance (40,000 instances max)
+
+        final_tiles
+    }
+
     // Generate flow direction using the noise crate
     fn generate_flow_direction(
         pos: [f32; 2],
@@ -294,6 +323,7 @@ impl FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
+            display_mode: self.settings.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -324,11 +354,7 @@ impl FlowModel {
         let max_particles = 1_000_000;
         let mut particles = Vec::with_capacity(max_particles);
 
-        // Get LUT data for random colors
-        let lut_data = lut_manager
-            .get(&settings.current_lut)
-            .unwrap_or_else(|_| lut_manager.get_default());
-
+        // No longer need LUT data since we use LUT in shader
         RNG.with(|rng| {
             let mut rng = rng.borrow_mut();
             // Initialize with autospawn_limit particles
@@ -337,16 +363,8 @@ impl FlowModel {
                 let y = rng.random_range(-1.0..1.0);
                 let age = rng.random_range(0.0..settings.particle_lifetime * 0.1); // Start with 10% of lifetime max
 
-                // Generate random color from LUT
-                let color_intensity = rng.random_range(0.0..1.0);
-                let color_index = (color_intensity * 255.0) as usize;
-                let color_index = color_index.min(255);
-                let color = [
-                    lut_data.red[color_index] as f32 / 255.0,
-                    lut_data.green[color_index] as f32 / 255.0,
-                    lut_data.blue[color_index] as f32 / 255.0,
-                    0.9, // Alpha
-                ];
+                // No longer need to generate colors here since we use LUT in shader
+                let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
 
                 let particle = Particle {
                     position: [x, y],
@@ -429,6 +447,7 @@ impl FlowModel {
             cursor_strength: 1.0,
             particle_autospawn: settings.particle_autospawn as u32,
             particle_spawn_rate: settings.particle_spawn_rate,
+            display_mode: settings.display_mode as u32,
         };
 
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -748,7 +767,7 @@ impl FlowModel {
                     module: &particle_render_shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent {
                                 src_factor: wgpu::BlendFactor::One,
@@ -868,7 +887,7 @@ impl FlowModel {
                     module: &trail_render_shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -974,7 +993,7 @@ impl FlowModel {
                     module: &background_render_shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -1018,6 +1037,300 @@ impl FlowModel {
             ],
         });
 
+        // Create background render pipeline for display texture (Rgba8Unorm format)
+        let background_display_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Flow Background Display Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Background Display Render Pipeline Layout"),
+                        bind_group_layouts: &[
+                            &background_bind_group_layout,
+                            &camera_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &background_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &background_render_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create trail render pipeline for display texture (Rgba8Unorm format)
+        let trail_display_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Flow Trail Display Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Trail Display Render Pipeline Layout"),
+                        bind_group_layouts: &[
+                            &trail_render_bind_group_layout,
+                            &camera_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &trail_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &trail_render_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create particle render pipeline for display texture (Rgba8Unorm format)
+        let particle_display_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Flow Particle Display Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Particle Display Render Pipeline Layout"),
+                        bind_group_layouts: &[&render_bind_group_layout, &camera_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &particle_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &particle_render_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create display texture for rendering and sampling
+        let display_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Flow Display Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Use the same texture for both rendering and sampling (no mipmaps for now)
+        let display_mipmap_texture = display_texture.clone();
+        let display_mipmap_view = display_view.clone();
+        let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Flow Display Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear, // Enable mipmap filtering
+            ..Default::default()
+        });
+
+        // Create infinite render pipeline for truly infinite tiling
+        let render_infinite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Flow Render Infinite Shader"),
+            source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
+        });
+
+        let render_infinite_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Flow Render Infinite Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let render_infinite_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Flow Render Infinite Pipeline Layout"),
+                bind_group_layouts: &[
+                    &render_infinite_bind_group_layout,
+                    &camera_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Flow Render Infinite Bind Group"),
+            layout: &render_infinite_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&display_mipmap_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&display_sampler),
+                },
+            ],
+        });
+
+        let render_infinite_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Flow Render Infinite Pipeline"),
+                layout: Some(&render_infinite_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &render_infinite_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &render_infinite_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Use the same camera for both offscreen and infinite rendering
+
         Ok(Self {
             settings,
             particle_buffer,
@@ -1045,9 +1358,12 @@ impl FlowModel {
             trail_map_width: surface_config.width,
             trail_map_height: surface_config.height,
             trail_render_pipeline,
+            trail_display_render_pipeline,
             trail_render_bind_group,
             background_render_pipeline,
+            background_display_render_pipeline,
             background_render_bind_group,
+            particle_display_render_pipeline,
 
             // Initialize mouse interaction state
             cursor_active_mode: 0, // Inactive
@@ -1055,21 +1371,18 @@ impl FlowModel {
             cursor_world_y: 0.0,
             cursor_size: 10,
             cursor_strength: 1.0,
+
+            display_texture,
+            display_view,
+            display_mipmap_texture,
+            display_mipmap_view,
+            display_sampler,
+            render_infinite_bind_group,
+            render_infinite_pipeline,
         })
     }
-}
 
-impl Simulation for FlowModel {
-    fn render_frame(
-        &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        surface_view: &TextureView,
-    ) -> crate::error::SimulationResult<()> {
-        // Update simulation time
-        self.time += 0.016; // ~60 FPS
-
-        // Update simulation parameters
+    fn write_sim_params(&self, queue: &Arc<wgpu::Queue>) {
         let sim_params = SimParams {
             particle_limit: self.settings.particle_limit,
             autospawn_limit: self.settings.autospawn_limit,
@@ -1100,6 +1413,7 @@ impl Simulation for FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
+            display_mode: self.settings.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -1107,6 +1421,21 @@ impl Simulation for FlowModel {
             0,
             bytemuck::cast_slice(&[sim_params]),
         );
+    }
+}
+
+impl Simulation for FlowModel {
+    fn render_frame(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        surface_view: &TextureView,
+    ) -> crate::error::SimulationResult<()> {
+        // Update simulation time
+        self.time += 0.016; // ~60 FPS
+
+        // Update simulation parameters using the centralized method
+        self.write_sim_params(queue);
 
         // Update camera and upload to GPU
         self.camera.update(0.016);
@@ -1153,14 +1482,60 @@ impl Simulation for FlowModel {
 
         queue.submit(std::iter::once(compute_encoder.finish()));
 
-        // Render frame with background first, then trails, then particles
-        let mut render_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Flow Render Encoder"),
-        });
-
+        // 1. Render trails, background, and particles to display texture (offscreen)
+        let mut offscreen_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Flow Offscreen Encoder"),
+            });
         {
-            let mut render_pass = render_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Flow Render Pass"),
+            let mut render_pass =
+                offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Flow Offscreen Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+            // Render background
+            render_pass.set_pipeline(&self.background_render_pipeline);
+            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Single instance
+            // Render trails
+            render_pass.set_pipeline(&self.trail_render_pipeline);
+            render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Single instance
+            // Render particles (if enabled)
+            if self.settings.show_particles {
+                render_pass.set_pipeline(&self.particle_render_pipeline);
+                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                let active_particles = self.particles.len() as u32;
+                render_pass.draw(0..6, 0..active_particles); // Single instance per particle
+            }
+        }
+        queue.submit(std::iter::once(offscreen_encoder.finish()));
+
+        // No need to copy since we're using the same texture for rendering and sampling
+
+        // 2. Render display texture to surface with infinite tiling
+        let tile_count = self.calculate_tile_count();
+        let total_instances = tile_count * tile_count;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Flow Infinite Surface Encoder"),
+        });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Flow Infinite Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
@@ -1173,31 +1548,12 @@ impl Simulation for FlowModel {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-
-            // Render background based on type with 3x3 grid
-            render_pass.set_pipeline(&self.background_render_pipeline);
-            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
+            render_pass.set_pipeline(&self.render_infinite_pipeline);
+            render_pass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
-
-            // Render trails on top of background
-            render_pass.set_pipeline(&self.trail_render_pipeline);
-            render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
-
-            // Render particles with 3x3 grid (9 instances per particle) on top (only if show_particles is enabled)
-            if self.settings.show_particles {
-                render_pass.set_pipeline(&self.particle_render_pipeline);
-                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                // Use max_particles for rendering (1 million particles)
-                let active_particles = self.particles.len() as u32;
-                render_pass.draw(0..6, 0..active_particles * 9); // 3x3 grid = 9 instances
-            }
+            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
-
-        queue.submit(std::iter::once(render_encoder.finish()));
+        queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
 
@@ -1232,27 +1588,14 @@ impl Simulation for FlowModel {
                 timestamp_writes: None,
             });
 
-            // Render background based on type with 3x3 grid (same as normal render)
-            render_pass.set_pipeline(&self.background_render_pipeline);
-            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
+            // For static rendering, use the infinite pipeline directly
+            let tile_count = self.calculate_tile_count();
+            let total_instances = tile_count * tile_count;
 
-            // Render trails on top of background (same as normal render)
-            render_pass.set_pipeline(&self.trail_render_pipeline);
-            render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
+            render_pass.set_pipeline(&self.render_infinite_pipeline);
+            render_pass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..9); // 3x3 grid = 9 instances
-
-            // Render particles with 3x3 grid (9 instances per particle) on top (only if show_particles is enabled)
-            if self.settings.show_particles {
-                render_pass.set_pipeline(&self.particle_render_pipeline);
-                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                // Use max_particles for rendering (1 million particles)
-                let active_particles = self.particles.len() as u32;
-                render_pass.draw(0..6, 0..active_particles * 9); // 3x3 grid = 9 instances
-            }
+            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
 
         queue.submit(std::iter::once(render_encoder.finish()));
@@ -1505,6 +1848,7 @@ impl Simulation for FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
+            display_mode: self.settings.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -1537,6 +1881,147 @@ impl Simulation for FlowModel {
                 resource: self.camera.buffer().as_entire_binding(),
             }],
         });
+
+        // Create display texture for rendering and sampling
+        self.display_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Flow Display Texture"),
+            size: wgpu::Extent3d {
+                width: new_config.width,
+                height: new_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        self.display_view = self
+            .display_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Use the same texture for both rendering and sampling
+        self.display_mipmap_texture = self.display_texture.clone();
+        self.display_mipmap_view = self.display_view.clone();
+        self.display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Flow Display Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let render_infinite_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Flow Render Infinite Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+
+        // Recreate infinite render pipeline with new surface format
+        let render_infinite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Flow Render Infinite Shader"),
+            source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
+        });
+
+        let render_infinite_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Flow Render Infinite Pipeline Layout"),
+                bind_group_layouts: &[
+                    &render_infinite_bind_group_layout,
+                    &camera_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        self.render_infinite_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Flow Render Infinite Pipeline"),
+                layout: Some(&render_infinite_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &render_infinite_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &render_infinite_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: new_config.format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        self.render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Flow Render Infinite Bind Group"),
+            layout: &render_infinite_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.display_mipmap_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+            ],
+        });
+
+        // Camera bind group is already updated above, no separate 3x3 camera needed
 
         Ok(())
     }
@@ -1640,6 +2125,7 @@ impl Simulation for FlowModel {
                             cursor_strength: self.cursor_strength,
                             particle_autospawn: self.settings.particle_autospawn as u32,
                             particle_spawn_rate: self.settings.particle_spawn_rate,
+                            display_mode: self.settings.display_mode as u32,
                         };
 
                         queue.write_buffer(
@@ -1809,8 +2295,21 @@ impl Simulation for FlowModel {
                     self.settings.show_particles = show;
                 }
             }
+            "displayMode" => {
+                if let Some(mode_str) = value.as_str() {
+                    self.settings.display_mode = match mode_str {
+                        "Age" => super::settings::DisplayMode::Age,
+                        "Random" => super::settings::DisplayMode::Random,
+                        "Direction" => super::settings::DisplayMode::Direction,
+                        _ => super::settings::DisplayMode::Age,
+                    };
+                }
+            }
             _ => {}
         }
+
+        // After handling the specific setting, always update the GPU uniform so changes take effect immediately
+        self.write_sim_params(queue);
 
         Ok(())
     }
@@ -1851,15 +2350,10 @@ impl Simulation for FlowModel {
             let initial_particle_limit = 100;
             self.settings.particle_limit = initial_particle_limit;
 
-            // Create particles near the cursor position
+            // Create initial particles for painting
             let mut particles = Vec::with_capacity(initial_particle_limit as usize);
 
-            // Get LUT data for colors
-            let lut_data = self
-                .lut_manager
-                .get(&self.settings.current_lut)
-                .unwrap_or_else(|_| self.lut_manager.get_default());
-
+            // No longer need LUT data since we use LUT in shader
             RNG.with(|rng| {
                 let mut rng = rng.borrow_mut();
                 for _ in 0..initial_particle_limit {
@@ -1872,16 +2366,8 @@ impl Simulation for FlowModel {
                     let y = world_y + angle.sin() * distance;
                     let age = 0.0; // Start fresh
 
-                    // Generate random color from LUT
-                    let color_intensity = rng.random_range(0.0..1.0);
-                    let color_index = (color_intensity * 255.0) as usize;
-                    let color_index = color_index.min(255);
-                    let color = [
-                        lut_data.red[color_index] as f32 / 255.0,
-                        lut_data.green[color_index] as f32 / 255.0,
-                        lut_data.blue[color_index] as f32 / 255.0,
-                        0.9, // Alpha
-                    ];
+                    // No longer need to generate colors here since we use LUT in shader
+                    let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
 
                     let particle = Particle {
                         position: [x, y],
@@ -1934,6 +2420,7 @@ impl Simulation for FlowModel {
                 cursor_strength: self.cursor_strength,
                 particle_autospawn: self.settings.particle_autospawn as u32,
                 particle_spawn_rate: self.settings.particle_spawn_rate,
+                display_mode: self.settings.display_mode as u32,
             };
 
             queue.write_buffer(
@@ -2045,12 +2532,7 @@ impl Simulation for FlowModel {
         // Reset particles
         let mut particles = Vec::with_capacity(self.settings.particle_limit as usize);
 
-        // Get LUT data for random colors
-        let lut_data = self
-            .lut_manager
-            .get(&self.settings.current_lut)
-            .unwrap_or_else(|_| self.lut_manager.get_default());
-
+        // No longer need LUT data since we use LUT in shader
         RNG.with(|rng| {
             let mut rng = rng.borrow_mut();
             for _ in 0..self.settings.particle_limit {
@@ -2058,16 +2540,8 @@ impl Simulation for FlowModel {
                 let y = rng.random_range(-1.0..1.0);
                 let age = rng.random_range(0.0..self.settings.particle_lifetime);
 
-                // Generate random color from LUT
-                let color_intensity = rng.random_range(0.0..1.0);
-                let color_index = (color_intensity * 255.0) as usize;
-                let color_index = color_index.min(255);
-                let color = [
-                    lut_data.red[color_index] as f32 / 255.0,
-                    lut_data.green[color_index] as f32 / 255.0,
-                    lut_data.blue[color_index] as f32 / 255.0,
-                    0.9, // Alpha
-                ];
+                // No longer need to generate colors here since we use LUT in shader
+                let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
 
                 let particle = Particle {
                     position: [x, y],
@@ -2206,6 +2680,7 @@ impl FlowModel {
                 cursor_strength: self.cursor_strength,
                 particle_autospawn: self.settings.particle_autospawn as u32,
                 particle_spawn_rate: self.settings.particle_spawn_rate,
+                display_mode: self.settings.display_mode as u32,
             };
 
             queue.write_buffer(
@@ -2267,28 +2742,15 @@ impl FlowModel {
         let mut particles = Vec::with_capacity(self.settings.particle_limit as usize);
         let mut rng = rand::rng();
 
-        // Get LUT data for random colors
-        let lut_data = self
-            .lut_manager
-            .get(&self.settings.current_lut)
-            .unwrap_or_else(|_| self.lut_manager.get_default());
-
+        // No longer need LUT data since we use LUT in shader
         for _ in 0..self.settings.particle_limit {
             // Use proper random number generation
             let x = rng.random_range(-1.0..1.0);
             let y = rng.random_range(-1.0..1.0);
             let age = rng.random_range(0.0..self.settings.particle_lifetime * 0.1); // Start with 10% of lifetime max
 
-            // Generate random color from LUT
-            let color_intensity = rng.random_range(0.0..1.0);
-            let color_index = (color_intensity * 255.0) as usize;
-            let color_index = color_index.min(255);
-            let color = [
-                lut_data.red[color_index] as f32 / 255.0,
-                lut_data.green[color_index] as f32 / 255.0,
-                lut_data.blue[color_index] as f32 / 255.0,
-                0.9, // Alpha
-            ];
+            // No longer need to generate colors here since we use LUT in shader
+            let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
 
             let particle = Particle {
                 position: [x, y],
@@ -2340,6 +2802,7 @@ impl FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
+            display_mode: self.settings.display_mode as u32,
         };
 
         queue.write_buffer(
