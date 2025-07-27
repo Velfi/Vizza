@@ -25,3 +25,5 @@ pub mod position_generators;
 
 pub use lut::{LutData, LutManager, SimulationLutManager};
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
+
+pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");

@@ -17,10 +17,16 @@
 //! neighbor lookups, compute shaders handle the physics calculations that determine
 //! particle behavior, while render shaders create the visual representation.
 
-pub const RENDER_SHADER: &str = include_str!("render.wgsl");
-pub const PARTICLE_VERTEX_SHADER: &str = include_str!("particle_vertex.wgsl");
-pub const PARTICLE_FRAGMENT_SHADER: &str = include_str!("particle_fragment.wgsl");
+// Compute shaders
 pub const PHYSICS_COMPUTE_SHADER: &str = include_str!("physics_compute.wgsl");
 pub const DENSITY_COMPUTE_SHADER: &str = include_str!("density_compute.wgsl");
 pub const GRID_CLEAR_SHADER: &str = include_str!("grid_clear.wgsl");
 pub const GRID_POPULATE_SHADER: &str = include_str!("grid_populate.wgsl");
+
+// Offscreen rendering shaders
+pub const BACKGROUND_RENDER_SHADER: &str = include_str!("background_render.wgsl");
+pub const PARTICLE_RENDER_SHADER: &str = include_str!("particle_render.wgsl");
+pub const PARTICLE_FRAGMENT_RENDER_SHADER: &str = include_str!("particle_fragment_render.wgsl");
+pub const POST_EFFECT_VERTEX_SHADER: &str = include_str!("post_effect_vertex.wgsl");
+pub const POST_EFFECT_FRAGMENT_SHADER: &str = include_str!("post_effect_fragment.wgsl");
+pub const RENDER_INFINITE_SHADER: &str = crate::simulations::shared::INFINITE_RENDER_SHADER;

@@ -12,7 +12,6 @@ struct SimParams {
     particle_count: u32,
     species_count: u32,
     max_force: f32,
-    min_distance: f32,
     max_distance: f32,
     friction: f32,
     wrap_edges: u32,
@@ -27,9 +26,6 @@ struct SimParams {
     cursor_strength: f32,  // Cursor force strength
     cursor_active: u32,  // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     brownian_motion: f32,  // Brownian motion strength (0.0-1.0)
-    traces_enabled: u32,  // Whether particle traces are enabled
-    trace_fade: f32,  // Trace fade factor (0.0-1.0)
-    edge_fade_strength: f32,  // Edge fade strength
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,

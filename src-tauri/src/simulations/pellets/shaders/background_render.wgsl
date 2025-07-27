@@ -1,6 +1,6 @@
 struct BackgroundParams {
     background_type: u32, // 0 = black, 1 = white, 2 = density
-    density_texture_resolution: u32, // Add texture resolution for proper sampling
+    density_texture_resolution: u32,
 }
 
 @group(0) @binding(0)
@@ -46,8 +46,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let potential = textureLoad(density_texture, tex_coord, 0).r;
         
         // For inverse square field, use power law scaling to better show the falloff
-        // The field falls off as 1/r, so we need to enhance the contrast
-        let enhanced_potential = pow(potential, 0.5); // Square root to compress high values
+        let enhanced_potential = pow(potential, 0.5);
         
         // Scale for better visibility of the inverse square falloff
         let scaled_potential = enhanced_potential * 4.0;

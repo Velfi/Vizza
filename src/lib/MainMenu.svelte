@@ -209,11 +209,6 @@
     transform: translateY(-2px);
   }
 
-  .simulation-card.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
   .simulation-card h2 {
     margin: 0 0 0.5rem 0;
     font-size: 1.5rem;

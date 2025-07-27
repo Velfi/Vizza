@@ -1,9 +1,7 @@
 <div
   class="dialog-backdrop"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="save-preset-title"
-  tabindex="-1"
+  role="button"
+  tabindex="0"
   on:click={() => dispatch('close')}
   on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
 >

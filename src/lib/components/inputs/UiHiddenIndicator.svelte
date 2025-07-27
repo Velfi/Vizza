@@ -1,7 +1,10 @@
 <div
   class="ui-hidden-indicator"
   class:visible={isVisible}
+  role="button"
+  tabindex="0"
   on:click={handleInteraction}
+  on:keydown={(e) => e.key === 'Enter' && handleInteraction()}
   on:mouseenter={handleInteraction}
 >
   <div class="ui-hidden-content">

@@ -528,7 +528,7 @@
     const y = event.clientY - rect.top;
 
     switch (dragTarget) {
-      case 'maxForce':
+      case 'maxForce': {
         // Vertical dragging affects max force - handle moves like a slider on Y axis
         // Convert mouse Y position directly to force value
         const forceFromY = (yOffset - y) / yScale;
@@ -536,8 +536,9 @@
         internalMaxForce = newMaxForce;
         dispatch('update', { setting: 'max_force', value: newMaxForce });
         break;
+      }
 
-      case 'maxDistance':
+      case 'maxDistance': {
         // Horizontal dragging affects max distance - use linear scaling
         // Convert mouse X position to linear distance value
         const ratio = Math.max(0, Math.min(1, (x - margin) / plotWidth));
@@ -545,14 +546,16 @@
         internalMaxDistance = newMaxDistance;
         dispatch('update', { setting: 'max_distance', value: newMaxDistance });
         break;
+      }
 
-      case 'beta':
+      case 'beta': {
         // Horizontal dragging affects beta (transition point) - uses delta-based calculation
         const deltaX = x - dragStartX;
         const newBeta = Math.max(0.1, Math.min(0.9, originalValues.forceBeta + deltaX * 0.002));
         internalForceBeta = newBeta;
         dispatch('update', { setting: 'force_beta', value: newBeta });
         break;
+      }
     }
 
     draw();

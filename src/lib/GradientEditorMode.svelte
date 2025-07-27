@@ -39,6 +39,8 @@
     <div class="stops-container">
       <div
         class="gradient-bar"
+        role="button"
+        tabindex="0"
         on:dblclick={addStopAtPosition}
         on:keydown={(e) => e.key === 'Enter' && addStopAtPosition(e)}
       >
@@ -47,7 +49,10 @@
             class="color-stop"
             class:selected={selectedStopIndex === index}
             style="left: {stop.position * 100}%; background-color: {stop.color}"
+            role="button"
+            tabindex="0"
             on:click={() => selectStop(index)}
+            on:keydown={(e) => e.key === 'Enter' && selectStop(index)}
             on:mousedown={(e) => startDragging(e, index)}
           >
             <div class="stop-handle"></div>
@@ -63,28 +68,37 @@
     <div class="control-header">
       <div class="header-grid">
         <div class="name-section">
-          <label>Name:</label>
-          <input type="text" bind:value={lutName} placeholder="LUT name" class="lut-name-input" />
+          <label for="lut-name-input">Name:</label>
+          <input
+            id="lut-name-input"
+            type="text"
+            bind:value={lutName}
+            placeholder="LUT name"
+            class="lut-name-input"
+          />
         </div>
         <div class="preset-section">
-          <label>Preset:</label>
+          <label for="preset-selector">Preset:</label>
           <Selector
+            id="preset-selector"
             options={['Custom', 'Rainbow', 'Heat', 'Cool', 'Viridis', 'Plasma', 'Inferno']}
             bind:value={selectedPreset}
             on:change={applyPreset}
           />
         </div>
         <div class="space-section">
-          <label>Space:</label>
+          <label for="color-space-selector">Space:</label>
           <Selector
+            id="color-space-selector"
             options={['RGB', 'Lab', 'OkLab', 'Jzazbz', 'HSLuv']}
             bind:value={selectedColorSpace}
             on:change={handleColorSpaceChange}
           />
         </div>
         <div class="display-section">
-          <label>Display:</label>
+          <label for="display-mode-selector">Display:</label>
           <Selector
+            id="display-mode-selector"
             options={['Smooth', 'Dithered']}
             bind:value={selectedDisplayMode}
             on:change={handleDisplayModeChange}
@@ -113,8 +127,9 @@
         </div>
         <div class="stop-controls-grid">
           <div class="control-item">
-            <label>Color</label>
+            <label for="color-picker">Color</label>
             <input
+              id="color-picker"
               type="color"
               bind:value={gradientStops[selectedStopIndex].color}
               on:input={handleColorInput}
@@ -122,8 +137,9 @@
             />
           </div>
           <div class="control-item">
-            <label>Position</label>
+            <label for="position-slider">Position</label>
             <input
+              id="position-slider"
               type="range"
               min="0"
               max="1"
@@ -141,14 +157,14 @@
     <div class="actions-section">
       <div class="actions-grid">
         <div class="action-group">
-          <label>Actions</label>
+          <span class="section-label">Actions</span>
           <div class="button-group">
             <button type="button" on:click={reverseGradient} class="btn-action">Reverse</button>
             <button type="button" on:click={exportLUT} class="btn-action">Export</button>
           </div>
         </div>
         <div class="random-group">
-          <label>Random Generator</label>
+          <span class="section-label">Random Generator</span>
           <div class="random-controls">
             <div class="random-row">
               <Selector
@@ -630,7 +646,7 @@
           '#556b2f',
         ];
         break;
-      case 'Monochrome':
+      case 'Monochrome': {
         const baseHue = Math.floor(Math.random() * 360);
         colors = [];
         for (let i = 0; i < 8; i++) {
@@ -639,7 +655,8 @@
           colors.push(hslToHex(baseHue, saturation, lightness));
         }
         break;
-      case 'Complementary':
+      }
+      case 'Complementary': {
         const hue1 = Math.floor(Math.random() * 360);
         const hue2 = (hue1 + 180) % 360;
         colors = [
@@ -651,6 +668,7 @@
           hslToHex(hue2, 60, 70),
         ];
         break;
+      }
       case 'Truly Random':
         colors = [];
         for (let i = 0; i < 8; i++) {
@@ -841,7 +859,7 @@
     }
   }
 
-  function handleMouseEvent(_event: CustomEvent) {
+  function handleMouseEvent() {
     // Handle mouse events if needed
   }
 
@@ -1123,25 +1141,16 @@
   }
 
   .space-section,
-  .display-section,
-  .stops-section {
+  .display-section {
     display: flex;
     align-items: center;
     gap: 0.4rem;
   }
 
   .space-section label,
-  .display-section label,
-  .stops-section label {
+  .display-section label {
     font-weight: 500;
     color: #ccc;
-    font-size: 0.8rem;
-    white-space: nowrap;
-  }
-
-  .stops-count {
-    font-weight: 500;
-    color: #646cff;
     font-size: 0.8rem;
     white-space: nowrap;
   }
@@ -1221,13 +1230,6 @@
     gap: 0.25rem;
   }
 
-  .action-group label {
-    font-weight: 500;
-    color: #ccc;
-    font-size: 0.8rem;
-    white-space: nowrap;
-  }
-
   .button-group {
     display: flex;
     gap: 0.3rem;
@@ -1237,13 +1239,6 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-  }
-
-  .random-group label {
-    font-weight: 500;
-    color: #ccc;
-    font-size: 0.8rem;
-    white-space: nowrap;
   }
 
   .random-controls {

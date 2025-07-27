@@ -13,11 +13,13 @@ pub struct PipelineManager {
     pub gradient_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
     pub render_infinite_pipeline: RenderPipeline,
+    pub background_render_pipeline: RenderPipeline,
     pub compute_bind_group_layout: BindGroupLayout,
     pub display_bind_group_layout: BindGroupLayout,
     pub render_bind_group_layout: BindGroupLayout,
     pub camera_bind_group_layout: BindGroupLayout,
     pub gradient_bind_group_layout: BindGroupLayout,
+    pub background_bind_group_layout: BindGroupLayout,
 }
 
 impl PipelineManager {
@@ -163,6 +165,16 @@ impl PipelineManager {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -172,6 +184,21 @@ impl PipelineManager {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let background_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Background Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -376,10 +403,58 @@ impl PipelineManager {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader_manager.quad_infinite_shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some("fs_main_texture"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: surface_format,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        let background_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Background Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Background Render Pipeline Layout"),
+                        bind_group_layouts: &[
+                            &background_bind_group_layout,
+                            &camera_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &shader_manager.background_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader_manager.background_render_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                     compilation_options: Default::default(),
@@ -413,11 +488,13 @@ impl PipelineManager {
             gradient_pipeline,
             render_pipeline,
             render_infinite_pipeline,
+            background_render_pipeline,
             compute_bind_group_layout,
             display_bind_group_layout,
             render_bind_group_layout,
             camera_bind_group_layout,
             gradient_bind_group_layout,
+            background_bind_group_layout,
         }
     }
 }

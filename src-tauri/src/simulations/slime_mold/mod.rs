@@ -6,6 +6,9 @@ pub mod shaders;
 pub mod simulation;
 pub mod workgroup_optimizer;
 
+#[cfg(test)]
+mod tests;
+
 pub use simulation::SlimeMoldModel;
 
 use crate::simulation::preset_manager::{Preset, SlimeMoldPresetManager};

@@ -249,7 +249,7 @@
           <input
             type="checkbox"
             id="densityDampingEnabled"
-            checked={(settings as any)?.density_damping_enabled ?? true}
+            checked={settings?.density_damping_enabled ?? true}
             on:change={(e) =>
               updateSetting('density_damping_enabled', (e.target as HTMLInputElement).checked)}
           />
@@ -562,7 +562,7 @@
     }
   }
 
-  const updateSetting = async (key: string, value: any) => {
+  const updateSetting = async (key: string, value: string | number | boolean) => {
     console.log('updateSetting called with:', key, value);
     if (!settings) {
       console.log('No settings available, returning');
@@ -580,7 +580,7 @@
       console.log('Calling update_simulation_setting for:', key, value);
       await invoke('update_simulation_setting', { settingName: key, value });
       // Update local settings
-      (settings as any)[key] = value;
+      (settings as Record<string, unknown>)[key] = value;
       console.log('Setting updated successfully');
     } catch (error) {
       console.error('Failed to update setting:', error);

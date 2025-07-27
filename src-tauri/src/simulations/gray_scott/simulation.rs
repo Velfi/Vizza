@@ -30,6 +30,19 @@ pub struct SimulationParams {
 }
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct BackgroundParams {
+    pub background_type: u32, // 0 = black, 1 = white, 2 = gradient
+    pub gradient_enabled: u32,
+    pub gradient_type: u32,
+    pub gradient_strength: f32,
+    pub gradient_center_x: f32,
+    pub gradient_center_y: f32,
+    pub gradient_size: f32,
+    pub gradient_angle: f32,
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct UVPair {
     u: f32,
@@ -56,6 +69,10 @@ pub struct GrayScottModel {
     // Cursor configuration (runtime state, not saved in presets)
     pub cursor_size: f32,
     pub cursor_strength: f32,
+
+    // Background parameters
+    pub background_params_buffer: wgpu::Buffer,
+    pub background_bind_group: wgpu::BindGroup,
 }
 
 impl GrayScottModel {
@@ -249,6 +266,34 @@ impl GrayScottModel {
         let renderer = Renderer::new(device, queue, surface_config, width, height, lut_manager)?;
         let noise_seed_compute = NoiseSeedCompute::new(device);
 
+        // Create background parameters
+        let background_params = BackgroundParams {
+            background_type: 0,  // Black background by default
+            gradient_enabled: 0, // No gradient by default
+            gradient_type: 0,
+            gradient_strength: 1.0,
+            gradient_center_x: 0.0,
+            gradient_center_y: 0.0,
+            gradient_size: 1.0,
+            gradient_angle: 0.0,
+        };
+        let background_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Params Buffer"),
+                contents: bytemuck::bytes_of(&background_params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create background bind group
+        let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background Bind Group"),
+            layout: &renderer.background_bind_group_layout(),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: background_params_buffer.as_entire_binding(),
+            }],
+        });
+
         // Initialize LUT
         let mut simulation = Self {
             renderer,
@@ -267,6 +312,8 @@ impl GrayScottModel {
             show_gui: true,
             cursor_size: 40.0,
             cursor_strength: 0.5,
+            background_params_buffer,
+            background_bind_group,
         };
 
         // Apply initial LUT
@@ -498,7 +545,12 @@ impl GrayScottModel {
         // Render the current state - pass the output buffer (which contains the latest results)
         let output_buffer = &self.uvs_buffers[self.current_buffer];
         self.renderer
-            .render(surface_view, output_buffer, &self.params_buffer)
+            .render(
+                surface_view,
+                output_buffer,
+                &self.params_buffer,
+                &self.background_bind_group,
+            )
             .map_err(|e| SimulationError::Gpu(Box::new(e)))
     }
 
@@ -693,7 +745,12 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         // Render the current state - pass the current buffer (which contains the latest results)
         let current_buffer = &self.uvs_buffers[self.current_buffer];
         self.renderer
-            .render(surface_view, current_buffer, &self.params_buffer)
+            .render(
+                surface_view,
+                current_buffer,
+                &self.params_buffer,
+                &self.background_bind_group,
+            )
             .map_err(|e| SimulationError::Gpu(Box::new(e)))
     }
 

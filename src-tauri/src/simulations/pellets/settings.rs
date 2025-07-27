@@ -74,7 +74,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             particle_count: 5000,
-            particle_size: 0.012,
+            particle_size: 0.05,
             collision_damping: 1.0,
             initial_velocity_max: 0.15,
             initial_velocity_min: 0.05,

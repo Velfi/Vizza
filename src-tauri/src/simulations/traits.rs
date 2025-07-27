@@ -212,7 +212,7 @@ impl SimulationType {
                     queue,
                     surface_config,
                     adapter_info,
-                    15000, // Default particle count
+                    15000,
                     settings,
                     lut_manager,
                     crate::simulations::particle_life::simulation::ColorMode::Lut,
@@ -225,7 +225,7 @@ impl SimulationType {
                     device,
                     queue,
                     surface_config,
-                    1000, // Default agent count
+                    1000,
                     settings,
                     lut_manager,
                 )?;

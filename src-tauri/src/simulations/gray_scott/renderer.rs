@@ -16,9 +16,12 @@ pub struct Renderer {
     height: u32,
     settings: Settings,
     lut_buffer: wgpu::Buffer,
+    background_color_buffer: wgpu::Buffer,
     render_infinite_pipeline: wgpu::RenderPipeline,
+    background_render_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     camera_bind_group_layout: wgpu::BindGroupLayout,
+    background_bind_group_layout: wgpu::BindGroupLayout,
     pub camera: Camera,
 }
 
@@ -33,7 +36,7 @@ impl Renderer {
         let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
         let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
         // Allow more tiles for proper infinite tiling, but cap at reasonable limit
-        tiles_needed.max(min_tiles).min(200) // Cap at 200x200 for performance
+        tiles_needed.max(min_tiles).min(1024) // Cap at 200x200 for performance
     }
 
     pub fn new(
@@ -55,35 +58,54 @@ impl Renderer {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create background color buffer (black by default)
+        let background_color_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Color Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         // Create simulation data bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Render Bind Group Layout"),
             entries: &[
-                // Binding 0: Simulation data (UVPair array)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 1: LUT data
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 2: Simulation parameters
+                // Binding 2: Background color uniform - matches shared shader
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Binding 3: Simulation data (UVPair array) - matches shared shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Binding 4: LUT data - matches shared shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Binding 5: Simulation parameters - matches shared shader
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -102,6 +124,22 @@ impl Renderer {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        // Create background bind group layout
+        let background_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Background Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -142,10 +180,66 @@ impl Renderer {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader_infinite,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some("fs_main_storage"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: surface_config.format,
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create background shader
+        let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Background Render Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::gray_scott::shaders::BACKGROUND_RENDER_SHADER.into(),
+            ),
+        });
+
+        // Create background pipeline layout
+        let background_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Background Pipeline Layout"),
+                bind_group_layouts: &[&background_bind_group_layout, &camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        // Create background render pipeline
+        let background_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Background Render Pipeline"),
+                layout: Some(&background_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &background_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &background_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -177,9 +271,12 @@ impl Renderer {
             height,
             settings,
             lut_buffer,
+            background_color_buffer,
             render_infinite_pipeline,
+            background_render_pipeline,
             bind_group_layout,
             camera_bind_group_layout,
+            background_bind_group_layout,
             camera,
         })
     }
@@ -204,15 +301,19 @@ impl Renderer {
             layout: &self.bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
-                    binding: 0,
+                    binding: 2,
+                    resource: self.background_color_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
                     resource: simulation_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 1,
+                    binding: 4,
                     resource: self.lut_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: 5,
                     resource: params_buffer.as_entire_binding(),
                 },
             ],
@@ -235,6 +336,7 @@ impl Renderer {
         view: &TextureView,
         simulation_buffer: &wgpu::Buffer,
         params_buffer: &wgpu::Buffer,
+        background_bind_group: &wgpu::BindGroup,
     ) -> Result<(), wgpu::SurfaceError> {
         // Update camera data on GPU
         self.camera.upload_to_gpu(&self.queue);
@@ -260,16 +362,23 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: None,
-                ..Default::default()
+                timestamp_writes: None,
+                occlusion_query_set: None,
             });
 
-            // Use infinite instanced rendering with dynamic tile count
+            // Render background first
+            render_pass.set_pipeline(&self.background_render_pipeline);
+            render_pass.set_bind_group(0, background_bind_group, &[]);
+            render_pass.set_bind_group(1, &camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+
+            // Then render main simulation content with infinite tiling
             let tile_count = self.calculate_tile_count();
             let total_instances = tile_count * tile_count;
             render_pass.set_pipeline(&self.render_infinite_pipeline);
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.set_bind_group(1, &camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
+            render_pass.draw(0..6, 0..total_instances);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -294,5 +403,9 @@ impl Renderer {
 
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
+    }
+
+    pub fn background_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.background_bind_group_layout
     }
 }

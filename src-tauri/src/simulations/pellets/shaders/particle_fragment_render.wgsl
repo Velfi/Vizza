@@ -1,10 +1,3 @@
-struct CameraUniform {
-    transform_matrix: mat4x4<f32>,
-    position: vec2<f32>,
-    zoom: f32,
-    aspect_ratio: f32,
-}
-
 struct FragmentInput {
     @location(0) color: vec3<f32>,
     @location(1) mass: f32,
@@ -13,8 +6,15 @@ struct FragmentInput {
     @location(4) coloring_mode: f32,
 }
 
-@group(0) @binding(3) var<storage, read> lut: array<u32>;
-@group(0) @binding(1) var<uniform> camera: CameraUniform;
+struct RenderParams {
+    particle_size: f32,
+    screen_width: f32,
+    screen_height: f32,
+    coloring_mode: u32, // 0 = density, 1 = velocity
+}
+
+@group(0) @binding(1) var<uniform> params: RenderParams;
+@group(0) @binding(2) var<storage, read> lut: array<u32>;
 
 fn get_lut_color(index: u32) -> vec3<f32> {
     let r = f32(lut[index]) / 255.0;
@@ -23,20 +23,16 @@ fn get_lut_color(index: u32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
-
-
 @fragment
 fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
     // Create circular particles with aspect ratio correction
     let center = vec2<f32>(0.5, 0.5);
+    let aspect_ratio = params.screen_width / params.screen_height;
     
-    // Correct for aspect ratio to ensure circular particles
-    let aspect_corrected_uv = vec2<f32>(
-        (in.uv.x - 0.5) * camera.aspect_ratio + 0.5,
-        in.uv.y
-    );
-    
-    let dist = distance(aspect_corrected_uv, center);
+    // Correct UV coordinates for aspect ratio to ensure circular particles
+    var corrected_uv = in.uv - center;
+    corrected_uv.x *= aspect_ratio;
+    let dist = length(corrected_uv);
     
     // Standard particle rendering with hard edges
     let particle_radius = 0.45;

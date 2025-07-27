@@ -1071,7 +1071,7 @@
 
       if (backendState) {
         // Update cursor state from backend
-        const state = backendState as any;
+        const state = backendState as { cursorSize?: number; cursorStrength?: number };
         if (state.cursorSize !== undefined) {
           cursorSize = state.cursorSize;
         }

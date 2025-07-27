@@ -1609,7 +1609,7 @@ impl EcosystemModel {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Biomass Particle Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                crate::simulations::ecosystem::shaders::BIOMASS_PARTICLE_SHADER.into(),
+                crate::simulations::ecosystem::shaders::RENDER_SHADER.into(),
             ),
         });
 

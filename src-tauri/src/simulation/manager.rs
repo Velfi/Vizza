@@ -976,11 +976,6 @@ impl SimulationManager {
 
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        tracing::debug!(
-            "SimulationManager pan_camera: delta=({:.2}, {:.2})",
-            delta_x,
-            delta_y
-        );
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
@@ -998,7 +993,6 @@ impl SimulationManager {
     }
 
     pub fn zoom_camera(&mut self, delta: f32) {
-        tracing::debug!("SimulationManager zoom_camera: delta={:.2}", delta);
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
@@ -1014,12 +1008,6 @@ impl SimulationManager {
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        tracing::debug!(
-            "SimulationManager zoom_camera_to_cursor: delta={:.2}, cursor=({:.2}, {:.2})",
-            delta,
-            cursor_x,
-            cursor_y
-        );
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
@@ -1048,7 +1036,6 @@ impl SimulationManager {
     }
 
     pub fn reset_camera(&mut self) {
-        tracing::debug!("SimulationManager reset_camera");
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
@@ -1143,8 +1130,6 @@ impl SimulationManager {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<serde_json::Value, String> {
-        tracing::debug!("get_ecosystem_population called");
-
         if let Some(SimulationType::Ecosystem(simulation)) = &self.current_simulation {
             tracing::debug!("Found ecosystem simulation");
 
@@ -1198,7 +1183,6 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
-        tracing::debug!("SimulationManager update_cursor_size: {}", size);
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
@@ -1262,7 +1246,6 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
-        tracing::debug!("SimulationManager update_cursor_strength: {}", strength);
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {

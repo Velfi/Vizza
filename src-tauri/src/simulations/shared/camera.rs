@@ -3,7 +3,6 @@ use crate::error::SimulationResult;
 use bytemuck::{Pod, Zeroable};
 use serde_json;
 use std::sync::Arc;
-use tracing;
 use wgpu::{Device, Queue};
 
 /// GPU-compatible camera uniform data
@@ -172,17 +171,6 @@ impl Camera {
         // Allow movement within [-2.0, 2.0] to provide some margin around the [-1,1] space
         self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
         self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
-
-        tracing::debug!(
-            "Camera pan: delta=({:.2}, {:.2}), sensitivity={:.2}, adjusted_delta=({:.2}, {:.2}), target_pos=({:.2}, {:.2})",
-            delta_x,
-            delta_y,
-            self.sensitivity,
-            adjusted_delta_x,
-            adjusted_delta_y,
-            self.target_position[0],
-            self.target_position[1]
-        );
     }
 
     /// Update zoom level (zooms to center of viewport)
@@ -208,14 +196,6 @@ impl Camera {
             // Keep the same center point after zoom
             self.target_position[0] = center_world_x;
             self.target_position[1] = center_world_y;
-
-            tracing::debug!(
-                "Camera zoom: delta={:.2}, sensitivity={:.2}, adjusted_delta={:.2}, target_zoom={:.2}",
-                delta,
-                self.sensitivity,
-                adjusted_delta,
-                clamped_zoom
-            );
         }
     }
 
@@ -247,15 +227,6 @@ impl Camera {
         // Clamp target position to reasonable bounds to prevent going too far out
         self.target_position[0] = self.target_position[0].clamp(-2.0, 2.0);
         self.target_position[1] = self.target_position[1].clamp(-2.0, 2.0);
-
-        tracing::debug!(
-            "Camera zoom to cursor: cursor=({:.2}, {:.2}), target_zoom={:.2}, target_pos=({:.2}, {:.2})",
-            cursor_x,
-            cursor_y,
-            self.target_zoom,
-            self.target_position[0],
-            self.target_position[1]
-        );
     }
 
     /// Reset camera to default position and zoom
@@ -265,7 +236,6 @@ impl Camera {
         self.zoom = 1.0;
         self.target_zoom = 1.0;
         self.update_uniform();
-        tracing::debug!("Camera reset to default position and zoom");
     }
 
     /// Update viewport dimensions (call when window is resized)
@@ -361,7 +331,6 @@ impl Camera {
     /// Set the camera smoothing factor
     pub fn set_smoothing_factor(&mut self, factor: f32) {
         self.smoothing_factor = factor.clamp(0.0, 1.0);
-        tracing::debug!("Camera smoothing factor set to: {}", self.smoothing_factor);
     }
 
     /// Get the current camera smoothing factor
@@ -382,7 +351,6 @@ impl Camera {
     /// Set the camera sensitivity
     pub fn set_sensitivity(&mut self, sensitivity: f32) {
         self.sensitivity = sensitivity.clamp(0.1, 5.0);
-        tracing::debug!("Camera sensitivity set to: {}", self.sensitivity);
     }
 
     /// Get the current camera sensitivity

@@ -94,6 +94,19 @@ pub struct CursorParams {
     pub _pad2: u32,
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct BackgroundParams {
+    pub background_type: u32, // 0 = black, 1 = white, 2 = gradient
+    pub gradient_enabled: u32,
+    pub gradient_type: u32,
+    pub gradient_strength: f32,
+    pub gradient_center_x: f32,
+    pub gradient_center_y: f32,
+    pub gradient_size: f32,
+    pub gradient_angle: f32,
+}
+
 #[derive(Debug)]
 /// SlimeMoldModel manages simulation-specific GPU resources and logic
 /// while using Tauri's shared GPU context (device, queue, surface config)
@@ -145,6 +158,12 @@ pub struct SlimeMoldModel {
     // Cursor configuration (runtime state, not saved in presets)
     pub cursor_size: f32,
     pub cursor_strength: f32,
+
+    // Background parameters
+    pub background_params_buffer: wgpu::Buffer,
+    pub background_bind_group: wgpu::BindGroup,
+    pub background_color_buffer: wgpu::Buffer,
+    pub lut_manager: Arc<LutManager>,
 }
 
 impl SlimeMoldModel {
@@ -158,7 +177,7 @@ impl SlimeMoldModel {
         let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
         let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
         // Allow more tiles for proper infinite tiling, but cap at reasonable limit
-        tiles_needed.max(min_tiles).min(200) // Cap at 200x200 for performance
+        tiles_needed.max(min_tiles).min(1024) // Cap at 200x200 for performance
     }
 
     /// Create a new slime mold simulation using Tauri's shared GPU resources
@@ -256,7 +275,8 @@ impl SlimeMoldModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -324,6 +344,43 @@ impl SlimeMoldModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create background parameters
+        let background_params = BackgroundParams {
+            background_type: 0, // Black background by default
+            gradient_enabled: if settings.gradient_type == super::settings::GradientType::Disabled {
+                0
+            } else {
+                1
+            },
+            gradient_type: match settings.gradient_type {
+                super::settings::GradientType::Disabled => 0,
+                super::settings::GradientType::Linear => 1,
+                super::settings::GradientType::Radial => 2,
+                super::settings::GradientType::Ellipse => 3,
+                super::settings::GradientType::Spiral => 4,
+                super::settings::GradientType::Checkerboard => 5,
+            },
+            gradient_strength: settings.gradient_strength,
+            gradient_center_x: settings.gradient_center_x,
+            gradient_center_y: settings.gradient_center_y,
+            gradient_size: settings.gradient_size,
+            gradient_angle: settings.gradient_angle,
+        };
+        let background_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Params Buffer"),
+                contents: bytemuck::bytes_of(&background_params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create background color buffer (black by default)
+        let background_color_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Slime Mold Background Color Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
             device,
@@ -341,7 +398,18 @@ impl SlimeMoldModel {
             &lut_buffer,
             camera.buffer(),
             &cursor_buffer,
+            &background_color_buffer,
         );
+
+        // Create background bind group
+        let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background Bind Group"),
+            layout: &pipeline_manager.background_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: background_params_buffer.as_entire_binding(),
+            }],
+        });
 
         // Create buffer pool
         let buffer_pool = BufferPool::new();
@@ -380,6 +448,10 @@ impl SlimeMoldModel {
             cursor_size: 300.0,   // Default cursor size
             cursor_strength: 5.0, // Default cursor strength
             position_generator: crate::simulations::shared::SlimeMoldPositionGenerator::Random,
+            background_params_buffer,
+            background_bind_group,
+            background_color_buffer,
+            lut_manager: Arc::new(lut_manager.clone()),
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -665,7 +737,8 @@ impl SlimeMoldModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
         self.display_view = self
@@ -694,19 +767,57 @@ impl SlimeMoldModel {
         self.camera.update(0.016); // Assume 60 FPS for now
         self.camera.upload_to_gpu(queue);
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Slime Mold Render Encoder"),
+        // Update background parameters
+        self.update_background_params(queue);
+        self.update_background_color(queue);
+
+        // Run compute passes for simulation (agent updates, trail decay, etc.)
+        let mut compute_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Slime Mold Compute Encoder"),
         });
+        self.run_compute_passes(&mut compute_encoder);
+        queue.submit(std::iter::once(compute_encoder.finish()));
 
-        // Run compute passes for simulation
-        self.run_compute_passes(&mut encoder);
-
-        // First render to display texture
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Slime Mold Display Pass"),
-                timestamp_writes: None,
+        // 1. Render background to offscreen texture
+        let mut background_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Slime Mold Background Encoder"),
             });
+        {
+            let mut render_pass =
+                background_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Slime Mold Background Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+            // Render background
+            render_pass.set_pipeline(&self.pipeline_manager.background_render_pipeline);
+            render_pass.set_bind_group(0, &self.background_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        queue.submit(std::iter::once(background_encoder.finish()));
+
+        // 2. Generate main simulation content to offscreen texture
+        let mut display_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Slime Mold Display Encoder"),
+        });
+        {
+            let mut compute_pass =
+                display_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Slime Mold Display Pass"),
+                    timestamp_writes: None,
+                });
             compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
             let (workgroups_x, workgroups_y) = self
@@ -714,11 +825,18 @@ impl SlimeMoldModel {
                 .workgroups_2d(self.display_texture.width(), self.display_texture.height());
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
+        queue.submit(std::iter::once(display_encoder.finish()));
 
-        // Then render display texture to surface with 3x3 instanced rendering
+        // 2. Render offscreen texture to surface with infinite tiling
+        let tile_count = self.calculate_tile_count();
+        let total_instances = tile_count * tile_count;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Slime Mold Infinite Surface Encoder"),
+        });
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Slime Mold Render Pass"),
+                label: Some("Slime Mold Infinite Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
@@ -732,15 +850,11 @@ impl SlimeMoldModel {
                 occlusion_query_set: None,
             });
 
-            // Use infinite instanced rendering with dynamic tile count
-            let tile_count = self.calculate_tile_count();
-            let total_instances = tile_count * tile_count;
             render_pass.set_pipeline(&self.pipeline_manager.render_infinite_pipeline);
             render_pass.set_bind_group(0, &self.bind_group_manager.render_bind_group, &[]);
             render_pass.set_bind_group(1, &self.bind_group_manager.camera_bind_group, &[]);
-            render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
+            render_pass.draw(0..6, 0..total_instances);
         }
-
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
@@ -1165,6 +1279,7 @@ impl SlimeMoldModel {
             &self.lut_buffer,
             self.camera.buffer(),
             &self.cursor_buffer,
+            &self.background_color_buffer,
         );
     }
 
@@ -1224,6 +1339,61 @@ impl SlimeMoldModel {
         };
         queue.write_buffer(&self.cursor_buffer, 0, bytemuck::bytes_of(&params));
     }
+
+    /// Update the background parameters and upload to GPU
+    pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
+        let background_params = BackgroundParams {
+            background_type: 0, // Black background by default
+            gradient_enabled: if self.settings.gradient_type
+                == super::settings::GradientType::Disabled
+            {
+                0
+            } else {
+                1
+            },
+            gradient_type: match self.settings.gradient_type {
+                super::settings::GradientType::Disabled => 0,
+                super::settings::GradientType::Linear => 1,
+                super::settings::GradientType::Radial => 2,
+                super::settings::GradientType::Ellipse => 3,
+                super::settings::GradientType::Spiral => 4,
+                super::settings::GradientType::Checkerboard => 5,
+            },
+            gradient_strength: self.settings.gradient_strength,
+            gradient_center_x: self.settings.gradient_center_x,
+            gradient_center_y: self.settings.gradient_center_y,
+            gradient_size: self.settings.gradient_size,
+            gradient_angle: self.settings.gradient_angle,
+        };
+        queue.write_buffer(
+            &self.background_params_buffer,
+            0,
+            bytemuck::bytes_of(&background_params),
+        );
+    }
+
+    fn update_background_color(&self, queue: &Arc<Queue>) {
+        // Get the background color from the LUT (first color in the LUT)
+        let lut = self
+            .lut_manager
+            .get(&self.current_lut_name)
+            .unwrap_or_else(|_| self.lut_manager.get_default());
+
+        let colors = lut.get_colors(1); // Get just the first color
+        if let Some(color) = colors.first() {
+            let background_color = [
+                color[0] as f32,
+                color[1] as f32,
+                color[2] as f32,
+                color[3] as f32,
+            ];
+            queue.write_buffer(
+                &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&[background_color]),
+            );
+        }
+    }
 }
 
 impl Drop for SlimeMoldModel {
@@ -1243,6 +1413,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         // Update camera for smooth movement
         self.camera.update(0.016); // Assume 60 FPS for now
         self.camera.upload_to_gpu(queue);
+        self.update_background_color(queue);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Static Render Encoder"),

@@ -25,6 +25,10 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
+use super::shaders::{
+    BACKGROUND_RENDER_SHADER, PARTICLE_FRAGMENT_RENDER_SHADER, PARTICLE_RENDER_SHADER,
+    RENDER_INFINITE_SHADER,
+};
 use super::{settings::Settings, state::State};
 use crate::simulations::shared::{LutManager, camera::Camera};
 
@@ -93,6 +97,15 @@ pub struct BackgroundParams {
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
+pub struct PostEffectParams {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub gamma: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
 pub struct GridParams {
     pub particle_count: u32,
     pub grid_width: u32,
@@ -120,7 +133,9 @@ pub struct PelletsModel {
     pub density_params_buffer: wgpu::Buffer,
     pub render_params_buffer: wgpu::Buffer,
     pub background_params_buffer: wgpu::Buffer,
+    pub post_effect_params_buffer: wgpu::Buffer,
     pub lut_buffer: wgpu::Buffer,
+    pub background_color_buffer: wgpu::Buffer,
 
     // Spatial partitioning resources
     pub grid_buffer: wgpu::Buffer,
@@ -138,11 +153,33 @@ pub struct PelletsModel {
     pub grid_clear_bind_group: wgpu::BindGroup,
     pub grid_populate_bind_group: wgpu::BindGroup,
 
-    // Render pipeline
+    // Legacy render pipeline (kept for compatibility)
     pub render_pipeline: wgpu::RenderPipeline,
     pub render_bind_group: wgpu::BindGroup,
     pub background_pipeline: wgpu::RenderPipeline,
     pub background_bind_group: wgpu::BindGroup,
+
+    // Offscreen rendering resources
+    pub display_texture: wgpu::Texture,
+    pub display_view: wgpu::TextureView,
+    pub display_sampler: wgpu::Sampler,
+    pub post_effect_texture: wgpu::Texture,
+    pub post_effect_view: wgpu::TextureView,
+    pub density_texture: wgpu::Texture,
+    pub density_view: wgpu::TextureView,
+
+    // Offscreen render pipelines
+    pub background_render_pipeline: wgpu::RenderPipeline,
+    pub background_render_bind_group: wgpu::BindGroup,
+    pub particle_render_pipeline: wgpu::RenderPipeline,
+    pub particle_render_bind_group: wgpu::BindGroup,
+    pub post_effect_pipeline: wgpu::RenderPipeline,
+    pub post_effect_bind_group: wgpu::BindGroup,
+    pub render_infinite_pipeline: wgpu::RenderPipeline,
+    pub render_infinite_bind_group: wgpu::BindGroup,
+
+    // Camera bind group
+    pub camera_bind_group: wgpu::BindGroup,
 
     // Particle data (simulation runtime, not UI state)
     pub particles: Vec<Particle>,
@@ -216,10 +253,18 @@ impl PelletsModel {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create background color buffer (black by default)
+        let background_color_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pellets Background Color Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         let render_params = RenderParams {
             particle_size: settings.particle_size,
-            screen_width: surface_config.width as f32,
-            screen_height: surface_config.height as f32,
+            screen_width: (surface_config.width * 2) as f32,
+            screen_height: (surface_config.height * 2) as f32,
             coloring_mode: match settings.coloring_mode.as_str() {
                 "velocity" => 1,
                 "liquid" => 2,
@@ -246,6 +291,21 @@ impl PelletsModel {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Pellets Background Params Buffer"),
                 contents: bytemuck::cast_slice(&[background_params]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create post-effect parameters buffer
+        let post_effect_params = PostEffectParams {
+            brightness: 1.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            gamma: 1.0,
+        };
+
+        let post_effect_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pellets Post Effect Params Buffer"),
+                contents: bytemuck::cast_slice(&[post_effect_params]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -303,12 +363,14 @@ impl PelletsModel {
         // Create render pipeline
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Pellets Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_VERTEX_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_RENDER_SHADER.into()),
         });
 
         let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Pellets Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_FRAGMENT_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                super::shaders::PARTICLE_FRAGMENT_RENDER_SHADER.into(),
+            ),
         });
 
         let render_bind_group_layout =
@@ -337,16 +399,6 @@ impl PelletsModel {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -548,14 +600,10 @@ impl PelletsModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: render_params_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: lut_buffer.as_entire_binding(),
                 },
             ],
@@ -564,7 +612,7 @@ impl PelletsModel {
         // Create background pipeline
         let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Pellets Background Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::RENDER_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::BACKGROUND_RENDER_SHADER.into()),
         });
 
         // Create dummy texture for density visualization
@@ -880,13 +928,486 @@ impl PelletsModel {
             ],
         });
 
+        // Create offscreen rendering resources at 2x resolution for better particle quality
+        let display_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Display Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width * 2,
+                height: surface_config.height * 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Pellets Display Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Create density texture for background visualization
+        let density_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Density Texture"),
+            size: wgpu::Extent3d {
+                width: 512, // density_texture_resolution
+                height: 512,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let density_view = density_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create post-effect texture
+        let post_effect_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Post Effect Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let post_effect_view =
+            post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create camera bind group layout
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Pellets Camera Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Camera Bind Group"),
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera.buffer().as_entire_binding(),
+            }],
+        });
+
+        // Create offscreen render pipelines
+        let background_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Pellets Background Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Pellets Background Render Pipeline Layout"),
+                        bind_group_layouts: &[&device.create_bind_group_layout(
+                            &wgpu::BindGroupLayoutDescriptor {
+                                label: Some("Pellets Background Render Bind Group Layout"),
+                                entries: &[
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 0,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 1,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Texture {
+                                            sample_type: wgpu::TextureSampleType::Float {
+                                                filterable: false,
+                                            },
+                                            view_dimension: wgpu::TextureViewDimension::D2,
+                                            multisampled: false,
+                                        },
+                                        count: None,
+                                    },
+                                ],
+                            },
+                        )],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Background Render Vertex Shader"),
+                        source: wgpu::ShaderSource::Wgsl(BACKGROUND_RENDER_SHADER.into()),
+                    }),
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Background Render Fragment Shader"),
+                        source: wgpu::ShaderSource::Wgsl(BACKGROUND_RENDER_SHADER.into()),
+                    }),
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        let background_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Background Render Bind Group"),
+            layout: &background_render_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: background_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&density_view),
+                },
+            ],
+        });
+
+        let particle_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Pellets Particle Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Pellets Particle Render Pipeline Layout"),
+                        bind_group_layouts: &[&device.create_bind_group_layout(
+                            &wgpu::BindGroupLayoutDescriptor {
+                                label: Some("Pellets Particle Render Bind Group Layout"),
+                                entries: &[
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 0,
+                                        visibility: wgpu::ShaderStages::VERTEX,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Storage {
+                                                read_only: true,
+                                            },
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 1,
+                                        visibility: wgpu::ShaderStages::VERTEX
+                                            | wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 2,
+                                        visibility: wgpu::ShaderStages::VERTEX
+                                            | wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Storage {
+                                                read_only: true,
+                                            },
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                ],
+                            },
+                        )],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Particle Render Vertex Shader"),
+                        source: wgpu::ShaderSource::Wgsl(PARTICLE_RENDER_SHADER.into()),
+                    }),
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Particle Render Fragment Shader"),
+                        source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
+                    }),
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        let particle_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Particle Render Bind Group"),
+            layout: &particle_render_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: render_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: lut_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let post_effect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Pellets Post Effect Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Pellets Post Effect Pipeline Layout"),
+                    bind_group_layouts: &[&device.create_bind_group_layout(
+                        &wgpu::BindGroupLayoutDescriptor {
+                            label: Some("Pellets Post Effect Bind Group Layout"),
+                            entries: &[
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 0,
+                                    visibility: wgpu::ShaderStages::FRAGMENT,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Uniform,
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
+                                },
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 1,
+                                    visibility: wgpu::ShaderStages::FRAGMENT,
+                                    ty: wgpu::BindingType::Texture {
+                                        sample_type: wgpu::TextureSampleType::Float {
+                                            filterable: true,
+                                        },
+                                        view_dimension: wgpu::TextureViewDimension::D2,
+                                        multisampled: false,
+                                    },
+                                    count: None,
+                                },
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 2,
+                                    visibility: wgpu::ShaderStages::FRAGMENT,
+                                    ty: wgpu::BindingType::Sampler(
+                                        wgpu::SamplerBindingType::Filtering,
+                                    ),
+                                    count: None,
+                                },
+                            ],
+                        },
+                    )],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            vertex: wgpu::VertexState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("Pellets Post Effect Vertex Shader"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        super::shaders::POST_EFFECT_VERTEX_SHADER.into(),
+                    ),
+                }),
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("Pellets Post Effect Fragment Shader"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        super::shaders::POST_EFFECT_FRAGMENT_SHADER.into(),
+                    ),
+                }),
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let post_effect_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Post Effect Bind Group"),
+            layout: &post_effect_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: post_effect_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&display_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&display_sampler),
+                },
+            ],
+        });
+
+        let render_infinite_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Pellets Render Infinite Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Pellets Render Infinite Pipeline Layout"),
+                        bind_group_layouts: &[
+                            &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                                label: Some("Pellets Render Infinite Bind Group Layout"),
+                                entries: &[
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 0,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Texture {
+                                            sample_type: wgpu::TextureSampleType::Float {
+                                                filterable: true,
+                                            },
+                                            view_dimension: wgpu::TextureViewDimension::D2,
+                                            multisampled: false,
+                                        },
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 1,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Sampler(
+                                            wgpu::SamplerBindingType::Filtering,
+                                        ),
+                                        count: None,
+                                    },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 2,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
+                                ],
+                            }),
+                            &camera_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Render Infinite Vertex Shader"),
+                        source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
+                    }),
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some("Pellets Render Infinite Fragment Shader"),
+                        source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
+                    }),
+                    entry_point: Some("fs_main_texture"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        let render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Render Infinite Bind Group"),
+            layout: &render_infinite_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&post_effect_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&display_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &background_color_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+            ],
+        });
+
         Ok(PelletsModel {
             particle_buffer,
             physics_params_buffer,
             density_params_buffer,
             render_params_buffer,
             background_params_buffer,
+            post_effect_params_buffer,
             lut_buffer,
+            background_color_buffer,
             grid_buffer,
             grid_params_buffer,
             physics_compute_pipeline,
@@ -901,6 +1422,24 @@ impl PelletsModel {
             render_bind_group,
             background_pipeline,
             background_bind_group,
+
+            // Offscreen rendering resources
+            display_texture,
+            display_view,
+            display_sampler,
+            post_effect_texture,
+            post_effect_view,
+            density_texture,
+            density_view,
+            background_render_pipeline,
+            background_render_bind_group,
+            particle_render_pipeline,
+            particle_render_bind_group,
+            post_effect_pipeline,
+            post_effect_bind_group,
+            render_infinite_pipeline,
+            render_infinite_bind_group,
+            camera_bind_group,
 
             particles,
             settings: settings.clone(),
@@ -982,9 +1521,9 @@ impl PelletsModel {
         } else {
             // Simple random placement for all particles
             for _ in 0..count {
-                // Random position within bounds
-                let x = rng.random_range(-0.9..0.9);
-                let y = rng.random_range(-0.9..0.9);
+                // Random position within bounds - use full world space for infinity rendering
+                let x = rng.random_range(-1.0..1.0);
+                let y = rng.random_range(-1.0..1.0);
 
                 // Uniform mass and radius for basic collision behaviour
                 let mass = 1.0;
@@ -1397,16 +1936,6 @@ impl PelletsModel {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
                         visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -1428,14 +1957,10 @@ impl PelletsModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: self.camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: self.render_params_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: self.lut_buffer.as_entire_binding(),
                 },
             ],
@@ -1449,11 +1974,22 @@ impl PelletsModel {
         self.camera.upload_to_gpu(queue);
     }
 
+    fn calculate_tile_count(&self) -> u32 {
+        // At zoom 1.0, we need at least 5x5 tiles
+        // As zoom decreases (zooming out), we need more tiles
+        // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
+        let visible_world_size = 2.0 / self.camera.zoom; // World size visible on screen
+        let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
+        let min_tiles = if self.camera.zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        // Allow more tiles for proper infinite tiling, but cap at reasonable limit
+        tiles_needed.max(min_tiles).min(1024) // Cap at 200x200 for performance (matches Flow simulation)
+    }
+
     fn update_render_params(&self, queue: &Arc<Queue>) {
         let render_params = RenderParams {
             particle_size: self.settings.particle_size,
-            screen_width: self.surface_config.width as f32,
-            screen_height: self.surface_config.height as f32,
+            screen_width: (self.surface_config.width * 2) as f32,
+            screen_height: (self.surface_config.height * 2) as f32,
             coloring_mode: match self.settings.coloring_mode.as_str() {
                 "velocity" => 1,
                 "liquid" => 2,
@@ -1483,6 +2019,44 @@ impl PelletsModel {
             0,
             bytemuck::cast_slice(&[background_params]),
         );
+    }
+
+    fn update_post_effect_params(&self, queue: &Arc<Queue>) {
+        let post_effect_params = PostEffectParams {
+            brightness: 1.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            gamma: 1.0,
+        };
+
+        queue.write_buffer(
+            &self.post_effect_params_buffer,
+            0,
+            bytemuck::cast_slice(&[post_effect_params]),
+        );
+    }
+
+    fn update_background_color(&self, queue: &Arc<Queue>) {
+        // Get the background color from the LUT (first color in the LUT)
+        let lut = self
+            .lut_manager
+            .get(&self.state.current_lut_name)
+            .unwrap_or_else(|_| self.lut_manager.get_default());
+
+        let colors = lut.get_colors(1); // Get just the first color
+        if let Some(color) = colors.first() {
+            let background_color = [
+                color[0] as f32,
+                color[1] as f32,
+                color[2] as f32,
+                color[3] as f32,
+            ];
+            queue.write_buffer(
+                &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&[background_color]),
+            );
+        }
     }
 
     fn update_particle_radii(&mut self, queue: &Arc<Queue>) {
@@ -1558,20 +2132,20 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         self.update_camera_uniform(queue);
         self.update_render_params(queue);
         self.update_background_params(queue);
+        self.update_post_effect_params(queue);
+        self.update_background_color(queue);
 
-        // Create command encoder
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Pellets Render Encoder"),
-        });
-
-        // Standard particle rendering
+        // 1. Render background to display texture (offscreen)
+        let mut offscreen_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Offscreen Encoder"),
+            });
         {
-            // Standard particle rendering
-            {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Pellets Render Pass"),
+            let mut render_pass =
+                offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Background Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: surface_view,
+                        view: &self.display_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -1583,18 +2157,96 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     timestamp_writes: None,
                 });
 
-                // Render background
-                render_pass.set_pipeline(&self.background_pipeline);
-                render_pass.set_bind_group(0, &self.background_bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
-
-                // Render particles
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-                render_pass.draw(0..6, 0..self.particles.len() as u32);
-            }
+            // Render background
+            render_pass.set_pipeline(&self.background_render_pipeline);
+            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
         }
+        queue.submit(std::iter::once(offscreen_encoder.finish()));
 
+        // 2. Render particles to display texture (offscreen)
+        let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Pellets Particle Encoder"),
+        });
+        {
+            let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Pellets Particle Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            // Render particles
+            render_pass.set_pipeline(&self.particle_render_pipeline);
+            render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+            render_pass.draw(0..6, 0..self.particles.len() as u32);
+        }
+        queue.submit(std::iter::once(particle_encoder.finish()));
+
+        // 3. Render post effects to post-effect texture (offscreen)
+        let mut post_effect_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Post Effect Encoder"),
+            });
+        {
+            let mut render_pass =
+                post_effect_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Post Effect Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_effect_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+            // Render post effects
+            render_pass.set_pipeline(&self.post_effect_pipeline);
+            render_pass.set_bind_group(0, &self.post_effect_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        queue.submit(std::iter::once(post_effect_encoder.finish()));
+
+        // 4. Render post-effect texture to surface with infinite tiling
+        let tile_count = self.calculate_tile_count();
+        let total_instances = tile_count * tile_count;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Pellets Infinite Surface Encoder"),
+        });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Pellets Infinite Surface Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            render_pass.set_pipeline(&self.render_infinite_pipeline);
+            render_pass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..total_instances);
+        }
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
@@ -1612,14 +2264,104 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         self.update_camera_uniform(queue);
         self.update_render_params(queue);
         self.update_background_params(queue);
+        self.update_post_effect_params(queue);
+        self.update_background_color(queue);
+
+        // 1. Render background to display texture (offscreen)
+        let mut offscreen_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Static Offscreen Encoder"),
+            });
+        {
+            let mut render_pass =
+                offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Static Background Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+            // Render background
+            render_pass.set_pipeline(&self.background_render_pipeline);
+            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        queue.submit(std::iter::once(offscreen_encoder.finish()));
+
+        // 2. Render particles to display texture (offscreen)
+        let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Pellets Static Particle Encoder"),
+        });
+        {
+            let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Pellets Static Particle Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            // Render particles
+            render_pass.set_pipeline(&self.particle_render_pipeline);
+            render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+            render_pass.draw(0..6, 0..self.particles.len() as u32);
+        }
+        queue.submit(std::iter::once(particle_encoder.finish()));
+
+        // 3. Render post effects to post-effect texture (offscreen)
+        let mut post_effect_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Static Post Effect Encoder"),
+            });
+        {
+            let mut render_pass =
+                post_effect_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Static Post Effect Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_effect_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+            // Render post effects
+            render_pass.set_pipeline(&self.post_effect_pipeline);
+            render_pass.set_bind_group(0, &self.post_effect_bind_group, &[]);
+            render_pass.draw(0..6, 0..1);
+        }
+        queue.submit(std::iter::once(post_effect_encoder.finish()));
+
+        // 4. Render post-effect texture to surface with infinite tiling
+        let tile_count = self.calculate_tile_count();
+        let total_instances = tile_count * tile_count;
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Pellets Static Render Encoder"),
+            label: Some("Pellets Static Infinite Surface Encoder"),
         });
-
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Pellets Static Render Pass"),
+                label: Some("Pellets Static Infinite Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
@@ -1632,23 +2374,18 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-
-            render_pass.set_pipeline(&self.background_pipeline);
-            render_pass.set_bind_group(0, &self.background_bind_group, &[]);
-            render_pass.draw(0..3, 0..1);
-
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            render_pass.draw(0..6, 0..self.particles.len() as u32);
+            render_pass.set_pipeline(&self.render_infinite_pipeline);
+            render_pass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..total_instances);
         }
-
         queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
 
     fn resize(
         &mut self,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
     ) -> SimulationResult<()> {
@@ -1656,7 +2393,81 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
 
-        // No depth texture needed for 2D particle rendering
+        // Recreate offscreen rendering resources for new dimensions at 2x resolution
+        let display_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Display Texture"),
+            size: wgpu::Extent3d {
+                width: new_config.width * 2,
+                height: new_config.height * 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Pellets Display Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Update the display texture and view
+        self.display_texture = display_texture;
+        self.display_view = display_view;
+        self.display_sampler = display_sampler;
+
+        // Recreate post-effect texture for new dimensions
+        let post_effect_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Post Effect Texture"),
+            size: wgpu::Extent3d {
+                width: new_config.width,
+                height: new_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let post_effect_view =
+            post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.post_effect_texture = post_effect_texture;
+        self.post_effect_view = post_effect_view;
+
+        // Recreate density texture for new dimensions
+        let density_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Density Texture"),
+            size: wgpu::Extent3d {
+                width: 512, // density_texture_resolution
+                height: 512,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let density_view = density_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.density_texture = density_texture;
+        self.density_view = density_view;
 
         // Update render params to reflect new screen dimensions
         self.update_render_params(queue);
@@ -1831,7 +2642,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
     ) -> SimulationResult<()> {
         // Clamp world coordinates to valid bounds
         let clamped_x = world_x.clamp(-1.0, 1.0);
-        let clamped_y = world_y.clamp(-1.0, 1.0);
+        let clamped_y = (-world_y).clamp(-1.0, 1.0); // Fix Y-axis inversion
 
         // Calculate mouse velocity based on time difference
         let current_time = std::time::SystemTime::now()

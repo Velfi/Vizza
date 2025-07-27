@@ -66,11 +66,26 @@ pub struct FadeUniforms {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct BackgroundParams {
+    pub background_type: u32, // 0 = black, 1 = white, 2 = gradient
+    pub gradient_enabled: u32,
+    pub gradient_type: u32,
+    pub gradient_strength: f32,
+    pub gradient_center_x: f32,
+    pub gradient_center_y: f32,
+    pub gradient_size: f32,
+    pub gradient_angle: f32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+    pub _pad3: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct SimParams {
     pub particle_count: u32,
     pub species_count: u32,
     pub max_force: f32,
-    pub min_distance: f32,
     pub max_distance: f32,
     pub friction: f32,
     pub wrap_edges: u32,
@@ -81,16 +96,13 @@ pub struct SimParams {
     pub beta: f32,     // Transition point between repulsion and attraction zones
     pub cursor_x: f32, // Cursor position in world coordinates
     pub cursor_y: f32,
-    pub cursor_size: f32,        // Cursor interaction radius
-    pub cursor_strength: f32,    // Cursor force strength
+    pub cursor_size: f32,     // Cursor interaction radius
+    pub cursor_strength: f32, // Cursor force strength
     pub cursor_active: u32, // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     pub brownian_motion: f32, // Brownian motion strength (0.0-1.0)
-    pub traces_enabled: u32, // Whether particle traces are enabled
-    pub trace_fade: f32,    // Trace fade factor (0.0-1.0)
-    pub edge_fade_strength: f32, // Edge fade strength
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+    pub _pad3: u32,
 }
 
 impl SimParams {
@@ -105,7 +117,6 @@ impl SimParams {
             particle_count,
             species_count: settings.species_count,
             max_force: settings.max_force,
-            min_distance: settings.min_distance,
             max_distance: settings.max_distance,
             friction: settings.friction,
             wrap_edges: if settings.wrap_edges { 1 } else { 0 },
@@ -120,9 +131,6 @@ impl SimParams {
             cursor_strength: state.cursor_strength,
             cursor_active: 0, // Start with cursor interaction inactive
             brownian_motion: settings.brownian_motion,
-            traces_enabled: if state.traces_enabled { 1 } else { 0 },
-            trace_fade: state.trace_fade,
-            edge_fade_strength: state.edge_fade_strength,
             _pad1: 0,
             _pad2: 0,
             _pad3: 0,
@@ -258,6 +266,9 @@ pub struct ParticleLifeModel {
     pub lut_bind_group: wgpu::BindGroup,
     pub camera_bind_group: wgpu::BindGroup,
 
+    // Offscreen render pipeline for display texture
+    pub offscreen_render_pipeline: wgpu::RenderPipeline,
+
     // Fade pipeline for traces
     pub fade_pipeline: wgpu::RenderPipeline,
     pub fade_bind_group_layout: wgpu::BindGroupLayout,
@@ -272,6 +283,17 @@ pub struct ParticleLifeModel {
     pub blit_pipeline: wgpu::RenderPipeline,
     pub blit_bind_group_layout: wgpu::BindGroupLayout,
     pub blit_bind_group: wgpu::BindGroup,
+
+    // Background render pipeline for offscreen rendering
+    pub background_render_pipeline: wgpu::RenderPipeline,
+    pub background_bind_group_layout: wgpu::BindGroupLayout,
+    pub background_bind_group: wgpu::BindGroup,
+    pub background_params_buffer: wgpu::Buffer,
+
+    // Display texture for offscreen rendering
+    pub display_texture: wgpu::Texture,
+    pub display_view: wgpu::TextureView,
+    pub display_bind_group: wgpu::BindGroup,
 
     // Simulation state and settings
     pub settings: Settings,
@@ -882,6 +904,42 @@ impl ParticleLifeModel {
             cache: None,
         });
 
+        // Create offscreen render pipeline for display texture (Rgba8Unorm format)
+        let offscreen_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Particle Life Offscreen Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &vertex_shader,
+                    entry_point: Some("main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &fragment_shader,
+                    entry_point: Some("main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
         // Create bind groups
         let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Render Bind Group"),
@@ -1243,6 +1301,148 @@ impl ParticleLifeModel {
             ],
         });
 
+        // Create background render shader
+        let background_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Background Render Shader"),
+            source: wgpu::ShaderSource::Wgsl(shaders::BACKGROUND_RENDER_SHADER.into()),
+        });
+
+        // Create background bind group layout
+        let background_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Background Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        // Create background render pipeline
+        let background_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Background Render Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Background Render Pipeline Layout"),
+                        bind_group_layouts: &[
+                            &background_bind_group_layout,
+                            &camera_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &background_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &background_render_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create background parameters buffer
+        let background_params = BackgroundParams {
+            background_type: 0, // Black background by default
+            gradient_enabled: 0,
+            gradient_type: 0,
+            gradient_strength: 1.0,
+            gradient_center_x: 0.0,
+            gradient_center_y: 0.0,
+            gradient_size: 100.0,
+            gradient_angle: 0.0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
+        };
+        let background_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Params Buffer"),
+                contents: bytemuck::cast_slice(&[background_params]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create background bind group
+        let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Background Bind Group"),
+            layout: &background_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &background_params_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
+        });
+
+        // Create display texture for offscreen rendering
+        let display_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Display Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create display bind group for blitting display texture to surface
+        let display_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Display Bind Group"),
+            layout: &blit_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&display_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
+                },
+            ],
+        });
+
         let mut result = Self {
             particle_buffer,
             sim_params_buffer,
@@ -1270,6 +1470,7 @@ impl ParticleLifeModel {
             render_bind_group,
             lut_bind_group,
             camera_bind_group,
+            offscreen_render_pipeline,
             fade_pipeline,
             fade_bind_group_layout,
             fade_bind_group,
@@ -1279,6 +1480,13 @@ impl ParticleLifeModel {
             blit_pipeline,
             blit_bind_group_layout,
             blit_bind_group,
+            background_render_pipeline,
+            background_bind_group_layout,
+            background_bind_group,
+            background_params_buffer,
+            display_texture,
+            display_view,
+            display_bind_group,
             settings,
             state,
             show_gui: true,
@@ -1351,7 +1559,6 @@ impl ParticleLifeModel {
             sim_params.cursor_strength =
                 self.state.cursor_strength * self.settings.max_force * 10.0;
         }
-
         queue.write_buffer(
             &self.sim_params_buffer,
             0,
@@ -1729,6 +1936,39 @@ impl ParticleLifeModel {
     }
 
     /// Clear the trail texture with the background color
+    pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
+        let background_params = BackgroundParams {
+            background_type: match self.state.color_mode {
+                ColorMode::Black => 0,
+                ColorMode::White => 1,
+                ColorMode::Gray18 => 2,
+                ColorMode::Lut => 2,
+            },
+            gradient_enabled: if self.state.color_mode == ColorMode::Gray18
+                || self.state.color_mode == ColorMode::Lut
+            {
+                1
+            } else {
+                0
+            },
+            gradient_type: 0, // No gradient by default
+            gradient_strength: 1.0,
+            gradient_center_x: 0.0,
+            gradient_center_y: 0.0,
+            gradient_size: 100.0,
+            gradient_angle: 0.0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
+        };
+
+        queue.write_buffer(
+            &self.background_params_buffer,
+            0,
+            bytemuck::cast_slice(&[background_params]),
+        );
+    }
+
     pub fn clear_trail_texture(
         &self,
         device: &Arc<Device>,
@@ -1756,6 +1996,26 @@ impl ParticleLifeModel {
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+    }
+}
+
+impl ParticleLifeModel {
+    // Calculate how many tiles we need based on zoom level
+    fn calculate_tile_count(zoom: f32) -> i32 {
+        // At zoom 1.0, we need at least 5x5 tiles
+        // As zoom decreases (zooming out), we need more tiles
+        // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
+        let visible_world_size = 2.0 / zoom; // World size visible on screen
+        let tiles_needed = (visible_world_size / 2.0).ceil() as i32 + 6; // +6 for extra padding at extreme zoom levels
+        let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        // Allow more tiles for proper infinite tiling, but cap at reasonable limit
+        ((tiles_needed).max(min_tiles)).min(1024) // Cap at 200x200 for performance
+    }
+
+    // Calculate dynamic instance count based on zoom level
+    fn calculate_instance_count(&self) -> u32 {
+        let tile_count = Self::calculate_tile_count(self.camera.zoom);
+        self.state.particle_count as u32 * (tile_count * tile_count) as u32
     }
 }
 
@@ -1838,7 +2098,7 @@ impl Simulation for ParticleLifeModel {
                 trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
                 trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
-                let instance_count = self.state.particle_count as u32 * 9;
+                let instance_count = self.calculate_instance_count();
                 trail_render_pass.draw(0..6, 0..instance_count);
                 drop(trail_render_pass);
 
@@ -1886,7 +2146,7 @@ impl Simulation for ParticleLifeModel {
                 render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
                 render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
-                let instance_count = self.state.particle_count as u32 * 9;
+                let instance_count = self.calculate_instance_count();
                 render_pass.draw(0..6, 0..instance_count);
             }
         }
@@ -1920,12 +2180,16 @@ impl Simulation for ParticleLifeModel {
         // Update camera
         self.camera.upload_to_gpu(queue);
 
+        // Update background parameters
+        self.update_background_params(queue);
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Particle Life Render Encoder"),
         });
 
+        // TODO this is weird, why not use dt?
         // Run multiple physics steps per frame for maximum speed
-        let physics_steps_per_frame = 3; // Reduced from 10 since we removed time step
+        let physics_steps_per_frame = 3;
 
         for _ in 0..physics_steps_per_frame {
             // Compute pass - update particle positions
@@ -1944,125 +2208,159 @@ impl Simulation for ParticleLifeModel {
             }
         }
 
-        // Render pass - draw particles
+        // Step 1: Render background to display texture
         {
-            // Determine background color based on color mode
-            let background_color = match self.state.color_mode {
-                ColorMode::Gray18 => wgpu::Color {
-                    r: 0.18,
-                    g: 0.18,
-                    b: 0.18,
-                    a: 1.0,
-                },
-                ColorMode::White => wgpu::Color::WHITE,
-                ColorMode::Black => wgpu::Color::BLACK,
-                ColorMode::Lut => {
-                    // Use last LUT color as background
-                    if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
-                        wgpu::Color {
-                            r: r.into(),
-                            g: g.into(),
-                            b: b.into(),
-                            a: a.into(),
+            let mut background_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Background Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            background_pass.set_pipeline(&self.background_render_pipeline);
+            background_pass.set_bind_group(0, &self.background_bind_group, &[]);
+            background_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            background_pass.draw(0..6, 0..1); // Fullscreen triangle
+        }
+
+        // Step 2: Render main simulation content to display texture
+        if self.state.traces_enabled {
+            // When trails are enabled, render to trail texture first
+            let mut trail_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Trail Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.trail_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Preserve previous trail content
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            // First, apply fade effect if trace_fade < 1.0
+            if self.state.trace_fade < 1.0 {
+                let fade_factor = 1.0 - self.state.trace_fade;
+                let fade_alpha = (fade_factor * fade_factor * 0.3).clamp(0.002, 0.3);
+
+                // Determine background color for fade
+                let background_color = match self.state.color_mode {
+                    ColorMode::Gray18 => wgpu::Color {
+                        r: 0.18,
+                        g: 0.18,
+                        b: 0.18,
+                        a: 1.0,
+                    },
+                    ColorMode::White => wgpu::Color::WHITE,
+                    ColorMode::Black => wgpu::Color::BLACK,
+                    ColorMode::Lut => {
+                        if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
+                            wgpu::Color {
+                                r: r.into(),
+                                g: g.into(),
+                                b: b.into(),
+                                a: a.into(),
+                            }
+                        } else {
+                            wgpu::Color::BLACK
                         }
-                    } else {
-                        tracing::warn!("No LUT colors available, using black background");
-                        wgpu::Color::BLACK // Fallback
                     }
-                }
-            };
+                };
 
-            if self.state.traces_enabled {
-                // When trails are enabled, render to trail texture first
-                let mut trail_render_pass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Trail Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &self.trail_texture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load, // Preserve previous trail content
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+                self.update_fade_uniforms(queue, background_color, fade_alpha);
 
-                // First, apply fade effect if trace_fade < 1.0
-                if self.state.trace_fade < 1.0 {
-                    // Calculate fade alpha: higher trace_fade = slower fading = lower alpha
-                    // Use exponential scaling for more natural fading
-                    let fade_factor = 1.0 - self.state.trace_fade;
-                    let fade_alpha = (fade_factor * fade_factor * 0.3).clamp(0.002, 0.3);
-
-                    // Update fade uniforms with background color and fade alpha
-                    self.update_fade_uniforms(queue, background_color, fade_alpha);
-
-                    // Render fade quad to create fading effect
-                    trail_render_pass.set_pipeline(&self.fade_pipeline);
-                    trail_render_pass.set_bind_group(0, &self.fade_bind_group, &[]);
-                    trail_render_pass.draw(0..3, 0..1); // Fullscreen triangle
-                }
-
-                // Then render particles on top
-                trail_render_pass.set_pipeline(&self.render_pipeline);
-                trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-                trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
-
-                let instance_count = self.state.particle_count as u32 * 9;
-                trail_render_pass.draw(0..6, 0..instance_count);
-                drop(trail_render_pass);
-
-                // Then blit trail texture to surface
-                let mut surface_render_pass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Surface Render Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: surface_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(background_color), // Clear surface
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
-
-                // Blit trail texture to surface
-                surface_render_pass.set_pipeline(&self.blit_pipeline);
-                surface_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
-                surface_render_pass.draw(0..3, 0..1); // Fullscreen triangle
-            } else {
-                // When trails are disabled, render directly to surface
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Direct Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: surface_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(background_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                // Render particles directly to surface
-                render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-                render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
-
-                let instance_count = self.state.particle_count as u32 * 9;
-                render_pass.draw(0..6, 0..instance_count);
+                trail_render_pass.set_pipeline(&self.fade_pipeline);
+                trail_render_pass.set_bind_group(0, &self.fade_bind_group, &[]);
+                trail_render_pass.draw(0..3, 0..1);
             }
+
+            // Then render particles on top
+            trail_render_pass.set_pipeline(&self.offscreen_render_pipeline);
+            trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+
+            let instance_count = self.calculate_instance_count();
+            trail_render_pass.draw(0..6, 0..instance_count);
+            drop(trail_render_pass);
+
+            // Now blit trail texture to display texture
+            let mut display_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Display Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Load existing background
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            display_render_pass.set_pipeline(&self.blit_pipeline);
+            display_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
+            display_render_pass.draw(0..3, 0..1);
+        } else {
+            // When trails are disabled, render particles directly to display texture
+            let mut display_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Display Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // Load existing background
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            display_render_pass.set_pipeline(&self.offscreen_render_pipeline);
+            display_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            display_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            display_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+
+            let instance_count = self.calculate_instance_count();
+            display_render_pass.draw(0..6, 0..instance_count);
+        }
+
+        // Step 3: Render display texture to surface with infinite renderer
+        {
+            let mut surface_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Surface Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            // Blit display texture to surface
+            surface_render_pass.set_pipeline(&self.blit_pipeline);
+            surface_render_pass.set_bind_group(0, &self.display_bind_group, &[]);
+            surface_render_pass.draw(0..3, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -2773,6 +3071,15 @@ impl ParticleLifeModel {
         });
 
         tracing::info!("All bind groups recreated successfully");
+        // Recreate LUT bind group to ensure it points to the current species_colors_buffer
+        self.lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Species Colors Bind Group"),
+            layout: &self.render_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.species_colors_buffer.as_entire_binding(),
+            }],
+        });
         Ok(())
     }
 }

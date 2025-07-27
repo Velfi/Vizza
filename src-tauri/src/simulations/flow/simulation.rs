@@ -86,6 +86,7 @@ pub struct FlowModel {
     pub flow_vector_buffer: wgpu::Buffer,
     pub sim_params_buffer: wgpu::Buffer,
     pub lut_buffer: wgpu::Buffer,
+    pub background_color_buffer: wgpu::Buffer,
 
     // Trail system
     pub trail_texture: wgpu::Texture,
@@ -464,6 +465,14 @@ impl FlowModel {
             contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
+
+        // Create background color buffer (black by default)
+        let background_color_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Color Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create trail texture
         let trail_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -1251,6 +1260,16 @@ impl FlowModel {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -1276,6 +1295,10 @@ impl FlowModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&display_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: background_color_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -1291,7 +1314,7 @@ impl FlowModel {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &render_infinite_shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some("fs_main_texture"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: surface_config.format,
                         blend: Some(wgpu::BlendState {
@@ -1337,6 +1360,7 @@ impl FlowModel {
             flow_vector_buffer,
             sim_params_buffer,
             lut_buffer,
+            background_color_buffer,
             trail_texture,
             trail_texture_view,
             trail_sampler,
@@ -1422,6 +1446,29 @@ impl FlowModel {
             bytemuck::cast_slice(&[sim_params]),
         );
     }
+
+    fn update_background_color(&self, queue: &Arc<wgpu::Queue>) {
+        // Get the background color from the LUT (first color in the LUT)
+        let lut = self
+            .lut_manager
+            .get(&self.settings.current_lut)
+            .unwrap_or_else(|_| self.lut_manager.get_default());
+
+        let colors = lut.get_colors(1); // Get just the first color
+        if let Some(color) = colors.first() {
+            let background_color = [
+                color[0] as f32,
+                color[1] as f32,
+                color[2] as f32,
+                color[3] as f32,
+            ];
+            queue.write_buffer(
+                &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&background_color),
+            );
+        }
+    }
 }
 
 impl Simulation for FlowModel {
@@ -1436,6 +1483,9 @@ impl Simulation for FlowModel {
 
         // Update simulation parameters using the centralized method
         self.write_sim_params(queue);
+
+        // Update background color from LUT
+        self.update_background_color(queue);
 
         // Update camera and upload to GPU
         self.camera.update(0.016);
@@ -1566,6 +1616,9 @@ impl Simulation for FlowModel {
         // Update camera and upload to GPU (same as normal render)
         self.camera.update(0.016);
         self.camera.upload_to_gpu(queue);
+
+        // Update background color from LUT
+        self.update_background_color(queue);
 
         // For static rendering, render background, trails, and particles without updating simulation state
         let mut render_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2017,6 +2070,10 @@ impl Simulation for FlowModel {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.background_color_buffer.as_entire_binding(),
                 },
             ],
         });

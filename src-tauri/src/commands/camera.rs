@@ -22,7 +22,7 @@ pub async fn zoom_camera(
     let mut sim_manager = manager.lock().await;
 
     sim_manager.zoom_camera(delta);
-    Ok("Camera zoomed successfully".to_string())
+    Ok("Camerqa zoomed successfully".to_string())
 }
 
 #[tauri::command]

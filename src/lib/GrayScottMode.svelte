@@ -419,7 +419,12 @@
 
       if (backendState) {
         // Update LUT-related settings from state
-        const state = backendState as any;
+        const state = backendState as {
+          current_lut_name?: string;
+          lut_reversed?: boolean;
+          cursor_size?: number;
+          cursor_strength?: number;
+        };
         if (state.current_lut_name !== undefined) {
           lut_name = state.current_lut_name;
         }

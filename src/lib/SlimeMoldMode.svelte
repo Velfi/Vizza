@@ -521,7 +521,7 @@
   export let menuPosition: string = 'middle';
 
   // Simulation state
-  let settings: any | undefined = undefined;
+  let settings: Record<string, unknown> | undefined = undefined;
 
   // State (not saved in presets)
   let position_generator = 'Random';
@@ -856,12 +856,18 @@
 
       if (backendSettings) {
         // Use backend settings directly
-        settings = backendSettings as any;
+        settings = backendSettings as Record<string, unknown>;
       }
 
       if (backendState) {
         // Update LUT-related settings from state
-        const state = backendState as any;
+        const state = backendState as {
+          current_lut_name?: string;
+          lut_reversed?: boolean;
+          cursor_size?: number;
+          cursor_strength?: number;
+          position_generator?: string;
+        };
         if (state.current_lut_name !== undefined) {
           lut_name = state.current_lut_name;
         }
@@ -1108,13 +1114,6 @@
     margin-bottom: 0.25rem;
   }
 
-  input[type='number'] {
-    width: 100%;
-    padding: 0.3rem;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-  }
-
   .interaction-controls-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1182,17 +1181,6 @@
 
   .setting-item:last-child .setting-label {
     border-bottom: none;
-  }
-
-  .setting-item input[type='number'] {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: rgba(255, 255, 255, 0.9);
-    padding: 0.25rem 0.5rem;
-    font-family: inherit;
-    font-size: 0.875rem;
-    width: 100%;
   }
 
   .visually-hidden {

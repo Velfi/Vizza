@@ -134,7 +134,7 @@
             </div>
             {#if gradientStops.length > 2}
               <div class="control-group">
-                <label>&nbsp;</label>
+                <span class="section-label">&nbsp;</span>
                 <button
                   type="button"
                   class="delete-stop-btn"

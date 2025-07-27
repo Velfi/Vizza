@@ -21,8 +21,8 @@
 //! interactions work correctly across different hardware configurations.
 
 use super::shaders::{
-    DENSITY_COMPUTE_SHADER, PARTICLE_FRAGMENT_SHADER, PARTICLE_VERTEX_SHADER,
-    PHYSICS_COMPUTE_SHADER, RENDER_SHADER,
+    BACKGROUND_RENDER_SHADER, DENSITY_COMPUTE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
+    PARTICLE_FRAGMENT_RENDER_SHADER, PARTICLE_RENDER_SHADER, PHYSICS_COMPUTE_SHADER,
 };
 use super::simulation::{BackgroundParams, DensityParams, Particle, PhysicsParams, RenderParams};
 use std::mem;
@@ -70,39 +70,6 @@ impl PelletsValidator {
         }
     }
 
-    /// Validates that the Pellets vertex shader compiles without errors
-    fn validate_vertex_shader_compilation(&self) -> Result<(), String> {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Pellets Vertex Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_VERTEX_SHADER.into()),
-            });
-        Ok(())
-    }
-
-    /// Validates that the Pellets fragment shader compiles without errors
-    fn validate_fragment_shader_compilation(&self) -> Result<(), String> {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Pellets Fragment Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_SHADER.into()),
-            });
-        Ok(())
-    }
-
-    /// Validates that the Pellets render shader compiles without errors
-    fn validate_render_shader_compilation(&self) -> Result<(), String> {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Pellets Render Shader"),
-                source: wgpu::ShaderSource::Wgsl(RENDER_SHADER.into()),
-            });
-        Ok(())
-    }
-
     /// Validates that the Pellets physics compute shader compiles without errors
     fn validate_physics_compute_shader_compilation(&self) -> Result<(), String> {
         let _ = self
@@ -121,6 +88,61 @@ impl PelletsValidator {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Pellets Density Compute Shader"),
                 source: wgpu::ShaderSource::Wgsl(DENSITY_COMPUTE_SHADER.into()),
+            });
+        Ok(())
+    }
+
+    /// Validates that the Pellets grid clear shader compiles without errors
+    fn validate_grid_clear_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Pellets Grid Clear Shader"),
+                source: wgpu::ShaderSource::Wgsl(GRID_CLEAR_SHADER.into()),
+            });
+        Ok(())
+    }
+
+    /// Validates that the Pellets grid populate shader compiles without errors
+    fn validate_grid_populate_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Pellets Grid Populate Shader"),
+                source: wgpu::ShaderSource::Wgsl(GRID_POPULATE_SHADER.into()),
+            });
+        Ok(())
+    }
+
+    /// Validates that the Pellets background render shader compiles without errors
+    fn validate_background_render_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Pellets Background Render Shader"),
+                source: wgpu::ShaderSource::Wgsl(BACKGROUND_RENDER_SHADER.into()),
+            });
+        Ok(())
+    }
+
+    /// Validates that the Pellets particle render shader compiles without errors
+    fn validate_particle_render_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Pellets Particle Render Shader"),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_RENDER_SHADER.into()),
+            });
+        Ok(())
+    }
+
+    /// Validates that the Pellets particle fragment render shader compiles without errors
+    fn validate_particle_fragment_render_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Pellets Particle Fragment Render Shader"),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
             });
         Ok(())
     }
@@ -181,7 +203,7 @@ impl PelletsValidator {
                 });
 
         // Create dummy camera buffer
-        let camera_buffer = self
+        let _camera_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Pellets Camera Buffer"),
@@ -203,14 +225,14 @@ impl PelletsValidator {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Pellets Vertex Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_VERTEX_SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_RENDER_SHADER.into()),
             });
 
         let fragment_shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Pellets Fragment Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
             });
 
         // Create bind group layout
@@ -241,16 +263,6 @@ impl PelletsValidator {
                         },
                         wgpu::BindGroupLayoutEntry {
                             binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
                             visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -273,14 +285,10 @@ impl PelletsValidator {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: render_params_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: lut_buffer.as_entire_binding(),
                 },
             ],
@@ -415,7 +423,7 @@ impl PelletsValidator {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Pellets Background Shader"),
-                source: wgpu::ShaderSource::Wgsl(RENDER_SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(BACKGROUND_RENDER_SHADER.into()),
             });
 
         // Create dummy texture for density visualization
@@ -672,20 +680,26 @@ async fn test_pellets_shader_compilation() {
 
     // Test shader compilation
     validator
-        .validate_vertex_shader_compilation()
-        .expect("Vertex shader compilation failed");
-    validator
-        .validate_fragment_shader_compilation()
-        .expect("Fragment shader compilation failed");
-    validator
-        .validate_render_shader_compilation()
-        .expect("Render shader compilation failed");
-    validator
         .validate_physics_compute_shader_compilation()
         .expect("Physics compute shader compilation failed");
     validator
         .validate_density_compute_shader_compilation()
         .expect("Density compute shader compilation failed");
+    validator
+        .validate_grid_clear_shader_compilation()
+        .expect("Grid clear shader compilation failed");
+    validator
+        .validate_grid_populate_shader_compilation()
+        .expect("Grid populate shader compilation failed");
+    validator
+        .validate_background_render_shader_compilation()
+        .expect("Background render shader compilation failed");
+    validator
+        .validate_particle_render_shader_compilation()
+        .expect("Particle render shader compilation failed");
+    validator
+        .validate_particle_fragment_render_shader_compilation()
+        .expect("Particle fragment render shader compilation failed");
 
     // Print struct sizes for debugging
     validator.print_struct_sizes();

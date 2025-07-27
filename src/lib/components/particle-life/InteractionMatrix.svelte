@@ -168,7 +168,7 @@
   const dispatch = createEventDispatcher();
 
   // Props
-  export let settings: any;
+  export let settings: { species_count: number; force_matrix?: number[][] };
   export let speciesColors: string[] = [];
 
   // Matrix value classification functions

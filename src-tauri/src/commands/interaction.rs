@@ -15,15 +15,7 @@ pub async fn handle_mouse_interaction(
 
     match sim_manager.handle_mouse_interaction(x, y, mouse_button, &gpu_ctx.device, &gpu_ctx.queue)
     {
-        Ok(_) => {
-            tracing::debug!(
-                "Mouse interaction handled at ({}, {}) with button {}",
-                x,
-                y,
-                mouse_button
-            );
-            Ok("Mouse interaction handled successfully".to_string())
-        }
+        Ok(_) => Ok("Mouse interaction handled successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to handle mouse interaction: {}", e);
             Err(format!("Failed to handle mouse interaction: {}", e))
@@ -39,13 +31,6 @@ pub async fn handle_mouse_interaction_screen(
     screen_y: f32,
     mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
-    tracing::trace!(
-        "Mouse interaction: screen=({}, {}), button={}",
-        screen_x,
-        screen_y,
-        mouse_button
-    );
-
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     sim_manager
@@ -66,8 +51,6 @@ pub async fn handle_mouse_release(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     mouse_button: u32, // 0 = left, 1 = middle, 2 = right
 ) -> Result<String, String> {
-    tracing::trace!("Mouse release: button={}", mouse_button);
-
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
     sim_manager
@@ -80,13 +63,12 @@ pub async fn handle_mouse_release(
 pub async fn update_cursor_position_screen(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    screen_x: f32,
-    screen_y: f32,
+    _screen_x: f32,
+    _screen_y: f32,
 ) -> Result<String, String> {
     let _sim_manager = manager.lock().await;
     let _gpu_ctx = gpu_context.lock().await;
     // Currently, cursor position is handled through mouse interaction commands
-    tracing::debug!("Cursor position updated to ({}, {})", screen_x, screen_y);
     Ok("Cursor position updated successfully".to_string())
 }
 
@@ -99,10 +81,7 @@ pub async fn seed_random_noise(
     let gpu_ctx = gpu_context.lock().await;
 
     match sim_manager.seed_random_noise(&gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => {
-            tracing::debug!("Random noise seeded successfully");
-            Ok("Random noise seeded successfully".to_string())
-        }
+        Ok(_) => Ok("Random noise seeded successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to seed random noise: {}", e);
             Err(format!("Failed to seed random noise: {}", e))
@@ -120,10 +99,7 @@ pub async fn update_cursor_size(
     let gpu_ctx = gpu_context.lock().await;
 
     match sim_manager.update_cursor_size(size, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => {
-            tracing::debug!("Cursor size updated to {}", size);
-            Ok("Cursor size updated successfully".to_string())
-        }
+        Ok(_) => Ok("Cursor size updated successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to update cursor size: {}", e);
             Err(format!("Failed to update cursor size: {}", e))
@@ -141,10 +117,7 @@ pub async fn update_cursor_strength(
     let gpu_ctx = gpu_context.lock().await;
 
     match sim_manager.update_cursor_strength(strength, &gpu_ctx.device, &gpu_ctx.queue) {
-        Ok(_) => {
-            tracing::debug!("Cursor strength updated to {}", strength);
-            Ok("Cursor strength updated successfully".to_string())
-        }
+        Ok(_) => Ok("Cursor strength updated successfully".to_string()),
         Err(e) => {
             tracing::error!("Failed to update cursor strength: {}", e);
             Err(format!("Failed to update cursor strength: {}", e))

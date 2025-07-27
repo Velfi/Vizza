@@ -10,13 +10,6 @@ struct Particle {
     previous_position: vec2<f32>,
 }
 
-struct CameraUniform {
-    transform_matrix: mat4x4<f32>,
-    position: vec2<f32>,
-    zoom: f32,
-    aspect_ratio: f32,
-}
-
 struct RenderParams {
     particle_size: f32,
     screen_width: f32,
@@ -34,9 +27,8 @@ struct VertexOutput {
 }
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
-@group(0) @binding(1) var<uniform> camera: CameraUniform;
-@group(0) @binding(2) var<uniform> params: RenderParams;
-@group(0) @binding(3) var<storage, read> lut: array<u32>;
+@group(0) @binding(1) var<uniform> params: RenderParams;
+@group(0) @binding(2) var<storage, read> lut: array<u32>;
 
 fn get_lut_color(index: u32) -> vec3<f32> {
     let r = f32(lut[index]) / 255.0;
@@ -105,7 +97,7 @@ fn vs_main(
     
     // Convert to clip coordinates using camera transformation
     let clip_pos = vec4<f32>(world_pos.x, world_pos.y, 0.0, 1.0);
-    let transformed_pos = camera.transform_matrix * clip_pos;
+    let transformed_pos = clip_pos;
     
     // Color based on mass and merged count
     let color = get_particle_color(particle);

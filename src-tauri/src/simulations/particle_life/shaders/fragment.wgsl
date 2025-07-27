@@ -1,4 +1,4 @@
-// Particle Life fragment shader
+// Particle Life fragment shader - Infinite Rendering
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -16,10 +16,6 @@ struct SpeciesColors {
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Get the color for this particle's species directly from the uniform buffer
-    let species_index = input.species;
-    let base_color = species_colors.colors[species_index].rgb;
-    
     // Create circular particles with smooth borders
     let center = vec2<f32>(0.5, 0.5);
     let dist_from_center = distance(input.uv, center);
@@ -32,11 +28,21 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     
-    // Apply grid fade factor for 3x3 grid mode
-    // Since we're using REPLACE blend, we need to handle grid fading differently
-    // We'll use the grid fade factor to adjust the color intensity
-    let grid_fade_factor = input.grid_fade_factor;
+    // Get the color for this particle's species directly from the uniform buffer
+    let species_index = input.species;
+    let base_color = species_colors.colors[species_index].rgb;
     
-    // Return opaque color with grid fade applied to RGB components
-    return vec4<f32>(base_color * grid_fade_factor, 1.0);
+    // When completely faded (grid_fade_factor = 0), render a solid color
+    // representing the average of the simulation
+    if (input.grid_fade_factor <= 0.0) {
+        // Use a dark color that represents the "average" when tiles are too small
+        // This gives a sense of the overall simulation state
+        return vec4<f32>(0.1, 0.1, 0.15, 1.0);
+    }
+    
+    // Apply grid fade factor for infinite rendering
+    // Use the grid fade factor to adjust the color intensity
+    let final_color = vec4<f32>(base_color * input.grid_fade_factor, 1.0);
+    
+    return final_color;
 }

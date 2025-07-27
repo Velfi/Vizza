@@ -1,5 +1,6 @@
 use crate::simulations::slime_mold::shaders::{
-    COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER, QUAD_INFINITE_SHADER, QUAD_SHADER,
+    BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER,
+    QUAD_INFINITE_SHADER, QUAD_SHADER,
 };
 use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use std::borrow::Cow;
@@ -11,6 +12,7 @@ pub struct ShaderManager {
     pub quad_shader: ShaderModule,
     pub quad_infinite_shader: ShaderModule,
     pub gradient_shader: ShaderModule,
+    pub background_render_shader: ShaderModule,
 }
 
 impl ShaderManager {
@@ -41,6 +43,11 @@ impl ShaderManager {
                 GRADIENT_SHADER,
                 workgroup_config.compute_1d,
                 workgroup_config.compute_2d,
+            ),
+            background_render_shader: Self::create_shader(
+                device,
+                "Background Render Shader",
+                BACKGROUND_RENDER_SHADER,
             ),
         }
     }
