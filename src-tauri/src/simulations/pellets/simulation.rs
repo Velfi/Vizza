@@ -62,7 +62,7 @@ pub struct PhysicsParams {
     pub mouse_mode: u32,
     pub cursor_size: f32,
     pub cursor_strength: f32,
-    pub particle_size: f32, // Calculated particle size for consistent collision and rendering
+    pub particle_size: f32, // Pre-calculated particle size for consistent collision and rendering
     pub aspect_ratio: f32,  // Screen aspect ratio for collision correction
     pub long_range_gravity_strength: f32, // Controls orbital motion strength
     pub density_damping_enabled: u32, // Whether to apply density-based velocity damping
@@ -310,10 +310,6 @@ impl PelletsModel {
             });
 
         // Create physics params buffer
-        // For now, use the original particle size directly to restore collision functionality
-        // TODO: Refine this to match exact visual size calculation
-        let collision_particle_size = settings.particle_size;
-
         let physics_params = PhysicsParams {
             mouse_position: [0.0, 0.0],
             mouse_velocity: [0.0, 0.0],
@@ -322,16 +318,16 @@ impl PelletsModel {
             energy_damping: settings.energy_damping,
             collision_damping: settings.collision_damping,
             dt: 1.0 / 60.0, // 60 FPS target
-            density_damping_enabled: settings.density_damping_enabled as u32,
             gravity_softening: settings.gravity_softening,
             interaction_radius: 0.5, // Limit interaction range for performance
             mouse_pressed: 0,
             mouse_mode: 0,
             cursor_size: state.cursor_size,
             cursor_strength: state.cursor_strength,
-            particle_size: collision_particle_size,
+            particle_size: settings.particle_size,
             aspect_ratio: surface_config.width as f32 / surface_config.height as f32,
             long_range_gravity_strength: 0.0, // Initialize new field
+            density_damping_enabled: settings.density_damping_enabled as u32,
             overlap_resolution_strength: settings.overlap_resolution_strength,
             _padding: 0,
         };
@@ -687,21 +683,9 @@ impl PelletsModel {
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
+            primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: wgpu::MultisampleState::default(),
             multiview: None,
         });
 
@@ -1641,9 +1625,6 @@ impl PelletsModel {
     }
 
     fn update_physics_params(&mut self, queue: &Arc<Queue>) {
-        // For now, use the original particle size directly
-        let collision_particle_size = self.settings.particle_size;
-
         // Apply velocity decay when mouse is not pressed (after throwing)
         if !self.state.mouse_pressed {
             // Decay velocity over time to prevent persistent throwing
@@ -1668,7 +1649,7 @@ impl PelletsModel {
             mouse_mode: self.state.mouse_mode,
             cursor_size: self.state.cursor_size,
             cursor_strength: self.state.cursor_strength,
-            particle_size: collision_particle_size,
+            particle_size: self.settings.particle_size,
             aspect_ratio: self.surface_config.width as f32 / self.surface_config.height as f32,
             long_range_gravity_strength: self.settings.long_range_gravity_strength,
             density_damping_enabled: if self.settings.density_damping_enabled {

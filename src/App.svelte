@@ -33,19 +33,12 @@
     />
   {:else if currentMode === 'gradient-editor'}
     <GradientEditorMode
-      menuPosition={appSettings.menu_position}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'gradient'}
     <SimulationLayout
       simulationName="Gradient"
-      menuPosition={appSettings.menu_position}
-      on:back={goBack}
-      on:navigate={(e) => navigateToMode(e.detail)}
-    />
-  {:else if currentMode === 'ecosystem'}
-    <EcosystemMode
       menuPosition={appSettings.menu_position}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
@@ -75,7 +68,6 @@
   import PelletsMode from './lib/PelletsMode.svelte';
   import GradientEditorMode from './lib/GradientEditorMode.svelte';
   import SimulationLayout from './lib/components/shared/SimulationLayout.svelte';
-  import EcosystemMode from './lib/EcosystemMode.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
 
@@ -88,7 +80,6 @@
     | 'pellets'
     | 'gradient-editor'
     | 'gradient'
-    | 'ecosystem'
     | 'how-to-play'
     | 'settings';
 

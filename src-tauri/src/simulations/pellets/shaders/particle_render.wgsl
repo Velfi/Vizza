@@ -89,10 +89,8 @@ fn vs_main(
     let pos = positions[vertex_id];
     let uv = uvs[vertex_id];
     
-    // Use particle size from settings (uniform size for all particles)
-    let particle_size_pixels = params.particle_size * 1000.0; // Convert from world units to pixels
-    let world_size = particle_size_pixels / min(params.screen_width, params.screen_height);
-    let size = world_size * 2.0; // Uniform size for all particles, no mass scaling
+    // Use the pre-calculated particle size that matches collision detection exactly
+    let size = params.particle_size; // Already calculated on backend to match collision size
     let world_pos = particle.position + pos * size;
     
     // Convert to clip coordinates using camera transformation

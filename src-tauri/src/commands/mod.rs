@@ -1,6 +1,5 @@
 pub mod app_settings;
 pub mod camera;
-pub mod ecosystem;
 pub mod flow;
 pub mod gradient;
 pub mod interaction;
@@ -17,7 +16,6 @@ pub mod utility;
 // Re-export all command functions for easy access
 pub use app_settings::*;
 pub use camera::*;
-pub use ecosystem::*;
 pub use flow::*;
 pub use gradient::*;
 pub use interaction::*;

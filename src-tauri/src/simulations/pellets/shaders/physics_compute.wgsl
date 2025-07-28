@@ -365,6 +365,8 @@ fn compute_mouse_force(particle: Particle) -> vec2<f32> {
 
 fn compute_collision_forces(particle: Particle, particle_index: u32) -> vec2<f32> {
     var collision_impulse = vec2<f32>(0.0, 0.0);
+    
+    // Use the pre-calculated particle size that matches the rendering size exactly
     let particle_radius = params.particle_size;
     
     var nearby_count = 0u;
@@ -429,6 +431,7 @@ fn compute_collision_forces(particle: Particle, particle_index: u32) -> vec2<f32
 }
 
 fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
+    // Use the pre-calculated particle size that matches the rendering size exactly
     let particle_radius = params.particle_size;
     
     var nearby_count = 0u;
@@ -478,16 +481,10 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
         }
     }
     
-    if (total_overlap > 0.0 && nearby_count > 0u) {
-        // Use user-controlled overlap resolution strength
-        let density_factor = min(f32(nearby_count) / 12.0, 1.0);
-        let separation_strength = params.overlap_resolution_strength * (1.0 - density_factor * 0.3);
-        
-        let separation_magnitude = length(overlap_direction);
-        if (separation_magnitude > 1e-6) {
-            let normalized_direction = overlap_direction / separation_magnitude;
-            let separation_distance = total_overlap * separation_strength;
-            (*particle).position += normalized_direction * separation_distance;
-        }
+    // Apply overlap resolution with strength from settings
+    if (total_overlap > 0.0) {
+        let resolution_strength = params.overlap_resolution_strength;
+        let separation = normalize(overlap_direction) * total_overlap * resolution_strength;
+        (*particle).position += separation;
     }
 } 

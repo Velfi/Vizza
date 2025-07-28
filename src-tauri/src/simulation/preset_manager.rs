@@ -364,9 +364,6 @@ impl PresetManagerType {
             (_, SimulationType::Flow(_)) => {
                 Err("Flow simulation presets not yet implemented".into())
             }
-            (_, SimulationType::Ecosystem(_)) => {
-                Err("Ecosystem simulation presets not yet implemented".into())
-            }
             (_, SimulationType::MainMenu(_)) => Err("Main menu does not support presets".into()),
             (_, SimulationType::Gradient(_)) => Err("Gradient does not support presets".into()),
             _ => Err("Simulation type does not match preset manager type".into()),
@@ -419,7 +416,6 @@ impl SimulationPresetManager {
             SimulationType::GrayScott(_) => "gray_scott",
             SimulationType::ParticleLife(_) => "particle_life",
             SimulationType::Pellets(_) => "pellets",
-            SimulationType::Ecosystem(_) => "ecosystem",
             SimulationType::Flow(_) => "flow",
             SimulationType::MainMenu(_) => "main_menu",
             SimulationType::Gradient(_) => "gradient",
