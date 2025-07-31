@@ -149,108 +149,48 @@
       return;
     }
 
-    // Debug: log pressed keys occasionally
-    if (pressedKeys.size > 0 && Math.random() < 0.01) {
-      // Log ~1% of the time when keys are pressed
-      console.log(
-        'Pressed keys:',
-        Array.from(pressedKeys),
-        'simulationType:',
-        simulationType,
-        'controlMode:',
-        controlMode
-      );
-    }
-
     let moved = false;
 
-    if (controlMode === 'camera') {
-      // Regular camera controls
-      const panAmount = 0.1;
-      let deltaX = 0;
-      let deltaY = 0;
+    // Camera controls
+    const panAmount = 0.1;
+    let deltaX = 0;
+    let deltaY = 0;
 
-      if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-        console.log('CAMERA MODE: W/Up pressed - panning camera up');
-        deltaY += panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-        console.log('CAMERA MODE: S/Down pressed - panning camera down');
-        deltaY -= panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-        console.log('CAMERA MODE: A/Left pressed - panning camera left');
-        deltaX -= panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-        console.log('CAMERA MODE: D/Right pressed - panning camera right');
-        deltaX += panAmount;
-        moved = true;
-      }
+    if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
+      deltaY += panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
+      deltaY -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
+      deltaX -= panAmount;
+      moved = true;
+    }
+    if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
+      deltaX += panAmount;
+      moved = true;
+    }
 
-      // Apply combined movement if any keys are pressed
-      if (moved) {
-        panCamera(deltaX, deltaY);
-      }
+    // Apply combined movement if any keys are pressed
+    if (moved) {
+      panCamera(deltaX, deltaY);
+    }
 
-      // Handle Q/E for zoom
-      if (pressedKeys.has('q')) {
-        zoomCamera(-0.05);
-        moved = true;
-      }
-      if (pressedKeys.has('e')) {
-        zoomCamera(0.05);
-        moved = true;
-      }
+    // Handle Q/E for zoom
+    if (pressedKeys.has('q')) {
+      zoomCamera(-0.05);
+      moved = true;
+    }
+    if (pressedKeys.has('e')) {
+      zoomCamera(0.05);
+      moved = true;
+    }
 
-      if (pressedKeys.has('c')) {
-        resetCamera();
-        moved = true;
-      }
-    } else {
-      // Simulation controls - let the backend handle mode switching
-      const panAmount = 0.1;
-      let deltaX = 0;
-      let deltaY = 0;
-
-      if (pressedKeys.has('w') || pressedKeys.has('arrowup')) {
-        console.log('SIM MODE: W/Up pressed - sending to backend');
-        deltaY += panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('s') || pressedKeys.has('arrowdown')) {
-        console.log('SIM MODE: S/Down pressed - sending to backend');
-        deltaY -= panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('a') || pressedKeys.has('arrowleft')) {
-        console.log('SIM MODE: A/Left pressed - sending to backend');
-        deltaX -= panAmount;
-        moved = true;
-      }
-      if (pressedKeys.has('d') || pressedKeys.has('arrowright')) {
-        console.log('SIM MODE: D/Right pressed - sending to backend');
-        deltaX += panAmount;
-        moved = true;
-      }
-
-      // Apply combined movement if any keys are pressed
-      if (moved) {
-        panCamera(deltaX, deltaY);
-      }
-
-      // Handle Q/E for zoom
-      if (pressedKeys.has('q')) {
-        zoomCamera(-0.05);
-        moved = true;
-      }
-      if (pressedKeys.has('e')) {
-        zoomCamera(0.05);
-        moved = true;
-      }
+    if (pressedKeys.has('c')) {
+      resetCamera();
+      moved = true;
     }
 
     // Always schedule the next frame to keep the loop running

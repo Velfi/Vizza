@@ -9,18 +9,8 @@ struct BackgroundParams {
     gradient_angle: f32,
 }
 
-struct CameraUniform {
-    transform_matrix: mat4x4<f32>,
-    position: vec2<f32>,
-    zoom: f32,
-    aspect_ratio: f32,
-}
-
 @group(0) @binding(0)
 var<uniform> background_params: BackgroundParams;
-
-@group(1) @binding(0)
-var<uniform> camera: CameraUniform;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -41,17 +31,14 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     
     let pos = positions[vertex_index];
     
-    // Transform to world space
-    let world_pos = (camera.transform_matrix * vec4<f32>(pos, 0.0, 1.0)).xy;
-    
     return VertexOutput(
         vec4<f32>(pos, 0.0, 1.0),
-        world_pos
+        pos
     );
 }
 
 @fragment
-fn fs_main(@location(0) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
+fn fs_main(@location(0) pos: vec2<f32>) -> @location(0) vec4<f32> {
     var color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
     
     if (background_params.background_type == 0u) {
@@ -72,15 +59,15 @@ fn fs_main(@location(0) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
             // Rotate coordinates
             let cos_angle = cos(angle);
             let sin_angle = sin(angle);
-            let rotated_x = (world_pos.x - center.x) * cos_angle + (world_pos.y - center.y) * sin_angle;
-            let rotated_y = -(world_pos.x - center.x) * sin_angle + (world_pos.y - center.y) * cos_angle;
+            let rotated_x = (pos.x - center.x) * cos_angle + (pos.y - center.y) * sin_angle;
+            let rotated_y = -(pos.x - center.x) * sin_angle + (pos.y - center.y) * cos_angle;
             
             if (background_params.gradient_type == 1u) {
                 // Linear gradient
                 gradient_value = (rotated_x / size + 0.5) * background_params.gradient_strength;
             } else if (background_params.gradient_type == 2u) {
                 // Radial gradient
-                let distance = length(world_pos - center);
+                let distance = length(pos - center);
                 gradient_value = (distance / size) * background_params.gradient_strength;
             } else if (background_params.gradient_type == 3u) {
                 // Ellipse gradient
@@ -88,8 +75,8 @@ fn fs_main(@location(0) world_pos: vec2<f32>) -> @location(0) vec4<f32> {
                 gradient_value = distance * background_params.gradient_strength;
             } else if (background_params.gradient_type == 4u) {
                 // Spiral gradient
-                let distance = length(world_pos - center);
-                let angle_from_center = atan2(world_pos.y - center.y, world_pos.x - center.x);
+                let distance = length(pos - center);
+                let angle_from_center = atan2(pos.y - center.y, pos.x - center.x);
                 let spiral_value = (angle_from_center + 3.14159265359) / (2.0 * 3.14159265359) + distance / background_params.gradient_size;
                 gradient_value = fract(spiral_value) * background_params.gradient_strength;
             } else if (background_params.gradient_type == 5u) {

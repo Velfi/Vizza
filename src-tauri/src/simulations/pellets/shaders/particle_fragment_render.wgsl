@@ -10,7 +10,7 @@ struct RenderParams {
     particle_size: f32,
     screen_width: f32,
     screen_height: f32,
-    coloring_mode: u32, // 0 = density, 1 = velocity
+    coloring_mode: u32, // 0 = density, 1 = velocity, 2 = random
 }
 
 @group(0) @binding(1) var<uniform> params: RenderParams;
@@ -43,7 +43,19 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
     
     var final_color: vec3<f32>;
     
-    if (in.coloring_mode > 0.5) {
+    if (in.coloring_mode > 1.5) {
+        // Random mode (coloring_mode == 2)
+        let color_factor = clamp(in.density / 255.0, 0.0, 1.0);
+        let lut_index = u32(color_factor * 255.0);
+        let color = get_lut_color(lut_index);
+        
+        // Add mass-based glow effect for larger particles
+        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let glow_intensity = mass_factor * 0.3;
+        let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
+        
+        final_color = color + glow_color;
+    } else if (in.coloring_mode > 0.5) {
         // Velocity mode (coloring_mode == 1) 
         let color_factor = clamp(in.density / 4.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);

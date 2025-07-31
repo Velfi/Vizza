@@ -2,6 +2,7 @@ use crate::simulations::slime_mold::shaders::{
     BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER,
     QUAD_INFINITE_SHADER, QUAD_SHADER,
 };
+use crate::simulations::shared::AVERAGE_COLOR_SHADER;
 use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use std::borrow::Cow;
 use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
@@ -13,6 +14,7 @@ pub struct ShaderManager {
     pub quad_infinite_shader: ShaderModule,
     pub gradient_shader: ShaderModule,
     pub background_render_shader: ShaderModule,
+    pub average_color_shader: ShaderModule,
 }
 
 impl ShaderManager {
@@ -48,6 +50,13 @@ impl ShaderManager {
                 device,
                 "Background Render Shader",
                 BACKGROUND_RENDER_SHADER,
+            ),
+            average_color_shader: Self::create_compute_shader(
+                device,
+                "Average Color Shader",
+                AVERAGE_COLOR_SHADER,
+                workgroup_config.compute_1d,
+                workgroup_config.compute_2d,
             ),
         }
     }

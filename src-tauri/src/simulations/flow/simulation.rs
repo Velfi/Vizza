@@ -3,7 +3,7 @@ use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
     RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
-use crate::simulations::shared::LutManager;
+use crate::simulations::shared::{LutManager, AverageColorResources};
 use crate::simulations::shared::camera::Camera;
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
@@ -145,6 +145,9 @@ pub struct FlowModel {
     pub display_sampler: wgpu::Sampler,
     pub render_infinite_bind_group: wgpu::BindGroup,
     pub render_infinite_pipeline: wgpu::RenderPipeline,
+
+    // Average color calculation for infinite rendering
+    pub average_color_resources: AverageColorResources,
 }
 
 impl FlowModel {
@@ -1352,6 +1355,14 @@ impl FlowModel {
                 cache: None,
             });
 
+        // Create average color calculation resources
+        let average_color_resources = AverageColorResources::new(
+            device,
+            &display_texture,
+            &display_view,
+            "Flow",
+        );
+
         // Use the same camera for both offscreen and infinite rendering
 
         Ok(Self {
@@ -1403,6 +1414,7 @@ impl FlowModel {
             display_sampler,
             render_infinite_bind_group,
             render_infinite_pipeline,
+            average_color_resources,
         })
     }
 
@@ -1447,8 +1459,27 @@ impl FlowModel {
         );
     }
 
+    fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
+        self.average_color_resources.calculate_average_color(device, queue, &self.display_texture);
+        
+        // Wait for the GPU work to complete
+        device.poll(wgpu::Maintain::Wait);
+        
+        // Read the result and update the background color buffer
+        if let Some(average_color) = self.average_color_resources.get_average_color() {
+            queue.write_buffer(
+                &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&[average_color]),
+            );
+        }
+        // Unmap the staging buffer after reading
+        self.average_color_resources.unmap_staging_buffer();
+    }
+
     fn update_background_color(&self, queue: &Arc<wgpu::Queue>) {
-        // Get the background color from the LUT (first color in the LUT)
+        // This method is now only used for initial setup
+        // The actual average color is calculated in calculate_average_color
         let lut = self
             .lut_manager
             .get(&self.settings.current_lut)
@@ -1574,6 +1605,9 @@ impl Simulation for FlowModel {
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
 
+        // 2. Calculate average color from the display texture
+        self.calculate_average_color(device, queue);
+
         // No need to copy since we're using the same texture for rendering and sampling
 
         // 2. Render display texture to surface with infinite tiling
@@ -1620,14 +1654,59 @@ impl Simulation for FlowModel {
         // Update background color from LUT
         self.update_background_color(queue);
 
-        // For static rendering, render background, trails, and particles without updating simulation state
-        let mut render_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Flow Static Render Encoder"),
+        // 1. Render background, trails, and particles to display texture (offscreen) without updating simulation state
+        let mut offscreen_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Flow Static Offscreen Encoder"),
         });
-
         {
-            let mut render_pass = render_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Flow Static Render Pass"),
+            let mut render_pass = offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Flow Static Offscreen Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            // Render background
+            render_pass.set_pipeline(&self.background_render_pipeline);
+            render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Single instance
+            // Render trails
+            render_pass.set_pipeline(&self.trail_render_pipeline);
+            render_pass.set_bind_group(0, &self.trail_render_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.draw(0..6, 0..1); // Single instance
+            // Render particles (if enabled)
+            if self.settings.show_particles {
+                render_pass.set_pipeline(&self.particle_render_pipeline);
+                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                let active_particles = self.particles.len() as u32;
+                render_pass.draw(0..6, 0..active_particles); // Single instance per particle
+            }
+        }
+        queue.submit(std::iter::once(offscreen_encoder.finish()));
+
+        // 2. Calculate average color from the display texture
+        self.calculate_average_color(device, queue);
+
+        // 3. Render display texture to surface with infinite tiling
+        let tile_count = self.calculate_tile_count();
+        let total_instances = tile_count * tile_count;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Flow Static Infinite Surface Encoder"),
+        });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Flow Static Infinite Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
@@ -1640,18 +1719,12 @@ impl Simulation for FlowModel {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-
-            // For static rendering, use the infinite pipeline directly
-            let tile_count = self.calculate_tile_count();
-            let total_instances = tile_count * tile_count;
-
             render_pass.set_pipeline(&self.render_infinite_pipeline);
             render_pass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..total_instances); // Dynamic grid based on zoom
         }
-
-        queue.submit(std::iter::once(render_encoder.finish()));
+        queue.submit(std::iter::once(encoder.finish()));
 
         Ok(())
     }

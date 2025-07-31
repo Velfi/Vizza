@@ -18,12 +18,15 @@
 //! management. Each area provides both basic functionality and
 //! advanced features for sophisticated simulation experiences.
 
+pub mod average_color;
 pub mod camera;
 pub mod coordinates;
 pub mod lut;
 pub mod position_generators;
 
+pub use average_color::AverageColorResources;
 pub use lut::{LutData, LutManager, SimulationLutManager};
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
 
 pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
+pub const AVERAGE_COLOR_SHADER: &str = include_str!("average_color.wgsl");

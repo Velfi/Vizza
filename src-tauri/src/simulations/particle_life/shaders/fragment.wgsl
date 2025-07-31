@@ -1,11 +1,12 @@
-// Particle Life fragment shader - Infinite Rendering
+// Particle Life fragment shader - Instanced Quads for Sizable Points
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) species: u32,
     @location(1) velocity_magnitude: f32,
-    @location(2) uv: vec2<f32>,
+    @location(2) world_pos: vec2<f32>,
     @location(3) grid_fade_factor: f32,
+    @location(4) uv: vec2<f32>,
 }
 
 struct SpeciesColors {
@@ -16,14 +17,15 @@ struct SpeciesColors {
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Create circular particles with smooth borders
+    // Create circular particles with sharp edges
+    // UV coordinates are in [0,1] range for each quad
     let center = vec2<f32>(0.5, 0.5);
     let dist_from_center = distance(input.uv, center);
     
-    // Define particle radius - use hard cutoff for opaque particles
+    // Define particle radius - use sharp cutoff for crisp edges
     let particle_radius = 0.45;
     
-    // Discard pixels outside the particle radius for hard edges
+    // Discard pixels outside the particle radius for circular particles
     if (dist_from_center > particle_radius) {
         discard;
     }

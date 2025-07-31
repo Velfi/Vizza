@@ -65,10 +65,10 @@
           />
         </div>
         <div class="control-group">
-          <label for="coloringMode">Coloring Mode</label>
+          <label for="coloringMode">Particle Coloring Mode</label>
           <Selector
             id="coloringMode"
-            options={['density', 'velocity']}
+            options={['density', 'velocity', 'random']}
             value={settings?.coloring_mode || 'density'}
             on:change={({ detail }) => updateSetting('coloring_mode', detail.value)}
           />
@@ -76,235 +76,10 @@
             <small>
               <strong>Density:</strong> Particles are colored based on how many other particles are
               nearby.<br />
-              <strong>Velocity:</strong> Particles are colored based on their speed (faster = brighter).
+              <strong>Velocity:</strong> Particles are colored based on their speed (faster = brighter).<br />
+              <strong>Random:</strong> Each particle gets a unique random color that stays constant.
             </small>
           </div>
-        </div>
-      </fieldset>
-
-      <!-- Particle Settings -->
-      <fieldset>
-        <legend>Particle Settings</legend>
-        <div class="control-group">
-          <label for="particleCount">Particle Count</label>
-          <NumberDragBox
-            id="particleCount"
-            bind:value={settings.particle_count}
-            min={1}
-            max={50000}
-            step={1000}
-            on:change={({ detail }) => {
-              console.log('NumberDragBox change event triggered:', detail);
-              updateSetting('particle_count', detail);
-            }}
-          />
-        </div>
-        <div class="control-group">
-          <label for="particleSize">Particle Size</label>
-          <NumberDragBox
-            id="particleSize"
-            bind:value={settings.particle_size}
-            min={0.0005}
-            max={1.0}
-            step={0.0005}
-            precision={4}
-            on:change={({ detail }) => updateSetting('particle_size', detail)}
-          />
-        </div>
-        <div class="control-group">
-          <button type="button" on:click={respawnParticles} class="respawn-button">
-            Respawn All Particles
-          </button>
-        </div>
-      </fieldset>
-
-      <!-- Physics Settings -->
-      <fieldset>
-        <legend>Physics Settings</legend>
-        <div class="control-group">
-          <label for="gravitationalConstant">Gravitational Constant</label>
-          <NumberDragBox
-            id="gravitationalConstant"
-            value={settings?.gravitational_constant ?? 0.0}
-            min={0.0}
-            max={1.0}
-            step={1e-6}
-            precision={6}
-            on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
-          />
-        </div>
-        <div class="control-group">
-          <label for="longRangeGravityStrength">Long-Range Gravity Strength</label>
-          <NumberDragBox
-            id="longRangeGravityStrength"
-            value={settings?.long_range_gravity_strength ?? 0.0}
-            min={0.0}
-            max={1.0}
-            step={0.01}
-            precision={2}
-            on:change={({ detail }) => updateSetting('long_range_gravity_strength', detail)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> Clumps can orbit each other at larger distances.<br />
-              <strong>Lower values:</strong> Only local clumping, no orbital motion.
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="energyDamping">Energy Lost per Tick (%)</label>
-          <NumberDragBox
-            id="energyDamping"
-            value={Number(((1 - (settings?.energy_damping ?? 0.999)) * 100).toFixed(3))}
-            min={0.0}
-            max={100.0}
-            step={0.1}
-            precision={3}
-            on:change={({ detail }) => updateSetting('energy_damping', 1 - detail / 100)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> More energy lost each tick (particles slow down
-              faster).<br />
-              <strong>Lower values:</strong> Less energy lost each tick (particles maintain speed
-              longer).<br />
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="collisionDamping">Energy Lost on Collision (%)</label>
-          <NumberDragBox
-            id="collisionDamping"
-            value={Number(((1 - settings.collision_damping) * 100).toFixed(1))}
-            min={0.0}
-            max={100.0}
-            step={0.1}
-            precision={1}
-            on:change={({ detail }) => updateSetting('collision_damping', 1 - detail / 100)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> More energy lost during particle collisions.<br />
-              <strong>Lower values:</strong> More energy retained during particle collisions.<br />
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="overlapResolutionStrength">Overlap Resolution Strength (%)</label>
-          <NumberDragBox
-            id="overlapResolutionStrength"
-            value={Number(((settings.overlap_resolution_strength ?? 0.02) * 100).toFixed(1))}
-            min={0.0}
-            max={100.0}
-            step={0.1}
-            precision={1}
-            on:change={({ detail }) => updateSetting('overlap_resolution_strength', detail / 100)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> More aggressive separation of overlapping particles.<br
-              />
-              <strong>Lower values:</strong> Gentler separation, preserves collision response.<br />
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="gravitySoftening">Gravity Softening</label>
-          <NumberDragBox
-            id="gravitySoftening"
-            value={settings?.gravity_softening ?? 0.003}
-            min={0.0}
-            max={0.1}
-            step={0.001}
-            precision={3}
-            on:change={({ detail }) => updateSetting('gravity_softening', detail)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> Softer gravity, prevents extreme accelerations.<br />
-              <strong>Lower values:</strong> Stronger gravity, more dramatic interactions.
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="densityRadius">Density Radius</label>
-          <NumberDragBox
-            id="densityRadius"
-            value={settings?.density_radius ?? 0.04}
-            min={0.01}
-            max={0.2}
-            step={0.01}
-            precision={2}
-            on:change={({ detail }) => updateSetting('density_radius', detail)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Higher values:</strong> Larger area for density calculation.<br />
-              <strong>Lower values:</strong> Smaller, more localized density effects.
-            </small>
-          </div>
-        </div>
-        <div class="control-group">
-          <label for="densityDampingEnabled">Density-Based Damping</label>
-          <input
-            type="checkbox"
-            id="densityDampingEnabled"
-            checked={settings?.density_damping_enabled ?? true}
-            on:change={(e) =>
-              updateSetting('density_damping_enabled', (e.target as HTMLInputElement).checked)}
-          />
-          <div class="setting-description">
-            <small>
-              <strong>Enabled:</strong> Particles in dense areas slow down, creating stable
-              clumping.<br />
-              <strong>Disabled:</strong> Particles maintain momentum regardless of local density.
-            </small>
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- Initial Conditions -->
-      <fieldset>
-        <legend>Initial Conditions</legend>
-        <div class="control-group">
-          <label for="initialVelocityMin">Initial Velocity Min</label>
-          <NumberDragBox
-            id="initialVelocityMin"
-            bind:value={settings.initial_velocity_min}
-            min={0.0}
-            max={1.0}
-            step={0.01}
-            precision={2}
-            on:change={({ detail }) => updateSetting('initial_velocity_min', detail)}
-          />
-        </div>
-        <div class="control-group">
-          <label for="initialVelocityMax">Initial Velocity Max</label>
-          <NumberDragBox
-            id="initialVelocityMax"
-            bind:value={settings.initial_velocity_max}
-            min={0.1}
-            max={2.0}
-            step={0.1}
-            precision={2}
-            on:change={({ detail }) => updateSetting('initial_velocity_max', detail)}
-          />
-        </div>
-        <div class="control-group">
-          <label for="randomSeed">Random Seed</label>
-          <NumberDragBox
-            id="randomSeed"
-            bind:value={settings.random_seed}
-            min={0}
-            max={999999}
-            step={1}
-            on:change={({ detail }) => updateSetting('random_seed', detail)}
-          />
-          <button
-            type="button"
-            on:click={() => updateSetting('random_seed', Math.floor(Math.random() * 999999))}
-            >🎲</button
-          >
         </div>
       </fieldset>
 
@@ -348,6 +123,144 @@
           </div>
         </div>
       </fieldset>
+
+      <!-- Settings -->
+      <fieldset>
+        <legend>Settings</legend>
+
+        <!-- General Settings -->
+        <div class="settings-section">
+          <div class="control-group">
+            <button type="button" on:click={respawnParticles} class="respawn-button">
+              Respawn All Particles
+            </button>
+          </div>
+        </div>
+
+        <!-- Particle Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Particle</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Particle Count:</span>
+              <NumberDragBox
+                value={settings.particle_count}
+                min={1}
+                max={50000}
+                step={1000}
+                on:change={({ detail }) => {
+                  console.log('NumberDragBox change event triggered:', detail);
+                  updateSetting('particle_count', detail);
+                }}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Particle Size:</span>
+              <NumberDragBox
+                value={settings.particle_size}
+                min={0.0005}
+                max={1.0}
+                step={0.0005}
+                precision={4}
+                on:change={({ detail }) => updateSetting('particle_size', detail)}
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Physics Settings -->
+        <div class="settings-section">
+          <h3 class="section-header">Physics</h3>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <span class="setting-label">Gravitational Constant:</span>
+              <NumberDragBox
+                value={settings?.gravitational_constant ?? 0.0}
+                min={0.0}
+                max={1.0}
+                step={1e-6}
+                precision={6}
+                on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Long-Range Gravity Strength:</span>
+              <NumberDragBox
+                value={settings?.long_range_gravity_strength ?? 0.0}
+                min={0.0}
+                max={1.0}
+                step={0.01}
+                precision={2}
+                on:change={({ detail }) => updateSetting('long_range_gravity_strength', detail)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Energy Lost per Tick (%):</span>
+              <NumberDragBox
+                value={Number(((1 - (settings?.energy_damping ?? 0.999)) * 100).toFixed(3))}
+                min={0.0}
+                max={100.0}
+                step={0.1}
+                precision={3}
+                on:change={({ detail }) => updateSetting('energy_damping', 1 - detail / 100)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Energy Lost on Collision (%):</span>
+              <NumberDragBox
+                value={Number(((1 - settings.collision_damping) * 100).toFixed(1))}
+                min={0.0}
+                max={100.0}
+                step={0.1}
+                precision={1}
+                on:change={({ detail }) => updateSetting('collision_damping', 1 - detail / 100)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Overlap Resolution Strength (%):</span>
+              <NumberDragBox
+                value={Number(((settings.overlap_resolution_strength ?? 0.02) * 100).toFixed(1))}
+                min={0.0}
+                max={50.0}
+                step={0.1}
+                precision={1}
+                on:change={({ detail }) => updateSetting('overlap_resolution_strength', detail / 100)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Gravity Softening:</span>
+              <NumberDragBox
+                value={settings?.gravity_softening ?? 0.003}
+                min={0.0}
+                max={0.1}
+                step={0.001}
+                precision={3}
+                on:change={({ detail }) => updateSetting('gravity_softening', detail)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Density Radius:</span>
+              <NumberDragBox
+                value={settings?.density_radius ?? 0.04}
+                min={0.01}
+                max={0.2}
+                step={0.01}
+                precision={3}
+                on:change={({ detail }) => updateSetting('density_radius', detail)}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Density-Based Damping:</span>
+              <input
+                type="checkbox"
+                checked={settings?.density_damping_enabled ?? true}
+                on:change={(e) =>
+                  updateSetting('density_damping_enabled', (e.target as HTMLInputElement).checked)}
+              />
+            </div>
+          </div>
+        </div>
+      </fieldset>
     </form>
   {/if}
 </SimulationLayout>
@@ -368,6 +281,7 @@
   import LutSelector from './components/shared/LutSelector.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import './shared-theme.css';
 
   export let menuPosition: string;
 
@@ -572,7 +486,9 @@
     // Special handling for particle count changes
     if (key === 'particle_count') {
       console.log('Handling particle_count change');
-      await updateParticleCount(value);
+      if (typeof value === 'number') {
+        await updateParticleCount(value);
+      }
       return;
     }
 
@@ -580,7 +496,9 @@
       console.log('Calling update_simulation_setting for:', key, value);
       await invoke('update_simulation_setting', { settingName: key, value });
       // Update local settings
-      (settings as Record<string, unknown>)[key] = value;
+      if (settings) {
+        (settings as any)[key] = value;
+      }
       console.log('Setting updated successfully');
     } catch (error) {
       console.error('Failed to update setting:', error);
@@ -931,5 +849,66 @@
 
   .setting-description strong {
     color: #ccc;
+  }
+
+  /* Settings grid for key/value pairs */
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.15rem 0.3rem;
+    width: 100%;
+  }
+
+  .setting-item {
+    display: contents;
+  }
+
+  .setting-label {
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.9);
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .setting-item:last-child .setting-label {
+    border-bottom: none;
+  }
+
+  /* Settings section styling */
+  .settings-section {
+    margin-bottom: 1.5rem;
+  }
+
+  .settings-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0 0 0.75rem 0;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* Mobile responsive design */
+  @media (max-width: 768px) {
+    .interaction-controls-grid {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+    }
+
+    .interaction-help {
+      gap: 0.2rem;
+    }
+
+    .cursor-settings {
+      gap: 0.2rem;
+    }
+
+    .cursor-settings-header {
+      font-size: 0.85rem;
+    }
   }
 </style>

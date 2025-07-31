@@ -30,7 +30,7 @@ use super::shaders::{
     RENDER_INFINITE_SHADER,
 };
 use super::{settings::Settings, state::State};
-use crate::simulations::shared::{LutManager, camera::Camera};
+use crate::simulations::shared::{LutManager, camera::Camera, AverageColorResources};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -178,6 +178,9 @@ pub struct PelletsModel {
     pub render_infinite_pipeline: wgpu::RenderPipeline,
     pub render_infinite_bind_group: wgpu::BindGroup,
 
+    // Average color calculation for infinite rendering
+    pub average_color_resources: AverageColorResources,
+
     // Camera bind group
     pub camera_bind_group: wgpu::BindGroup,
 
@@ -267,7 +270,7 @@ impl PelletsModel {
             screen_height: (surface_config.height * 2) as f32,
             coloring_mode: match settings.coloring_mode.as_str() {
                 "velocity" => 1,
-                "liquid" => 2,
+                "random" => 2,
                 _ => 0, // Default to density
             },
         };
@@ -344,7 +347,7 @@ impl PelletsModel {
             density_radius: settings.density_radius,
             coloring_mode: match settings.coloring_mode.as_str() {
                 "velocity" => 1,
-                "liquid" => 2,
+                "random" => 2,
                 _ => 0, // Default to density
             },
             _padding: 0,
@@ -1383,6 +1386,14 @@ impl PelletsModel {
             ],
         });
 
+        // Create average color calculation resources
+        let average_color_resources = AverageColorResources::new(
+            device,
+            &post_effect_texture,
+            &post_effect_view,
+            "Pellets",
+        );
+
         Ok(PelletsModel {
             particle_buffer,
             physics_params_buffer,
@@ -1423,6 +1434,7 @@ impl PelletsModel {
             post_effect_bind_group,
             render_infinite_pipeline,
             render_infinite_bind_group,
+            average_color_resources,
             camera_bind_group,
 
             particles,
@@ -1692,7 +1704,7 @@ impl PelletsModel {
             density_radius: self.settings.density_radius,
             coloring_mode: match self.settings.coloring_mode.as_str() {
                 "velocity" => 1,
-                "liquid" => 2,
+                "random" => 2,
                 _ => 0, // Default to density
             },
             _padding: 0,
@@ -1850,6 +1862,44 @@ impl PelletsModel {
                 ],
             });
 
+        // Create grid populate bind group layout
+        let grid_populate_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Pellets Grid Populate Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
         // Recreate physics compute bind group
         self.physics_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Physics Bind Group"),
@@ -1886,6 +1936,26 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: self.density_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Recreate grid populate bind group
+        self.grid_populate_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Grid Populate Bind Group"),
+            layout: &grid_populate_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.grid_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.grid_params_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1947,6 +2017,26 @@ impl PelletsModel {
             ],
         });
 
+        // Recreate particle render bind group (for offscreen rendering)
+        self.particle_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Particle Render Bind Group"),
+            layout: &self.particle_render_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.render_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.lut_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         Ok(())
     }
 
@@ -1973,7 +2063,7 @@ impl PelletsModel {
             screen_height: (self.surface_config.height * 2) as f32,
             coloring_mode: match self.settings.coloring_mode.as_str() {
                 "velocity" => 1,
-                "liquid" => 2,
+                "random" => 2,
                 _ => 0, // Default to density
             },
         };
@@ -2038,6 +2128,24 @@ impl PelletsModel {
                 bytemuck::cast_slice(&[background_color]),
             );
         }
+    }
+
+    fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
+        self.average_color_resources.calculate_average_color(device, queue, &self.post_effect_texture);
+        
+        // Wait for the GPU work to complete
+        device.poll(wgpu::Maintain::Wait);
+        
+        // Read the result and update the background color buffer
+        if let Some(average_color) = self.average_color_resources.get_average_color() {
+            queue.write_buffer(
+                &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&[average_color]),
+            );
+        }
+        // Unmap the staging buffer after reading
+        self.average_color_resources.unmap_staging_buffer();
     }
 
     fn update_particle_radii(&mut self, queue: &Arc<Queue>) {
@@ -2165,10 +2273,10 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 timestamp_writes: None,
             });
 
-            // Render particles
+            // Render particles (9 instances per particle for wrapping)
             render_pass.set_pipeline(&self.particle_render_pipeline);
             render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-            render_pass.draw(0..6, 0..self.particles.len() as u32);
+            render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
         }
         queue.submit(std::iter::once(particle_encoder.finish()));
 
@@ -2200,6 +2308,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             render_pass.draw(0..6, 0..1);
         }
         queue.submit(std::iter::once(post_effect_encoder.finish()));
+
+        // 3. Calculate average color from the post-effect texture
+        self.calculate_average_color(device, queue);
 
         // 4. Render post-effect texture to surface with infinite tiling
         let tile_count = self.calculate_tile_count();
@@ -2297,10 +2408,10 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 timestamp_writes: None,
             });
 
-            // Render particles
+            // Render particles (9 instances per particle for wrapping)
             render_pass.set_pipeline(&self.particle_render_pipeline);
             render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-            render_pass.draw(0..6, 0..self.particles.len() as u32);
+            render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
         }
         queue.submit(std::iter::once(particle_encoder.finish()));
 

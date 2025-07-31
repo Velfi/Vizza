@@ -11,6 +11,7 @@ pub struct PipelineManager {
     pub reset_pipeline: ComputePipeline,
     pub update_speeds_pipeline: ComputePipeline,
     pub gradient_pipeline: ComputePipeline,
+    pub average_color_pipeline: ComputePipeline,
     pub render_pipeline: RenderPipeline,
     pub render_infinite_pipeline: RenderPipeline,
     pub background_render_pipeline: RenderPipeline,
@@ -20,6 +21,7 @@ pub struct PipelineManager {
     pub camera_bind_group_layout: BindGroupLayout,
     pub gradient_bind_group_layout: BindGroupLayout,
     pub background_bind_group_layout: BindGroupLayout,
+    pub average_color_bind_group_layout: BindGroupLayout,
 }
 
 impl PipelineManager {
@@ -235,6 +237,33 @@ impl PipelineManager {
                 ],
             });
 
+        let average_color_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Average Color Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(
@@ -337,6 +366,21 @@ impl PipelineManager {
             ),
             module: &shader_manager.gradient_shader,
             entry_point: Some("generate_gradient"),
+            cache: None,
+            compilation_options: Default::default(),
+        });
+
+        let average_color_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Average Color Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Average Color Pipeline Layout"),
+                    bind_group_layouts: &[&average_color_bind_group_layout],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            module: &shader_manager.average_color_shader,
+            entry_point: Some("main"),
             cache: None,
             compilation_options: Default::default(),
         });
@@ -486,6 +530,7 @@ impl PipelineManager {
             reset_pipeline,
             update_speeds_pipeline,
             gradient_pipeline,
+            average_color_pipeline,
             render_pipeline,
             render_infinite_pipeline,
             background_render_pipeline,
@@ -495,6 +540,7 @@ impl PipelineManager {
             camera_bind_group_layout,
             gradient_bind_group_layout,
             background_bind_group_layout,
+            average_color_bind_group_layout,
         }
     }
 }

@@ -80,10 +80,10 @@ impl Default for Settings {
             initial_velocity_min: 0.05,
             random_seed: 0,
             background_type: "white".to_string(),
-            gravitational_constant: 1e-6,
+            gravitational_constant: 17e-6,
             energy_damping: 1.0,
             gravity_softening: 0.003,
-            density_radius: 0.04,
+            density_radius: 0.045,
             coloring_mode: "density".to_string(),
             long_range_gravity_strength: 0.0,
             density_damping_enabled: true,
@@ -111,6 +111,6 @@ impl Settings {
         self.density_radius = rng.random_range(0.02..0.05);
         self.long_range_gravity_strength = rng.random_range(0.0..1.0);
         self.density_damping_enabled = rng.random_bool(0.5); // 50% chance of being enabled
-        self.overlap_resolution_strength = rng.random_range(0.01..0.1); // Conservative range
+        self.overlap_resolution_strength = rng.random_range(0.01..0.2); // Conservative range, max 20%
     }
 }

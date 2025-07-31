@@ -15,7 +15,7 @@ struct Particle {
 struct DensityParams {
     particle_count: u32,
     density_radius: f32,
-    coloring_mode: u32, // 0 = density, 1 = velocity
+    coloring_mode: u32, // 0 = density, 1 = velocity, 2 = random
     _padding: u32,
 }
 
@@ -34,9 +34,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (params.coloring_mode == 0u) {
         // Density mode
         particle.density = compute_density(particle, index);
-    } else {
+    } else if (params.coloring_mode == 1u) {
         // Velocity mode
         particle.density = length(particle.velocity) * 4.0; // Velocity-based coloring
+    } else {
+        // Random mode - use particle index to generate consistent random value
+        let seed = f32(index) * 0.1234;
+        particle.density = fract(sin(seed) * 43758.5453) * 255.0; // Random value 0-255
     }
     
     particles[index] = particle;

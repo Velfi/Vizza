@@ -434,57 +434,68 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
     // Use the pre-calculated particle size that matches the rendering size exactly
     let particle_radius = params.particle_size;
     
-    var nearby_count = 0u;
-    var total_overlap = 0.0;
-    var overlap_direction = vec2<f32>(0.0, 0.0);
-    
-    // For pixel-perfect collision resolution, check ALL particles
-    for (var i = 0u; i < params.particle_count; i++) {
-        if (i == particle_index) {
-            continue;
-        }
+    // Run 2 iterations of overlap resolution for better separation
+    for (var iteration = 0u; iteration < 2u; iteration++) {
+        var nearby_count = 0u;
+        var total_overlap = 0.0;
+        var overlap_direction = vec2<f32>(0.0, 0.0);
         
-        let other = particles[i];
-        var delta = (*particle).position - other.position;
-        
-        // Toroidal wrapping
-        if (abs(delta.x) > 1.0) {
-            delta.x = delta.x - sign(delta.x) * 2.0;
-        }
-        if (abs(delta.y) > 1.0) {
-            delta.y = delta.y - sign(delta.y) * 2.0;
-        }
-        
-        let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
-        let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
-        let combined_radius = particle_radius + particle_radius;
-        let distance = sqrt(distance_sq);
-        
-        if (distance_sq < combined_radius * combined_radius * 4.0) {
-            nearby_count += 1u;
-        }
-        
-        if (distance < combined_radius && distance > 1e-6) {
-            let overlap = combined_radius - distance;
+        // For pixel-perfect collision resolution, check ALL particles
+        for (var i = 0u; i < params.particle_count; i++) {
+            if (i == particle_index) {
+                continue;
+            }
             
-            if (overlap > 0.0) {
-                total_overlap += overlap;
+            let other = particles[i];
+            var delta = (*particle).position - other.position;
+            
+            // Toroidal wrapping
+            if (abs(delta.x) > 1.0) {
+                delta.x = delta.x - sign(delta.x) * 2.0;
+            }
+            if (abs(delta.y) > 1.0) {
+                delta.y = delta.y - sign(delta.y) * 2.0;
+            }
+            
+            let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
+            let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
+            let combined_radius = particle_radius + particle_radius;
+            let distance = sqrt(distance_sq);
+            
+            if (distance_sq < combined_radius * combined_radius * 4.0) {
+                nearby_count += 1u;
+            }
+            
+            if (distance < combined_radius && distance > 1e-6) {
+                let overlap = combined_radius - distance;
                 
-                let separation_direction = normalize(aspect_corrected_delta);
-                let world_separation_direction = vec2<f32>(
-                    separation_direction.x / params.aspect_ratio, 
-                    separation_direction.y
-                );
-                
-                overlap_direction += world_separation_direction * overlap;
+                if (overlap > 0.0) {
+                    total_overlap += overlap;
+                    
+                    let separation_direction = normalize(aspect_corrected_delta);
+                    let world_separation_direction = vec2<f32>(
+                        separation_direction.x / params.aspect_ratio, 
+                        separation_direction.y
+                    );
+                    
+                    overlap_direction += world_separation_direction * overlap;
+                }
             }
         }
-    }
-    
-    // Apply overlap resolution with strength from settings
-    if (total_overlap > 0.0) {
-        let resolution_strength = params.overlap_resolution_strength;
-        let separation = normalize(overlap_direction) * total_overlap * resolution_strength;
-        (*particle).position += separation;
+        
+        // Apply overlap resolution with strength from settings and safety bounds
+        if (total_overlap > 0.0) {
+            let resolution_strength = params.overlap_resolution_strength;
+            
+            // Clamp the resolution strength to prevent excessive movement
+            let clamped_strength = min(resolution_strength, 0.5);
+            
+            // Limit the maximum separation distance to prevent particles from jumping too far
+            let max_separation_distance = particle_radius * 0.5;
+            let separation_magnitude = min(total_overlap * clamped_strength, max_separation_distance);
+            
+            let separation = normalize(overlap_direction) * separation_magnitude;
+            (*particle).position += separation;
+        }
     }
 } 
