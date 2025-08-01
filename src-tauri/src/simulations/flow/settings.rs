@@ -3,8 +3,6 @@ use std::fmt::{self, Display};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum NoiseType {
-    Perlin,
-    Simplex,
     OpenSimplex,
     Worley,
     Value,
@@ -24,8 +22,6 @@ impl Display for NoiseType {
             f,
             "{}",
             match self {
-                Self::Perlin => "Perlin",
-                Self::Simplex => "Simplex",
                 Self::OpenSimplex => "OpenSimplex",
                 Self::Worley => "Worley",
                 Self::Value => "Value",
@@ -44,7 +40,7 @@ impl Display for NoiseType {
 
 impl Default for NoiseType {
     fn default() -> Self {
-        Self::Perlin
+        Self::OpenSimplex
     }
 }
 
@@ -133,12 +129,16 @@ impl Default for DisplayMode {
     }
 }
 
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     // Flow field parameters
     pub noise_type: NoiseType,
     pub noise_seed: u32,
     pub noise_scale: f64,
+    pub noise_x: f64,
+    pub noise_y: f64,
     pub vector_spacing: f32,
     pub vector_magnitude: f32,
 
@@ -170,9 +170,11 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             // Flow field parameters
-            noise_type: NoiseType::Perlin,
+            noise_type: NoiseType::OpenSimplex,
             noise_seed: 42,
             noise_scale: 1.0,
+            noise_x: 1.0,
+            noise_y: 1.0,
             vector_spacing: 0.1,
             vector_magnitude: 0.1,
 

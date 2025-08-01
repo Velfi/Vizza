@@ -196,6 +196,8 @@ fn main() {
             commands::flip_force_matrix_sign,
             commands::clear_trail_texture,
             commands::kill_all_particles,
+            commands::update_post_processing_state,
+            commands::get_post_processing_state,
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

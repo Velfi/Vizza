@@ -57,9 +57,9 @@ struct UVPair {
 // Calculate how many tiles we need based on zoom level
 fn calculate_tile_count(zoom: f32) -> i32 {
     let visible_world_size = 2.0 / zoom;
-    // Add more padding to prevent gaps between tiles
-    let tiles_needed = i32(ceil(visible_world_size / 2.0)) + 8;
-    let min_tiles = select(7, 9, zoom < 0.1);
+    // Match the Rust-side calculation exactly
+    let tiles_needed = i32(ceil(visible_world_size / 2.0)) + 6;
+    let min_tiles = select(5, 7, zoom < 0.1);
     return min(max(tiles_needed, min_tiles), 1024);
 }
 

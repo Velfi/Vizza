@@ -9,6 +9,8 @@ struct SimParams {
     width: f32,
     height: f32,
     noise_scale: f32,
+    noise_x: f32,
+    noise_y: f32,
     vector_magnitude: f32,
     trail_decay_rate: f32,
     trail_deposition_rate: f32,
@@ -28,6 +30,7 @@ struct SimParams {
     cursor_strength: f32,
     particle_autospawn: u32, // 0=disabled, 1=enabled
     particle_spawn_rate: f32, // 0 = no spawn, 1.0 = full spawn rate
+    display_mode: u32, // 0=Age, 1=Random, 2=Direction
 }
 
 struct FlowVector {

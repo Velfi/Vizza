@@ -16,6 +16,8 @@ struct SimParams {
     width: f32,
     height: f32,
     noise_scale: f32,
+    noise_x: f32,
+    noise_y: f32,
     vector_magnitude: f32,
     trail_decay_rate: f32,
     trail_deposition_rate: f32,

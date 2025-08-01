@@ -82,6 +82,9 @@
         />
       </fieldset>
 
+      <!-- Post Processing -->
+      <PostProcessingMenu simulationType="flow" />
+
       <!-- Controls -->
       <fieldset>
         <legend>Controls</legend>
@@ -162,7 +165,6 @@
                 value={settings.noise_seed}
                 on:change={({ detail }) => updateNoiseSeed(detail)}
                 min={0}
-                max={100000}
                 step={1}
               />
             </div>
@@ -171,9 +173,26 @@
               <NumberDragBox
                 value={settings.noise_scale}
                 on:change={({ detail }) => updateNoiseScale(detail)}
-                min={0.01}
+                min={0.001}
                 max={10.0}
-                step={0.1}
+                step={0.01}
+                precision={3}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Noise X:</span>
+              <NumberDragBox
+                value={settings.noise_x}
+                on:change={({ detail }) => updateNoiseX(detail)}
+                step={1.0}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Noise Y:</span>
+              <NumberDragBox
+                value={settings.noise_y}
+                on:change={({ detail }) => updateNoiseY(detail)}
+                step={1.0}
               />
             </div>
             <div class="setting-item">
@@ -221,6 +240,7 @@
                 min={0.001}
                 max={0.2}
                 step={0.001}
+                precision={3}
               />
             </div>
             <div class="setting-item">
@@ -285,7 +305,8 @@
                 on:change={({ detail }) => updateTrailDecayRate(detail)}
                 min={0.0}
                 max={1.0}
-                step={0.01}
+                step={0.001}
+                precision={3}
               />
             </div>
             <div class="setting-item">
@@ -341,6 +362,7 @@
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
+  import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -353,6 +375,8 @@
     noise_type: string;
     noise_seed: number;
     noise_scale: number;
+    noise_x: number;
+    noise_y: number;
     vector_magnitude: number;
 
     // Particle parameters
@@ -700,6 +724,40 @@
       });
     } catch (e) {
       console.error('Failed to update noise scale:', e);
+    }
+  }
+
+  async function updateNoiseX(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid noise X value:', value);
+      return;
+    }
+
+    settings!.noise_x = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'noiseX',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update noise X:', e);
+    }
+  }
+
+  async function updateNoiseY(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid noise Y value:', value);
+      return;
+    }
+
+    settings!.noise_y = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'noiseY',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update noise Y:', e);
     }
   }
 

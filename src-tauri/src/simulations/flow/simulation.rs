@@ -4,12 +4,11 @@ use super::shaders::{
     RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
 use crate::simulations::shared::camera::Camera;
-use crate::simulations::shared::{AverageColorResources, LutManager};
+use crate::simulations::shared::{AverageColorResources, LutManager, PostProcessingState, PostProcessingResources};
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
 use noise::{
-    Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti,
-    Simplex, Value as ValueNoise, Worley,
+    Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti, Value as ValueNoise, Worley,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -55,6 +54,8 @@ pub struct SimParams {
     pub width: f32,
     pub height: f32,
     pub noise_scale: f32,
+    pub noise_x: f32,
+    pub noise_y: f32,
     pub vector_magnitude: f32,
     pub trail_decay_rate: f32,
     pub trail_deposition_rate: f32,
@@ -148,6 +149,10 @@ pub struct FlowModel {
 
     // Average color calculation for infinite rendering
     pub average_color_resources: AverageColorResources,
+
+    // Post-processing state and resources
+    pub post_processing_state: PostProcessingState,
+    pub post_processing_resources: PostProcessingResources,
 }
 
 impl FlowModel {
@@ -168,19 +173,13 @@ impl FlowModel {
         pos: [f32; 2],
         noise_type: NoiseType,
         noise_scale: f64,
+        noise_x: f64,
+        noise_y: f64,
         noise_seed: u32,
     ) -> [f32; 2] {
-        let sample_pos = [pos[0] as f64 * noise_scale, pos[1] as f64 * noise_scale];
+        let sample_pos = [pos[0] as f64 * noise_scale + noise_x, pos[1] as f64 * noise_scale + noise_y];
 
         let noise_value = match noise_type {
-            NoiseType::Perlin => {
-                let perlin = Perlin::new(noise_seed);
-                perlin.get(sample_pos)
-            }
-            NoiseType::Simplex => {
-                let simplex = Simplex::new(noise_seed);
-                simplex.get(sample_pos)
-            }
             NoiseType::OpenSimplex => {
                 let opensimplex = OpenSimplex::new(noise_seed);
                 opensimplex.get(sample_pos)
@@ -196,7 +195,7 @@ impl FlowModel {
             NoiseType::Fbm => {
                 let fbm = Fbm::<Perlin>::new(noise_seed)
                     .set_octaves(6)
-                    .set_frequency(1.0)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(2.0)
                     .set_persistence(0.5);
                 fbm.get(sample_pos)
@@ -204,7 +203,7 @@ impl FlowModel {
             NoiseType::FBMBillow => {
                 let fbm = Fbm::<Perlin>::new(noise_seed)
                     .set_octaves(8)
-                    .set_frequency(1.5)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(2.5)
                     .set_persistence(0.7);
                 fbm.get(sample_pos)
@@ -212,7 +211,7 @@ impl FlowModel {
             NoiseType::FBMClouds => {
                 let fbm = Fbm::<Perlin>::new(noise_seed)
                     .set_octaves(4)
-                    .set_frequency(0.8)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(1.8)
                     .set_persistence(0.3);
                 fbm.get(sample_pos)
@@ -220,7 +219,7 @@ impl FlowModel {
             NoiseType::FBMRidged => {
                 let fbm = Fbm::<Perlin>::new(noise_seed)
                     .set_octaves(10)
-                    .set_frequency(2.0)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(3.0)
                     .set_persistence(0.9);
                 fbm.get(sample_pos)
@@ -228,7 +227,7 @@ impl FlowModel {
             NoiseType::Billow => {
                 let billow = Billow::<Perlin>::new(noise_seed)
                     .set_octaves(6)
-                    .set_frequency(1.0)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(2.0)
                     .set_persistence(0.5);
                 billow.get(sample_pos)
@@ -236,7 +235,7 @@ impl FlowModel {
             NoiseType::RidgedMulti => {
                 let ridged = RidgedMulti::<Perlin>::new(noise_seed)
                     .set_octaves(6)
-                    .set_frequency(1.0)
+                    .set_frequency(noise_scale)
                     .set_lacunarity(2.0);
                 ridged.get(sample_pos)
             }
@@ -273,6 +272,8 @@ impl FlowModel {
                     [world_x, world_y],
                     self.settings.noise_type,
                     self.settings.noise_scale,
+                    self.settings.noise_x,
+                    self.settings.noise_y,
                     self.settings.noise_seed,
                 );
                 let direction = [
@@ -306,6 +307,8 @@ impl FlowModel {
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
             vector_magnitude: self.settings.vector_magnitude,
             trail_decay_rate: self.settings.trail_decay_rate,
             trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -392,6 +395,8 @@ impl FlowModel {
                     [world_x, world_y],
                     settings.noise_type,
                     settings.noise_scale,
+                    settings.noise_x,
+                    settings.noise_y,
                     settings.noise_seed,
                 );
                 let direction = [
@@ -430,6 +435,8 @@ impl FlowModel {
             width: 2.0,
             height: 2.0,
             noise_scale: settings.noise_scale as f32,
+            noise_x: settings.noise_x as f32,
+            noise_y: settings.noise_y as f32,
             vector_magnitude: settings.vector_magnitude,
             trail_decay_rate: settings.trail_decay_rate,
             trail_deposition_rate: settings.trail_deposition_rate,
@@ -446,7 +453,7 @@ impl FlowModel {
             cursor_y: 0.0,
             cursor_active: 0,
             cursor_size: 10,
-            cursor_strength: 1.0,
+            cursor_strength: 0.4,
             particle_autospawn: settings.particle_autospawn as u32,
             particle_spawn_rate: settings.particle_spawn_rate,
             display_mode: settings.display_mode as u32,
@@ -1216,7 +1223,8 @@ impl FlowModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1399,7 +1407,7 @@ impl FlowModel {
             cursor_world_x: 0.0,
             cursor_world_y: 0.0,
             cursor_size: 10,
-            cursor_strength: 1.0,
+            cursor_strength: 0.4,
 
             display_texture,
             display_view,
@@ -1409,6 +1417,8 @@ impl FlowModel {
             render_infinite_bind_group,
             render_infinite_pipeline,
             average_color_resources,
+            post_processing_state: PostProcessingState::default(),
+            post_processing_resources: PostProcessingResources::new(device, surface_config)?,
         })
     }
 
@@ -1424,6 +1434,8 @@ impl FlowModel {
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
             vector_magnitude: self.settings.vector_magnitude,
             trail_decay_rate: self.settings.trail_decay_rate,
             trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -1494,6 +1506,76 @@ impl FlowModel {
                 bytemuck::cast_slice(&background_color),
             );
         }
+    }
+
+    fn apply_post_processing(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        input_texture_view: &wgpu::TextureView,
+        output_texture_view: &wgpu::TextureView,
+    ) -> crate::error::SimulationResult<()> {
+        // Apply blur filter if enabled
+        if self.post_processing_state.blur_filter.enabled {
+            // Update blur parameters
+            self.post_processing_resources.update_blur_params(
+                queue,
+                self.post_processing_state.blur_filter.radius,
+                self.post_processing_state.blur_filter.sigma,
+                self.trail_map_width,
+                self.trail_map_height,
+            );
+
+            // Create a new bind group with the input texture
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Blur Bind Group"),
+                layout: &self.post_processing_resources.blur_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.post_processing_resources.blur_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.post_processing_resources.blur_params_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+
+            // Create blur render pass
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Blur Encoder"),
+            });
+
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Post Processing Blur Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                render_pass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                render_pass.set_bind_group(0, &blur_bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
+
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+
+        Ok(())
     }
 }
 
@@ -1600,12 +1682,50 @@ impl Simulation for FlowModel {
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
 
-        // 2. Calculate average color from the display texture
+        // 2. Apply post-processing if enabled
+        if self.post_processing_state.blur_filter.enabled {
+            // Apply post-processing: input from display_view, output to intermediate_view
+            self.apply_post_processing(
+                device,
+                queue,
+                &self.display_view,
+                &self.post_processing_resources.intermediate_view,
+            )?;
+
+            // Copy the blurred result back to the display texture
+            let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Copy Encoder"),
+            });
+            
+            copy_encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.post_processing_resources.intermediate_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.display_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.trail_map_width,
+                    height: self.trail_map_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            
+            queue.submit(std::iter::once(copy_encoder.finish()));
+        }
+
+        // 3. Calculate average color from the display texture
         self.calculate_average_color(device, queue);
 
         // No need to copy since we're using the same texture for rendering and sampling
 
-        // 2. Render display texture to surface with infinite tiling
+        // 4. Render display texture to surface with infinite tiling
         let tile_count = self.calculate_tile_count();
         let total_instances = tile_count * tile_count;
 
@@ -1952,6 +2072,8 @@ impl Simulation for FlowModel {
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
             vector_magnitude: self.settings.vector_magnitude,
             trail_decay_rate: self.settings.trail_decay_rate,
             trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -2019,7 +2141,8 @@ impl Simulation for FlowModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         self.display_view = self
@@ -2060,6 +2183,16 @@ impl Simulation for FlowModel {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -2091,7 +2224,7 @@ impl Simulation for FlowModel {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &render_infinite_shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some("fs_main_texture"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: new_config.format,
                         blend: Some(wgpu::BlendState {
@@ -2150,6 +2283,9 @@ impl Simulation for FlowModel {
 
         // Camera bind group is already updated above, no separate 3x3 camera needed
 
+        // Recreate post-processing resources for new size
+        self.post_processing_resources.resize(device, new_config)?;
+
         Ok(())
     }
 
@@ -2164,8 +2300,6 @@ impl Simulation for FlowModel {
             "noiseType" => {
                 if let Some(noise_type_str) = value.as_str() {
                     self.settings.noise_type = match noise_type_str {
-                        "Perlin" => NoiseType::Perlin,
-                        "Simplex" => NoiseType::Simplex,
                         "OpenSimplex" => NoiseType::OpenSimplex,
                         "Worley" => NoiseType::Worley,
                         "Value" => NoiseType::Value,
@@ -2177,7 +2311,7 @@ impl Simulation for FlowModel {
                         "RidgedMulti" => NoiseType::RidgedMulti,
                         "Cylinders" => NoiseType::Cylinders,
                         "Checkerboard" => NoiseType::Checkerboard,
-                        _ => NoiseType::Perlin,
+                        _ => NoiseType::OpenSimplex,
                     };
                     // Regenerate flow vectors with new noise type
                     self.regenerate_flow_vectors(queue)?;
@@ -2194,6 +2328,20 @@ impl Simulation for FlowModel {
                 if let Some(scale) = value.as_f64() {
                     self.settings.noise_scale = scale;
                     // Regenerate flow vectors with new scale
+                    self.regenerate_flow_vectors(queue)?;
+                }
+            }
+            "noiseX" => {
+                if let Some(x) = value.as_f64() {
+                    self.settings.noise_x = x;
+                    // Regenerate flow vectors with new X scale
+                    self.regenerate_flow_vectors(queue)?;
+                }
+            }
+            "noiseY" => {
+                if let Some(y) = value.as_f64() {
+                    self.settings.noise_y = y;
+                    // Regenerate flow vectors with new Y scale
                     self.regenerate_flow_vectors(queue)?;
                 }
             }
@@ -2233,6 +2381,8 @@ impl Simulation for FlowModel {
                             width: 2.0,
                             height: 2.0,
                             noise_scale: self.settings.noise_scale as f32,
+                            noise_x: self.settings.noise_x as f32,
+                            noise_y: self.settings.noise_y as f32,
                             vector_magnitude: self.settings.vector_magnitude,
                             trail_decay_rate: self.settings.trail_decay_rate,
                             trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -2528,6 +2678,8 @@ impl Simulation for FlowModel {
                 width: 2.0,
                 height: 2.0,
                 noise_scale: self.settings.noise_scale as f32,
+                noise_x: self.settings.noise_x as f32,
+                noise_y: self.settings.noise_y as f32,
                 vector_magnitude: self.settings.vector_magnitude,
                 trail_decay_rate: self.settings.trail_decay_rate,
                 trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -2788,6 +2940,8 @@ impl FlowModel {
                 width: 2.0,
                 height: 2.0,
                 noise_scale: self.settings.noise_scale as f32,
+                noise_x: self.settings.noise_x as f32,
+                noise_y: self.settings.noise_y as f32,
                 vector_magnitude: self.settings.vector_magnitude,
                 trail_decay_rate: self.settings.trail_decay_rate,
                 trail_deposition_rate: self.settings.trail_deposition_rate,
@@ -2910,6 +3064,8 @@ impl FlowModel {
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
             vector_magnitude: self.settings.vector_magnitude,
             trail_decay_rate: self.settings.trail_decay_rate,
             trail_deposition_rate: self.settings.trail_deposition_rate,
