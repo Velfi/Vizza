@@ -1497,12 +1497,7 @@ impl SlimeMoldModel {
         // Use a color from the middle of the LUT as initial background
         let colors = lut.get_colors(128);
         if let Some(color) = colors.first() {
-            let background_color = [
-                color[0],
-                color[1],
-                color[2],
-                color[3],
-            ];
+            let background_color = [color[0], color[1], color[2], color[3]];
             queue.write_buffer(
                 &self.background_color_buffer,
                 0,

@@ -1,6 +1,6 @@
 [package]
 name = "Vizzy"
-version = "0.6.3"
+version = "0.6.4"
 description = "A desktop application featuring interactive simulations built with Tauri, Svelte, and WebGPU."
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"

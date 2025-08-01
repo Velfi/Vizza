@@ -2941,7 +2941,7 @@ impl ParticleLifeModel {
     }
 
     /// Calculate which tiles are visible based on camera position and zoom
-    /// 
+    ///
     /// Calculate how many tiles we need based on zoom level
     fn calculate_tile_count(zoom: f32) -> i32 {
         // At zoom 1.0, we need at least 7x7 tiles

@@ -1,7 +1,7 @@
 use crate::simulation::SimulationManager;
+use serde_json::Value;
 use std::sync::Arc;
 use tauri::State;
-use serde_json::Value;
 
 #[tauri::command]
 pub async fn kill_all_particles(
@@ -32,7 +32,11 @@ pub async fn update_post_processing_state(
     enabled: bool,
     params: Value,
 ) -> Result<String, String> {
-    tracing::debug!("update_post_processing_state called: {} = {}", effect_name, enabled);
+    tracing::debug!(
+        "update_post_processing_state called: {} = {}",
+        effect_name,
+        enabled
+    );
     let mut sim_manager = manager.lock().await;
 
     if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
@@ -47,14 +51,15 @@ pub async fn update_post_processing_state(
                 if let Some(sigma) = params.get("sigma").and_then(|v| v.as_f64()) {
                     simulation.post_processing_state.blur_filter.sigma = sigma as f32;
                 }
-                tracing::info!("Blur filter updated: enabled={}, radius={}, sigma={}", 
-                    enabled, 
+                tracing::info!(
+                    "Blur filter updated: enabled={}, radius={}, sigma={}",
+                    enabled,
                     simulation.post_processing_state.blur_filter.radius,
                     simulation.post_processing_state.blur_filter.sigma
                 );
                 Ok("Post processing state updated successfully".to_string())
             }
-            _ => Err(format!("Unknown post processing effect: {}", effect_name))
+            _ => Err(format!("Unknown post processing effect: {}", effect_name)),
         }
     } else {
         Err("This command is only available for Flow simulation".to_string())

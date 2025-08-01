@@ -4,11 +4,14 @@ use super::shaders::{
     RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
 use crate::simulations::shared::camera::Camera;
-use crate::simulations::shared::{AverageColorResources, LutManager, PostProcessingState, PostProcessingResources};
+use crate::simulations::shared::{
+    AverageColorResources, LutManager, PostProcessingResources, PostProcessingState,
+};
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
 use noise::{
-    Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti, Value as ValueNoise, Worley,
+    Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti,
+    Value as ValueNoise, Worley,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -177,7 +180,10 @@ impl FlowModel {
         noise_y: f64,
         noise_seed: u32,
     ) -> [f32; 2] {
-        let sample_pos = [pos[0] as f64 * noise_scale + noise_x, pos[1] as f64 * noise_scale + noise_y];
+        let sample_pos = [
+            pos[0] as f64 * noise_scale + noise_x,
+            pos[1] as f64 * noise_scale + noise_y,
+        ];
 
         let noise_value = match noise_type {
             NoiseType::OpenSimplex => {
@@ -1494,12 +1500,7 @@ impl FlowModel {
 
         let colors = lut.get_colors(1); // Get just the first color
         if let Some(color) = colors.first() {
-            let background_color = [
-                color[0],
-                color[1],
-                color[2],
-                color[3],
-            ];
+            let background_color = [color[0], color[1], color[2], color[3]];
             queue.write_buffer(
                 &self.background_color_buffer,
                 0,
@@ -1529,7 +1530,10 @@ impl FlowModel {
             // Create a new bind group with the input texture
             let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Blur Bind Group"),
-                layout: &self.post_processing_resources.blur_pipeline.get_bind_group_layout(0),
+                layout: &self
+                    .post_processing_resources
+                    .blur_pipeline
+                    .get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1537,11 +1541,16 @@ impl FlowModel {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.post_processing_resources.blur_sampler),
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.post_processing_resources.blur_sampler,
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: self.post_processing_resources.blur_params_buffer.as_entire_binding(),
+                        resource: self
+                            .post_processing_resources
+                            .blur_params_buffer
+                            .as_entire_binding(),
                     },
                 ],
             });
@@ -1696,7 +1705,7 @@ impl Simulation for FlowModel {
             let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Post Processing Copy Encoder"),
             });
-            
+
             copy_encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.post_processing_resources.intermediate_texture,
@@ -1716,7 +1725,7 @@ impl Simulation for FlowModel {
                     depth_or_array_layers: 1,
                 },
             );
-            
+
             queue.submit(std::iter::once(copy_encoder.finish()));
         }
 

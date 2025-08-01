@@ -2112,12 +2112,7 @@ impl PelletsModel {
 
         let colors = lut.get_colors(1); // Get just the first color
         if let Some(color) = colors.first() {
-            let background_color = [
-                color[0],
-                color[1],
-                color[2],
-                color[3],
-            ];
+            let background_color = [color[0], color[1], color[2], color[3]];
             queue.write_buffer(
                 &self.background_color_buffer,
                 0,

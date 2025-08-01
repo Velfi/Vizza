@@ -28,7 +28,7 @@ pub mod post_processing;
 pub use average_color::AverageColorResources;
 pub use lut::{LutData, LutManager, SimulationLutManager};
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
-pub use post_processing::{PostProcessingState, PostProcessingResources};
+pub use post_processing::{PostProcessingResources, PostProcessingState};
 
 pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
 pub const AVERAGE_COLOR_SHADER: &str = include_str!("average_color.wgsl");

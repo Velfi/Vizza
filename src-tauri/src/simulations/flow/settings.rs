@@ -129,8 +129,6 @@ impl Default for DisplayMode {
     }
 }
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     // Flow field parameters

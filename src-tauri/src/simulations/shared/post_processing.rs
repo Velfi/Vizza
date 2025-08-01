@@ -1,8 +1,8 @@
+use bytemuck;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use wgpu::{Device, Queue, SurfaceConfiguration};
 use wgpu::util::DeviceExt;
-use bytemuck;
+use wgpu::{Device, Queue, SurfaceConfiguration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlurFilter {
@@ -23,17 +23,9 @@ impl Default for BlurFilter {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PostProcessingState {
     pub blur_filter: BlurFilter,
-}
-
-impl Default for PostProcessingState {
-    fn default() -> Self {
-        Self {
-            blur_filter: BlurFilter::default(),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -42,7 +34,7 @@ pub struct PostProcessingResources {
     pub blur_pipeline: wgpu::RenderPipeline,
     pub blur_bind_group: wgpu::BindGroup,
     pub blur_params_buffer: wgpu::Buffer,
-    
+
     // Intermediate textures for post-processing chain
     pub intermediate_texture: wgpu::Texture,
     pub intermediate_view: wgpu::TextureView,
@@ -74,10 +66,13 @@ impl PostProcessingResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let intermediate_view =
+            intermediate_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create blur shader
         let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -86,40 +81,41 @@ impl PostProcessingResources {
         });
 
         // Create blur pipeline layout
-        let blur_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Blur Bind Group Layout"),
-            entries: &[
-                // Input texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let blur_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Blur Bind Group Layout"),
+                entries: &[
+                    // Input texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Parameters
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                    // Parameters
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
 
         let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Blur Pipeline Layout"),
@@ -208,12 +204,23 @@ impl PostProcessingResources {
         })
     }
 
-    pub fn update_blur_params(&self, queue: &Arc<Queue>, radius: f32, sigma: f32, width: u32, height: u32) {
+    pub fn update_blur_params(
+        &self,
+        queue: &Arc<Queue>,
+        radius: f32,
+        sigma: f32,
+        width: u32,
+        height: u32,
+    ) {
         let params = [radius, sigma, width as f32, height as f32];
         queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::cast_slice(&params));
     }
 
-    pub fn resize(&mut self, device: &Arc<Device>, surface_config: &SurfaceConfiguration) -> Result<(), crate::error::SimulationError> {
+    pub fn resize(
+        &mut self,
+        device: &Arc<Device>,
+        surface_config: &SurfaceConfiguration,
+    ) -> Result<(), crate::error::SimulationError> {
         // Recreate intermediate texture
         self.intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Post Processing Intermediate Texture"),
@@ -226,10 +233,14 @@ impl PostProcessingResources {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        self.intermediate_view = self.intermediate_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.intermediate_view = self
+            .intermediate_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Ok(())
     }
-} 
+}
