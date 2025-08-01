@@ -370,20 +370,21 @@ impl PipelineManager {
             compilation_options: Default::default(),
         });
 
-        let average_color_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Average Color Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Average Color Pipeline Layout"),
-                    bind_group_layouts: &[&average_color_bind_group_layout],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &shader_manager.average_color_shader,
-            entry_point: Some("main"),
-            cache: None,
-            compilation_options: Default::default(),
-        });
+        let average_color_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Average Color Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Average Color Pipeline Layout"),
+                        bind_group_layouts: &[&average_color_bind_group_layout],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &shader_manager.average_color_shader,
+                entry_point: Some("main"),
+                cache: None,
+                compilation_options: Default::default(),
+            });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),

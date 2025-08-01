@@ -70,7 +70,7 @@ impl SimulationManager {
                     &self.lut_manager,
                 )?;
 
-                self.current_simulation = Some(SimulationType::SlimeMold(simulation));
+                self.current_simulation = Some(SimulationType::SlimeMold(Box::new(simulation)));
 
                 // Automatically unpause after successful initialization
                 self.resume();
@@ -91,7 +91,7 @@ impl SimulationManager {
                     &self.lut_manager,
                 )?;
 
-                self.current_simulation = Some(SimulationType::GrayScott(simulation));
+                self.current_simulation = Some(SimulationType::GrayScott(Box::new(simulation)));
 
                 // Automatically unpause after successful initialization
                 self.resume();
@@ -112,7 +112,7 @@ impl SimulationManager {
                     ColorMode::Lut,
                 )?;
 
-                self.current_simulation = Some(SimulationType::ParticleLife(simulation));
+                self.current_simulation = Some(SimulationType::ParticleLife(Box::new(simulation)));
 
                 // Apply the "Default" preset to ensure consistent initial state
                 if let Some(simulation) = &mut self.current_simulation {
@@ -139,7 +139,7 @@ impl SimulationManager {
                 )
                 .map_err(|e| format!("Failed to initialize Flow simulation: {}", e))?;
 
-                self.current_simulation = Some(SimulationType::Flow(simulation));
+                self.current_simulation = Some(SimulationType::Flow(Box::new(simulation)));
                 self.resume();
                 Ok(())
             }
@@ -167,7 +167,7 @@ impl SimulationManager {
                     surface_config.format,
                 );
 
-                self.current_simulation = Some(SimulationType::Gradient(simulation));
+                self.current_simulation = Some(SimulationType::Gradient(Box::new(simulation)));
                 self.resume();
                 Ok(())
             }

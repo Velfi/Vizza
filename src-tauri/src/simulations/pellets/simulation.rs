@@ -30,7 +30,7 @@ use super::shaders::{
     RENDER_INFINITE_SHADER,
 };
 use super::{settings::Settings, state::State};
-use crate::simulations::shared::{LutManager, camera::Camera, AverageColorResources};
+use crate::simulations::shared::{AverageColorResources, LutManager, camera::Camera};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -1387,12 +1387,8 @@ impl PelletsModel {
         });
 
         // Create average color calculation resources
-        let average_color_resources = AverageColorResources::new(
-            device,
-            &post_effect_texture,
-            &post_effect_view,
-            "Pellets",
-        );
+        let average_color_resources =
+            AverageColorResources::new(device, &post_effect_texture, &post_effect_view, "Pellets");
 
         Ok(PelletsModel {
             particle_buffer,
@@ -2117,10 +2113,10 @@ impl PelletsModel {
         let colors = lut.get_colors(1); // Get just the first color
         if let Some(color) = colors.first() {
             let background_color = [
-                color[0] as f32,
-                color[1] as f32,
-                color[2] as f32,
-                color[3] as f32,
+                color[0],
+                color[1],
+                color[2],
+                color[3],
             ];
             queue.write_buffer(
                 &self.background_color_buffer,
@@ -2131,11 +2127,15 @@ impl PelletsModel {
     }
 
     fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        self.average_color_resources.calculate_average_color(device, queue, &self.post_effect_texture);
-        
+        self.average_color_resources.calculate_average_color(
+            device,
+            queue,
+            &self.post_effect_texture,
+        );
+
         // Wait for the GPU work to complete
         device.poll(wgpu::Maintain::Wait);
-        
+
         // Read the result and update the background color buffer
         if let Some(average_color) = self.average_color_resources.get_average_color() {
             queue.write_buffer(

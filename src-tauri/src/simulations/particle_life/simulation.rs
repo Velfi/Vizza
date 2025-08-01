@@ -82,6 +82,15 @@ pub struct BackgroundParams {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ViewportParams {
+    pub world_bounds: [f32; 4], // [left, bottom, right, top] in world coordinates
+    pub texture_size: [f32; 2], // [width, height] of offscreen texture
+    pub _pad1: f32,
+    pub _pad2: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct SimParams {
     pub particle_count: u32,
     pub species_count: u32,
@@ -101,8 +110,34 @@ pub struct SimParams {
     pub cursor_active: u32, // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     pub brownian_motion: f32, // Brownian motion strength (0.0-1.0)
     pub particle_size: f32, // Particle size in world space units
+    pub aspect_ratio: f32,  // Screen aspect ratio for cursor distance calculation
     pub _pad1: u32,
-    pub _pad2: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct TileParams {
+    pub tile_x: i32,
+    pub tile_y: i32,
+    pub camera_zoom: f32,
+    pub _pad0: f32,             // Padding for 16-byte alignment
+    pub world_bounds: [f32; 4], // [left, bottom, right, top] for this tile
+    pub texture_size: [f32; 2], // [width, height] of tile texture
+    pub _pad1: f32,
+    pub _pad2: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct CameraAwareParams {
+    pub camera_zoom: f32,
+    pub _pad0: f32, // Padding for 16-byte alignment
+    pub camera_position: [f32; 2],
+    pub viewport_size: [f32; 2],
+    pub tile_size: f32, // Size of each tile in world units
+    pub max_tiles: u32, // Maximum number of tiles to render
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
 
 impl SimParams {
@@ -113,6 +148,8 @@ impl SimParams {
         settings: &Settings,
         state: &State,
     ) -> Self {
+        let aspect_ratio = width as f32 / height as f32;
+
         Self {
             particle_count,
             species_count: settings.species_count,
@@ -132,8 +169,8 @@ impl SimParams {
             cursor_active: 0, // Start with cursor interaction inactive
             brownian_motion: settings.brownian_motion,
             particle_size: state.particle_size,
+            aspect_ratio,
             _pad1: 0,
-            _pad2: 0,
         }
     }
 }
@@ -161,7 +198,7 @@ pub struct State {
     /// In LUT mode: contains species_count + 1 colors (background + species)
     /// In non-LUT mode: contains exactly species_count colors, one for each species
     pub species_colors: Vec<[f32; 4]>, // RGBA colors, always up-to-date
-    
+
     /// Particle size in world space units
     /// Controls the visual size of particles in the simulation
     pub particle_size: f32,
@@ -199,7 +236,7 @@ impl State {
             random_seed,
             dt: 0.016,
             cursor_size: 0.5,
-            cursor_strength: 1.0,
+            cursor_strength: 5.0,
             traces_enabled: false,
             trace_fade: 0.48,
             edge_fade_strength: 1.0,
@@ -271,6 +308,12 @@ pub struct ParticleLifeModel {
     pub lut_bind_group: wgpu::BindGroup,
     pub camera_bind_group: wgpu::BindGroup,
 
+    // Tile render pipeline for improved camera-aware rendering
+    pub tile_render_pipeline: wgpu::RenderPipeline,
+    pub tile_render_bind_group_layout: wgpu::BindGroupLayout,
+    pub tile_render_bind_group: wgpu::BindGroup,
+    pub tile_params_buffer: wgpu::Buffer,
+
     // Offscreen render pipeline for display texture
     pub offscreen_render_pipeline: wgpu::RenderPipeline,
     // Trail render pipeline for trail texture (uses surface format)
@@ -300,10 +343,17 @@ pub struct ParticleLifeModel {
     pub background_params_buffer: wgpu::Buffer,
     pub background_color_buffer: wgpu::Buffer,
 
+    // Viewport parameters for camera-aware rendering
+    pub viewport_params_buffer: wgpu::Buffer,
+
     // Display texture for offscreen rendering
     pub display_texture: wgpu::Texture,
     pub display_view: wgpu::TextureView,
     pub display_bind_group: wgpu::BindGroup,
+
+    // MSAA texture for anti-aliasing particle rendering
+    pub msaa_texture: wgpu::Texture,
+    pub msaa_view: wgpu::TextureView,
 
     // Post effect texture for post-processing
     pub post_effect_texture: wgpu::Texture,
@@ -354,40 +404,42 @@ pub struct ParticleLifeModel {
     pub last_zoom_level: f32,
     pub base_surface_width: u32,
     pub base_surface_height: u32,
+
+    // Camera-aware parameters
+    pub camera_aware_params_buffer: wgpu::Buffer,
 }
 
 impl ParticleLifeModel {
-    /// Calculate adaptive resolution scale based on zoom level
+    /// Calculate adaptive resolution scale based on zoom level for fixed tile rendering
     fn calculate_resolution_scale(zoom: f32, base_width: u32, base_height: u32) -> f32 {
         // Handle the full zoom range (0.005 to 50.0 from camera limits)
         let zoom = zoom.clamp(0.005, 50.0);
-        
-        // Calculate scale based on zoom level
-        // At zoom 1.0: scale = 1.0
-        // At zoom 50.0: scale = much higher for crisp detail
-        // At zoom 0.005: scale = lower for performance
+
+        // For fixed tile rendering, scale resolution based on zoom to maintain detail
+        // Higher zoom = need more detail per tile, lower zoom = can use less detail per tile
         let scale = if zoom >= 1.0 {
-            // When zoomed in, scale up more aggressively
-            // Use a power curve that gives good detail at high zoom
-            zoom.powf(0.8) // Less aggressive than linear, but still good detail
+            // When zoomed in, scale up for crisp detail
+            (zoom * 0.8).min(4.0) // Cap at 4x for reasonable memory usage
         } else {
-            // When zoomed out, scale down for performance
-            zoom.powf(0.6) // More aggressive scaling down for better performance
+            // When zoomed out, maintain base resolution since tiling handles the coverage
+            // Don't scale down too much or particles become invisible
+            (zoom * 0.5 + 0.5).max(0.5) // Minimum 0.5x scale
         };
-        
+
+        // Apply 2x resolution boost for better visual quality
+        let scale = scale * 2.0;
+
         // Calculate maximum allowed scale based on WebGPU limits (8192x8192)
         let max_width_scale = 8192.0 / base_width as f32;
         let max_height_scale = 8192.0 / base_height as f32;
         let max_allowed_scale = max_width_scale.min(max_height_scale);
-        
-        // For high zoom levels, allow much higher resolution (up to hardware limits)
-        // For low zoom levels, use lower resolution for performance
-        let min_scale = 0.25; // Allow more aggressive downscaling for performance
-        let max_scale = max_allowed_scale.min(16.0); // Allow up to 16x for extreme zoom
-        
+
+        let min_scale = 1.0; // Minimum scale for visibility (doubled from 0.5)
+        let max_scale = max_allowed_scale.min(8.0); // Reasonable maximum for fixed tiles (doubled from 4.0)
+
         scale.clamp(min_scale, max_scale)
     }
-    
+
     /// Check if resolution needs to be updated based on zoom change
     fn should_update_resolution(&self) -> bool {
         let new_scale = Self::calculate_resolution_scale(
@@ -396,7 +448,7 @@ impl ParticleLifeModel {
             self.base_surface_height,
         );
         let scale_diff = (new_scale - self.current_resolution_scale).abs();
-        
+
         // Use adaptive threshold based on zoom level
         // At high zoom levels, be more sensitive to changes for better detail
         // At low zoom levels, be less sensitive for performance
@@ -405,10 +457,10 @@ impl ParticleLifeModel {
         } else {
             0.15 // Less sensitive at low zoom (15% change)
         };
-        
+
         scale_diff > threshold
     }
-    
+
     /// Update display textures with new resolution
     fn update_resolution(&mut self, device: &Arc<Device>) -> SimulationResult<()> {
         let new_scale = Self::calculate_resolution_scale(
@@ -418,9 +470,10 @@ impl ParticleLifeModel {
         );
         let new_width = (self.base_surface_width as f32 * new_scale) as u32;
         let new_height = (self.base_surface_height as f32 * new_scale) as u32;
-        
+
         // Only recreate if dimensions actually changed
-        if new_width != self.display_texture.width() || new_height != self.display_texture.height() {
+        if new_width != self.display_texture.width() || new_height != self.display_texture.height()
+        {
             tracing::debug!(
                 "Updating Particle Life resolution: {}x{} -> {}x{} (scale: {:.2})",
                 self.display_texture.width(),
@@ -429,7 +482,7 @@ impl ParticleLifeModel {
                 new_height,
                 new_scale
             );
-            
+
             // Recreate display texture with new dimensions
             self.display_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Display Texture"),
@@ -448,9 +501,11 @@ impl ParticleLifeModel {
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            
-            self.display_view = self.display_texture.create_view(&wgpu::TextureViewDescriptor::default());
-            
+
+            self.display_view = self
+                .display_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
             // Recreate post effect texture with new dimensions
             self.post_effect_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Post Effect Texture"),
@@ -469,23 +524,44 @@ impl ParticleLifeModel {
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
-            
-            self.post_effect_view = self.post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
-            
+
+            self.post_effect_view = self
+                .post_effect_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Recreate MSAA texture with new dimensions
+            self.msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("MSAA Texture"),
+                size: wgpu::Extent3d {
+                    width: new_width,
+                    height: new_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 4, // 4x MSAA
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.msaa_view = self
+                .msaa_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
             // Update dimensions
             self.width = new_width;
             self.height = new_height;
-            
+
             // Recreate bind groups that reference the display texture
             self.recreate_display_bind_groups(device)?;
-            
+
             self.current_resolution_scale = new_scale;
         }
-        
+
         self.last_zoom_level = self.camera.zoom;
         Ok(())
     }
-    
+
     /// Recreate bind groups that reference display textures
     fn recreate_display_bind_groups(&mut self, device: &Arc<Device>) -> SimulationResult<()> {
         // Recreate display bind group
@@ -503,7 +579,7 @@ impl ParticleLifeModel {
                 },
             ],
         });
-        
+
         // Recreate post effect bind group
         self.post_effect_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Post Effect Bind Group"),
@@ -523,27 +599,28 @@ impl ParticleLifeModel {
                 },
             ],
         });
-        
+
         // Recreate infinite render bind groups
-        self.render_infinite_display_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Render Infinite Display Bind Group"),
-            layout: &self.infinite_render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.background_color_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        
+        self.render_infinite_display_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Render Infinite Display Bind Group"),
+                layout: &self.infinite_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.display_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.background_color_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+
         self.render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Render Infinite Bind Group"),
             layout: &self.infinite_render_bind_group_layout,
@@ -562,7 +639,7 @@ impl ParticleLifeModel {
                 },
             ],
         });
-        
+
         Ok(())
     }
 
@@ -659,7 +736,7 @@ impl ParticleLifeModel {
             random_seed: 0,
             dt: 0.016,
             cursor_size: 0.5,
-            cursor_strength: 1.0,
+            cursor_strength: 5.0,
             traces_enabled: false,
             trace_fade: 0.48,
             edge_fade_strength: 1.0,
@@ -1101,16 +1178,28 @@ impl ParticleLifeModel {
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let render_pipeline_layout =
@@ -1158,13 +1247,95 @@ impl ParticleLifeModel {
             cache: None,
         });
 
-        // Create offscreen render pipeline layout (no camera)
+        // Create tile render shader
+        let tile_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Particle Life Tile Render Shader"),
+            source: wgpu::ShaderSource::Wgsl(shaders::TILE_RENDER_SHADER.into()),
+        });
+
+        // Create tile render bind group layout (Group 1: tile_params and camera_aware_params)
+        let tile_render_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Tile Render Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        // Create tile render pipeline layout
+        let tile_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Tile Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &render_bind_group_layout_particles, // Group 0: particles and sim_params
+                    &tile_render_bind_group_layout, // Group 1: tile_params and camera_aware_params
+                    &lut_bind_group_layout,         // Group 2: species_colors
+                ],
+                push_constant_ranges: &[],
+            });
+
+        // Create tile render pipeline
+        let tile_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Particle Life Tile Render Pipeline"),
+            layout: Some(&tile_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &tile_render_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &tile_render_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Create offscreen render pipeline layout (with camera)
         let offscreen_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Particle Life Offscreen Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &render_bind_group_layout_particles,
                     &render_bind_group_layout,
+                    &camera_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -1190,17 +1361,21 @@ impl ParticleLifeModel {
                     })],
                     compilation_options: Default::default(),
                 }),
-                            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
                 depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
+                multisample: wgpu::MultisampleState {
+                    count: 4, // 4x MSAA
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
                 multiview: None,
                 cache: None,
             });
@@ -1359,14 +1534,33 @@ impl ParticleLifeModel {
         // Create camera
         let camera = Camera::new(device, width as f32, height as f32)?;
 
+        // Create viewport parameters buffer for fixed tile rendering
+        let viewport_params = ViewportParams {
+            world_bounds: [-1.0, -1.0, 1.0, 1.0], // Fixed 2x2 world unit tile
+            texture_size: [width as f32, height as f32],
+            _pad1: 0.0,
+            _pad2: 0.0,
+        };
+        let viewport_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Viewport Params Buffer"),
+            contents: bytemuck::cast_slice(&[viewport_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         // Create camera bind group
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera.buffer().as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.buffer().as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: viewport_params_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         // Create fade pipeline for traces
@@ -1575,39 +1769,40 @@ impl ParticleLifeModel {
         });
 
         // Create display blit pipeline for copying trail texture to display texture (Rgba8Unorm format)
-        let display_blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Display Blit Pipeline"),
-            layout: Some(&blit_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_vertex_shader,
-                entry_point: Some("main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_fragment_shader,
-                entry_point: Some("main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None, // No blending for blit
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let display_blit_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Display Blit Pipeline"),
+                layout: Some(&blit_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &blit_vertex_shader,
+                    entry_point: Some("main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blit_fragment_shader,
+                    entry_point: Some("main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None, // No blending for blit
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
         // Create sampler for blit
         let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1690,9 +1885,7 @@ impl ParticleLifeModel {
                 layout: Some(
                     &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: Some("Background Render Pipeline Layout"),
-                        bind_group_layouts: &[
-                            &background_bind_group_layout,
-                        ],
+                        bind_group_layouts: &[&background_bind_group_layout],
                         push_constant_ranges: &[],
                     }),
                 ),
@@ -1753,11 +1946,12 @@ impl ParticleLifeModel {
             });
 
         // Create background color buffer
-        let background_color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Background Color Buffer"),
-            contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let background_color_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Background Color Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create background bind group
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1793,6 +1987,23 @@ impl ParticleLifeModel {
         });
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        // Create MSAA texture for anti-aliasing particle rendering
+        let msaa_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("MSAA Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 4, // 4x MSAA
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let msaa_view = msaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         // Create display bind group for blitting display texture to surface
         let display_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Display Bind Group"),
@@ -1827,64 +2038,70 @@ impl ParticleLifeModel {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        let post_effect_view = post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let post_effect_view =
+            post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Post effect parameters buffer
         let post_effect_params = [1.0f32, 1.0f32, 1.0f32, 1.0f32]; // brightness, contrast, saturation, gamma
-        let post_effect_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Post Effect Params Buffer"),
-            contents: bytemuck::cast_slice(&post_effect_params),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let post_effect_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Post Effect Params Buffer"),
+                contents: bytemuck::cast_slice(&post_effect_params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create post effect shader
         let post_effect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Post Effect Shader"),
-            source: wgpu::ShaderSource::Wgsl(crate::simulations::particle_life::shaders::POST_EFFECT_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::particle_life::shaders::POST_EFFECT_SHADER.into(),
+            ),
         });
 
         // Create post effect bind group layout
-        let post_effect_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Post Effect Bind Group Layout"),
-            entries: &[
-                // Display texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let post_effect_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Post Effect Bind Group Layout"),
+                entries: &[
+                    // Display texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Display sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Post effect params
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Display sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                    // Post effect params
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
 
         // Create post effect pipeline layout
-        let post_effect_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Post Effect Pipeline Layout"),
-            bind_group_layouts: &[&post_effect_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let post_effect_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Post Effect Pipeline Layout"),
+                bind_group_layouts: &[&post_effect_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         // Create post effect pipeline
         let post_effect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1924,86 +2141,94 @@ impl ParticleLifeModel {
         // Create infinite render shader
         let infinite_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Infinite Render Shader"),
-            source: wgpu::ShaderSource::Wgsl(crate::simulations::particle_life::shaders::INFINITE_RENDER_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::particle_life::shaders::INFINITE_RENDER_SHADER.into(),
+            ),
         });
 
         // Create infinite render bind group layout
-        let infinite_render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Infinite Render Bind Group Layout"),
-            entries: &[
-                // Display texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let infinite_render_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Infinite Render Bind Group Layout"),
+                entries: &[
+                    // Display texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                // Display sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // Background color
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    // Display sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-        });
+                    // Background color
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
 
         // Create infinite render pipeline layout
-        let infinite_render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Infinite Render Pipeline Layout"),
-            bind_group_layouts: &[&infinite_render_bind_group_layout, &camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let infinite_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Infinite Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &infinite_render_bind_group_layout,
+                    &camera_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
 
         // Create infinite render pipeline
-        let render_infinite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Infinite Render Pipeline"),
-            layout: Some(&infinite_render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &infinite_render_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &infinite_render_shader,
-                entry_point: Some("fs_main_texture"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        let render_infinite_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Infinite Render Pipeline"),
+                layout: Some(&infinite_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &infinite_render_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &infinite_render_shader,
+                    entry_point: Some("fs_main_texture"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
         // Create post effect bind group
         let post_effect_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2046,33 +2271,34 @@ impl ParticleLifeModel {
         });
 
         // Create infinite render bind group for display texture (bypasses post-effects)
-        let render_infinite_display_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Infinite Render Display Bind Group"),
-            layout: &infinite_render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: background_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let render_infinite_display_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Infinite Render Display Bind Group"),
+                layout: &infinite_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&display_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&blit_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: background_params_buffer.as_entire_binding(),
+                    },
+                ],
+            });
 
         let mut result = Self {
-            particle_buffer,
-            sim_params_buffer,
+            particle_buffer: particle_buffer.clone(),
+            sim_params_buffer: sim_params_buffer.clone(),
             force_matrix_buffer,
             lut_buffer,
             lut_size_buffer,
             color_mode_buffer,
-            species_colors_buffer,
+            species_colors_buffer: species_colors_buffer.clone(),
             compute_pipeline,
             compute_bind_group,
             compute_bind_group_layout,
@@ -2092,6 +2318,46 @@ impl ParticleLifeModel {
             render_bind_group,
             lut_bind_group,
             camera_bind_group,
+            tile_render_pipeline,
+            tile_render_bind_group_layout: tile_render_bind_group_layout.clone(),
+            tile_render_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Tile Render Bind Group"),
+                layout: &tile_render_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("Tile Params Buffer"),
+                                size: std::mem::size_of::<TileParams>() as u64,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            }),
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("Camera Aware Params Buffer"),
+                                size: std::mem::size_of::<CameraAwareParams>() as u64,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            }),
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                ],
+            }),
+            tile_params_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Tile Params Buffer"),
+                size: std::mem::size_of::<TileParams>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             offscreen_render_pipeline,
             trail_render_pipeline,
             fade_pipeline,
@@ -2109,9 +2375,12 @@ impl ParticleLifeModel {
             background_bind_group,
             background_params_buffer,
             background_color_buffer,
+            viewport_params_buffer,
             display_texture,
             display_view,
             display_bind_group,
+            msaa_texture,
+            msaa_view,
             post_effect_texture,
             post_effect_view,
             post_effect_bind_group,
@@ -2140,6 +2409,12 @@ impl ParticleLifeModel {
             last_zoom_level: 1.0,
             base_surface_width: surface_config.width,
             base_surface_height: surface_config.height,
+            camera_aware_params_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Camera Aware Params Buffer"),
+                size: std::mem::size_of::<CameraAwareParams>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
         };
 
         // Initialize LUT and species colors properly
@@ -2205,6 +2480,31 @@ impl ParticleLifeModel {
             &self.sim_params_buffer,
             0,
             bytemuck::cast_slice(&[sim_params]),
+        );
+    }
+
+    fn update_viewport_params(&mut self, queue: &Arc<Queue>) {
+        // Use fixed world region for texture (matches infinite renderer tile size)
+        // Each tile in the infinite renderer represents a 2x2 world unit region
+        let world_left = -1.0;
+        let world_right = 1.0;
+        let world_bottom = -1.0;
+        let world_top = 1.0;
+
+        let viewport_params = ViewportParams {
+            world_bounds: [world_left, world_bottom, world_right, world_top],
+            texture_size: [
+                self.display_texture.width() as f32,
+                self.display_texture.height() as f32,
+            ],
+            _pad1: 0.0,
+            _pad2: 0.0,
+        };
+
+        queue.write_buffer(
+            &self.viewport_params_buffer,
+            0,
+            bytemuck::cast_slice(&[viewport_params]),
         );
     }
 
@@ -2639,22 +2939,40 @@ impl ParticleLifeModel {
 
         queue.submit(std::iter::once(encoder.finish()));
     }
-}
 
-impl ParticleLifeModel {
-    // Calculate how many tiles we need based on zoom level
+    /// Calculate which tiles are visible based on camera position and zoom
+    /// 
+    /// Calculate how many tiles we need based on zoom level
     fn calculate_tile_count(zoom: f32) -> i32 {
-        // At zoom 1.0, we need at least 5x5 tiles
+        // At zoom 1.0, we need at least 7x7 tiles
         // As zoom decreases (zooming out), we need more tiles
         // Each tile covers 2.0 world units, so we need enough tiles to cover the visible area
         let visible_world_size = 2.0 / zoom; // World size visible on screen
-        let tiles_needed = (visible_world_size / 2.0).ceil() as i32 + 6; // +6 for extra padding at extreme zoom levels
-        let min_tiles = if zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
+        let tiles_needed = (visible_world_size / 2.0).ceil() as i32 + 8; // +8 for extra padding to prevent gaps
+        let min_tiles = if zoom < 0.1 { 9 } else { 7 }; // More tiles needed at extreme zoom out
         // Allow more tiles for proper infinite tiling, but cap at reasonable limit
-        ((tiles_needed).max(min_tiles)).min(1024) // Cap at 200x200 for performance
+        ((tiles_needed).max(min_tiles)).min(1024) // Cap at 1024 for performance
     }
 
+    /// Update camera-aware parameters for tile-based rendering
+    fn update_camera_aware_params(&mut self, queue: &Arc<Queue>) {
+        let camera_aware_params = CameraAwareParams {
+            camera_zoom: self.camera.zoom,
+            _pad0: 0.0,
+            camera_position: self.camera.position,
+            viewport_size: [self.camera.viewport_width, self.camera.viewport_height],
+            tile_size: 2.0,
+            max_tiles: 64, // Limit to prevent performance issues
+            _pad1: 0.0,
+            _pad2: 0.0,
+        };
 
+        queue.write_buffer(
+            &self.camera_aware_params_buffer,
+            0,
+            bytemuck::cast_slice(&[camera_aware_params]),
+        );
+    }
 }
 
 impl Simulation for ParticleLifeModel {
@@ -2681,13 +2999,14 @@ impl Simulation for ParticleLifeModel {
         // Update camera
         self.camera.upload_to_gpu(queue);
 
+        // Update viewport parameters for camera-aware rendering
+        self.update_viewport_params(queue);
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Particle Life Static Render Encoder"),
         });
 
         // Skip compute pass - just render current particle positions
-
-
 
         // Step 1: Render background to display texture (offscreen)
         {
@@ -2777,6 +3096,7 @@ impl Simulation for ParticleLifeModel {
             display_render_pass.set_pipeline(&self.offscreen_render_pipeline);
             display_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             display_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            display_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
             let particle_count = self.state.particle_count as u32;
             display_render_pass.draw(0..6, 0..particle_count);
@@ -2827,10 +3147,10 @@ impl Simulation for ParticleLifeModel {
             });
 
             surface_render_pass.set_pipeline(&self.render_infinite_pipeline);
-            let bind_group = if self.needs_post_effects() { 
-                &self.render_infinite_bind_group 
-            } else { 
-                &self.render_infinite_display_bind_group 
+            let bind_group = if self.needs_post_effects() {
+                &self.render_infinite_bind_group
+            } else {
+                &self.render_infinite_display_bind_group
             };
             surface_render_pass.set_bind_group(0, bind_group, &[]);
             surface_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -2871,6 +3191,9 @@ impl Simulation for ParticleLifeModel {
 
         // Update camera
         self.camera.upload_to_gpu(queue);
+
+        // Update camera-aware parameters for tile-based rendering
+        self.update_camera_aware_params(queue);
 
         // Update background parameters
         self.update_background_params(queue);
@@ -2974,6 +3297,7 @@ impl Simulation for ParticleLifeModel {
             trail_render_pass.set_pipeline(&self.trail_render_pipeline);
             trail_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
             trail_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            trail_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
             let particle_count = self.state.particle_count as u32;
             trail_render_pass.draw(0..6, 0..particle_count);
@@ -2999,14 +3323,14 @@ impl Simulation for ParticleLifeModel {
             display_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
             display_render_pass.draw(0..3, 0..1);
         } else {
-            // When trails are disabled, render particles directly to display texture
-            let mut display_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Display Render Pass"),
+            // When trails are disabled, render particles to MSAA texture for anti-aliasing
+            let mut msaa_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("MSAA Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.display_view,
-                    resolve_target: None,
+                    view: &self.msaa_view,
+                    resolve_target: Some(&self.display_view),
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // Load existing background
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear for no trails
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -3015,12 +3339,13 @@ impl Simulation for ParticleLifeModel {
                 occlusion_query_set: None,
             });
 
-            display_render_pass.set_pipeline(&self.offscreen_render_pipeline);
-            display_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            display_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            msaa_render_pass.set_pipeline(&self.offscreen_render_pipeline);
+            msaa_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            msaa_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            msaa_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
             let particle_count = self.state.particle_count as u32;
-            display_render_pass.draw(0..6, 0..particle_count);
+            msaa_render_pass.draw(0..6, 0..particle_count);
         }
 
         // Step 3: Render post effects from display texture to post-effect texture (offscreen)
@@ -3068,13 +3393,10 @@ impl Simulation for ParticleLifeModel {
             });
 
             surface_render_pass.set_pipeline(&self.render_infinite_pipeline);
-            let bind_group = if self.needs_post_effects() { 
-                &self.render_infinite_bind_group 
-            } else { 
-                &self.render_infinite_display_bind_group 
-            };
-            surface_render_pass.set_bind_group(0, bind_group, &[]);
+            surface_render_pass.set_bind_group(0, &self.render_infinite_display_bind_group, &[]);
             surface_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+
+            // Draw a fullscreen quad with multiple instances for tiling
             surface_render_pass.draw(0..6, 0..total_instances);
         }
 
@@ -3091,7 +3413,7 @@ impl Simulation for ParticleLifeModel {
         // Update base surface dimensions
         self.base_surface_width = new_config.width;
         self.base_surface_height = new_config.height;
-        
+
         // Update resolution based on current zoom level
         self.update_resolution(device)?;
 

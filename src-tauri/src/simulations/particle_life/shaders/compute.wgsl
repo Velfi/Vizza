@@ -26,9 +26,9 @@ struct SimParams {
     cursor_strength: f32,  // Cursor force strength
     cursor_active: u32,  // Whether cursor interaction is active (0 = inactive, 1 = attract, 2 = repel)
     brownian_motion: f32,  // Brownian motion strength (0.0-1.0)
+    aspect_ratio: f32,  // Screen aspect ratio for cursor distance calculation
     _pad1: u32,
     _pad2: u32,
-    _pad3: u32,
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;

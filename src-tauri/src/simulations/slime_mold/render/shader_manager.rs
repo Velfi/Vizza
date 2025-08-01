@@ -1,8 +1,8 @@
+use crate::simulations::shared::AVERAGE_COLOR_SHADER;
 use crate::simulations::slime_mold::shaders::{
     BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER,
     QUAD_INFINITE_SHADER, QUAD_SHADER,
 };
-use crate::simulations::shared::AVERAGE_COLOR_SHADER;
 use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use std::borrow::Cow;
 use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};

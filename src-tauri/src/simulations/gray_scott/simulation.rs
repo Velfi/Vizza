@@ -287,7 +287,7 @@ impl GrayScottModel {
         // Create background bind group
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background Bind Group"),
-            layout: &renderer.background_bind_group_layout(),
+            layout: renderer.background_bind_group_layout(),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: background_params_buffer.as_entire_binding(),

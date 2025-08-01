@@ -26,8 +26,22 @@ struct SimParams {
     cursor_active: u32,
     brownian_motion: f32,
     particle_size: f32, // Add particle size parameter
+    aspect_ratio: f32,  // Screen aspect ratio for cursor distance calculation
     _pad1: u32,
-    _pad2: u32,
+}
+
+struct CameraUniform {
+    transform_matrix: mat4x4<f32>,
+    position: vec2<f32>,
+    zoom: f32,
+    aspect_ratio: f32,
+}
+
+struct ViewportParams {
+    world_bounds: vec4<f32>, // [left, bottom, right, top] in world coordinates
+    texture_size: vec2<f32>, // [width, height] of offscreen texture
+    _pad1: f32,
+    _pad2: f32,
 }
 
 struct VertexOutput {
@@ -41,6 +55,8 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
 @group(0) @binding(1) var<uniform> sim_params: SimParams;
+@group(2) @binding(0) var<uniform> camera: CameraUniform;
+@group(2) @binding(1) var<uniform> viewport_params: ViewportParams;
 
 // Instanced quad vertex shader for sizable particles
 @vertex
@@ -71,23 +87,36 @@ fn main(
     let quad_pos = quad_positions[vertex_index];
     let quad_uv = quad_uvs[vertex_index];
     
-    // Convert particle position from [-1,1] to [0,1] texture space, then to clip space
-    let normalized_pos = (particle.position + vec2<f32>(1.0)) * 0.5;
+    // Map particles from world space to the texture's world bounds
+    let world_particle_pos = particle.position;
     
-    // Use zoom-aware particle size instead of fixed pixel size
-    // The particle_size parameter should be in world space units and will scale with zoom
-    let particle_size = sim_params.particle_size;
-    let quad_offset = quad_pos * particle_size / vec2<f32>(sim_params.width, sim_params.height);
-    let final_pos = normalized_pos + quad_offset;
+    // Get the world bounds that this texture represents
+    let world_left = viewport_params.world_bounds.x;
+    let world_bottom = viewport_params.world_bounds.y;
+    let world_right = viewport_params.world_bounds.z;
+    let world_top = viewport_params.world_bounds.w;
     
-    // Convert to clip space [-1,1]
-    let clip_pos = final_pos * 2.0 - vec2<f32>(1.0);
+    // Map world position to texture NDC space [-1, 1]
+    let texture_ndc_x = (world_particle_pos.x - world_left) / (world_right - world_left) * 2.0 - 1.0;
+    let texture_ndc_y = (world_particle_pos.y - world_bottom) / (world_top - world_bottom) * 2.0 - 1.0;
+    let particle_ndc_pos = vec2<f32>(texture_ndc_x, texture_ndc_y);
+    
+    // Scale particle size from world units to NDC units
+    let world_width = world_right - world_left;
+    let world_height = world_top - world_bottom;
+    let world_scale = min(world_width, world_height) / 2.0; // Scale factor from world to NDC
+    let particle_ndc_size = sim_params.particle_size / world_scale * 0.001; // Make particles 0.001 of current size
+    
+    // Apply aspect ratio correction
+    let aspect_corrected_quad = vec2<f32>(quad_pos.x / camera.aspect_ratio, quad_pos.y);
+    let quad_offset = aspect_corrected_quad * particle_ndc_size;
+    let final_pos = particle_ndc_pos + quad_offset;
     
     var output: VertexOutput;
-    output.position = vec4<f32>(clip_pos, 0.0, 1.0);
+    output.position = vec4<f32>(final_pos, 0.0, 1.0);  // Output in texture NDC space
     output.species = particle.species;
     output.velocity_magnitude = length(particle.velocity);
-    output.world_pos = particle.position;
+    output.world_pos = world_particle_pos;  // Pass world position for post-processing
     output.grid_fade_factor = 1.0;
     output.uv = quad_uv;
     

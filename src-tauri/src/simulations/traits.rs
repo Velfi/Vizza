@@ -158,13 +158,13 @@ pub trait Simulation {
 /// without using trait objects (Box<dyn Simulation>).
 #[derive(Debug)]
 pub enum SimulationType {
-    SlimeMold(crate::simulations::slime_mold::SlimeMoldModel),
-    GrayScott(crate::simulations::gray_scott::GrayScottModel),
-    ParticleLife(crate::simulations::particle_life::ParticleLifeModel),
-    Flow(crate::simulations::flow::simulation::FlowModel),
+    SlimeMold(Box<crate::simulations::slime_mold::SlimeMoldModel>),
+    GrayScott(Box<crate::simulations::gray_scott::GrayScottModel>),
+    ParticleLife(Box<crate::simulations::particle_life::ParticleLifeModel>),
+    Flow(Box<crate::simulations::flow::simulation::FlowModel>),
     Pellets(Box<crate::simulations::pellets::PelletsModel>),
-    MainMenu(crate::simulations::main_menu::MainMenuModel),
-    Gradient(crate::simulations::gradient::GradientSimulation),
+    MainMenu(Box<crate::simulations::main_menu::MainMenuModel>),
+    Gradient(Box<crate::simulations::gradient::GradientSimulation>),
 }
 
 impl SimulationType {
@@ -189,7 +189,7 @@ impl SimulationType {
                     settings,
                     lut_manager,
                 )?;
-                Ok(SimulationType::SlimeMold(simulation))
+                Ok(SimulationType::SlimeMold(Box::new(simulation)))
             }
             "gray_scott" => {
                 let settings = crate::simulations::gray_scott::settings::Settings::default();
@@ -202,7 +202,7 @@ impl SimulationType {
                     settings,
                     lut_manager,
                 )?;
-                Ok(SimulationType::GrayScott(simulation))
+                Ok(SimulationType::GrayScott(Box::new(simulation)))
             }
             "particle_life" => {
                 let settings = crate::simulations::particle_life::settings::Settings::default();
@@ -216,7 +216,7 @@ impl SimulationType {
                     lut_manager,
                     crate::simulations::particle_life::simulation::ColorMode::Lut,
                 )?;
-                Ok(SimulationType::ParticleLife(simulation))
+                Ok(SimulationType::ParticleLife(Box::new(simulation)))
             }
             "flow" => {
                 let settings = crate::simulations::flow::settings::Settings::default();
@@ -227,7 +227,7 @@ impl SimulationType {
                     settings,
                     lut_manager,
                 )?;
-                Ok(SimulationType::Flow(simulation))
+                Ok(SimulationType::Flow(Box::new(simulation)))
             }
             "pellets" => {
                 let settings = crate::simulations::pellets::settings::Settings::default();
@@ -246,7 +246,7 @@ impl SimulationType {
                     queue,
                     surface_config.format,
                 );
-                Ok(SimulationType::Gradient(simulation))
+                Ok(SimulationType::Gradient(Box::new(simulation)))
             }
             "main_menu" => {
                 let simulation = crate::simulations::main_menu::MainMenuModel::new(
@@ -254,7 +254,7 @@ impl SimulationType {
                     surface_config,
                     lut_manager,
                 )?;
-                Ok(SimulationType::MainMenu(simulation))
+                Ok(SimulationType::MainMenu(Box::new(simulation)))
             }
             _ => Err(format!("Unknown simulation type: {}", simulation_type).into()),
         }

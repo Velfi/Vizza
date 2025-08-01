@@ -9,3 +9,4 @@ pub const FADE_FRAGMENT_SHADER: &str = include_str!("fade_fragment.wgsl");
 pub const BACKGROUND_RENDER_SHADER: &str = include_str!("background_render.wgsl");
 pub const INFINITE_RENDER_SHADER: &str = crate::simulations::shared::INFINITE_RENDER_SHADER;
 pub const POST_EFFECT_SHADER: &str = include_str!("post_effect.wgsl");
+pub const TILE_RENDER_SHADER: &str = include_str!("tile_render.wgsl");

@@ -187,9 +187,9 @@ impl ParticleLifeValidator {
             cursor_strength: 1.0,
             cursor_active: 0,
             brownian_motion: 0.1,
+            particle_size: 0.0001,
+            aspect_ratio: 1.0,
             _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
         };
 
         // Create buffers
@@ -242,9 +242,9 @@ impl ParticleLifeValidator {
             cursor_strength: 1.0,
             cursor_active: 0,
             brownian_motion: 0.1,
+            particle_size: 0.01,
+            aspect_ratio: 1.0,
             _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
         };
 
         // Create buffers
@@ -290,6 +290,22 @@ impl ParticleLifeValidator {
                 contents: bytemuck::cast_slice(&[dummy_camera]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
+
+        // Create viewport params buffer
+        let dummy_viewport_params = crate::simulations::particle_life::simulation::ViewportParams {
+            world_bounds: [-1.0, -1.0, 1.0, 1.0],
+            texture_size: [1920.0, 1080.0],
+            _pad1: 0.0,
+            _pad2: 0.0,
+        };
+
+        let viewport_params_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Particle Life Viewport Params Buffer"),
+                    contents: bytemuck::cast_slice(&[dummy_viewport_params]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
 
         // Create species colors buffer
         #[repr(C)]
@@ -394,16 +410,28 @@ impl ParticleLifeValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Particle Life Render Bind Group Layout 2"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
 
         // Create render pipeline layout
@@ -492,10 +520,16 @@ impl ParticleLifeValidator {
         let _bind_group_2 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Render Bind Group 2"),
             layout: &bind_group_layout_2,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: viewport_params_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         Ok(())
@@ -647,9 +681,9 @@ fn test_struct_layout_consistency() {
             cursor_strength: 1.0,
             cursor_active: 0,
             brownian_motion: 0.1,
+            particle_size: 0.01,
+            aspect_ratio: 1.0,
             _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
         };
 
         let dummy_background_params = BackgroundParams {

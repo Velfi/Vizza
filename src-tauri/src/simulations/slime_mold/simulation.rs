@@ -385,21 +385,21 @@ impl SlimeMoldModel {
             });
 
         // Create average color buffer for calculating frame average
-        let average_color_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Slime Mold Average Color Buffer"),
-                contents: bytemuck::cast_slice(&[0u32, 0u32, 0u32, 0u32]), // Initialize to zero (atomic f32 as u32)
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            });
+        let average_color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Slime Mold Average Color Buffer"),
+            contents: bytemuck::cast_slice(&[0u32, 0u32, 0u32, 0u32]), // Initialize to zero (atomic f32 as u32)
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
 
         // Create staging buffer for reading back average color data
-        let average_color_staging_buffer =
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Slime Mold Average Color Staging Buffer"),
-                size: std::mem::size_of::<[u32; 4]>() as u64,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
+        let average_color_staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Slime Mold Average Color Staging Buffer"),
+            size: std::mem::size_of::<[u32; 4]>() as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
 
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
@@ -1414,8 +1414,6 @@ impl SlimeMoldModel {
         );
     }
 
-
-
     fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
         // Reset the average color buffer to zero
         queue.write_buffer(
@@ -1444,7 +1442,13 @@ impl SlimeMoldModel {
         }
 
         // Copy results to staging buffer for readback
-        encoder.copy_buffer_to_buffer(&self.average_color_buffer, 0, &self.average_color_staging_buffer, 0, std::mem::size_of::<[u32; 4]>() as u64);
+        encoder.copy_buffer_to_buffer(
+            &self.average_color_buffer,
+            0,
+            &self.average_color_staging_buffer,
+            0,
+            std::mem::size_of::<[u32; 4]>() as u64,
+        );
         queue.submit(std::iter::once(encoder.finish()));
 
         // Read back the average color and update the background color buffer
@@ -1453,11 +1457,14 @@ impl SlimeMoldModel {
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
         device.poll(wgpu::Maintain::Wait);
-        
+
         if let Ok(()) = receiver.recv().unwrap() {
-            let buffer_slice = self.average_color_staging_buffer.slice(..).get_mapped_range();
+            let buffer_slice = self
+                .average_color_staging_buffer
+                .slice(..)
+                .get_mapped_range();
             let average_color_data: &[u32] = bytemuck::cast_slice(&buffer_slice);
-            
+
             let total_pixels = self.display_texture.width() * self.display_texture.height();
             let background_color = [
                 (average_color_data[0] as f32) / (total_pixels * 255) as f32,
@@ -1465,16 +1472,16 @@ impl SlimeMoldModel {
                 (average_color_data[2] as f32) / (total_pixels * 255) as f32,
                 (average_color_data[3] as f32) / (total_pixels * 255) as f32,
             ];
-            
+
             // Drop the mapped view before unmapping
             drop(buffer_slice);
-            
+
             queue.write_buffer(
                 &self.background_color_buffer,
                 0,
                 bytemuck::cast_slice(&[background_color]),
             );
-            
+
             self.average_color_staging_buffer.unmap();
         }
     }
@@ -1491,10 +1498,10 @@ impl SlimeMoldModel {
         let colors = lut.get_colors(128);
         if let Some(color) = colors.first() {
             let background_color = [
-                color[0] as f32,
-                color[1] as f32,
-                color[2] as f32,
-                color[3] as f32,
+                color[0],
+                color[1],
+                color[2],
+                color[3],
             ];
             queue.write_buffer(
                 &self.background_color_buffer,
@@ -1522,16 +1529,17 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         // Update camera for smooth movement
         self.camera.update(0.016); // Assume 60 FPS for now
         self.camera.upload_to_gpu(queue);
-        
+
         // Generate display texture first
         let mut display_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Static Display Encoder"),
         });
         {
-            let mut compute_pass = display_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Slime Mold Static Display Pass"),
-                timestamp_writes: None,
-            });
+            let mut compute_pass =
+                display_encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Slime Mold Static Display Pass"),
+                    timestamp_writes: None,
+                });
             compute_pass.set_pipeline(&self.pipeline_manager.display_pipeline);
             compute_pass.set_bind_group(0, &self.bind_group_manager.display_bind_group, &[]);
             let (workgroups_x, workgroups_y) = self

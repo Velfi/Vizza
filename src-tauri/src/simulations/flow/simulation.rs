@@ -3,8 +3,8 @@ use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
     RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
-use crate::simulations::shared::{LutManager, AverageColorResources};
 use crate::simulations::shared::camera::Camera;
+use crate::simulations::shared::{AverageColorResources, LutManager};
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
 use noise::{
@@ -160,9 +160,7 @@ impl FlowModel {
         let tiles_needed = (visible_world_size / 2.0).ceil() as u32 + 6; // +6 for extra padding at extreme zoom levels
         let min_tiles = if self.camera.zoom < 0.1 { 7 } else { 5 }; // More tiles needed at extreme zoom out
         // Allow more tiles for proper infinite tiling, but cap at reasonable limit
-        let final_tiles = tiles_needed.max(min_tiles).min(1024); // Cap at 200x200 for performance (40,000 instances max)
-
-        final_tiles
+        tiles_needed.max(min_tiles).min(1024) // Cap at 200x200 for performance (40,000 instances max)
     }
 
     // Generate flow direction using the noise crate
@@ -1356,12 +1354,8 @@ impl FlowModel {
             });
 
         // Create average color calculation resources
-        let average_color_resources = AverageColorResources::new(
-            device,
-            &display_texture,
-            &display_view,
-            "Flow",
-        );
+        let average_color_resources =
+            AverageColorResources::new(device, &display_texture, &display_view, "Flow");
 
         // Use the same camera for both offscreen and infinite rendering
 
@@ -1460,11 +1454,12 @@ impl FlowModel {
     }
 
     fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        self.average_color_resources.calculate_average_color(device, queue, &self.display_texture);
-        
+        self.average_color_resources
+            .calculate_average_color(device, queue, &self.display_texture);
+
         // Wait for the GPU work to complete
         device.poll(wgpu::Maintain::Wait);
-        
+
         // Read the result and update the background color buffer
         if let Some(average_color) = self.average_color_resources.get_average_color() {
             queue.write_buffer(
@@ -1488,10 +1483,10 @@ impl FlowModel {
         let colors = lut.get_colors(1); // Get just the first color
         if let Some(color) = colors.first() {
             let background_color = [
-                color[0] as f32,
-                color[1] as f32,
-                color[2] as f32,
-                color[3] as f32,
+                color[0],
+                color[1],
+                color[2],
+                color[3],
             ];
             queue.write_buffer(
                 &self.background_color_buffer,
@@ -1655,24 +1650,26 @@ impl Simulation for FlowModel {
         self.update_background_color(queue);
 
         // 1. Render background, trails, and particles to display texture (offscreen) without updating simulation state
-        let mut offscreen_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Flow Static Offscreen Encoder"),
-        });
-        {
-            let mut render_pass = offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Flow Static Offscreen Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.display_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
+        let mut offscreen_encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Flow Static Offscreen Encoder"),
             });
+        {
+            let mut render_pass =
+                offscreen_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Flow Static Offscreen Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
             // Render background
             render_pass.set_pipeline(&self.background_render_pipeline);
             render_pass.set_bind_group(0, &self.background_render_bind_group, &[]);
