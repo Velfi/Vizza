@@ -28,7 +28,8 @@ pub mod post_processing;
 
 pub use average_color::AverageColorResources;
 pub use gpu_utils::{
-    BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, RenderPipelineBuilder, ShaderManager,
+    BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, RenderPipelineBuilder,
+    ShaderManager,
 };
 pub use lut::{LutData, LutManager, SimulationLutManager};
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};

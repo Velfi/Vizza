@@ -41,9 +41,6 @@ pub struct Settings {
     /// Controls the amount of random thermal motion applied to particles
     /// Higher values create more chaotic, jittery movement
     pub brownian_motion: f32,
-    /// Trail map filtering mode.
-    /// Controls how trail textures are sampled during rendering
-    pub trail_map_filtering: TrailMapFiltering,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -155,7 +152,6 @@ impl Default for Settings {
             min_distance: 0.001,
             max_distance: 0.01,
             brownian_motion: 0.5,
-            trail_map_filtering: TrailMapFiltering::Nearest,
         }
     }
 }

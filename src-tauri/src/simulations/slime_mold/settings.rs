@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::ops::Range;
 use std::fmt::Display;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -84,10 +84,6 @@ pub struct Settings {
     ///
     /// Defaults to 0.
     pub random_seed: u32,
-    /// Trail map filtering mode.
-    ///
-    /// Defaults to TrailMapFiltering::Nearest.
-    pub trail_map_filtering: TrailMapFiltering,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -199,7 +195,6 @@ impl Default for Settings {
             diffusion_frequency: 1,
             decay_frequency: 1,
             random_seed: 0,
-            trail_map_filtering: TrailMapFiltering::Nearest,
         }
     }
 }

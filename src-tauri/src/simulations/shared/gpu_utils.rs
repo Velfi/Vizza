@@ -2,16 +2,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, ColorTargetState, ComputePipeline,
-    ComputePipelineDescriptor, Device, FragmentState, PipelineLayoutDescriptor, PrimitiveState,
-    RenderPipeline, RenderPipelineDescriptor, Sampler, ShaderModule, ShaderModuleDescriptor,
-    ShaderSource, ShaderStages, TextureFormat, TextureView, VertexState,
+    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, ColorTargetState,
+    ComputePipeline, ComputePipelineDescriptor, Device, FragmentState, PipelineLayoutDescriptor,
+    PrimitiveState, RenderPipeline, RenderPipelineDescriptor, ShaderModule, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, TextureView, VertexState,
 };
 
 /// Manages shader modules with caching to avoid duplicate compilation
 #[derive(Debug)]
 pub struct ShaderManager {
     shaders: HashMap<String, Arc<ShaderModule>>,
+}
+
+impl Default for ShaderManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ShaderManager {
@@ -22,12 +28,7 @@ impl ShaderManager {
     }
 
     /// Load a shader module, reusing cached version if available
-    pub fn load_shader(
-        &mut self,
-        device: &Device,
-        name: &str,
-        source: &str,
-    ) -> Arc<ShaderModule> {
+    pub fn load_shader(&mut self, device: &Device, name: &str, source: &str) -> Arc<ShaderModule> {
         self.shaders
             .entry(name.to_string())
             .or_insert_with(|| {
@@ -83,23 +84,16 @@ impl RenderPipelineBuilder {
         self
     }
 
-    pub fn with_vertex_buffer_layouts(mut self, layouts: Vec<wgpu::VertexBufferLayout<'static>>) -> Self {
+    pub fn with_vertex_buffer_layouts(
+        mut self,
+        layouts: Vec<wgpu::VertexBufferLayout<'static>>,
+    ) -> Self {
         self.vertex_buffer_layouts = layouts;
         self
     }
 
     pub fn with_primitive(mut self, primitive: PrimitiveState) -> Self {
         self.primitive = primitive;
-        self
-    }
-
-    pub fn with_depth_stencil(mut self, depth_stencil: Option<wgpu::DepthStencilState>) -> Self {
-        self.depth_stencil = depth_stencil;
-        self
-    }
-
-    pub fn with_multisample(mut self, multisample: wgpu::MultisampleState) -> Self {
-        self.multisample = multisample;
         self
     }
 
@@ -114,39 +108,42 @@ impl RenderPipelineBuilder {
     }
 
     pub fn build(self) -> RenderPipeline {
-        let layout = self.device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: self.label.as_deref(),
-            bind_group_layouts: &self.bind_group_layouts.iter().collect::<Vec<_>>(),
-            push_constant_ranges: &[],
-        });
+        let layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: self.label.as_deref(),
+                bind_group_layouts: &self.bind_group_layouts.iter().collect::<Vec<_>>(),
+                push_constant_ranges: &[],
+            });
 
         let shader = self.shader.expect("Shader not set");
 
-        self.device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: self.label.as_deref(),
-            layout: Some(&layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &self.vertex_buffer_layouts,
-                compilation_options: Default::default(),
-            },
-            fragment: if self.fragment_targets.is_empty() {
-                None
-            } else {
-                Some(FragmentState {
+        self.device
+            .create_render_pipeline(&RenderPipelineDescriptor {
+                label: self.label.as_deref(),
+                layout: Some(&layout),
+                vertex: VertexState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &self.fragment_targets,
+                    entry_point: Some("vs_main"),
+                    buffers: &self.vertex_buffer_layouts,
                     compilation_options: Default::default(),
-                })
-            },
-            primitive: self.primitive,
-            depth_stencil: self.depth_stencil,
-            multisample: self.multisample,
-            multiview: None,
-            cache: None,
-        })
+                },
+                fragment: if self.fragment_targets.is_empty() {
+                    None
+                } else {
+                    Some(FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        targets: &self.fragment_targets,
+                        compilation_options: Default::default(),
+                    })
+                },
+                primitive: self.primitive,
+                depth_stencil: self.depth_stencil,
+                multisample: self.multisample,
+                multiview: None,
+                cache: None,
+            })
     }
 }
 
@@ -184,22 +181,25 @@ impl ComputePipelineBuilder {
     }
 
     pub fn build(self) -> ComputePipeline {
-        let layout = self.device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: self.label.as_deref(),
-            bind_group_layouts: &self.bind_group_layouts.iter().collect::<Vec<_>>(),
-            push_constant_ranges: &[],
-        });
+        let layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: self.label.as_deref(),
+                bind_group_layouts: &self.bind_group_layouts.iter().collect::<Vec<_>>(),
+                push_constant_ranges: &[],
+            });
 
         let shader = self.shader.expect("Shader not set");
 
-        self.device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: self.label.as_deref(),
-            layout: Some(&layout),
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        })
+        self.device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: self.label.as_deref(),
+                layout: Some(&layout),
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            })
     }
 }
 
@@ -237,14 +237,6 @@ impl<'a> BindGroupBuilder<'a> {
         self.entries.push(BindGroupEntry {
             binding,
             resource: wgpu::BindingResource::TextureView(view),
-        });
-        self
-    }
-
-    pub fn add_sampler(mut self, binding: u32, sampler: &'a Sampler) -> Self {
-        self.entries.push(BindGroupEntry {
-            binding,
-            resource: wgpu::BindingResource::Sampler(sampler),
         });
         self
     }
@@ -354,80 +346,3 @@ impl CommonBindGroupLayouts {
         })
     }
 }
-
-/// Common pipeline templates
-pub struct PipelineTemplates;
-
-impl PipelineTemplates {
-    /// Create a basic render pipeline for full-screen quads
-    pub fn basic_render_pipeline(
-        device: Arc<Device>,
-        shader: Arc<ShaderModule>,
-        bind_group_layouts: Vec<BindGroupLayout>,
-        format: TextureFormat,
-        label: &str,
-    ) -> RenderPipeline {
-        RenderPipelineBuilder::new(device)
-            .with_shader(shader)
-            .with_bind_group_layouts(bind_group_layouts)
-            .with_fragment_targets(vec![Some(ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })])
-            .with_primitive(PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            })
-            .with_label(label.to_string())
-            .build()
-    }
-
-    /// Create a compute pipeline
-    pub fn compute_pipeline(
-        device: Arc<Device>,
-        shader: Arc<ShaderModule>,
-        bind_group_layouts: Vec<BindGroupLayout>,
-        label: &str,
-    ) -> ComputePipeline {
-        ComputePipelineBuilder::new(device)
-            .with_shader(shader)
-            .with_bind_group_layouts(bind_group_layouts)
-            .with_label(label.to_string())
-            .build()
-    }
-
-    /// Create a post-processing pipeline with alpha blending
-    pub fn post_processing_pipeline(
-        device: Arc<Device>,
-        shader: Arc<ShaderModule>,
-        bind_group_layouts: Vec<BindGroupLayout>,
-        format: TextureFormat,
-        label: &str,
-    ) -> RenderPipeline {
-        RenderPipelineBuilder::new(device)
-            .with_shader(shader)
-            .with_bind_group_layouts(bind_group_layouts)
-            .with_fragment_targets(vec![Some(ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })])
-            .with_primitive(PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            })
-            .with_label(label.to_string())
-            .build()
-    }
-} 

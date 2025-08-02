@@ -1,23 +1,17 @@
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
-use crate::simulations::shared::{
-    BindGroupBuilder, RenderPipelineBuilder, ShaderManager,
-    lut::LutData,
-};
+use crate::simulations::shared::{BindGroupBuilder, RenderPipelineBuilder, lut::LutData};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, Buffer, BufferUsages, Device, Queue, RenderPipeline, SurfaceConfiguration, 
+    BindGroup, Buffer, BufferUsages, Device, Queue, RenderPipeline, SurfaceConfiguration,
     TextureFormat, TextureView,
 };
 
 #[derive(Debug)]
 pub struct GradientSimulation {
-    // GPU utilities
-    shader_manager: ShaderManager,
-    
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -34,9 +28,6 @@ pub struct GradientSimulation {
 
 impl GradientSimulation {
     pub fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self {
-        // Initialize GPU utilities
-        let mut shader_manager = ShaderManager::new();
-
         // Create vertex buffer for a full-screen quad
         let vertices: [f32; 16] = [
             -1.0, -1.0, 0.0, 0.0, // position, uv
@@ -113,7 +104,10 @@ impl GradientSimulation {
             .build();
 
         // Create render pipeline using GPU utilities
-        let shader = shader_manager.load_shader(device, "gradient", GRADIENT_SHADER);
+        let shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gradient"),
+            source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
+        }));
 
         let render_pipeline = RenderPipelineBuilder::new(Arc::new(device.clone()))
             .with_shader(shader)
@@ -165,7 +159,6 @@ impl GradientSimulation {
         queue.write_buffer(&lut_buffer, 0, bytemuck::cast_slice(&default_lut));
 
         Self {
-            shader_manager,
             render_pipeline,
             vertex_buffer,
             index_buffer,

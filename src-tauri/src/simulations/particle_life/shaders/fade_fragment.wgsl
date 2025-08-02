@@ -6,9 +6,10 @@ struct VertexOutput {
 }
 
 struct FadeUniforms {
-    background_color: vec3<f32>,  // Background color to fade to
-    fade_alpha: f32,              // Alpha for fading effect (0.0 = full fade, 1.0 = no fade)
+    fade_amount: f32,             // Amount to subtract from alpha each frame (0.0 = no fade, higher = faster fade)
     _pad1: f32,                   // Padding for 16-byte alignment
+    _pad2: f32,                   // Padding for 16-byte alignment
+    _pad3: f32,                   // Padding for 16-byte alignment
 }
 
 @group(0) @binding(0) var<uniform> fade_uniforms: FadeUniforms;
@@ -20,11 +21,11 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Sample from the display texture
     let tex_color = textureSample(display_tex, display_sampler, input.uv);
     
-    // Apply fade by blending towards background color
-    // fade_alpha controls how much of the original color to keep
-    // 0.0 = completely fade to background, 1.0 = keep original color
-    let faded_color = mix(fade_uniforms.background_color, tex_color.rgb, fade_uniforms.fade_alpha);
+    // Apply alpha fade by subtracting a fixed amount each frame
+    // fade_amount controls how much alpha to subtract per frame
+    // 0.0 = no fade, higher values = faster fade
+    let faded_alpha = max(tex_color.a - fade_uniforms.fade_amount, 0.0);
     
-    // Preserve the original alpha for proper blending
-    return vec4<f32>(faded_color, tex_color.a);
+    // Keep the original color but reduce the alpha
+    return vec4<f32>(tex_color.rgb, faded_alpha);
 } 

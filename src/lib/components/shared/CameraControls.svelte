@@ -13,16 +13,6 @@
   export let simulationType: string = '';
   export let controlMode: 'camera' | 'simulation' = 'camera';
 
-  // Debug logging for control mode changes
-  $: {
-    console.log(
-      'CameraControls: controlMode changed to:',
-      controlMode,
-      'simulationType:',
-      simulationType
-    );
-  }
-
   const pressedKeys = new Set<string>();
   let animationFrameId: number | null = null;
 

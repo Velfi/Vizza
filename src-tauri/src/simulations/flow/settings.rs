@@ -178,7 +178,6 @@ pub struct Settings {
     pub trail_deposition_rate: f32,
     pub trail_diffusion_rate: f32,
     pub trail_wash_out_rate: f32,
-    pub trail_map_filtering: TrailMapFiltering,
 }
 
 impl Default for Settings {
@@ -206,7 +205,6 @@ impl Default for Settings {
             trail_deposition_rate: 1.0, // Maximum trail deposition strength
             trail_diffusion_rate: 0.0,  // No trail diffusion by default
             trail_wash_out_rate: 0.0,
-            trail_map_filtering: TrailMapFiltering::Nearest,
         }
     }
 }

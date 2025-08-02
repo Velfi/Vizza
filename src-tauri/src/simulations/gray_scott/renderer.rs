@@ -18,11 +18,7 @@ pub struct Renderer {
     width: u32,
     height: u32,
     settings: Settings,
-    
-    // GPU utilities
-    shader_manager: ShaderManager,
-    common_layouts: CommonBindGroupLayouts,
-    
+
     lut_buffer: wgpu::Buffer,
     background_color_buffer: wgpu::Buffer,
     render_infinite_pipeline: wgpu::RenderPipeline,
@@ -156,7 +152,10 @@ impl Renderer {
         // Create infinite render pipeline using GPU utilities
         let render_infinite_pipeline = RenderPipelineBuilder::new(device.clone())
             .with_shader(shader_infinite)
-            .with_bind_group_layouts(vec![bind_group_layout.clone(), camera_bind_group_layout.clone()])
+            .with_bind_group_layouts(vec![
+                bind_group_layout.clone(),
+                camera_bind_group_layout.clone(),
+            ])
             .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
                 format: surface_config.format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -177,7 +176,10 @@ impl Renderer {
         // Create background render pipeline using GPU utilities
         let background_render_pipeline = RenderPipelineBuilder::new(device.clone())
             .with_shader(background_shader)
-            .with_bind_group_layouts(vec![background_bind_group_layout.clone(), camera_bind_group_layout.clone()])
+            .with_bind_group_layouts(vec![
+                background_bind_group_layout.clone(),
+                camera_bind_group_layout.clone(),
+            ])
             .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
                 format: surface_config.format,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -202,8 +204,6 @@ impl Renderer {
             width,
             height,
             settings,
-            shader_manager,
-            common_layouts,
             lut_buffer,
             background_color_buffer,
             render_infinite_pipeline,

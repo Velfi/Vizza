@@ -20,8 +20,8 @@
 
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::{
-    BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, RenderPipelineBuilder, ShaderManager,
-    AverageColorResources, LutManager, camera::Camera,
+    AverageColorResources, BindGroupBuilder, ComputePipelineBuilder, LutManager,
+    RenderPipelineBuilder, camera::Camera,
 };
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
@@ -130,10 +130,6 @@ pub struct GridCell {
 // GPU-based physics implementation - no Rapier needed
 
 pub struct PelletsModel {
-    // GPU utilities
-    shader_manager: ShaderManager,
-    common_layouts: CommonBindGroupLayouts,
-    
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub physics_params_buffer: wgpu::Buffer,
@@ -224,10 +220,6 @@ impl PelletsModel {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize particles
         let particles = Self::initialize_particles(settings.particle_count, &settings);
-
-        // Initialize GPU utilities
-        let mut shader_manager = ShaderManager::new();
-        let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create buffers
         let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -372,11 +364,10 @@ impl PelletsModel {
         });
 
         // Create render shaders using GPU utilities
-        let render_shader = shader_manager.load_shader(
-            device,
-            "pellets_render",
-            super::shaders::PARTICLE_RENDER_SHADER,
-        );
+        let render_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pellets_render"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_RENDER_SHADER.into()),
+        }));
 
         let render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -436,17 +427,15 @@ impl PelletsModel {
             .build();
 
         // Create compute shaders using GPU utilities
-        let physics_shader = shader_manager.load_shader(
-            device,
-            "pellets_physics_compute",
-            super::shaders::PHYSICS_COMPUTE_SHADER,
-        );
+        let physics_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pellets_physics_compute"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::PHYSICS_COMPUTE_SHADER.into()),
+        }));
 
-        let density_shader = shader_manager.load_shader(
-            device,
-            "pellets_density_compute",
-            super::shaders::DENSITY_COMPUTE_SHADER,
-        );
+        let density_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pellets_density_compute"),
+            source: wgpu::ShaderSource::Wgsl(super::shaders::DENSITY_COMPUTE_SHADER.into()),
+        }));
 
         // Create compute bind group layouts
         let physics_bind_group_layout =
@@ -1355,8 +1344,6 @@ impl PelletsModel {
             AverageColorResources::new(device, &post_effect_texture, &post_effect_view, "Pellets");
 
         Ok(PelletsModel {
-            shader_manager,
-            common_layouts,
             particle_buffer,
             physics_params_buffer,
             density_params_buffer,

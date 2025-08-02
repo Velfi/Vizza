@@ -1,6 +1,6 @@
 use crate::error::SimulationResult;
 use crate::simulations::shared::{
-    BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager, LutManager,
+    BindGroupBuilder, CommonBindGroupLayouts, LutManager, RenderPipelineBuilder,
 };
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
@@ -11,10 +11,6 @@ use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguratio
 
 #[derive(Debug)]
 pub struct MainMenuModel {
-    // GPU utilities
-    shader_manager: ShaderManager,
-    common_layouts: CommonBindGroupLayouts,
-    
     render_pipeline: RenderPipeline,
     time_buffer: Buffer,
     time_bind_group: BindGroup,
@@ -29,8 +25,7 @@ impl MainMenuModel {
         surface_config: &SurfaceConfiguration,
         lut_manager: &LutManager,
     ) -> SimulationResult<Self> {
-        // Initialize GPU utilities
-        let mut shader_manager = ShaderManager::new();
+        // Create common layouts
         let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create the time uniform buffer and bind group
@@ -65,16 +60,20 @@ impl MainMenuModel {
             .build();
 
         // Create shaders using GPU utilities
-        let combined_shader = shader_manager.load_shader(
-            device,
-            "main_menu_combined",
-            crate::simulations::main_menu::shaders::COMBINED_SHADER,
-        );
+        let combined_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("main_menu_combined"),
+            source: wgpu::ShaderSource::Wgsl(
+                crate::simulations::main_menu::shaders::COMBINED_SHADER.into(),
+            ),
+        }));
 
         // Create render pipeline using GPU utilities
         let render_pipeline = RenderPipelineBuilder::new(device.clone())
             .with_shader(combined_shader)
-            .with_bind_group_layouts(vec![time_bind_group_layout.clone(), lut_bind_group_layout.clone()])
+            .with_bind_group_layouts(vec![
+                time_bind_group_layout.clone(),
+                lut_bind_group_layout.clone(),
+            ])
             .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
                 format: surface_config.format,
                 blend: Some(wgpu::BlendState::REPLACE),
@@ -95,8 +94,6 @@ impl MainMenuModel {
         let start_time = Instant::now();
 
         Ok(Self {
-            shader_manager,
-            common_layouts,
             render_pipeline,
             time_buffer,
             time_bind_group,

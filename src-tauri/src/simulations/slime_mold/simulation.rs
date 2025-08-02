@@ -131,6 +131,7 @@ pub struct SlimeMoldModel {
     pub lut_reversed: bool,
     pub current_lut_name: String,
     pub position_generator: crate::simulations::shared::SlimeMoldPositionGenerator,
+    pub trail_map_filtering: super::settings::TrailMapFiltering,
 
     // Buffer size tracking for pool management
     pub current_trail_map_size: u64,
@@ -316,14 +317,8 @@ impl SlimeMoldModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match settings.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            min_filter: match settings.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
+            mag_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
+            min_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -500,6 +495,7 @@ impl SlimeMoldModel {
             cursor_size: 300.0,   // Default cursor size
             cursor_strength: 5.0, // Default cursor strength
             position_generator: crate::simulations::shared::SlimeMoldPositionGenerator::Random,
+            trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
             background_params_buffer,
             background_bind_group,
             background_color_buffer,
@@ -1238,7 +1234,7 @@ impl SlimeMoldModel {
             }
             "trailMapFiltering" => {
                 if let Some(filtering_str) = value.as_str() {
-                    self.settings.trail_map_filtering = match filtering_str {
+                    self.trail_map_filtering = match filtering_str {
                         "Nearest" => super::settings::TrailMapFiltering::Nearest,
                         "Linear" => super::settings::TrailMapFiltering::Linear,
                         _ => super::settings::TrailMapFiltering::Nearest,
@@ -1571,6 +1567,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
             "position_generator": self.position_generator,
+            "trail_map_filtering": self.trail_map_filtering,
             "camera": {
                 "position": self.camera.position,
                 "zoom": self.camera.zoom
@@ -2060,11 +2057,11 @@ impl SlimeMoldModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match self.settings.trail_map_filtering {
+            mag_filter: match self.trail_map_filtering {
                 super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
                 super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
             },
-            min_filter: match self.settings.trail_map_filtering {
+            min_filter: match self.trail_map_filtering {
                 super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
                 super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
             },

@@ -140,6 +140,7 @@ pub struct FlowModel {
     pub lut_reversed: bool,
     pub show_particles: bool,
     pub display_mode: DisplayMode,
+    pub trail_map_filtering: super::settings::TrailMapFiltering,
 
     // Mouse interaction state
     pub cursor_active_mode: u32, // 0 = inactive, 1 = attract, 2 = repel
@@ -523,14 +524,8 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match settings.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            min_filter: match settings.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
+            mag_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
+            min_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -540,11 +535,8 @@ impl FlowModel {
         let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create particle update pipeline using GPU utilities
-        let particle_update_shader = shader_manager.load_shader(
-            device,
-            "flow_particle_update",
-            PARTICLE_UPDATE_SHADER,
-        );
+        let particle_update_shader =
+            shader_manager.load_shader(device, "flow_particle_update", PARTICLE_UPDATE_SHADER);
 
         let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1329,7 +1321,6 @@ impl FlowModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&display_sampler),
                 },
-
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: average_color_uniform_buffer.as_entire_binding(),
@@ -1432,6 +1423,7 @@ impl FlowModel {
             lut_reversed: false,
             show_particles: true,
             display_mode: DisplayMode::Age,
+            trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
             trail_render_pipeline,
             trail_display_render_pipeline,
             trail_render_bind_group,
@@ -1541,7 +1533,12 @@ impl FlowModel {
         );
     }
 
-    fn clear_trail_texture(&self, device: &Arc<Device>, queue: &Arc<Queue>, background_color: [f32; 4]) {
+    fn clear_trail_texture(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        background_color: [f32; 4],
+    ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Clear Trail Texture Encoder"),
         });
@@ -1587,8 +1584,6 @@ impl FlowModel {
         // Unmap the staging buffer after reading
         self.average_color_resources.unmap_staging_buffer();
     }
-
-
 
     fn apply_post_processing(
         &self,
@@ -2568,61 +2563,62 @@ impl Simulation for FlowModel {
                     );
 
                     // Create the compute bind group layout for particle update
-                    let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                        label: Some("Compute Bind Group Layout"),
-                        entries: &[
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 0,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                    let compute_bind_group_layout =
+                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                            label: Some("Compute Bind Group Layout"),
+                            entries: &[
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 0,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 1,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 1,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 2,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Uniform,
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 2,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Uniform,
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 3,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::StorageTexture {
-                                    access: wgpu::StorageTextureAccess::ReadWrite,
-                                    format: wgpu::TextureFormat::Rgba8Unorm,
-                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 3,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::StorageTexture {
+                                        access: wgpu::StorageTextureAccess::ReadWrite,
+                                        format: wgpu::TextureFormat::Rgba8Unorm,
+                                        view_dimension: wgpu::TextureViewDimension::D2,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 4,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 4,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                        ],
-                    });
+                            ],
+                        });
 
                     self.particle_update_pipeline = ComputePipelineBuilder::new(device.clone())
                         .with_shader(particle_update_shader)
@@ -2670,61 +2666,62 @@ impl Simulation for FlowModel {
                     );
 
                     // Create the compute bind group layout for particle update
-                    let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                        label: Some("Compute Bind Group Layout"),
-                        entries: &[
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 0,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                    let compute_bind_group_layout =
+                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                            label: Some("Compute Bind Group Layout"),
+                            entries: &[
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 0,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 1,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 1,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 2,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Uniform,
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 2,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Uniform,
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 3,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::StorageTexture {
-                                    access: wgpu::StorageTextureAccess::ReadWrite,
-                                    format: wgpu::TextureFormat::Rgba8Unorm,
-                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 3,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::StorageTexture {
+                                        access: wgpu::StorageTextureAccess::ReadWrite,
+                                        format: wgpu::TextureFormat::Rgba8Unorm,
+                                        view_dimension: wgpu::TextureViewDimension::D2,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 4,
-                                visibility: wgpu::ShaderStages::COMPUTE,
-                                ty: wgpu::BindingType::Buffer {
-                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                    has_dynamic_offset: false,
-                                    min_binding_size: None,
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 4,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
                                 },
-                                count: None,
-                            },
-                        ],
-                    });
+                            ],
+                        });
 
                     self.particle_update_pipeline = ComputePipelineBuilder::new(device.clone())
                         .with_shader(particle_update_shader)
@@ -2803,7 +2800,7 @@ impl Simulation for FlowModel {
             }
             "trailMapFiltering" => {
                 if let Some(filtering_str) = value.as_str() {
-                    self.settings.trail_map_filtering = match filtering_str {
+                    self.trail_map_filtering = match filtering_str {
                         "Nearest" => super::settings::TrailMapFiltering::Nearest,
                         "Linear" => super::settings::TrailMapFiltering::Linear,
                         _ => super::settings::TrailMapFiltering::Nearest,
@@ -2836,6 +2833,7 @@ impl Simulation for FlowModel {
             "lutReversed": self.lut_reversed,
             "showParticles": self.show_particles,
             "displayMode": self.display_mode,
+            "trailMapFiltering": self.trail_map_filtering,
         })
     }
 
@@ -2939,7 +2937,6 @@ impl Simulation for FlowModel {
                 0,
                 bytemuck::cast_slice(&[sim_params]),
             );
-
         }
 
         // Store cursor values in the model
@@ -3008,7 +3005,7 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
-            
+
             // Update GPU buffers after applying new settings
             self.update_background_color(queue);
             self.write_sim_params(queue);
@@ -3033,7 +3030,7 @@ impl Simulation for FlowModel {
                 let particle = Particle {
                     position: [x, y],
                     age: rng.random_range(0.0..self.settings.particle_lifetime),
-                    color:  [0.0, 0.0, 0.0, 1.0],
+                    color: [0.0, 0.0, 0.0, 1.0],
                     my_parent_was: 0, // Autospawned
                 };
                 particles.push(particle);
@@ -3382,11 +3379,11 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match self.settings.trail_map_filtering {
+            mag_filter: match self.trail_map_filtering {
                 super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
                 super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
             },
-            min_filter: match self.settings.trail_map_filtering {
+            min_filter: match self.trail_map_filtering {
                 super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
                 super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
             },

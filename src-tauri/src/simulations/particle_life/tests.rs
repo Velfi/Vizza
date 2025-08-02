@@ -734,12 +734,10 @@ fn test_struct_layout_consistency() {
         };
 
         let dummy_fade_uniforms = FadeUniforms {
-            background_color: [0.0, 0.0, 0.0],
-            fade_alpha: 0.1,
-            _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
-            _pad4: 0,
+            fade_amount: 0.01,
+            _pad1: 0.0,
+            _pad2: 0.0,
+            _pad3: 0.0,
         };
 
         let dummy_init_params = InitParams {
