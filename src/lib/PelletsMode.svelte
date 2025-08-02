@@ -59,8 +59,8 @@
           <label for="backgroundType">Background</label>
           <Selector
             id="backgroundType"
-            options={['black', 'white']}
-            value={settings?.background_type || 'black'}
+            options={['Black', 'White']}
+            value={settings?.background_type || 'Black'}
             on:change={({ detail }) => updateSetting('background_type', detail.value)}
           />
         </div>
@@ -68,8 +68,8 @@
           <label for="coloringMode">Particle Coloring Mode</label>
           <Selector
             id="coloringMode"
-            options={['density', 'velocity', 'random']}
-            value={settings?.coloring_mode || 'density'}
+            options={['Density', 'Velocity', 'Random']}
+            value={settings?.coloring_mode || 'Density'}
             on:change={({ detail }) => updateSetting('coloring_mode', detail.value)}
           />
           <div class="setting-description">

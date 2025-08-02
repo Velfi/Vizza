@@ -283,7 +283,7 @@ impl PelletsModel {
         });
 
         let background_params = BackgroundParams {
-            background_type: if settings.background_type == "white" {
+            background_type: if settings.background_type == "White" {
                 1
             } else {
                 0
@@ -2077,7 +2077,7 @@ impl PelletsModel {
 
     fn update_background_params(&self, queue: &Arc<Queue>) {
         let background_params = BackgroundParams {
-            background_type: if self.settings.background_type == "white" {
+            background_type: if self.settings.background_type == "White" {
                 1
             } else {
                 0

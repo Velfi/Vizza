@@ -40,7 +40,7 @@ pub struct Settings {
     /// Random seed for reproducible simulations
     pub random_seed: u32,
 
-    /// Background type: "black" or "white"
+    /// Background type: "Black" or "White"
     pub background_type: String,
 
     // Physics parameters
@@ -56,7 +56,7 @@ pub struct Settings {
     /// Density visualization radius
     pub density_radius: f32,
 
-    /// Coloring mode: "density" or "velocity"
+    /// Coloring mode: "Density" or "Velocity"
     pub coloring_mode: String,
 
     /// Long-range gravity strength for orbital motion (0.0 = no orbital motion, 1.0 = strong orbital motion)
@@ -79,12 +79,12 @@ impl Default for Settings {
             initial_velocity_max: 0.15,
             initial_velocity_min: 0.05,
             random_seed: 0,
-            background_type: "white".to_string(),
+            background_type: "White".to_string(),
             gravitational_constant: 17e-6,
             energy_damping: 1.0,
             gravity_softening: 0.003,
             density_radius: 0.045,
-            coloring_mode: "density".to_string(),
+            coloring_mode: "Density".to_string(),
             long_range_gravity_strength: 0.0,
             density_damping_enabled: true,
             overlap_resolution_strength: 0.02,
