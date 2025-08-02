@@ -1,4 +1,4 @@
-use super::settings::{NoiseType, Settings};
+use super::settings::{Background, DisplayMode, NoiseType, Settings};
 use super::shaders::{
     BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
     RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
@@ -47,8 +47,7 @@ pub struct FlowVector {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct SimParams {
-    pub particle_limit: u32, // Kept for backward compatibility, no longer used for limiting
-    pub autospawn_limit: u32, // New setting for limiting autospawned particles
+    pub autospawn_limit: u32, // Setting for limiting autospawned particles
     pub vector_count: u32,
     pub particle_lifetime: f32,
     pub particle_speed: f32,
@@ -68,7 +67,6 @@ pub struct SimParams {
     pub trail_map_height: u32,
     pub particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     pub particle_size: u32,  // Particle size in pixels
-    pub background_type: u32, // 0=Black, 1=White, 2=Vector Field
     pub screen_width: u32,   // Screen width in pixels
     pub screen_height: u32,  // Screen height in pixels
     pub cursor_x: f32,
@@ -133,6 +131,11 @@ pub struct FlowModel {
     pub gui_visible: bool,
     pub trail_map_width: u32,
     pub trail_map_height: u32,
+    pub background: Background,
+    pub current_lut: String,
+    pub lut_reversed: bool,
+    pub show_particles: bool,
+    pub display_mode: DisplayMode,
 
     // Mouse interaction state
     pub cursor_active_mode: u32, // 0 = inactive, 1 = attract, 2 = repel
@@ -152,6 +155,7 @@ pub struct FlowModel {
 
     // Average color calculation for infinite rendering
     pub average_color_resources: AverageColorResources,
+    pub average_color_uniform_buffer: wgpu::Buffer,
 
     // Post-processing state and resources
     pub post_processing_state: PostProcessingState,
@@ -303,7 +307,6 @@ impl FlowModel {
 
         // Update sim params with new vector count
         let sim_params = SimParams {
-            particle_limit: self.settings.particle_limit,
             autospawn_limit: self.settings.autospawn_limit,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
@@ -324,7 +327,6 @@ impl FlowModel {
             trail_map_height: self.trail_map_height,
             particle_shape: self.settings.particle_shape as u32,
             particle_size: self.settings.particle_size,
-            background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
@@ -334,7 +336,7 @@ impl FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
-            display_mode: self.settings.display_mode as u32,
+            display_mode: self.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -348,7 +350,7 @@ impl FlowModel {
 
     pub fn new(
         device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         settings: Settings,
         lut_manager: &LutManager,
@@ -431,7 +433,6 @@ impl FlowModel {
         });
 
         let sim_params = SimParams {
-            particle_limit: settings.particle_limit,
             autospawn_limit: settings.autospawn_limit,
             vector_count: flow_vectors.len() as u32,
             particle_lifetime: settings.particle_lifetime,
@@ -452,7 +453,6 @@ impl FlowModel {
             trail_map_height: surface_config.height,
             particle_shape: settings.particle_shape as u32,
             particle_size: settings.particle_size,
-            background_type: settings.background as u32,
             screen_width: surface_config.width,
             screen_height: surface_config.height,
             cursor_x: 0.0,
@@ -462,7 +462,7 @@ impl FlowModel {
             cursor_strength: 0.4,
             particle_autospawn: settings.particle_autospawn as u32,
             particle_spawn_rate: settings.particle_spawn_rate,
-            display_mode: settings.display_mode as u32,
+            display_mode: DisplayMode::Age as u32,
         };
 
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -472,19 +472,19 @@ impl FlowModel {
         });
 
         let lut_data = lut_manager
-            .get(&settings.current_lut)
-            .unwrap_or_else(|_| lut_manager.get_default());
+            .get("MATPLOTLIB_terrain")
+            .expect("MATPLOTLIB_terrain LUT should exist");
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
             contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Create background color buffer (black by default)
+        // Create background color buffer (will be updated based on background setting)
         let background_color_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Background Color Buffer"),
-                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Temporary black, will be updated
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -502,7 +502,8 @@ impl FlowModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -990,6 +991,16 @@ impl FlowModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -1056,6 +1067,10 @@ impl FlowModel {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: sim_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: background_color_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1285,6 +1300,16 @@ impl FlowModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -1296,6 +1321,14 @@ impl FlowModel {
                     &camera_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
+            });
+
+        // Create average color uniform buffer for infinite render shader
+        let average_color_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Flow Average Color Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Initialize with black
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
         let render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1312,6 +1345,10 @@ impl FlowModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: average_color_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
                     resource: background_color_buffer.as_entire_binding(),
                 },
             ],
@@ -1373,13 +1410,15 @@ impl FlowModel {
 
         // Use the same camera for both offscreen and infinite rendering
 
-        Ok(Self {
+        // Create the FlowModel instance
+        let flow_model = Self {
             settings,
             particle_buffer,
             flow_vector_buffer,
             sim_params_buffer,
             lut_buffer,
             background_color_buffer,
+
             trail_texture,
             trail_texture_view,
             trail_sampler,
@@ -1400,6 +1439,11 @@ impl FlowModel {
             gui_visible: true,
             trail_map_width: surface_config.width,
             trail_map_height: surface_config.height,
+            background: Background::Lut,
+            current_lut: "MATPLOTLIB_terrain".to_string(),
+            lut_reversed: false,
+            show_particles: true,
+            display_mode: DisplayMode::Age,
             trail_render_pipeline,
             trail_display_render_pipeline,
             trail_render_bind_group,
@@ -1423,14 +1467,19 @@ impl FlowModel {
             render_infinite_bind_group,
             render_infinite_pipeline,
             average_color_resources,
+            average_color_uniform_buffer,
             post_processing_state: PostProcessingState::default(),
             post_processing_resources: PostProcessingResources::new(device, surface_config)?,
-        })
+        };
+
+        // Update background color buffer to reflect the default white background
+        flow_model.update_background_color(queue);
+
+        Ok(flow_model)
     }
 
     fn write_sim_params(&self, queue: &Arc<wgpu::Queue>) {
         let sim_params = SimParams {
-            particle_limit: self.settings.particle_limit,
             autospawn_limit: self.settings.autospawn_limit,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
@@ -1451,7 +1500,6 @@ impl FlowModel {
             trail_map_height: self.trail_map_height,
             particle_shape: self.settings.particle_shape as u32,
             particle_size: self.settings.particle_size,
-            background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
@@ -1461,7 +1509,7 @@ impl FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
-            display_mode: self.settings.display_mode as u32,
+            display_mode: self.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -1471,6 +1519,73 @@ impl FlowModel {
         );
     }
 
+    fn calculate_background_color(&self) -> [f32; 4] {
+        match self.background {
+            super::settings::Background::Black => [0.0f32, 0.0f32, 0.0f32, 1.0f32],
+            super::settings::Background::White => [1.0f32, 1.0f32, 1.0f32, 1.0f32],
+            super::settings::Background::Lut => {
+                let mut lut = self
+                    .lut_manager
+                    .get(&self.current_lut)
+                    .unwrap_or_else(|_| self.lut_manager.get_default());
+
+                // Apply reversal if needed
+                if self.lut_reversed {
+                    lut = lut.reversed();
+                }
+
+                // Use the last color from the LUT for background
+                if let Some(color) = lut.get_last_color() {
+                    [color[0], color[1], color[2], color[3]]
+                } else {
+                    [0.0f32, 0.0f32, 0.0f32, 1.0f32] // Fallback to black
+                }
+            }
+        }
+    }
+
+    fn update_background_color(&self, queue: &Arc<wgpu::Queue>) {
+        let background_color = self.calculate_background_color();
+        queue.write_buffer(
+            &self.background_color_buffer,
+            0,
+            bytemuck::cast_slice(&background_color),
+        );
+    }
+
+    fn clear_trail_texture(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        background_color: [f32; 4],
+    ) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Clear Trail Texture Encoder"),
+        });
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Trail Texture Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.trail_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: background_color[0] as f64,
+                            g: background_color[1] as f64,
+                            b: background_color[2] as f64,
+                            a: background_color[3] as f64,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        queue.submit(std::iter::once(encoder.finish()));
+    }
+
     fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
         self.average_color_resources
             .calculate_average_color(device, queue, &self.display_texture);
@@ -1478,35 +1593,16 @@ impl FlowModel {
         // Wait for the GPU work to complete
         device.poll(wgpu::Maintain::Wait);
 
-        // Read the result and update the background color buffer
+        // Read the result and update the average color uniform buffer for the infinite render shader
         if let Some(average_color) = self.average_color_resources.get_average_color() {
             queue.write_buffer(
-                &self.background_color_buffer,
+                &self.average_color_uniform_buffer,
                 0,
                 bytemuck::cast_slice(&[average_color]),
             );
         }
         // Unmap the staging buffer after reading
         self.average_color_resources.unmap_staging_buffer();
-    }
-
-    fn update_background_color(&self, queue: &Arc<wgpu::Queue>) {
-        // This method is now only used for initial setup
-        // The actual average color is calculated in calculate_average_color
-        let lut = self
-            .lut_manager
-            .get(&self.settings.current_lut)
-            .unwrap_or_else(|_| self.lut_manager.get_default());
-
-        let colors = lut.get_colors(1); // Get just the first color
-        if let Some(color) = colors.first() {
-            let background_color = [color[0], color[1], color[2], color[3]];
-            queue.write_buffer(
-                &self.background_color_buffer,
-                0,
-                bytemuck::cast_slice(&background_color),
-            );
-        }
     }
 
     fn apply_post_processing(
@@ -1601,9 +1697,6 @@ impl Simulation for FlowModel {
         // Update simulation parameters using the centralized method
         self.write_sim_params(queue);
 
-        // Update background color from LUT
-        self.update_background_color(queue);
-
         // Update camera and upload to GPU
         self.camera.update(0.016);
         self.camera.upload_to_gpu(queue);
@@ -1681,7 +1774,7 @@ impl Simulation for FlowModel {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..1); // Single instance
             // Render particles (if enabled)
-            if self.settings.show_particles {
+            if self.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -1775,9 +1868,6 @@ impl Simulation for FlowModel {
         self.camera.update(0.016);
         self.camera.upload_to_gpu(queue);
 
-        // Update background color from LUT
-        self.update_background_color(queue);
-
         // 1. Render background, trails, and particles to display texture (offscreen) without updating simulation state
         let mut offscreen_encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1810,7 +1900,7 @@ impl Simulation for FlowModel {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..1); // Single instance
             // Render particles (if enabled)
-            if self.settings.show_particles {
+            if self.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -1881,7 +1971,8 @@ impl Simulation for FlowModel {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::STORAGE_BINDING
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                | wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -2071,7 +2162,6 @@ impl Simulation for FlowModel {
 
         // Update sim params with new dimensions
         let sim_params = SimParams {
-            particle_limit: self.settings.particle_limit,
             autospawn_limit: self.settings.autospawn_limit,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
@@ -2092,7 +2182,6 @@ impl Simulation for FlowModel {
             trail_map_height: self.trail_map_height,
             particle_shape: self.settings.particle_shape as u32,
             particle_size: self.settings.particle_size,
-            background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
@@ -2102,7 +2191,7 @@ impl Simulation for FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
-            display_mode: self.settings.display_mode as u32,
+            display_mode: self.display_mode as u32,
         };
 
         queue.write_buffer(
@@ -2202,6 +2291,16 @@ impl Simulation for FlowModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -2285,6 +2384,10 @@ impl Simulation for FlowModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: self.average_color_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
                     resource: self.background_color_buffer.as_entire_binding(),
                 },
             ],
@@ -2354,11 +2457,7 @@ impl Simulation for FlowModel {
                     self.regenerate_flow_vectors(queue)?;
                 }
             }
-            "vectorSpacing" => {
-                if let Some(spacing) = value.as_f64() {
-                    self.settings.vector_spacing = spacing as f32;
-                }
-            }
+
             "vectorMagnitude" => {
                 if let Some(magnitude) = value.as_f64() {
                     self.settings.vector_magnitude = magnitude as f32;
@@ -2366,12 +2465,7 @@ impl Simulation for FlowModel {
                     self.regenerate_flow_vectors(queue)?;
                 }
             }
-            "particleLimit" | "particleCount" => {
-                // particle_limit is kept for backward compatibility but no longer used for limiting
-                if let Some(count) = value.as_u64() {
-                    self.settings.particle_limit = count as u32;
-                }
-            }
+
             "autospawnLimit" => {
                 if let Some(count) = value.as_u64() {
                     let new_count = count as u32;
@@ -2380,7 +2474,6 @@ impl Simulation for FlowModel {
 
                         // Update sim params with new autospawn limit
                         let sim_params = SimParams {
-                            particle_limit: self.settings.particle_limit,
                             autospawn_limit: self.settings.autospawn_limit,
                             vector_count: self.flow_vectors.len() as u32,
                             particle_lifetime: self.settings.particle_lifetime,
@@ -2401,7 +2494,6 @@ impl Simulation for FlowModel {
                             trail_map_height: self.trail_map_height,
                             particle_shape: self.settings.particle_shape as u32,
                             particle_size: self.settings.particle_size,
-                            background_type: self.settings.background as u32,
                             screen_width: self.trail_map_width,
                             screen_height: self.trail_map_height,
                             cursor_x: self.cursor_world_x,
@@ -2411,7 +2503,7 @@ impl Simulation for FlowModel {
                             cursor_strength: self.cursor_strength,
                             particle_autospawn: self.settings.particle_autospawn as u32,
                             particle_spawn_rate: self.settings.particle_spawn_rate,
-                            display_mode: self.settings.display_mode as u32,
+                            display_mode: self.display_mode as u32,
                         };
 
                         queue.write_buffer(
@@ -2439,24 +2531,31 @@ impl Simulation for FlowModel {
             }
             "background" => {
                 if let Some(background_str) = value.as_str() {
-                    self.settings.background = match background_str {
+                    self.background = match background_str {
                         "Black" => super::settings::Background::Black,
                         "White" => super::settings::Background::White,
-                        "Vector Field" => super::settings::Background::Vectors,
-                        _ => super::settings::Background::Vectors,
+                        "LUT" => super::settings::Background::Lut,
+                        _ => super::settings::Background::Black,
                     };
+
+                    // Update background color first
+                    self.update_background_color(queue);
+
+                    // Clear trail texture with the new background color to avoid artifacts
+                    let background_color = self.calculate_background_color();
+                    self.clear_trail_texture(device, queue, background_color);
                 }
             }
             "currentLut" => {
                 if let Some(lut_name) = value.as_str() {
-                    self.settings.current_lut = lut_name.to_string();
+                    self.current_lut = lut_name.to_string();
                     let mut lut_data = self
                         .lut_manager
-                        .get(&self.settings.current_lut)
+                        .get(&self.current_lut)
                         .unwrap_or_else(|_| self.lut_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.settings.lut_reversed {
+                    if self.lut_reversed {
                         lut_data = lut_data.reversed();
                     }
 
@@ -2465,6 +2564,16 @@ impl Simulation for FlowModel {
                         0,
                         bytemuck::cast_slice(&lut_data.to_u32_buffer()),
                     );
+
+                    // Update LUT background color if LUT background is selected
+                    if self.background == super::settings::Background::Lut {
+                        // Update background color first
+                        self.update_background_color(queue);
+
+                        // Clear trail texture with the new background color to avoid artifacts
+                        let background_color = self.calculate_background_color();
+                        self.clear_trail_texture(device, queue, background_color);
+                    }
 
                     // Recreate the compute pipeline to ensure compatibility with the bind group layout
                     let particle_update_shader =
@@ -2486,16 +2595,16 @@ impl Simulation for FlowModel {
             }
             "lutReversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    self.settings.lut_reversed = reversed;
+                    self.lut_reversed = reversed;
 
                     // Reload the current LUT with new reversal state
                     let mut lut_data = self
                         .lut_manager
-                        .get(&self.settings.current_lut)
+                        .get(&self.current_lut)
                         .unwrap_or_else(|_| self.lut_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.settings.lut_reversed {
+                    if self.lut_reversed {
                         lut_data = lut_data.reversed();
                     }
 
@@ -2504,6 +2613,16 @@ impl Simulation for FlowModel {
                         0,
                         bytemuck::cast_slice(&lut_data.to_u32_buffer()),
                     );
+
+                    // Update LUT background color if LUT background is selected
+                    if self.background == super::settings::Background::Lut {
+                        // Update background color first
+                        self.update_background_color(queue);
+
+                        // Clear trail texture with the new background color to avoid artifacts
+                        let background_color = self.calculate_background_color();
+                        self.clear_trail_texture(device, queue, background_color);
+                    }
 
                     // Recreate the compute pipeline to ensure compatibility with the bind group layout
                     let particle_update_shader =
@@ -2578,12 +2697,12 @@ impl Simulation for FlowModel {
             }
             "showParticles" => {
                 if let Some(show) = value.as_bool() {
-                    self.settings.show_particles = show;
+                    self.show_particles = show;
                 }
             }
             "displayMode" => {
                 if let Some(mode_str) = value.as_str() {
-                    self.settings.display_mode = match mode_str {
+                    self.display_mode = match mode_str {
                         "Age" => super::settings::DisplayMode::Age,
                         "Random" => super::settings::DisplayMode::Random,
                         "Direction" => super::settings::DisplayMode::Direction,
@@ -2610,6 +2729,11 @@ impl Simulation for FlowModel {
             "guiVisible": self.gui_visible,
             "cursorSize": self.cursor_size,
             "cursorStrength": self.cursor_strength,
+            "background": self.background.to_string(),
+            "currentLut": self.current_lut,
+            "lutReversed": self.lut_reversed,
+            "showParticles": self.show_particles,
+            "displayMode": self.display_mode.to_string(),
         })
     }
 
@@ -2631,18 +2755,17 @@ impl Simulation for FlowModel {
         };
 
         // If we're trying to spawn particles but have none, create a small batch
-        if cursor_mode == 1 && self.settings.particle_limit == 0 {
+        if cursor_mode == 1 && self.particles.is_empty() {
             // Create a small initial batch of particles for painting
-            let initial_particle_limit = 100;
-            self.settings.particle_limit = initial_particle_limit;
+            let initial_particle_count = 100;
 
             // Create initial particles for painting
-            let mut particles = Vec::with_capacity(initial_particle_limit as usize);
+            let mut particles = Vec::with_capacity(initial_particle_count as usize);
 
             // No longer need LUT data since we use LUT in shader
             RNG.with(|rng| {
                 let mut rng = rng.borrow_mut();
-                for _ in 0..initial_particle_limit {
+                for _ in 0..initial_particle_count {
                     // Create particles in a small area around the cursor
                     let radius = 0.05; // Small radius around cursor
                     let angle = rng.random_range(0.0..std::f32::consts::TAU);
@@ -2677,7 +2800,6 @@ impl Simulation for FlowModel {
 
             // Update sim params with new particle count
             let sim_params = SimParams {
-                particle_limit: self.settings.particle_limit,
                 autospawn_limit: self.settings.autospawn_limit,
                 vector_count: self.flow_vectors.len() as u32,
                 particle_lifetime: self.settings.particle_lifetime,
@@ -2698,7 +2820,6 @@ impl Simulation for FlowModel {
                 trail_map_height: self.trail_map_height,
                 particle_shape: self.settings.particle_shape as u32,
                 particle_size: self.settings.particle_size,
-                background_type: self.settings.background as u32,
                 screen_width: self.trail_map_width,
                 screen_height: self.trail_map_height,
                 cursor_x: world_x,
@@ -2708,7 +2829,7 @@ impl Simulation for FlowModel {
                 cursor_strength: self.cursor_strength,
                 particle_autospawn: self.settings.particle_autospawn as u32,
                 particle_spawn_rate: self.settings.particle_spawn_rate,
-                display_mode: self.settings.display_mode as u32,
+                display_mode: self.display_mode as u32,
             };
 
             queue.write_buffer(
@@ -2716,34 +2837,12 @@ impl Simulation for FlowModel {
                 0,
                 bytemuck::cast_slice(&[sim_params]),
             );
-
-            tracing::debug!(
-                initial_particle_limit = initial_particle_limit,
-                world_x = world_x,
-                world_y = world_y,
-                "Created initial particles for painting after kill all"
-            );
         }
 
         // Store cursor values in the model
         self.cursor_active_mode = cursor_mode;
         self.cursor_world_x = world_x;
         self.cursor_world_y = world_y;
-        // Don't override cursor_size and cursor_strength - let them be controlled by frontend
-
-        tracing::debug!(
-            world_x = world_x,
-            world_y = world_y,
-            cursor_mode = cursor_mode,
-            cursor_mode_name = match cursor_mode {
-                0 => "inactive",
-                1 => "spawn",
-                2 => "destroy",
-                _ => "unknown",
-            },
-            cursor_size = self.cursor_size,
-            "Flow mouse interaction updated"
-        );
 
         Ok(())
     }
@@ -2802,10 +2901,14 @@ impl Simulation for FlowModel {
         &mut self,
         settings: serde_json::Value,
         _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
+
+            // Update GPU buffers after applying new settings
+            self.update_background_color(queue);
+            self.write_sim_params(queue);
         }
         Ok(())
     }
@@ -2816,25 +2919,18 @@ impl Simulation for FlowModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         self.time = 0.0;
-
         // Reset particles
-        let mut particles = Vec::with_capacity(self.settings.particle_limit as usize);
+        let mut particles = Vec::with_capacity(self.settings.autospawn_limit as usize);
 
-        // No longer need LUT data since we use LUT in shader
         RNG.with(|rng| {
             let mut rng = rng.borrow_mut();
-            for _ in 0..self.settings.particle_limit {
+            for _ in 0..self.settings.autospawn_limit {
                 let x = rng.random_range(-1.0..1.0);
                 let y = rng.random_range(-1.0..1.0);
-                let age = rng.random_range(0.0..self.settings.particle_lifetime);
-
-                // No longer need to generate colors here since we use LUT in shader
-                let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
-
                 let particle = Particle {
                     position: [x, y],
-                    age,
-                    color,
+                    age: rng.random_range(0.0..self.settings.particle_lifetime),
+                    color: [0.0, 0.0, 0.0, 1.0],
                     my_parent_was: 0, // Autospawned
                 };
                 particles.push(particle);
@@ -2888,6 +2984,12 @@ impl Simulation for FlowModel {
         }
         queue.submit(std::iter::once(encoder.finish()));
 
+        // Update background color after reset
+        self.update_background_color(queue);
+
+        // Update simulation parameters after reset
+        self.write_sim_params(queue);
+
         Ok(())
     }
 
@@ -2907,10 +3009,27 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         let mut rng = rand::rng();
 
+        // Randomize noise type
+        let noise_types = [
+            crate::simulations::flow::settings::NoiseType::OpenSimplex,
+            crate::simulations::flow::settings::NoiseType::Worley,
+            crate::simulations::flow::settings::NoiseType::Value,
+            crate::simulations::flow::settings::NoiseType::Fbm,
+            crate::simulations::flow::settings::NoiseType::FBMBillow,
+            crate::simulations::flow::settings::NoiseType::FBMClouds,
+            crate::simulations::flow::settings::NoiseType::FBMRidged,
+            crate::simulations::flow::settings::NoiseType::Billow,
+            crate::simulations::flow::settings::NoiseType::RidgedMulti,
+            crate::simulations::flow::settings::NoiseType::Cylinders,
+            crate::simulations::flow::settings::NoiseType::Checkerboard,
+        ];
+        self.settings.noise_type = noise_types[rng.random_range(0..noise_types.len())];
+
         self.settings.noise_seed = rng.random();
         self.settings.noise_scale = rng.random_range(0.5..3.0);
+        self.settings.noise_x = rng.random_range(-100.0..100.0);
+        self.settings.noise_y = rng.random_range(-100.0..100.0);
         self.settings.vector_magnitude = rng.random_range(0.05..0.2);
-        self.settings.particle_speed = rng.random_range(0.01..0.05);
 
         // Regenerate flow vectors with new settings
         self.regenerate_flow_vectors(queue)?;
@@ -2939,7 +3058,6 @@ impl FlowModel {
 
             // Update sim params with zero particle count
             let sim_params = SimParams {
-                particle_limit: 0,
                 autospawn_limit: self.settings.autospawn_limit,
                 vector_count: self.flow_vectors.len() as u32,
                 particle_lifetime: self.settings.particle_lifetime,
@@ -2960,7 +3078,6 @@ impl FlowModel {
                 trail_map_height: self.trail_map_height,
                 particle_shape: self.settings.particle_shape as u32,
                 particle_size: self.settings.particle_size,
-                background_type: self.settings.background as u32,
                 screen_width: self.trail_map_width,
                 screen_height: self.trail_map_height,
                 cursor_x: self.cursor_world_x,
@@ -2970,7 +3087,7 @@ impl FlowModel {
                 cursor_strength: self.cursor_strength,
                 particle_autospawn: self.settings.particle_autospawn as u32,
                 particle_spawn_rate: self.settings.particle_spawn_rate,
-                display_mode: self.settings.display_mode as u32,
+                display_mode: self.display_mode as u32,
             };
 
             queue.write_buffer(
@@ -3029,11 +3146,11 @@ impl FlowModel {
         }
 
         // Auto-spawn is enabled - reset particles to initial state with proper random generation
-        let mut particles = Vec::with_capacity(self.settings.particle_limit as usize);
+        let mut particles = Vec::with_capacity(self.settings.autospawn_limit as usize);
         let mut rng = rand::rng();
 
         // No longer need LUT data since we use LUT in shader
-        for _ in 0..self.settings.particle_limit {
+        for _ in 0..self.settings.autospawn_limit {
             // Use proper random number generation
             let x = rng.random_range(-1.0..1.0);
             let y = rng.random_range(-1.0..1.0);
@@ -3063,7 +3180,6 @@ impl FlowModel {
 
         // Update sim params with original particle count
         let sim_params = SimParams {
-            particle_limit: self.settings.particle_limit,
             autospawn_limit: self.settings.autospawn_limit,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
@@ -3084,7 +3200,6 @@ impl FlowModel {
             trail_map_height: self.trail_map_height,
             particle_shape: self.settings.particle_shape as u32,
             particle_size: self.settings.particle_size,
-            background_type: self.settings.background as u32,
             screen_width: self.trail_map_width,
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
@@ -3094,7 +3209,7 @@ impl FlowModel {
             cursor_strength: self.cursor_strength,
             particle_autospawn: self.settings.particle_autospawn as u32,
             particle_spawn_rate: self.settings.particle_spawn_rate,
-            display_mode: self.settings.display_mode as u32,
+            display_mode: self.display_mode as u32,
         };
 
         queue.write_buffer(

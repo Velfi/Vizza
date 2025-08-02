@@ -336,6 +336,31 @@ impl ParticleLifeValidator {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
+        // Create color mode buffer
+        #[repr(C)]
+        #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+        struct ColorMode {
+            mode: u32, // 0=Gray18, 1=White, 2=Black, 3=LUT
+            _pad1: u32,
+            _pad2: u32,
+            _pad3: u32,
+        }
+
+        let dummy_color_mode = ColorMode {
+            mode: 3, // LUT mode
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
+        };
+
+        let color_mode_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Particle Life Color Mode Buffer"),
+                contents: bytemuck::cast_slice(&[dummy_color_mode]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         // Create shader modules
         let vertex_shader = self
             .device
@@ -394,16 +419,28 @@ impl ParticleLifeValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Particle Life Render Bind Group Layout 1"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
 
         let bind_group_layout_2 =
@@ -511,10 +548,16 @@ impl ParticleLifeValidator {
         let _bind_group_1 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Particle Life Render Bind Group 1"),
             layout: &bind_group_layout_1,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: species_colors_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: species_colors_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: color_mode_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let _bind_group_2 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -687,21 +730,10 @@ fn test_struct_layout_consistency() {
         };
 
         let dummy_background_params = BackgroundParams {
-            background_type: 0,
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
-            _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
+            background_color: [0.0, 0.0, 0.0, 1.0], // RGBA black
         };
 
         let dummy_fade_uniforms = FadeUniforms {
-            background_color: [0.0, 0.0, 0.0, 1.0],
             fade_alpha: 0.1,
             _pad1: 0.0,
             _pad2: 0.0,

@@ -607,6 +607,11 @@
     try {
       const presets = await invoke('get_available_presets');
       available_presets = presets as string[];
+      
+      // Set the default preset if available
+      if (available_presets.includes('Default')) {
+        current_preset = 'Default';
+      }
     } catch (error) {
       console.error('Failed to load presets:', error);
     }
@@ -768,6 +773,11 @@
       await loadAvailableLuts();
       await loadSettings();
       await loadState();
+
+      // Set the default preset if available and not already set
+      if (available_presets.includes('Default') && !current_preset) {
+        current_preset = 'Default';
+      }
 
       // Listen for FPS updates
       listen('fps-update', (event) => {

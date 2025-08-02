@@ -139,7 +139,6 @@ impl FlowFieldValidator {
             .collect();
 
         let dummy_sim_params = SimParams {
-            particle_limit: 1000,
             autospawn_limit: 500,
             vector_count: 100,
             particle_lifetime: 10.0,
@@ -160,7 +159,6 @@ impl FlowFieldValidator {
             trail_map_height: 512,
             particle_shape: 0,
             particle_size: 2,
-            background_type: 0,
             screen_width: 1920,
             screen_height: 1080,
             cursor_x: 0.0,
@@ -373,7 +371,6 @@ impl FlowFieldValidator {
             .collect();
 
         let dummy_sim_params = SimParams {
-            particle_limit: 1000,
             autospawn_limit: 500,
             vector_count: 100,
             particle_lifetime: 10.0,
@@ -394,7 +391,6 @@ impl FlowFieldValidator {
             trail_map_height: 512,
             particle_shape: 0,
             particle_size: 2,
-            background_type: 0,
             screen_width: 1920,
             screen_height: 1080,
             cursor_x: 0.0,
@@ -530,7 +526,6 @@ impl FlowFieldValidator {
             .collect();
 
         let dummy_sim_params = SimParams {
-            particle_limit: 1000,
             autospawn_limit: 500,
             vector_count: 100,
             particle_lifetime: 10.0,
@@ -551,7 +546,6 @@ impl FlowFieldValidator {
             trail_map_height: 512,
             particle_shape: 0,
             particle_size: 2,
-            background_type: 0,
             screen_width: 1920,
             screen_height: 1080,
             cursor_x: 0.0,
@@ -1432,7 +1426,6 @@ fn test_struct_layout_consistency() {
             .collect();
 
         let dummy_sim_params = SimParams {
-            particle_limit: 1000,
             autospawn_limit: 500,
             vector_count: 100,
             particle_lifetime: 10.0,
@@ -1453,7 +1446,6 @@ fn test_struct_layout_consistency() {
             trail_map_height: 512,
             particle_shape: 0,
             particle_size: 2,
-            background_type: 0,
             screen_width: 1920,
             screen_height: 1080,
             cursor_x: 0.0,
@@ -1523,4 +1515,39 @@ fn test_struct_layout_consistency() {
             sim_params_buffer.size()
         );
     });
+}
+
+#[test]
+fn test_flow_preset_functionality() {
+    use crate::simulation::preset_manager::FlowPresetManager;
+    use crate::simulations::flow::init_presets;
+
+    // Create a preset manager
+    let mut preset_manager = FlowPresetManager::new("flow".to_string());
+
+    // Initialize presets
+    init_presets(&mut preset_manager);
+
+    // Check that we have at least the default preset
+    let preset_names = preset_manager.get_preset_names();
+    assert!(!preset_names.is_empty(), "Should have at least one preset");
+    assert!(
+        preset_names.contains(&"Default".to_string()),
+        "Should have Default preset"
+    );
+
+    // Test getting preset settings
+    let default_settings = preset_manager.get_preset_settings("Default");
+    assert!(
+        default_settings.is_some(),
+        "Should be able to get Default preset settings"
+    );
+
+    // Test that the settings are valid
+    if let Some(settings) = default_settings {
+        assert_eq!(
+            settings.noise_type,
+            crate::simulations::flow::settings::NoiseType::OpenSimplex
+        );
+    }
 }

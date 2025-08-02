@@ -26,8 +26,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let a_int = u32(color.a * 255.0);
     
     // Add to running sum using atomic operations
-    atomicAdd(&average_color[0], r_int);
-    atomicAdd(&average_color[1], g_int);
-    atomicAdd(&average_color[2], b_int);
-    atomicAdd(&average_color[3], a_int);
+    // Only process pixels with non-zero alpha to avoid counting transparent pixels
+    if (color.a > 0.0) {
+        atomicAdd(&average_color[0], r_int);
+        atomicAdd(&average_color[1], g_int);
+        atomicAdd(&average_color[2], b_int);
+        atomicAdd(&average_color[3], 1u); // Count visible pixels
+    }
 } 

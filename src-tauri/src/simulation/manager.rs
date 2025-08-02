@@ -436,7 +436,11 @@ impl SimulationManager {
         Ok(())
     }
 
-    pub fn save_preset(&self, preset_name: &str, settings: &serde_json::Value) -> AppResult<()> {
+    pub fn save_preset(
+        &mut self,
+        preset_name: &str,
+        settings: &serde_json::Value,
+    ) -> AppResult<()> {
         if let Some(simulation) = &self.current_simulation {
             self.preset_manager
                 .save_preset(simulation, preset_name, settings)?;
@@ -640,7 +644,7 @@ impl SimulationManager {
                 }
                 SimulationType::Flow(simulation) => {
                     // For Flow, use the built-in LUT reversal mechanism
-                    let current_reversed = simulation.settings.lut_reversed;
+                    let current_reversed = simulation.lut_reversed;
                     simulation.update_setting(
                         "lutReversed",
                         serde_json::json!(!current_reversed),

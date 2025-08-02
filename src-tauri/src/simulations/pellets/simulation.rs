@@ -180,6 +180,7 @@ pub struct PelletsModel {
 
     // Average color calculation for infinite rendering
     pub average_color_resources: AverageColorResources,
+    pub average_color_uniform_buffer: wgpu::Buffer,
 
     // Camera bind group
     pub camera_bind_group: wgpu::BindGroup,
@@ -1327,6 +1328,16 @@ impl PelletsModel {
                                         },
                                         count: None,
                                     },
+                                    wgpu::BindGroupLayoutEntry {
+                                        binding: 3,
+                                        visibility: wgpu::ShaderStages::FRAGMENT,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
+                                        },
+                                        count: None,
+                                    },
                                 ],
                             }),
                             &camera_bind_group_layout,
@@ -1363,6 +1374,14 @@ impl PelletsModel {
                 cache: None,
             });
 
+        // Create average color uniform buffer for infinite render shader
+        let average_color_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Pellets Average Color Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Initialize with black
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         let render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Render Infinite Bind Group"),
             layout: &render_infinite_pipeline.get_bind_group_layout(0),
@@ -1382,6 +1401,10 @@ impl PelletsModel {
                         offset: 0,
                         size: None,
                     }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: average_color_uniform_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1431,6 +1454,7 @@ impl PelletsModel {
             render_infinite_pipeline,
             render_infinite_bind_group,
             average_color_resources,
+            average_color_uniform_buffer,
             camera_bind_group,
 
             particles,
@@ -1720,11 +1744,6 @@ impl PelletsModel {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         let current_count = self.particles.len() as u32;
-        tracing::debug!(
-            "Updating particle count: {} -> {}",
-            current_count,
-            new_count
-        );
 
         if new_count > current_count {
             // Add particles
@@ -1741,16 +1760,10 @@ impl PelletsModel {
 
         // Update settings
         self.settings.particle_count = new_count;
-        tracing::debug!("Updated settings.particle_count to {}", new_count);
 
         // Check if we need to recreate the buffer (if it's too small)
         let required_buffer_size = self.particles.len() * std::mem::size_of::<Particle>();
         if self.particle_buffer.size() < required_buffer_size as u64 {
-            tracing::debug!(
-                "Recreating particle buffer: current_size={}, required_size={}",
-                self.particle_buffer.size(),
-                required_buffer_size
-            );
             // Recreate the particle buffer with the new size
             self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Pellets Particle Buffer"),
@@ -1759,14 +1772,9 @@ impl PelletsModel {
             });
 
             // Recreate the bind groups since the buffer changed
-            tracing::debug!("Recreating bind groups after buffer change");
             self.recreate_bind_groups(device)?;
         } else {
             // Update existing GPU buffer
-            tracing::debug!(
-                "Updating existing GPU buffer with {} particles",
-                self.particles.len()
-            );
             queue.write_buffer(
                 &self.particle_buffer,
                 0,
@@ -1774,10 +1782,6 @@ impl PelletsModel {
             );
         }
 
-        tracing::debug!(
-            "Particle count update complete: {} particles",
-            self.particles.len()
-        );
         Ok(())
     }
 
@@ -2135,6 +2139,13 @@ impl PelletsModel {
         if let Some(average_color) = self.average_color_resources.get_average_color() {
             queue.write_buffer(
                 &self.background_color_buffer,
+                0,
+                bytemuck::cast_slice(&[average_color]),
+            );
+
+            // Also update the average color uniform buffer for the infinite render shader
+            queue.write_buffer(
+                &self.average_color_uniform_buffer,
                 0,
                 bytemuck::cast_slice(&[average_color]),
             );
@@ -2597,11 +2608,6 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             }
             "gravitational_constant" => {
                 if let Some(constant) = value.as_f64() {
-                    tracing::debug!(
-                        "Updating gravitational_constant from {} to {}",
-                        self.settings.gravitational_constant,
-                        constant
-                    );
                     self.settings.gravitational_constant = constant as f32;
                     // GPU compute shaders will use the updated value
                 }

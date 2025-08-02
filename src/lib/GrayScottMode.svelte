@@ -281,7 +281,7 @@
 
   async function savePreset(presetName: string) {
     try {
-      await invoke('save_preset', { preset_name: presetName.trim() });
+      await invoke('save_preset', { presetName: presetName.trim() });
       // Refresh the available presets list
       await loadAvailablePresets();
       // Set the current preset to the newly saved one
@@ -564,13 +564,16 @@
       const mouseEvent = event as MouseEvent;
       mouseEvent.preventDefault();
 
-      isMousePressed = false;
+      // Only handle mouseup if we were actually tracking a mouse press
+      if (isMousePressed) {
+        isMousePressed = false;
 
-      // Stop cursor interaction when mouse is released
-      try {
-        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
-      } catch (e) {
-        console.error('Failed to stop Gray-Scott mouse interaction:', e);
+        // Stop cursor interaction when mouse is released
+        try {
+          await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
+        } catch (e) {
+          console.error('Failed to stop Gray-Scott mouse interaction:', e);
+        }
       }
     } else if (event.type === 'contextmenu') {
       // Handle context menu as right-click for simulation interaction

@@ -30,11 +30,24 @@ struct VertexOutput {
 @group(0) @binding(1) var<uniform> params: RenderParams;
 @group(0) @binding(2) var<storage, read> lut: array<u32>;
 
+// Convert from sRGB (gamma-corrected) to linear RGB
+fn srgb_to_linear(srgb: f32) -> f32 {
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    } else {
+        return pow((srgb + 0.055) / 1.055, 2.4);
+    }
+}
+
 fn get_lut_color(index: u32) -> vec3<f32> {
-    let r = f32(lut[index]) / 255.0;
-    let g = f32(lut[index + 256]) / 255.0;
-    let b = f32(lut[index + 512]) / 255.0;
-    return vec3<f32>(r, g, b);
+    let r_srgb = f32(lut[index]) / 255.0;
+    let g_srgb = f32(lut[index + 256]) / 255.0;
+    let b_srgb = f32(lut[index + 512]) / 255.0;
+    return vec3<f32>(
+        srgb_to_linear(r_srgb),
+        srgb_to_linear(g_srgb),
+        srgb_to_linear(b_srgb)
+    );
 }
 
 fn get_particle_color(particle: Particle) -> vec3<f32> {

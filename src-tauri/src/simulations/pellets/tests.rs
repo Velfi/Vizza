@@ -870,3 +870,46 @@ fn test_struct_layout_consistency() {
         println!("  Particle: {} bytes", rust_particle_size);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::simulation::preset_manager::PelletsPresetManager;
+    use crate::simulations::pellets::settings::Settings;
+
+    #[test]
+    fn test_pellets_preset_basic_functionality() {
+        // Create a preset manager
+        let mut preset_manager = PelletsPresetManager::new("pellets".to_string());
+
+        // Create a test preset
+        let test_settings = Settings {
+            particle_count: 1000,
+            gravitational_constant: 0.5,
+            particle_size: 2.0,
+            ..Settings::default()
+        };
+
+        // Add the preset to the manager
+        preset_manager.add_preset(crate::simulation::preset_manager::Preset::new(
+            "TestPreset".to_string(),
+            test_settings,
+        ));
+
+        // Verify the preset was added
+        let preset_names = preset_manager.get_preset_names();
+        assert!(
+            preset_names.contains(&"TestPreset".to_string()),
+            "Preset 'TestPreset' not found in presets: {:?}",
+            preset_names
+        );
+
+        // Verify the preset settings
+        if let Some(preset) = preset_manager.get_preset("TestPreset") {
+            assert_eq!(preset.settings.particle_count, 1000);
+            assert_eq!(preset.settings.gravitational_constant, 0.5);
+            assert_eq!(preset.settings.particle_size, 2.0);
+        } else {
+            panic!("Preset 'TestPreset' not found after adding");
+        }
+    }
+}

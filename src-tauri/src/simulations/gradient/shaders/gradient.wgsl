@@ -143,7 +143,7 @@ fn sample_lut(index: f32) -> vec3<f32> {
     let idx1 = min(idx0 + 1u, 255u);
     let t = scaled_index - f32(idx0);
     
-    // Sample colors at both indices
+    // Sample colors at both indices (keep in sRGB for display)
     let color0 = vec3<f32>(
         f32(lut[idx0]),
         f32(lut[idx0 + 256u]),

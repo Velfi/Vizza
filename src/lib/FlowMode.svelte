@@ -49,7 +49,7 @@
         <div class="control-group">
           <label for="background-select">Background</label>
           <Selector
-            options={['Black', 'White']}
+            options={['Black', 'White', 'LUT']}
             bind:value={backgroundValue}
             on:change={(e) => updateBackground(e.detail.value)}
           />
@@ -103,9 +103,6 @@
                 >Camera controls not working? Click the control bar at the top of the screen.</span
               >
             </div>
-            <div class="control-group">
-              <Button variant="danger" on:click={killAllParticles}>💀 Kill All Particles</Button>
-            </div>
           </div>
           <div class="cursor-settings">
             <div class="cursor-settings-header">
@@ -132,6 +129,42 @@
       <!-- Combined Settings -->
       <fieldset>
         <legend>Settings</legend>
+
+        <!-- General Settings -->
+        <div class="settings-section">
+          <div class="control-group">
+            <Button
+              variant="warning"
+              type="button"
+              on:click={async () => {
+                try {
+                  await invoke('reset_simulation');
+                  console.log('Simulation reset successfully');
+                } catch (e) {
+                  console.error('Failed to reset simulation:', e);
+                }
+              }}>🔄 Reset Simulation</Button
+            >
+            <Button
+              variant="warning"
+              type="button"
+              on:click={async () => {
+                try {
+                  await invoke('randomize_settings');
+                  await syncSettingsFromBackend();
+                  console.log('Settings randomized successfully');
+                } catch (e) {
+                  console.error('Failed to randomize settings:', e);
+                }
+              }}>🎲 Randomize Settings</Button
+            >
+            <Button
+              variant="danger"
+              type="button"
+              on:click={killAllParticles}>💀 Kill All Particles</Button
+            >
+          </div>
+        </div>
 
         <!-- Flow Field Settings -->
         <div class="settings-section">
@@ -396,7 +429,6 @@
     trail_wash_out_rate: number;
 
     // Visual parameters
-    background: string;
     current_lut: string;
     lut_reversed: boolean;
     show_particles: boolean;
@@ -406,8 +438,8 @@
   let settings: Settings | undefined = undefined;
 
   // Local variables for binding
-  let backgroundValue = 'Black';
-  let currentLutValue = 'MATPLOTLIB_viridis';
+  let backgroundValue = 'LUT';
+  let currentLutValue = 'MATPLOTLIB_terrain';
   let lutReversedValue = false;
 
   // Preset and LUT state
@@ -640,13 +672,16 @@
       const mouseEvent = event as MouseEvent;
       mouseEvent.preventDefault();
 
-      isMousePressed = false;
+      // Only handle mouseup if we were actually tracking a mouse press
+      if (isMousePressed) {
+        isMousePressed = false;
 
-      // Stop cursor interaction when mouse is released
-      try {
-        await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
-      } catch (e) {
-        console.error('Failed to stop Flow mouse interaction:', e);
+        // Stop cursor interaction when mouse is released
+        try {
+          await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
+        } catch (e) {
+          console.error('Failed to stop Flow mouse interaction:', e);
+        }
       }
     } else if (event.type === 'contextmenu') {
       // Handle context menu as right-click for simulation interaction
@@ -992,7 +1027,7 @@
   }
 
   async function updateBackground(value: string) {
-    settings!.background = value;
+    backgroundValue = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'background',
@@ -1114,28 +1149,44 @@
       if (backendSettings) {
         // Use backend settings directly
         settings = backendSettings as Settings;
-
-        // Update local binding variables with proper defaults
-        backgroundValue = settings.background || 'Black';
-        currentLutValue = settings.current_lut || 'MATPLOTLIB_viridis';
-        lutReversedValue = settings.lut_reversed || false;
-
-        console.log('Flow settings synced:', {
-          background: backgroundValue,
-          currentLut: currentLutValue,
-          lutReversed: lutReversedValue,
-        });
       }
 
       if (backendState) {
-        // Update cursor state from backend
-        const state = backendState as { cursorSize?: number; cursorStrength?: number };
+        // Update visual parameters from backend state (not settings)
+        const state = backendState as { 
+          cursorSize?: number; 
+          cursorStrength?: number;
+          background?: string;
+          currentLut?: string;
+          lutReversed?: boolean;
+          displayMode?: string;
+        };
+        
         if (state.cursorSize !== undefined) {
           cursorSize = state.cursorSize;
         }
         if (state.cursorStrength !== undefined) {
           cursorStrength = state.cursorStrength;
         }
+        if (state.background !== undefined) {
+          backgroundValue = state.background;
+        }
+        if (state.currentLut !== undefined) {
+          currentLutValue = state.currentLut;
+        }
+        if (state.lutReversed !== undefined) {
+          lutReversedValue = state.lutReversed;
+        }
+        if (state.displayMode !== undefined && settings) {
+          settings.display_mode = state.displayMode;
+        }
+
+        console.log('Flow settings and state synced:', {
+          background: backgroundValue,
+          currentLut: currentLutValue,
+          lutReversed: lutReversedValue,
+          displayMode: settings?.display_mode,
+        });
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);

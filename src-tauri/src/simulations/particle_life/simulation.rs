@@ -57,8 +57,7 @@ pub struct ForceRandomizeParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct FadeUniforms {
-    pub background_color: [f32; 4], // RGBA background color
-    pub fade_alpha: f32,            // Alpha for fading effect
+    pub fade_alpha: f32, // Alpha for fading effect
     pub _pad1: f32,
     pub _pad2: f32,
     pub _pad3: f32,
@@ -67,17 +66,7 @@ pub struct FadeUniforms {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct BackgroundParams {
-    pub background_type: u32, // 0 = black, 1 = white, 2 = gradient
-    pub gradient_enabled: u32,
-    pub gradient_type: u32,
-    pub gradient_strength: f32,
-    pub gradient_center_x: f32,
-    pub gradient_center_y: f32,
-    pub gradient_size: f32,
-    pub gradient_angle: f32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-    pub _pad3: u32,
+    pub background_color: [f32; 4], // RGBA color values
 }
 
 #[repr(C)]
@@ -243,8 +232,8 @@ impl State {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_lut_name: "MATPLOTLIB_nipy_spectral".to_string(), // Use a proper default
-            lut_reversed: false,
+            current_lut_name: "MATPLOTLIB_ocean".to_string(), // Use a proper default
+            lut_reversed: true,
             color_mode: ColorMode::Lut, // Use LUT mode as default to match main constructor
             // Placeholder values - will be properly initialized when LUT is loaded in main constructor
             species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
@@ -314,8 +303,10 @@ pub struct ParticleLifeModel {
     pub tile_render_bind_group: wgpu::BindGroup,
     pub tile_params_buffer: wgpu::Buffer,
 
-    // Offscreen render pipeline for display texture
+    // Offscreen render pipeline for display texture (MSAA)
     pub offscreen_render_pipeline: wgpu::RenderPipeline,
+    // Non-MSAA render pipeline for direct display texture rendering
+    pub display_render_pipeline: wgpu::RenderPipeline,
     // Trail render pipeline for trail texture (uses surface format)
     pub trail_render_pipeline: wgpu::RenderPipeline,
 
@@ -341,7 +332,6 @@ pub struct ParticleLifeModel {
     pub background_bind_group_layout: wgpu::BindGroupLayout,
     pub background_bind_group: wgpu::BindGroup,
     pub background_params_buffer: wgpu::Buffer,
-    pub background_color_buffer: wgpu::Buffer,
 
     // Viewport parameters for camera-aware rendering
     pub viewport_params_buffer: wgpu::Buffer,
@@ -474,15 +464,6 @@ impl ParticleLifeModel {
         // Only recreate if dimensions actually changed
         if new_width != self.display_texture.width() || new_height != self.display_texture.height()
         {
-            tracing::debug!(
-                "Updating Particle Life resolution: {}x{} -> {}x{} (scale: {:.2})",
-                self.display_texture.width(),
-                self.display_texture.height(),
-                new_width,
-                new_height,
-                new_scale
-            );
-
             // Recreate display texture with new dimensions
             self.display_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("Display Texture"),
@@ -612,11 +593,7 @@ impl ParticleLifeModel {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.background_color_buffer.as_entire_binding(),
+                        resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
                     },
                 ],
             });
@@ -631,11 +608,7 @@ impl ParticleLifeModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.background_color_buffer.as_entire_binding(),
+                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
                 },
             ],
         });
@@ -678,7 +651,7 @@ impl ParticleLifeModel {
         let height = surface_config.height;
 
         // Use a proper default LUT name instead of hardcoding
-        let default_lut_name = "MATPLOTLIB_nipy_spectral";
+        let default_lut_name = "MATPLOTLIB_ocean";
 
         // Get LUT and calculate colors first
         let lut = lut_manager.get(default_lut_name).map_err(|e| {
@@ -744,7 +717,7 @@ impl ParticleLifeModel {
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
             current_lut_name,
-            lut_reversed: false,
+            lut_reversed: true,
             color_mode,
             species_colors: lut_colors.clone(),
             particle_size: 4.0,
@@ -1156,20 +1129,32 @@ impl ParticleLifeModel {
                 ],
             });
 
-        // LUT bind group layout (now just species colors uniform)
+        // LUT bind group layout (species colors + color mode)
         let lut_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Species Colors Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
 
         let render_bind_group_layout = lut_bind_group_layout.clone();
@@ -1340,7 +1325,7 @@ impl ParticleLifeModel {
                 push_constant_ranges: &[],
             });
 
-        // Create offscreen render pipeline for display texture (Rgba8Unorm format)
+        // Create offscreen render pipeline for display texture (Rgba8Unorm format) - MSAA version
         let offscreen_render_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Particle Life Offscreen Render Pipeline"),
@@ -1376,6 +1361,42 @@ impl ParticleLifeModel {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
+                multiview: None,
+                cache: None,
+            });
+
+        // Create display render pipeline for direct display texture rendering (non-MSAA)
+        let display_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Particle Life Display Render Pipeline"),
+                layout: Some(&offscreen_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &vertex_shader,
+                    entry_point: Some("main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &fragment_shader,
+                    entry_point: Some("main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(), // No MSAA
                 multiview: None,
                 cache: None,
             });
@@ -1488,16 +1509,17 @@ impl ParticleLifeModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Create color mode uniform buffer
+        // Create color mode uniform buffer (16 bytes to match shader struct)
         let color_mode_value = match color_mode {
             ColorMode::Gray18 => 0u32,
             ColorMode::White => 1u32,
             ColorMode::Black => 2u32,
             ColorMode::Lut => 3u32,
         };
+        let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
         let color_mode_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Color Mode Buffer"),
-            contents: bytemuck::cast_slice(&[color_mode_value]),
+            contents: bytemuck::cast_slice(&color_mode_data),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -1525,10 +1547,16 @@ impl ParticleLifeModel {
         let lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Species Colors Bind Group"),
             layout: &render_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: species_colors_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: species_colors_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: color_mode_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         // Create camera
@@ -1577,16 +1605,34 @@ impl ParticleLifeModel {
         let fade_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Fade Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
 
         let fade_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1631,7 +1677,6 @@ impl ParticleLifeModel {
 
         // Create fade uniforms buffer
         let fade_uniforms = FadeUniforms {
-            background_color: [0.0, 0.0, 0.0, 1.0],
             fade_alpha: 0.1,
             _pad1: 0.0,
             _pad2: 0.0,
@@ -1644,13 +1689,54 @@ impl ParticleLifeModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create temporary placeholder texture and sampler for fade bind group
+        let placeholder_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Placeholder Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let placeholder_texture_view =
+            placeholder_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let placeholder_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Placeholder Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Create a temporary fade bind group with placeholder resources - will be updated later with display texture
         let fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Fade Bind Group"),
             layout: &fade_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: fade_uniforms_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: fade_uniforms_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&placeholder_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&placeholder_sampler),
+                },
+            ],
         });
 
         // Trail texture for persistent trails
@@ -1926,30 +2012,12 @@ impl ParticleLifeModel {
 
         // Create background parameters buffer
         let background_params = BackgroundParams {
-            background_type: 0, // Black background by default
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
-            _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
+            background_color: [0.0, 0.0, 0.0, 1.0], // Black background by default
         };
         let background_params_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Background Params Buffer"),
                 contents: bytemuck::cast_slice(&[background_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-        // Create background color buffer
-        let background_color_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Background Color Buffer"),
-                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -2169,17 +2237,6 @@ impl ParticleLifeModel {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    // Background color
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
             });
 
@@ -2263,10 +2320,6 @@ impl ParticleLifeModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&blit_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: background_params_buffer.as_entire_binding(),
-                },
             ],
         });
 
@@ -2283,10 +2336,6 @@ impl ParticleLifeModel {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: background_params_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -2359,6 +2408,7 @@ impl ParticleLifeModel {
                 mapped_at_creation: false,
             }),
             offscreen_render_pipeline,
+            display_render_pipeline,
             trail_render_pipeline,
             fade_pipeline,
             fade_bind_group_layout,
@@ -2374,7 +2424,6 @@ impl ParticleLifeModel {
             background_bind_group_layout,
             background_bind_group,
             background_params_buffer,
-            background_color_buffer,
             viewport_params_buffer,
             display_texture,
             display_view,
@@ -2424,9 +2473,12 @@ impl ParticleLifeModel {
             queue,
             &lut_manager_clone,
             color_mode,
-            Some("MATPLOTLIB_nipy_spectral"),
-            false,
+            Some("MATPLOTLIB_ocean"),
+            true,
         )?;
+
+        // Initialize background parameters
+        result.update_background_params(queue);
 
         // Initialize particles on GPU
         result.initialize_particles_gpu(device, queue)?;
@@ -2455,6 +2507,9 @@ impl ParticleLifeModel {
             }
         };
         result.clear_trail_texture(device, queue, background_color);
+
+        // Update fade bind group with display texture
+        result.update_fade_bind_group(device);
 
         Ok(result)
     }
@@ -2826,14 +2881,34 @@ impl ParticleLifeModel {
         let species_colors_bytes = bytemuck::cast_slice(&species_colors_data);
         queue.write_buffer(&self.species_colors_buffer, 0, species_colors_bytes);
 
+        // Update color mode buffer (16 bytes to match shader struct)
+        let color_mode_value = match self.state.color_mode {
+            ColorMode::Gray18 => 0u32,
+            ColorMode::White => 1u32,
+            ColorMode::Black => 2u32,
+            ColorMode::Lut => 3u32,
+        };
+        let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
+        queue.write_buffer(
+            &self.color_mode_buffer,
+            0,
+            bytemuck::cast_slice(&color_mode_data),
+        );
+
         // Update species colors bind group
         self.lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Species Colors Bind Group"),
             layout: &self.render_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.species_colors_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.species_colors_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.color_mode_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         tracing::debug!(
@@ -2851,19 +2926,8 @@ impl ParticleLifeModel {
     }
 
     /// Update fade uniforms for trace rendering
-    fn update_fade_uniforms(
-        &self,
-        queue: &Arc<Queue>,
-        background_color: wgpu::Color,
-        fade_alpha: f32,
-    ) {
+    fn update_fade_uniforms(&self, queue: &Arc<Queue>, fade_alpha: f32) {
         let fade_uniforms = FadeUniforms {
-            background_color: [
-                background_color.r as f32,
-                background_color.g as f32,
-                background_color.b as f32,
-                background_color.a as f32,
-            ],
             fade_alpha,
             _pad1: 0.0,
             _pad2: 0.0,
@@ -2877,32 +2941,46 @@ impl ParticleLifeModel {
         );
     }
 
-    /// Clear the trail texture with the background color
+    fn update_fade_bind_group(&mut self, device: &Arc<Device>) {
+        self.fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Fade Bind Group"),
+            layout: &self.fade_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.fade_uniforms_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.display_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+            ],
+        });
+    }
+
+    /// Update background color based on color mode
     pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
-        let background_params = BackgroundParams {
-            background_type: match self.state.color_mode {
-                ColorMode::Black => 0,
-                ColorMode::White => 1,
-                ColorMode::Gray18 => 2,
-                ColorMode::Lut => 2,
-            },
-            gradient_enabled: if self.state.color_mode == ColorMode::Gray18
-                || self.state.color_mode == ColorMode::Lut
-            {
-                1
-            } else {
-                0
-            },
-            gradient_type: 0, // No gradient by default
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
-            _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
+        // Get background color based on color mode
+        let background_color = match self.state.color_mode {
+            ColorMode::Black => [0.0, 0.0, 0.0, 1.0],     // Black
+            ColorMode::White => [1.0, 1.0, 1.0, 1.0],     // White
+            ColorMode::Gray18 => [0.18, 0.18, 0.18, 1.0], // Gray18
+            ColorMode::Lut => {
+                // Use first color from species_colors (which includes background color)
+                if !self.state.species_colors.is_empty() {
+                    self.state.species_colors[0]
+                } else {
+                    [0.0, 0.0, 0.0, 1.0] // Fallback to black
+                }
+            }
         };
+
+        // Update background parameters
+        let background_params = BackgroundParams { background_color };
 
         queue.write_buffer(
             &self.background_params_buffer,
@@ -3016,7 +3094,7 @@ impl Simulation for ParticleLifeModel {
                     view: &self.display_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear to transparent, background shader will fill
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -3225,7 +3303,7 @@ impl Simulation for ParticleLifeModel {
                     view: &self.display_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear to transparent, background shader will fill
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -3262,31 +3340,7 @@ impl Simulation for ParticleLifeModel {
                 let fade_factor = 1.0 - self.state.trace_fade;
                 let fade_alpha = (fade_factor * fade_factor * 0.3).clamp(0.002, 0.3);
 
-                // Determine background color for fade
-                let background_color = match self.state.color_mode {
-                    ColorMode::Gray18 => wgpu::Color {
-                        r: 0.18,
-                        g: 0.18,
-                        b: 0.18,
-                        a: 1.0,
-                    },
-                    ColorMode::White => wgpu::Color::WHITE,
-                    ColorMode::Black => wgpu::Color::BLACK,
-                    ColorMode::Lut => {
-                        if let Some(&[r, g, b, a]) = self.state.species_colors.last() {
-                            wgpu::Color {
-                                r: r.into(),
-                                g: g.into(),
-                                b: b.into(),
-                                a: a.into(),
-                            }
-                        } else {
-                            wgpu::Color::BLACK
-                        }
-                    }
-                };
-
-                self.update_fade_uniforms(queue, background_color, fade_alpha);
+                self.update_fade_uniforms(queue, fade_alpha);
 
                 trail_render_pass.set_pipeline(&self.fade_pipeline);
                 trail_render_pass.set_bind_group(0, &self.fade_bind_group, &[]);
@@ -3323,14 +3377,14 @@ impl Simulation for ParticleLifeModel {
             display_render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
             display_render_pass.draw(0..3, 0..1);
         } else {
-            // When trails are disabled, render particles to MSAA texture for anti-aliasing
-            let mut msaa_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("MSAA Render Pass"),
+            // When trails are disabled, render particles directly to display texture (preserving background)
+            let mut particle_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Particle Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.msaa_view,
-                    resolve_target: Some(&self.display_view),
+                    view: &self.display_view,
+                    resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear for no trails
+                        load: wgpu::LoadOp::Load, // Preserve background
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -3339,13 +3393,13 @@ impl Simulation for ParticleLifeModel {
                 occlusion_query_set: None,
             });
 
-            msaa_render_pass.set_pipeline(&self.offscreen_render_pipeline);
-            msaa_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
-            msaa_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
-            msaa_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
+            particle_render_pass.set_pipeline(&self.display_render_pipeline);
+            particle_render_pass.set_bind_group(0, &self.render_bind_group, &[]);
+            particle_render_pass.set_bind_group(1, &self.lut_bind_group, &[]);
+            particle_render_pass.set_bind_group(2, &self.camera_bind_group, &[]);
 
             let particle_count = self.state.particle_count as u32;
-            msaa_render_pass.draw(0..6, 0..particle_count);
+            particle_render_pass.draw(0..6, 0..particle_count);
         }
 
         // Step 3: Render post effects from display texture to post-effect texture (offscreen)
@@ -3383,7 +3437,7 @@ impl Simulation for ParticleLifeModel {
                     view: surface_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -3401,6 +3455,7 @@ impl Simulation for ParticleLifeModel {
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+
         Ok(())
     }
 
@@ -3657,6 +3712,10 @@ impl Simulation for ParticleLifeModel {
                         "LUT" => ColorMode::Lut,
                         _ => ColorMode::Lut,
                     };
+
+                    // Update the state color mode
+                    self.state.color_mode = color_mode;
+
                     // Update LUT with new color mode
                     let current_lut_name = self.state.current_lut_name.clone();
                     let lut_reversed = self.state.lut_reversed;
@@ -3669,6 +3728,9 @@ impl Simulation for ParticleLifeModel {
                         Some(&current_lut_name),
                         lut_reversed,
                     )?;
+
+                    // Update background parameters for the new color mode
+                    self.update_background_params(queue);
                 }
             }
             "lut_name" => {
@@ -3807,8 +3869,6 @@ impl Simulation for ParticleLifeModel {
         self.cursor_world_x = 0.0;
         self.cursor_world_y = 0.0;
 
-        tracing::debug!("ParticleLife mouse release: cursor interaction disabled");
-
         // Update sim params immediately with cursor disabled
         let mut sim_params = SimParams::new(
             self.width,
@@ -3818,7 +3878,7 @@ impl Simulation for ParticleLifeModel {
             &self.state,
         );
 
-        // Override with cursor values (disabled)
+        // Reset cursor sim params to default values
         sim_params.cursor_x = 0.0;
         sim_params.cursor_y = 0.0;
         sim_params.cursor_active = 0;
@@ -3981,23 +4041,11 @@ impl ParticleLifeModel {
         let old_count = self.state.particle_count as u32;
 
         if new_count == old_count {
-            tracing::info!("Particle count unchanged at {}, skipping update", new_count);
             return Ok(());
         }
 
-        tracing::info!(
-            "Starting particle count update: {} -> {}",
-            old_count,
-            new_count
-        );
-
         // Update state
         self.state.particle_count = new_count as usize;
-
-        tracing::info!(
-            "Updated state: particle_count={}",
-            self.state.particle_count
-        );
 
         // Check buffer size limits
         let max_storage_buffer_size = device.limits().max_storage_buffer_binding_size as u64;
@@ -4024,28 +4072,18 @@ impl ParticleLifeModel {
         // Replace the buffer
         self.particle_buffer = new_particle_buffer;
 
-        tracing::info!("Recreating bind groups after buffer recreation");
         // Recreate bind groups with new buffer
         self.recreate_bind_groups(device)?;
 
-        tracing::info!("Updating sim params buffer BEFORE particle initialization");
         // Update simulation parameters with new particle count BEFORE initializing particles
         self.update_sim_params(device, queue);
 
-        tracing::info!("Respawning particles on GPU with count: {}", new_count);
         // Respawn all particles with new count
         self.initialize_particles_gpu(device, queue)?;
 
-        tracing::info!("Waiting for GPU commands to complete");
         // Force GPU to finish all commands to ensure buffer updates are complete
         device.poll(wgpu::Maintain::Wait);
 
-        tracing::info!(
-            "Particle count update complete: {} -> {} (buffer_size={})",
-            old_count,
-            new_count,
-            self.particle_buffer.size()
-        );
         Ok(())
     }
 

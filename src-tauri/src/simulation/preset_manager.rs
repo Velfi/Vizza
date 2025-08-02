@@ -193,6 +193,7 @@ pub type GrayScottPresetManager = PresetManager<crate::simulations::gray_scott::
 pub type ParticleLifePresetManager =
     PresetManager<crate::simulations::particle_life::settings::Settings>;
 pub type PelletsPresetManager = PresetManager<crate::simulations::pellets::settings::Settings>;
+pub type FlowPresetManager = PresetManager<crate::simulations::flow::settings::Settings>;
 
 // Trait for unified preset manager operations
 pub trait AnyPresetManager {
@@ -270,12 +271,30 @@ impl AnyPresetManager for PelletsPresetManager {
     }
 }
 
+impl AnyPresetManager for FlowPresetManager {
+    fn get_preset_names(&self) -> Vec<String> {
+        self.get_preset_names()
+    }
+
+    fn delete_user_preset(&mut self, name: &str) -> PresetResult<()> {
+        self.delete_user_preset(name)
+    }
+
+    fn save_user_preset_json(&self, name: &str, settings: &serde_json::Value) -> PresetResult<()> {
+        let typed_settings: crate::simulations::flow::settings::Settings =
+            serde_json::from_value(settings.clone())
+                .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+        self.save_user_preset(name, &typed_settings)
+    }
+}
+
 // Enum to hold different types of preset managers
 pub enum PresetManagerType {
     SlimeMold(SlimeMoldPresetManager),
     GrayScott(GrayScottPresetManager),
     ParticleLife(ParticleLifePresetManager),
     Pellets(PelletsPresetManager),
+    Flow(FlowPresetManager),
 }
 
 impl PresetManagerType {
@@ -285,6 +304,7 @@ impl PresetManagerType {
             PresetManagerType::GrayScott(manager) => manager,
             PresetManagerType::ParticleLife(manager) => manager,
             PresetManagerType::Pellets(manager) => manager,
+            PresetManagerType::Flow(manager) => manager,
         }
     }
 
@@ -294,6 +314,7 @@ impl PresetManagerType {
             PresetManagerType::GrayScott(manager) => manager,
             PresetManagerType::ParticleLife(manager) => manager,
             PresetManagerType::Pellets(manager) => manager,
+            PresetManagerType::Flow(manager) => manager,
         }
     }
 
@@ -361,8 +382,19 @@ impl PresetManagerType {
                     Err(format!("Preset '{}' not found for Pellets", preset_name).into())
                 }
             }
-            (_, SimulationType::Flow(_)) => {
-                Err("Flow simulation presets not yet implemented".into())
+            (PresetManagerType::Flow(manager), SimulationType::Flow(sim)) => {
+                if let Some(settings) = manager.get_preset_settings(preset_name) {
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    sim.apply_settings(settings_json, device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    sim.reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    tracing::info!("Applied Flow preset '{}'", preset_name);
+                    Ok(())
+                } else {
+                    Err(format!("Preset '{}' not found for Flow", preset_name).into())
+                }
             }
             (_, SimulationType::MainMenu(_)) => Err("Main menu does not support presets".into()),
             (_, SimulationType::Gradient(_)) => Err("Gradient does not support presets".into()),
@@ -383,11 +415,13 @@ impl SimulationPresetManager {
         let mut particle_life_preset_manager =
             ParticleLifePresetManager::new("particle_life".to_string());
         let mut pellets_preset_manager = PelletsPresetManager::new("pellets".to_string());
+        let mut flow_preset_manager = FlowPresetManager::new("flow".to_string());
 
         crate::simulations::slime_mold::init_presets(&mut slime_mold_preset_manager);
         crate::simulations::gray_scott::init_presets(&mut gray_scott_preset_manager);
         crate::simulations::particle_life::init_presets(&mut particle_life_preset_manager);
         crate::simulations::pellets::init_presets(&mut pellets_preset_manager);
+        crate::simulations::flow::init_presets(&mut flow_preset_manager);
 
         let mut managers = HashMap::new();
         managers.insert(
@@ -405,6 +439,10 @@ impl SimulationPresetManager {
         managers.insert(
             "pellets".to_string(),
             PresetManagerType::Pellets(pellets_preset_manager),
+        );
+        managers.insert(
+            "flow".to_string(),
+            PresetManagerType::Flow(flow_preset_manager),
         );
 
         Self { managers }
@@ -460,7 +498,7 @@ impl SimulationPresetManager {
     }
 
     pub fn save_preset(
-        &self,
+        &mut self,
         simulation: &SimulationType,
         preset_name: &str,
         settings: &serde_json::Value,
@@ -474,7 +512,39 @@ impl SimulationPresetManager {
         if let Some(manager) = self.managers.get(sim_name) {
             manager
                 .as_any_preset_manager()
-                .save_user_preset_json(preset_name, settings)
+                .save_user_preset_json(preset_name, settings)?;
+
+            // Reload user presets to include the newly saved one
+            self.reload_user_presets(sim_name)?;
+
+            Ok(())
+        } else {
+            Err(format!("No preset manager found for simulation type: {}", sim_name).into())
+        }
+    }
+
+    /// Reload user presets for a specific simulation type
+    pub fn reload_user_presets(&mut self, sim_name: &str) -> PresetResult<()> {
+        if let Some(manager) = self.managers.get_mut(sim_name) {
+            match manager {
+                PresetManagerType::SlimeMold(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+                PresetManagerType::GrayScott(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+                PresetManagerType::ParticleLife(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+                PresetManagerType::Pellets(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+                PresetManagerType::Flow(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+            }
+            tracing::info!("Reloaded user presets for {}", sim_name);
+            Ok(())
         } else {
             Err(format!("No preset manager found for simulation type: {}", sim_name).into())
         }

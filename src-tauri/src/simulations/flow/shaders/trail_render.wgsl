@@ -1,5 +1,4 @@
 struct SimParams {
-    particle_limit: u32,
     autospawn_limit: u32,
     vector_count: u32,
     particle_lifetime: f32,
@@ -20,7 +19,6 @@ struct SimParams {
     trail_map_height: u32,
     particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     particle_size: u32, // Particle size in pixels
-    background_type: u32, // 0=Black, 1=White, 2=Vector Field
     screen_width: u32, // Screen width in pixels
     screen_height: u32, // Screen height in pixels
     cursor_x: f32,

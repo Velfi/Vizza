@@ -2,7 +2,6 @@
 // Provides background gradients that don't decay like regular pheromones
 
 const PI: f32 = 3.14159265359;
-const TAU: f32 = 6.28318530718; // 2π
 
 @group(0) @binding(3)
 var<storage, read_write> gradient_map: array<f32>;

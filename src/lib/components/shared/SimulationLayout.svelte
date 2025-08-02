@@ -44,7 +44,7 @@
 </div>
 
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import SimulationControlBar from './SimulationControlBar.svelte';
   import SimulationMenuContainer from './SimulationMenuContainer.svelte';
 
@@ -60,6 +60,9 @@
   export let showCenterControls: boolean = true;
   export let showRightControls: boolean = true;
   export let controlModeButton: import('svelte').Snippet | undefined = undefined;
+
+  let isMousePressed = false;
+  let currentMouseButton = 0;
 
   // Event handlers
   function handleBack() {
@@ -95,10 +98,52 @@
     return event.target === event.currentTarget;
   }
 
+  // Global mouse event handler to detect mouse release outside simulation area
+  function handleGlobalMouseUp(event: MouseEvent) {
+    if (isMousePressed) {
+      isMousePressed = false;
+      // Create a synthetic mouseup event to dispatch
+      const syntheticEvent = new MouseEvent('mouseup', {
+        button: currentMouseButton,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        bubbles: true,
+        cancelable: true
+      });
+      dispatch('mouseEvent', syntheticEvent);
+    }
+  }
+
+  // Handle mouse enter on menu container to trigger release when dragging
+  function handleMenuMouseEnter(event: Event) {
+    if (isMousePressed) {
+      isMousePressed = false;
+      // Create a synthetic mouseup event to dispatch
+      const mouseEvent = event as MouseEvent;
+      const syntheticEvent = new MouseEvent('mouseup', {
+        button: currentMouseButton,
+        clientX: mouseEvent.clientX,
+        clientY: mouseEvent.clientY,
+        bubbles: true,
+        cancelable: true
+      });
+      dispatch('mouseEvent', syntheticEvent);
+    }
+  }
+
   // Handle mouse events and forward to parent, but only if not on UI elements
   function handleMouseEvent(event: MouseEvent | WheelEvent) {
     if (isDirectTarget(event)) {
       event.preventDefault();
+      
+      // Track mouse press state for global mouse up detection
+      if (event.type === 'mousedown') {
+        isMousePressed = true;
+        currentMouseButton = (event as MouseEvent).button;
+      } else if (event.type === 'mouseup') {
+        isMousePressed = false;
+      }
+      
       dispatch('mouseEvent', event);
     }
   }
@@ -110,6 +155,31 @@
       dispatch('mouseEvent', event);
     }
   }
+
+  onMount(() => {
+    // Add global mouse up listener
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    
+    // Add mouse enter listener to menu container using CSS selector
+    // Use a small delay to ensure the menu container is rendered
+    setTimeout(() => {
+      const menuContainer = document.querySelector('.simulation-menu-container');
+      if (menuContainer) {
+        menuContainer.addEventListener('mouseenter', handleMenuMouseEnter);
+      }
+    }, 100);
+  });
+
+  onDestroy(() => {
+    // Remove global mouse up listener
+    document.removeEventListener('mouseup', handleGlobalMouseUp);
+    
+    // Remove menu mouse enter listener
+    const menuContainer = document.querySelector('.simulation-menu-container');
+    if (menuContainer) {
+      menuContainer.removeEventListener('mouseenter', handleMenuMouseEnter);
+    }
+  });
 </script>
 
 <style>

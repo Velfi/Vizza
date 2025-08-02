@@ -30,6 +30,7 @@ impl BindGroupManager {
         camera_buffer: &Buffer,
         cursor_buffer: &Buffer,
         background_color_buffer: &Buffer,
+        average_color_uniform_buffer: &Buffer,
     ) -> Self {
         Self {
             compute_bind_group: Self::create_compute_bind_group(
@@ -56,6 +57,7 @@ impl BindGroupManager {
                 display_view,
                 display_sampler,
                 background_color_buffer,
+                average_color_uniform_buffer,
             ),
             camera_bind_group: Self::create_camera_bind_group(
                 device,
@@ -151,6 +153,7 @@ impl BindGroupManager {
         display_view: &TextureView,
         display_sampler: &wgpu::Sampler,
         background_color_buffer: &Buffer,
+        average_color_uniform_buffer: &Buffer,
     ) -> BindGroup {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("Render Bind Group"),
@@ -167,6 +170,10 @@ impl BindGroupManager {
                 BindGroupEntry {
                     binding: 2,
                     resource: background_color_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: average_color_uniform_buffer.as_entire_binding(),
                 },
             ],
         })

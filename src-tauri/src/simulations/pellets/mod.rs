@@ -46,4 +46,15 @@ pub fn init_presets(preset_manager: &mut crate::simulation::preset_manager::Pell
         "Default".to_string(),
         Settings::default(),
     ));
+
+    // Capture all the built-in preset names we just added
+    preset_manager.capture_built_in_presets();
+
+    // Load user presets from TOML files
+    if let Err(e) = preset_manager.load_user_presets() {
+        eprintln!("Warning: Could not load user presets: {}", e);
+    }
+
+    let preset_count = preset_manager.get_preset_names().len();
+    tracing::info!("Initialized {} pellets presets", preset_count);
 }

@@ -225,6 +225,33 @@
     }
   }
 
+  // Global keyboard event handler for fullscreen toggle
+  async function handleGlobalKeyDown(event: KeyboardEvent) {
+    // Check if user is focused on a form element - if so, don't process global shortcuts
+    const activeElement = document.activeElement;
+    const isInputFocused =
+      activeElement &&
+      (activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.tagName === 'SELECT' ||
+        (activeElement as HTMLElement).contentEditable === 'true');
+
+    if (isInputFocused) {
+      return; // Let the form element handle the keyboard input
+    }
+
+    // Check for fullscreen toggle shortcuts
+    // Windows/Linux: Alt+Enter, macOS: Cmd+F
+    if ((event.key === 'Enter' && event.altKey) || (event.key === 'f' && event.metaKey)) {
+      event.preventDefault();
+      try {
+        await invoke('toggle_fullscreen');
+      } catch (error) {
+        console.error('Failed to toggle fullscreen:', error);
+      }
+    }
+  }
+
   onMount(() => {
     // Load app settings first
     loadAppSettings();
@@ -232,11 +259,15 @@
     // Listen for resize events
     window.addEventListener('resize', debouncedResize);
 
+    // Listen for global keyboard events
+    document.addEventListener('keydown', handleGlobalKeyDown);
+
     // Send initial size
     debouncedResize();
 
     return () => {
       window.removeEventListener('resize', debouncedResize);
+      document.removeEventListener('keydown', handleGlobalKeyDown);
     };
   });
 </script>

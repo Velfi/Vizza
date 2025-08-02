@@ -6,7 +6,6 @@ struct VertexOutput {
 }
 
 struct FadeUniforms {
-    background_color: vec4<f32>,  // RGBA background color
     fade_alpha: f32,              // Alpha for fading effect
     _pad1: f32,
     _pad2: f32,
@@ -14,14 +13,15 @@ struct FadeUniforms {
 }
 
 @group(0) @binding(0) var<uniform> fade_uniforms: FadeUniforms;
+@group(0) @binding(1) var display_tex: texture_2d<f32>;
+@group(0) @binding(2) var display_sampler: sampler;
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Return background color with fade alpha
-    // This will be alpha blended over the existing trail content
-    // The fade_alpha controls how much the trails fade towards the background
+    // Sample from the display texture and apply fade alpha
+    let tex_color = textureSample(display_tex, display_sampler, input.uv);
     return vec4<f32>(
-        fade_uniforms.background_color.rgb,
+        tex_color.rgb,
         fade_uniforms.fade_alpha
     );
 } 

@@ -45,7 +45,7 @@ pub async fn save_preset(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     preset_name: String,
 ) -> Result<String, String> {
-    let sim_manager = manager.lock().await;
+    let mut sim_manager = manager.lock().await;
 
     // Get current settings (not state) for saving
     if let Some(settings) = sim_manager.get_current_settings() {

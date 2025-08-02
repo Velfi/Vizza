@@ -166,6 +166,7 @@ pub struct SlimeMoldModel {
     pub average_color_buffer: wgpu::Buffer,
     pub average_color_staging_buffer: wgpu::Buffer,
     pub average_color_bind_group: wgpu::BindGroup,
+    pub average_color_uniform_buffer: wgpu::Buffer,
     pub lut_manager: Arc<LutManager>,
 }
 
@@ -401,6 +402,14 @@ impl SlimeMoldModel {
             mapped_at_creation: false,
         });
 
+        // Create average color uniform buffer for infinite render shader
+        let average_color_uniform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Slime Mold Average Color Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Initialize with black
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         // Create bind group manager
         let bind_group_manager = BindGroupManager::new(
             device,
@@ -419,6 +428,7 @@ impl SlimeMoldModel {
             camera.buffer(),
             &cursor_buffer,
             &background_color_buffer,
+            &average_color_uniform_buffer,
         );
 
         // Create background bind group
@@ -490,6 +500,7 @@ impl SlimeMoldModel {
             average_color_buffer,
             average_color_staging_buffer,
             average_color_bind_group,
+            average_color_uniform_buffer,
             lut_manager: Arc::new(lut_manager.clone()),
         };
 
@@ -866,9 +877,6 @@ impl SlimeMoldModel {
         }
         queue.submit(std::iter::once(display_encoder.finish()));
 
-        // 3. Calculate average color from the display texture
-        self.calculate_average_color(device, queue);
-
         // 2. Render offscreen texture to surface with infinite tiling
         let tile_count = self.calculate_tile_count();
         let total_instances = tile_count * tile_count;
@@ -1047,13 +1055,6 @@ impl SlimeMoldModel {
 
     /// Update agent speeds to new random values within the current min/max range
     pub fn update_agent_speeds(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        tracing::info!(
-            "Updating {} agent speeds to range [{}, {}]",
-            self.agent_count,
-            self.settings.agent_speed_min,
-            self.settings.agent_speed_max
-        );
-
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Update Agent Speeds Encoder"),
         });
@@ -1322,6 +1323,7 @@ impl SlimeMoldModel {
             self.camera.buffer(),
             &self.cursor_buffer,
             &self.background_color_buffer,
+            &self.average_color_uniform_buffer,
         );
     }
 
@@ -1414,78 +1416,6 @@ impl SlimeMoldModel {
         );
     }
 
-    fn calculate_average_color(&self, device: &Arc<Device>, queue: &Arc<Queue>) {
-        // Reset the average color buffer to zero
-        queue.write_buffer(
-            &self.average_color_buffer,
-            0,
-            bytemuck::cast_slice(&[0u32, 0u32, 0u32, 0u32]),
-        );
-
-        // Run the average color compute shader
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Average Color Compute Encoder"),
-        });
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Average Color Compute Pass"),
-                timestamp_writes: None,
-            });
-
-            compute_pass.set_pipeline(&self.pipeline_manager.average_color_pipeline);
-            compute_pass.set_bind_group(0, &self.average_color_bind_group, &[]);
-
-            let workgroups_x = self.display_texture.width().div_ceil(16);
-            let workgroups_y = self.display_texture.height().div_ceil(16);
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-        }
-
-        // Copy results to staging buffer for readback
-        encoder.copy_buffer_to_buffer(
-            &self.average_color_buffer,
-            0,
-            &self.average_color_staging_buffer,
-            0,
-            std::mem::size_of::<[u32; 4]>() as u64,
-        );
-        queue.submit(std::iter::once(encoder.finish()));
-
-        // Read back the average color and update the background color buffer
-        let (sender, receiver) = std::sync::mpsc::channel();
-        self.average_color_staging_buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::Maintain::Wait);
-
-        if let Ok(()) = receiver.recv().unwrap() {
-            let buffer_slice = self
-                .average_color_staging_buffer
-                .slice(..)
-                .get_mapped_range();
-            let average_color_data: &[u32] = bytemuck::cast_slice(&buffer_slice);
-
-            let total_pixels = self.display_texture.width() * self.display_texture.height();
-            let background_color = [
-                (average_color_data[0] as f32) / (total_pixels * 255) as f32,
-                (average_color_data[1] as f32) / (total_pixels * 255) as f32,
-                (average_color_data[2] as f32) / (total_pixels * 255) as f32,
-                (average_color_data[3] as f32) / (total_pixels * 255) as f32,
-            ];
-
-            // Drop the mapped view before unmapping
-            drop(buffer_slice);
-
-            queue.write_buffer(
-                &self.background_color_buffer,
-                0,
-                bytemuck::cast_slice(&[background_color]),
-            );
-
-            self.average_color_staging_buffer.unmap();
-        }
-    }
-
     fn update_background_color(&self, queue: &Arc<Queue>) {
         // This method is now only used for initial setup
         // The actual average color is calculated in calculate_average_color
@@ -1543,9 +1473,6 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
         queue.submit(std::iter::once(display_encoder.finish()));
-
-        // Calculate average color from the display texture
-        self.calculate_average_color(device, queue);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Static Render Encoder"),

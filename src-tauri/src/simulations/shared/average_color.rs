@@ -116,30 +116,53 @@ impl AverageColorResources {
 
         queue.submit(std::iter::once(compute_encoder.finish()));
 
-        // Map the staging buffer for reading
+        // Map the staging buffer for reading - start the async operation
         self.staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, |_| {});
     }
 
     pub fn get_average_color(&self) -> Option<[f32; 4]> {
-        let data = self.staging_buffer.slice(..).get_mapped_range();
+        // Check if buffer is mapped by trying to get mapped range
+        // If not mapped, this will return early with None
+        let slice = self.staging_buffer.slice(..);
+
+        // We can't safely check if the buffer is mapped without potentially panicking,
+        // so we'll assume the caller has properly waited for mapping
+        let data = slice.get_mapped_range();
+
         let values: [u32; 4] = *bytemuck::from_bytes(&data);
         let pixel_count = values[3] as f32;
 
-        // Drop the mapped range before unmapping
+        // Drop the mapped range before returning
         drop(data);
 
         if pixel_count > 0.0 {
-            Some([
+            let result = [
                 values[0] as f32 / pixel_count / 255.0,
                 values[1] as f32 / pixel_count / 255.0,
                 values[2] as f32 / pixel_count / 255.0,
                 1.0,
-            ])
+            ];
+            Some(result)
         } else {
             None
         }
+    }
+
+    pub fn wait_for_mapping(&self, device: &Arc<Device>) {
+        // Poll the device until the mapping is complete
+        // Since we can't safely check mapping status without panicking,
+        // we'll poll a fixed number of times with delays
+        for _ in 0..10 {
+            device.poll(wgpu::Maintain::Wait);
+
+            // Small delay to allow async operations to complete
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        // Final poll to ensure completion
+        device.poll(wgpu::Maintain::Wait);
     }
 
     pub fn unmap_staging_buffer(&self) {

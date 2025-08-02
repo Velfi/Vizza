@@ -13,7 +13,15 @@ struct SpeciesColors {
     colors: array<vec4<f32>, 9>, // Allocate space for 9 colors (background + 8 species)
 }
 
+struct ColorMode {
+    mode: u32, // 0=Gray18, 1=White, 2=Black, 3=LUT
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
+}
+
 @group(1) @binding(0) var<uniform> species_colors: SpeciesColors;
+@group(1) @binding(1) var<uniform> color_mode: ColorMode;
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
@@ -32,14 +40,19 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     
     // Get the color for this particle's species directly from the uniform buffer
     let species_index = input.species;
-    let base_color = species_colors.colors[species_index].rgb;
     
-    // When completely faded (grid_fade_factor = 0), render a solid color
-    // representing the average of the simulation
+    // In LUT mode, species colors start at index 1 (index 0 is background)
+    // In non-LUT mode, species colors start at index 0
+    let color_index = select(species_index, species_index + 1u, color_mode.mode == 3u);
+    
+    let base_color = species_colors.colors[color_index].rgb;
+    
+    // When completely faded (grid_fade_factor = 0), render a color based on the species
+    // This gives a better representation of the simulation state than a fixed dark color
     if (input.grid_fade_factor <= 0.0) {
-        // Use a dark color that represents the "average" when tiles are too small
-        // This gives a sense of the overall simulation state
-        return vec4<f32>(0.1, 0.1, 0.15, 1.0);
+        // Use a dimmed version of the species color to represent the average
+        // This creates a more dynamic fade that reflects the simulation content
+        return vec4<f32>(base_color * 0.15, 1.0);
     }
     
     // Apply grid fade factor for infinite rendering

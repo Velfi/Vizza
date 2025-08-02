@@ -93,6 +93,13 @@ impl LutData {
         colors
     }
 
+    pub fn get_first_color(&self) -> Option<Vec<f32>> {
+        self.get_colors(1).first().cloned()
+    }
+
+    pub fn get_last_color(&self) -> Option<Vec<f32>> {
+        self.get_colors(2).last().cloned()
+    }
     /// Convert to u32 buffer for GPU usage
     pub fn to_u32_buffer(&self) -> Vec<u32> {
         let mut lut_data_combined = Vec::with_capacity(768);
@@ -302,9 +309,7 @@ mod tests {
 
         // Verify that we can load each LUT
         for lut_name in &luts {
-            let lut_data = manager.get(lut_name).unwrap_or_else(|e| {
-                panic!("Failed to load LUT '{}': {}", lut_name, e);
-            });
+            let lut_data = manager.get(lut_name).expect("LUT exists");
 
             // Verify the LUT data is valid
             assert_eq!(lut_data.name, *lut_name);

@@ -11,8 +11,7 @@ struct FlowVector {
 }
 
 struct SimParams {
-    particle_limit: u32, // Kept for backward compatibility, no longer used for limiting
-    autospawn_limit: u32, // New setting for limiting autospawned particles
+    autospawn_limit: u32, // Setting for limiting autospawned particles
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
@@ -32,7 +31,6 @@ struct SimParams {
     trail_map_height: u32,
     particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
     particle_size: u32, // Particle size in pixels
-    background_type: u32, // 0=Black, 1=White, 2=Vector Field
     screen_width: u32, // Screen width in pixels
     screen_height: u32, // Screen height in pixels
     cursor_x: f32,
@@ -76,17 +74,30 @@ fn world_to_trail_coords(world_pos: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(x, y);
 }
 
+// Convert from sRGB (gamma-corrected) to linear RGB
+fn srgb_to_linear(srgb: f32) -> f32 {
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    } else {
+        return pow((srgb + 0.055) / 1.055, 2.4);
+    }
+}
+
 // Get color from LUT
 fn get_lut_color(intensity: f32) -> vec3<f32> {
     let lut_index = clamp(intensity * 255.0, 0.0, 255.0);
     let index = u32(lut_index);
     
     // LUT data format: [r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]
-    let r = f32(lut_data[index]) / 255.0;
-    let g = f32(lut_data[index + 256u]) / 255.0;
-    let b = f32(lut_data[index + 512u]) / 255.0;
+    let r_srgb = f32(lut_data[index]) / 255.0;
+    let g_srgb = f32(lut_data[index + 256u]) / 255.0;
+    let b_srgb = f32(lut_data[index + 512u]) / 255.0;
     
-    return vec3<f32>(r, g, b);
+    return vec3<f32>(
+        srgb_to_linear(r_srgb),
+        srgb_to_linear(g_srgb),
+        srgb_to_linear(b_srgb)
+    );
 }
 
 // Check if a point is inside the particle shape

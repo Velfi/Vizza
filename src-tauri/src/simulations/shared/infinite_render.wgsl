@@ -8,7 +8,6 @@ struct CameraUniform {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-    @location(1) grid_fade_factor: f32,
 };
 
 // Standard texture-based binding (used by Flow, Pellets, Slime Mold)
@@ -17,9 +16,7 @@ var display_tex: texture_2d<f32>;
 @group(0) @binding(1)
 var display_sampler: sampler;
 
-// Background color uniform for fade effect
-@group(0) @binding(2)
-var<uniform> background_color: vec4<f32>;
+
 
 // Gray Scott uses storage buffers instead of textures
 @group(0) @binding(3)
@@ -79,20 +76,7 @@ fn calculate_tile_start(camera_pos: vec2<f32>, zoom: f32) -> vec2<i32> {
     );
 }
 
-// Calculate fade factor based on zoom level
-fn calculate_fade_factor(zoom: f32) -> f32 {
-    let fade_start = 0.05;
-    let fade_end = 0.005;
-    
-    if (zoom >= fade_start) {
-        return 1.0;
-    } else if (zoom <= fade_end) {
-        return 0.0;
-    } else {
-        let t = (zoom - fade_end) / (fade_start - fade_end);
-        return t;
-    }
-}
+
 
 // Vertex shader for infinite instanced rendering
 @vertex
@@ -123,8 +107,6 @@ fn vs_main(
     let grid_x = i32(instance_index % u32(tile_count)) + tile_start.x;
     let grid_y = i32(instance_index / u32(tile_count)) + tile_start.y;
     
-    let grid_fade_factor = calculate_fade_factor(camera.zoom);
-    
     var world_pos = vec2<f32>(
         pos[vertex_index].x + f32(grid_x) * 2.0,
         pos[vertex_index].y + f32(grid_y) * 2.0
@@ -133,7 +115,6 @@ fn vs_main(
     var out: VertexOutput;
     out.position = camera.transform_matrix * vec4<f32>(world_pos, 0.0, 1.0);
     out.uv = uv[vertex_index];
-    out.grid_fade_factor = grid_fade_factor;
     return out;
 }
 
@@ -142,17 +123,9 @@ fn vs_main(
 fn fs_main_texture(in: VertexOutput) -> @location(0) vec4<f32> {
     let base_color = textureSample(display_tex, display_sampler, in.uv);
     
-    if (in.grid_fade_factor <= 0.0) {
-        return background_color;
-    }
-    
-    let final_color = vec4<f32>(base_color.rgb, base_color.a * in.grid_fade_factor);
-    
-    if (final_color.a <= 0.0) {
-        discard;
-    }
-    
-    return final_color;
+    // Don't discard transparent pixels, just return them as-is
+    // This allows the background to show through transparent areas
+    return base_color;
 }
 
 // Fragment shader for storage buffer-based simulations (Gray Scott)
@@ -174,15 +147,9 @@ fn fs_main_storage(in: VertexOutput) -> @location(0) vec4<f32> {
     
     let base_color = vec4<f32>(r, g, b, a);
     
-    if (in.grid_fade_factor <= 0.0) {
-        return background_color;
-    }
-    
-    let final_color = vec4<f32>(base_color.rgb, base_color.a * in.grid_fade_factor);
-    
-    if (final_color.a <= 0.0) {
+    if (base_color.a <= 0.0) {
         discard;
     }
     
-    return final_color;
+    return base_color;
 } 

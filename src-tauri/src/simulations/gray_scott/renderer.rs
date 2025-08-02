@@ -70,7 +70,7 @@ impl Renderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Render Bind Group Layout"),
             entries: &[
-                // Binding 2: Background color uniform - matches shared shader
+                // Binding 2: Background color uniform
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -81,7 +81,7 @@ impl Renderer {
                     },
                     count: None,
                 },
-                // Binding 3: Simulation data (UVPair array) - matches shared shader
+                // Binding 3: Simulation data (UVPair array)
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -92,7 +92,7 @@ impl Renderer {
                     },
                     count: None,
                 },
-                // Binding 4: LUT data - matches shared shader
+                // Binding 4: LUT data
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -103,7 +103,7 @@ impl Renderer {
                     },
                     count: None,
                 },
-                // Binding 5: Simulation parameters - matches shared shader
+                // Binding 5: Simulation parameters
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
                     visibility: wgpu::ShaderStages::FRAGMENT,
