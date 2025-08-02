@@ -1,4 +1,7 @@
 use crate::error::SimulationResult;
+use crate::simulations::shared::{
+    BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager,
+};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
@@ -15,6 +18,11 @@ pub struct Renderer {
     width: u32,
     height: u32,
     settings: Settings,
+    
+    // GPU utilities
+    shader_manager: ShaderManager,
+    common_layouts: CommonBindGroupLayouts,
+    
     lut_buffer: wgpu::Buffer,
     background_color_buffer: wgpu::Buffer,
     render_infinite_pipeline: wgpu::RenderPipeline,
@@ -117,151 +125,75 @@ impl Renderer {
             ],
         });
 
-        // Create camera bind group layout
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
 
-        // Create background bind group layout
-        let background_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Background Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        // Create camera bind group layout (using common layout)
+        let camera_bind_group_layout = common_layouts.camera.clone();
+
+        // Create background bind group layout (using common layout)
+        let background_bind_group_layout = common_layouts.uniform_buffer.clone();
 
         // Initialize camera with appropriate settings for Gray Scott simulation
         // Gray Scott operates in [0,1] UV space, so we want to view that area
         // Use physical pixels for camera viewport (surface configuration dimensions)
         let camera = Camera::new(device, width as f32, height as f32)?;
 
-        // Create pipeline layout with both bind group layouts
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout, &camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        // Load shaders using shader manager
+        let shader_infinite = shader_manager.load_shader(
+            device,
+            "gray_scott_render_infinite",
+            RENDER_INFINITE_SHADER,
+        );
 
-        // Create infinite shader
-        let shader_infinite = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Render Infinite Shader"),
-            source: wgpu::ShaderSource::Wgsl(RENDER_INFINITE_SHADER.into()),
-        });
+        let background_shader = shader_manager.load_shader(
+            device,
+            "gray_scott_background",
+            crate::simulations::gray_scott::shaders::BACKGROUND_RENDER_SHADER,
+        );
 
-        // Create infinite render pipeline
-        let render_infinite_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Render Infinite Pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader_infinite,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader_infinite,
-                    entry_point: Some("fs_main_storage"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-                cache: None,
-            });
+        // Create infinite render pipeline using GPU utilities
+        let render_infinite_pipeline = RenderPipelineBuilder::new(device.clone())
+            .with_shader(shader_infinite)
+            .with_bind_group_layouts(vec![bind_group_layout.clone(), camera_bind_group_layout.clone()])
+            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
+                format: surface_config.format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })])
+            .with_primitive(wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            })
+            .with_label("Render Infinite Pipeline".to_string())
+            .build();
 
-        // Create background shader
-        let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Background Render Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                crate::simulations::gray_scott::shaders::BACKGROUND_RENDER_SHADER.into(),
-            ),
-        });
-
-        // Create background pipeline layout
-        let background_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Background Pipeline Layout"),
-                bind_group_layouts: &[&background_bind_group_layout, &camera_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        // Create background render pipeline
-        let background_render_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Background Render Pipeline"),
-                layout: Some(&background_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &background_shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &background_shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: surface_config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-                cache: None,
-            });
+        // Create background render pipeline using GPU utilities
+        let background_render_pipeline = RenderPipelineBuilder::new(device.clone())
+            .with_shader(background_shader)
+            .with_bind_group_layouts(vec![background_bind_group_layout.clone(), camera_bind_group_layout.clone()])
+            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
+                format: surface_config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })])
+            .with_primitive(wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            })
+            .with_label("Background Render Pipeline".to_string())
+            .build();
 
         Ok(Self {
             device: Arc::clone(device),
@@ -270,6 +202,8 @@ impl Renderer {
             width,
             height,
             settings,
+            shader_manager,
+            common_layouts,
             lut_buffer,
             background_color_buffer,
             render_infinite_pipeline,
@@ -296,39 +230,20 @@ impl Renderer {
         simulation_buffer: &wgpu::Buffer,
         params_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Render Bind Group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.background_color_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: simulation_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: params_buffer.as_entire_binding(),
-                },
-            ],
-        })
+        BindGroupBuilder::new(&self.device, &self.bind_group_layout)
+            .add_buffer(2, &self.background_color_buffer)
+            .add_buffer(3, simulation_buffer)
+            .add_buffer(4, &self.lut_buffer)
+            .add_buffer(5, params_buffer)
+            .with_label("Render Bind Group".to_string())
+            .build()
     }
 
     pub fn create_camera_bind_group(&self) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Camera Bind Group"),
-            layout: &self.camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.camera.buffer().as_entire_binding(),
-            }],
-        })
+        BindGroupBuilder::new(&self.device, &self.camera_bind_group_layout)
+            .add_buffer(0, self.camera.buffer())
+            .with_label("Camera Bind Group".to_string())
+            .build()
     }
 
     pub fn render(

@@ -150,4 +150,65 @@ fn vs_main(
         uv,
         f32(params.coloring_mode)
     );
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Create circular particles with aspect ratio correction
+    let center = vec2<f32>(0.5, 0.5);
+    let aspect_ratio = params.screen_width / params.screen_height;
+    
+    // Correct UV coordinates for aspect ratio to ensure circular particles
+    var corrected_uv = in.uv - center;
+    corrected_uv.x *= aspect_ratio;
+    let dist = length(corrected_uv);
+    
+    // Standard particle rendering with hard edges
+    let particle_radius = 0.45;
+    
+    if (dist > particle_radius) {
+        discard;
+    }
+    
+    var final_color: vec3<f32>;
+    
+    if (in.coloring_mode > 1.5) {
+        // Random mode (coloring_mode == 2)
+        let color_factor = clamp(in.density / 255.0, 0.0, 1.0);
+        let lut_index = u32(color_factor * 255.0);
+        let color = get_lut_color(lut_index);
+        
+        // Add mass-based glow effect for larger particles
+        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let glow_intensity = mass_factor * 0.3;
+        let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
+        
+        final_color = color + glow_color;
+    } else if (in.coloring_mode > 0.5) {
+        // Velocity mode (coloring_mode == 1) 
+        let color_factor = clamp(in.density / 4.0, 0.0, 1.0);
+        let lut_index = u32(color_factor * 255.0);
+        let color = get_lut_color(lut_index);
+        
+        // Add mass-based glow effect for larger particles
+        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let glow_intensity = mass_factor * 0.3;
+        let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
+        
+        final_color = color + glow_color;
+    } else {
+        // Density mode (coloring_mode == 0)
+        let color_factor = clamp(in.density / 16.0, 0.0, 1.0);
+        let lut_index = u32(color_factor * 255.0);
+        let color = get_lut_color(lut_index);
+        
+        // Add mass-based glow effect for larger particles
+        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let glow_intensity = mass_factor * 0.3;
+        let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
+        
+        final_color = color + glow_color;
+    }
+    
+    return vec4<f32>(final_color, 1.0);
 } 

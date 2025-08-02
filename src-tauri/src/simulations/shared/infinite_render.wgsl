@@ -129,8 +129,7 @@ fn fs_main_texture(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 // Fragment shader for storage buffer-based simulations (Gray Scott)
-@fragment
-fn fs_main_storage(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
     let tex_x = u32(in.uv.x * f32(params.width));
     let tex_y = u32(in.uv.y * f32(params.height));
     let index = tex_y * params.width + tex_x;
@@ -152,4 +151,10 @@ fn fs_main_storage(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     return base_color;
+}
+
+// Main fragment entry point for Gray-Scott (calls storage version)
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return fs_main_storage(in);
 } 

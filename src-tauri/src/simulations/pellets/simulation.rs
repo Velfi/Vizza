@@ -19,6 +19,10 @@
 //! intuitive user control over the system's behavior.
 
 use crate::error::{SimulationError, SimulationResult};
+use crate::simulations::shared::{
+    BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, RenderPipelineBuilder, ShaderManager,
+    AverageColorResources, LutManager, camera::Camera,
+};
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
 use std::sync::Arc;
@@ -30,7 +34,6 @@ use super::shaders::{
     RENDER_INFINITE_SHADER,
 };
 use super::{settings::Settings, state::State};
-use crate::simulations::shared::{AverageColorResources, LutManager, camera::Camera};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -127,6 +130,10 @@ pub struct GridCell {
 // GPU-based physics implementation - no Rapier needed
 
 pub struct PelletsModel {
+    // GPU utilities
+    shader_manager: ShaderManager,
+    common_layouts: CommonBindGroupLayouts,
+    
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub physics_params_buffer: wgpu::Buffer,
@@ -217,6 +224,10 @@ impl PelletsModel {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize particles
         let particles = Self::initialize_particles(settings.particle_count, &settings);
+
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create buffers
         let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -360,18 +371,12 @@ impl PelletsModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Create render pipeline
-        let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Pellets Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_RENDER_SHADER.into()),
-        });
-
-        let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Pellets Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                super::shaders::PARTICLE_FRAGMENT_RENDER_SHADER.into(),
-            ),
-        });
+        // Create render shaders using GPU utilities
+        let render_shader = shader_manager.load_shader(
+            device,
+            "pellets_render",
+            super::shaders::PARTICLE_RENDER_SHADER,
+        );
 
         let render_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -410,34 +415,15 @@ impl PelletsModel {
                 ],
             });
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Pellets Render Pipeline Layout"),
-                bind_group_layouts: &[&render_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Pellets Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            cache: None,
-            vertex: wgpu::VertexState {
-                module: &vertex_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &fragment_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
+        let render_pipeline = RenderPipelineBuilder::new(device.clone())
+            .with_shader(render_shader)
+            .with_bind_group_layouts(vec![render_bind_group_layout.clone()])
+            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
+                format: surface_config.format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })])
+            .with_primitive(wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
@@ -445,26 +431,22 @@ impl PelletsModel {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
+            })
+            .with_label("Pellets Render Pipeline".to_string())
+            .build();
 
-        // Create compute shaders
-        let physics_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Pellets Physics Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::PHYSICS_COMPUTE_SHADER.into()),
-        });
+        // Create compute shaders using GPU utilities
+        let physics_shader = shader_manager.load_shader(
+            device,
+            "pellets_physics_compute",
+            super::shaders::PHYSICS_COMPUTE_SHADER,
+        );
 
-        let density_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Pellets Density Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::DENSITY_COMPUTE_SHADER.into()),
-        });
+        let density_shader = shader_manager.load_shader(
+            device,
+            "pellets_density_compute",
+            super::shaders::DENSITY_COMPUTE_SHADER,
+        );
 
         // Create compute bind group layouts
         let physics_bind_group_layout =
@@ -514,22 +496,12 @@ impl PelletsModel {
                 ],
             });
 
-        // Create compute pipelines
-        let physics_compute_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Pellets Physics Compute Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Pellets Physics Pipeline Layout"),
-                        bind_group_layouts: &[&physics_bind_group_layout],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &physics_shader,
-                entry_point: Some("main"),
-                cache: None,
-                compilation_options: Default::default(),
-            });
+        // Create compute pipelines using GPU utilities
+        let physics_compute_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(physics_shader)
+            .with_bind_group_layouts(vec![physics_bind_group_layout.clone()])
+            .with_label("Pellets Physics Compute Pipeline".to_string())
+            .build();
 
         // Create density bind group layout (separate from physics layout)
         let density_bind_group_layout =
@@ -559,55 +531,24 @@ impl PelletsModel {
                 ],
             });
 
-        let density_compute_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Pellets Density Compute Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Pellets Density Pipeline Layout"),
-                        bind_group_layouts: &[&density_bind_group_layout],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &density_shader,
-                entry_point: Some("main"),
-                cache: None,
-                compilation_options: Default::default(),
-            });
+        let density_compute_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(density_shader)
+            .with_bind_group_layouts(vec![density_bind_group_layout.clone()])
+            .with_label("Pellets Density Compute Pipeline".to_string())
+            .build();
 
-        let density_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Pellets Density Bind Group"),
-            layout: &density_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: density_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let density_bind_group = BindGroupBuilder::new(device, &density_bind_group_layout)
+            .add_buffer(0, &particle_buffer)
+            .add_buffer(1, &density_params_buffer)
+            .with_label("Pellets Density Bind Group".to_string())
+            .build();
 
-        let render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Pellets Render Bind Group"),
-            layout: &render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: render_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let render_bind_group = BindGroupBuilder::new(device, &render_bind_group_layout)
+            .add_buffer(0, &particle_buffer)
+            .add_buffer(1, &render_params_buffer)
+            .add_buffer(2, &lut_buffer)
+            .with_label("Pellets Render Bind Group".to_string())
+            .build();
 
         // Create background pipeline
         let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1414,6 +1355,8 @@ impl PelletsModel {
             AverageColorResources::new(device, &post_effect_texture, &post_effect_view, "Pellets");
 
         Ok(PelletsModel {
+            shader_manager,
+            common_layouts,
             particle_buffer,
             physics_params_buffer,
             density_params_buffer,

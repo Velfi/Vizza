@@ -5,7 +5,8 @@ use super::shaders::{
 };
 use crate::simulations::shared::camera::Camera;
 use crate::simulations::shared::{
-    AverageColorResources, LutManager, PostProcessingResources, PostProcessingState,
+    AverageColorResources, BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder,
+    LutManager, PostProcessingResources, PostProcessingState, ShaderManager,
 };
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
@@ -83,6 +84,10 @@ pub struct SimParams {
 pub struct FlowModel {
     pub settings: Settings,
 
+    // GPU utilities
+    pub shader_manager: ShaderManager,
+    pub common_layouts: CommonBindGroupLayouts,
+
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub flow_vector_buffer: wgpu::Buffer,
@@ -97,7 +102,6 @@ pub struct FlowModel {
 
     // Particle update pipeline
     pub particle_update_pipeline: wgpu::ComputePipeline,
-    pub particle_update_pipeline_layout: wgpu::PipelineLayout,
     pub particle_update_bind_group: wgpu::BindGroup,
 
     // Trail decay and diffusion pipeline
@@ -525,11 +529,16 @@ impl FlowModel {
             ..Default::default()
         });
 
-        // Create particle update pipeline
-        let particle_update_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flow Particle Update Shader"),
-            source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
-        });
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
+
+        // Create particle update pipeline using GPU utilities
+        let particle_update_shader = shader_manager.load_shader(
+            device,
+            "flow_particle_update",
+            PARTICLE_UPDATE_SHADER,
+        );
 
         let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -588,49 +597,20 @@ impl FlowModel {
                 ],
             });
 
-        let particle_update_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Particle Update Pipeline Layout"),
-                bind_group_layouts: &[&compute_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let particle_update_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(particle_update_shader)
+            .with_bind_group_layouts(vec![compute_bind_group_layout.clone()])
+            .with_label("Flow Particle Update Pipeline".to_string())
+            .build();
 
-        let particle_update_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Flow Particle Update Pipeline"),
-                layout: Some(&particle_update_pipeline_layout),
-                module: &particle_update_shader,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        let particle_update_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Update Bind Group"),
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let particle_update_bind_group = BindGroupBuilder::new(device, &compute_bind_group_layout)
+            .add_buffer(0, &particle_buffer)
+            .add_buffer(1, &flow_vector_buffer)
+            .add_buffer(2, &sim_params_buffer)
+            .add_texture_view(3, &trail_texture_view)
+            .add_buffer(4, &lut_buffer)
+            .with_label("Particle Update Bind Group".to_string())
+            .build();
 
         // Create trail decay and diffusion pipeline
         let trail_decay_diffusion_shader =
@@ -1343,6 +1323,7 @@ impl FlowModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&display_sampler),
                 },
+
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: average_color_uniform_buffer.as_entire_binding(),
@@ -1413,6 +1394,8 @@ impl FlowModel {
         // Create the FlowModel instance
         let flow_model = Self {
             settings,
+            shader_manager,
+            common_layouts,
             particle_buffer,
             flow_vector_buffer,
             sim_params_buffer,
@@ -1423,7 +1406,6 @@ impl FlowModel {
             trail_texture_view,
             trail_sampler,
             particle_update_pipeline,
-            particle_update_pipeline_layout,
             particle_update_bind_group,
             trail_decay_diffusion_pipeline,
             trail_decay_diffusion_bind_group,
@@ -1553,12 +1535,7 @@ impl FlowModel {
         );
     }
 
-    fn clear_trail_texture(
-        &self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        background_color: [f32; 4],
-    ) {
+    fn clear_trail_texture(&self, device: &Arc<Device>, queue: &Arc<Queue>, background_color: [f32; 4]) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Clear Trail Texture Encoder"),
         });
@@ -1604,6 +1581,8 @@ impl FlowModel {
         // Unmap the staging buffer after reading
         self.average_color_resources.unmap_staging_buffer();
     }
+
+
 
     fn apply_post_processing(
         &self,
@@ -2576,21 +2555,74 @@ impl Simulation for FlowModel {
                     }
 
                     // Recreate the compute pipeline to ensure compatibility with the bind group layout
-                    let particle_update_shader =
-                        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                            label: Some("Flow Particle Update Shader"),
-                            source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
-                        });
+                    let particle_update_shader = self.shader_manager.load_shader(
+                        device,
+                        "flow_particle_update",
+                        PARTICLE_UPDATE_SHADER,
+                    );
 
-                    self.particle_update_pipeline =
-                        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                            label: Some("Flow Particle Update Pipeline"),
-                            layout: Some(&self.particle_update_pipeline_layout),
-                            module: &particle_update_shader,
-                            entry_point: Some("main"),
-                            compilation_options: Default::default(),
-                            cache: None,
-                        });
+                    // Create the compute bind group layout for particle update
+                    let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                        label: Some("Compute Bind Group Layout"),
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 2,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Uniform,
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 3,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::StorageTexture {
+                                    access: wgpu::StorageTextureAccess::ReadWrite,
+                                    format: wgpu::TextureFormat::Rgba8Unorm,
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 4,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                        ],
+                    });
+
+                    self.particle_update_pipeline = ComputePipelineBuilder::new(device.clone())
+                        .with_shader(particle_update_shader)
+                        .with_bind_group_layouts(vec![compute_bind_group_layout])
+                        .with_label("Flow Particle Update Pipeline".to_string())
+                        .build();
                 }
             }
             "lutReversed" => {
@@ -2624,22 +2656,75 @@ impl Simulation for FlowModel {
                         self.clear_trail_texture(device, queue, background_color);
                     }
 
-                    // Recreate the compute pipeline to ensure compatibility with the bind group layout
-                    let particle_update_shader =
-                        device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                            label: Some("Flow Particle Update Shader"),
-                            source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
-                        });
+                    // Recreate the compute pipeline using GPU utilities
+                    let particle_update_shader = self.shader_manager.load_shader(
+                        device,
+                        "flow_particle_update",
+                        PARTICLE_UPDATE_SHADER,
+                    );
 
-                    self.particle_update_pipeline =
-                        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                            label: Some("Flow Particle Update Pipeline"),
-                            layout: Some(&self.particle_update_pipeline_layout),
-                            module: &particle_update_shader,
-                            entry_point: Some("main"),
-                            compilation_options: Default::default(),
-                            cache: None,
-                        });
+                    // Create the compute bind group layout for particle update
+                    let compute_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                        label: Some("Compute Bind Group Layout"),
+                        entries: &[
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 0,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 1,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 2,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Uniform,
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 3,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::StorageTexture {
+                                    access: wgpu::StorageTextureAccess::ReadWrite,
+                                    format: wgpu::TextureFormat::Rgba8Unorm,
+                                    view_dimension: wgpu::TextureViewDimension::D2,
+                                },
+                                count: None,
+                            },
+                            wgpu::BindGroupLayoutEntry {
+                                binding: 4,
+                                visibility: wgpu::ShaderStages::COMPUTE,
+                                ty: wgpu::BindingType::Buffer {
+                                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                    has_dynamic_offset: false,
+                                    min_binding_size: None,
+                                },
+                                count: None,
+                            },
+                        ],
+                    });
+
+                    self.particle_update_pipeline = ComputePipelineBuilder::new(device.clone())
+                        .with_shader(particle_update_shader)
+                        .with_bind_group_layouts(vec![compute_bind_group_layout])
+                        .with_label("Flow Particle Update Pipeline".to_string())
+                        .build();
                 }
             }
 
@@ -2729,11 +2814,11 @@ impl Simulation for FlowModel {
             "guiVisible": self.gui_visible,
             "cursorSize": self.cursor_size,
             "cursorStrength": self.cursor_strength,
-            "background": self.background.to_string(),
+            "background": self.background,
             "currentLut": self.current_lut,
             "lutReversed": self.lut_reversed,
             "showParticles": self.show_particles,
-            "displayMode": self.display_mode.to_string(),
+            "displayMode": self.display_mode,
         })
     }
 
@@ -2837,6 +2922,7 @@ impl Simulation for FlowModel {
                 0,
                 bytemuck::cast_slice(&[sim_params]),
             );
+
         }
 
         // Store cursor values in the model
@@ -2905,7 +2991,7 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
-
+            
             // Update GPU buffers after applying new settings
             self.update_background_color(queue);
             self.write_sim_params(queue);
@@ -2930,7 +3016,7 @@ impl Simulation for FlowModel {
                 let particle = Particle {
                     position: [x, y],
                     age: rng.random_range(0.0..self.settings.particle_lifetime),
-                    color: [0.0, 0.0, 0.0, 1.0],
+                    color:  [0.0, 0.0, 0.0, 1.0],
                     my_parent_was: 0, // Autospawned
                 };
                 particles.push(particle);

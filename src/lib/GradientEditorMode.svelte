@@ -161,6 +161,8 @@
           <div class="button-group">
             <button type="button" on:click={reverseGradient} class="btn-action">Reverse</button>
             <button type="button" on:click={exportLUT} class="btn-action">Export</button>
+            <button type="button" on:click={debugTestRed} class="btn-action">Test Red</button>
+            <button type="button" on:click={debugSolidRed} class="btn-action">Solid Red</button>
           </div>
         </div>
         <div class="random-group">
@@ -222,14 +224,14 @@
 
   // State variables
   let lutName = '';
-  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'OkLab';
+  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'RGB';
   let selectedPreset = 'Custom';
   let selectedDisplayMode = 'Smooth';
   let selectedRandomScheme: string = 'Basic';
   let randomStopPlacement: 'Even' | 'Random' = 'Random';
   let randomStopCount: number = 3;
   let gradientStops = [
-    { position: 0, color: '#0000ff' },
+    { position: 0, color: '#ff0000' },
     { position: 1, color: '#ffff00' },
   ];
   let selectedStopIndex = 0;
@@ -411,6 +413,10 @@
 
     // Handle edge cases quickly
     if (position <= gradientStops[0].position) {
+      // Debug: Log when we're at the left edge
+      if (position === 0) {
+        console.log('At left edge (position 0), returning:', gradientStops[0].color);
+      }
       return gradientStops[0].color;
     }
     if (position >= gradientStops[gradientStops.length - 1].position) {
@@ -445,6 +451,8 @@
 
   // Handle color input
   function handleColorInput() {
+    // Force immediate update to ensure color changes are reflected
+    gradientStops = [...gradientStops];
     updateGradient();
   }
 
@@ -458,7 +466,7 @@
   }
 
   // Generate LUT data from current gradient stops
-  function generateLutData(): number[] {
+  function generateLutData(): Uint8Array {
     const rArr: number[] = [];
     const gArr: number[] = [];
     const bArr: number[] = [];
@@ -466,16 +474,42 @@
     for (let i = 0; i < 256; i++) {
       const t = i / 255;
       const color = getColorAtPosition(t);
-      const r = parseInt(color.slice(1, 3), 16);
-      const g = parseInt(color.slice(3, 5), 16);
-      const b = parseInt(color.slice(5, 7), 16);
-      rArr.push(r);
-      gArr.push(g);
-      bArr.push(b);
+      const r = Math.round(parseInt(color.slice(1, 3), 16));
+      const g = Math.round(parseInt(color.slice(3, 5), 16));
+      const b = Math.round(parseInt(color.slice(5, 7), 16));
+      
+      // Ensure values are valid integers in 0-255 range
+      const rClamped = Math.max(0, Math.min(255, r));
+      const gClamped = Math.max(0, Math.min(255, g));
+      const bClamped = Math.max(0, Math.min(255, b));
+      
+      rArr.push(rClamped);
+      gArr.push(gClamped);
+      bArr.push(bClamped);
+    }
+
+    // Debug: Log the first few colors to verify they're correct
+    if (rArr.length > 0) {
+      console.log('=== GRADIENT DEBUG ===');
+      console.log('Gradient stops:', gradientStops);
+      console.log('First gradient stop color:', gradientStops[0].color);
+      console.log('First LUT position (t=0):', getColorAtPosition(0));
+      console.log('RGB values at position 0:', { r: rArr[0], g: gArr[0], b: bArr[0] });
+      console.log('Hex reconstruction:', `#${rArr[0].toString(16).padStart(2, '0')}${gArr[0].toString(16).padStart(2, '0')}${bArr[0].toString(16).padStart(2, '0')}`);
+      console.log('Gradient colors at positions 0, 1, 2:', 
+        `#${rArr[0].toString(16).padStart(2, '0')}${gArr[0].toString(16).padStart(2, '0')}${bArr[0].toString(16).padStart(2, '0')}`,
+        `#${rArr[1].toString(16).padStart(2, '0')}${gArr[1].toString(16).padStart(2, '0')}${bArr[1].toString(16).padStart(2, '0')}`,
+        `#${rArr[2].toString(16).padStart(2, '0')}${gArr[2].toString(16).padStart(2, '0')}${bArr[2].toString(16).padStart(2, '0')}`
+      );
+      console.log('=== END DEBUG ===');
     }
 
     // Create planar format: [r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]
-    return [...rArr, ...gArr, ...bArr];
+    const result = new Uint8Array(768);
+    result.set(rArr, 0);
+    result.set(gArr, 256);
+    result.set(bArr, 512);
+    return result;
   }
 
   async function updateGradient() {
@@ -568,6 +602,32 @@
 
   function triggerRandomization() {
     randomizeGradient(selectedRandomScheme);
+  }
+
+  function debugTestRed() {
+    // Set to a simple pure red to pure black gradient for testing
+    gradientStops = [
+      { position: 0, color: '#ff0000' }, // Pure red
+      { position: 1, color: '#000000' }, // Pure black
+    ];
+    selectedStopIndex = 0;
+    console.log('=== DEBUG TEST RED ===');
+    console.log('Set gradient to pure red -> black');
+    console.log('Left stop should be pure red (#ff0000)');
+    updateGradient();
+  }
+
+  function debugSolidRed() {
+    // Set to solid red across the entire gradient for testing
+    gradientStops = [
+      { position: 0, color: '#ff0000' }, // Pure red
+      { position: 1, color: '#ff0000' }, // Pure red
+    ];
+    selectedStopIndex = 0;
+    console.log('=== DEBUG SOLID RED ===');
+    console.log('Set gradient to solid red (#ff0000)');
+    console.log('Entire gradient should be pure red');
+    updateGradient();
   }
 
   function generateRandomColors(scheme: string): string[] {

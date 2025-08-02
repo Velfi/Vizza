@@ -1,19 +1,24 @@
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
-use crate::simulations::shared::lut::LutData;
+use crate::simulations::shared::{
+    BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager,
+    lut::LutData,
+};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, Device, Queue,
-    RenderPipeline, ShaderStages, SurfaceConfiguration, TextureFormat, TextureView,
-    VertexBufferLayout,
+    BindGroup, Buffer, BufferUsages, Device, Queue, RenderPipeline, SurfaceConfiguration, 
+    TextureFormat, TextureView,
 };
 
 #[derive(Debug)]
 pub struct GradientSimulation {
+    // GPU utilities
+    shader_manager: ShaderManager,
+    common_layouts: CommonBindGroupLayouts,
+    
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
     index_buffer: Buffer,
@@ -30,6 +35,10 @@ pub struct GradientSimulation {
 
 impl GradientSimulation {
     pub fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self {
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
+
         // Create vertex buffer for a full-screen quad
         let vertices: [f32; 16] = [
             -1.0, -1.0, 0.0, 0.0, // position, uv
@@ -57,32 +66,8 @@ impl GradientSimulation {
             mapped_at_creation: false,
         });
 
-        // Create bind group layout
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Gradient Bind Group Layout"),
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        // Create bind group layout using common layouts
+        let bind_group_layout = common_layouts.lut.clone();
 
         // Create parameters buffer
         let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -96,70 +81,41 @@ impl GradientSimulation {
         let params_data = [0u32, 0u32, 0u32, 0u32]; // display_mode = 0 (smooth), padding
         queue.write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params_data));
 
-        // Create bind group
-        let lut_bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("Gradient LUT Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        // Create bind group using GPU utilities
+        let lut_bind_group = BindGroupBuilder::new(device, &bind_group_layout)
+            .add_buffer(0, &lut_buffer)
+            .add_buffer(1, &params_buffer)
+            .with_label("Gradient LUT Bind Group".to_string())
+            .build();
 
-        // Create render pipeline
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Gradient Shader"),
-            source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
-        });
+        // Create render pipeline using GPU utilities
+        let shader = shader_manager.load_shader(device, "gradient", GRADIENT_SHADER);
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Gradient Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Gradient Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[VertexBufferLayout {
-                    array_stride: 16, // 4 floats * 4 bytes
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2, // position
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x2, // uv
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
+        let render_pipeline = RenderPipelineBuilder::new(Arc::new(device.clone()))
+            .with_shader(shader)
+            .with_bind_group_layouts(vec![bind_group_layout.clone()])
+            .with_vertex_buffer_layouts(vec![wgpu::VertexBufferLayout {
+                array_stride: 16, // 4 floats * 4 bytes
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        offset: 0,
+                        shader_location: 0,
+                        format: wgpu::VertexFormat::Float32x2, // position
+                    },
+                    wgpu::VertexAttribute {
+                        offset: 8,
+                        shader_location: 1,
+                        format: wgpu::VertexFormat::Float32x2, // uv
+                    },
+                ],
+            }])
+            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })])
+            .with_primitive(wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
@@ -167,16 +123,9 @@ impl GradientSimulation {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+            })
+            .with_label("Gradient Render Pipeline".to_string())
+            .build();
 
         // Initialize with a default gradient LUT using standard format
         let mut default_lut = Vec::with_capacity(256 * 3);
@@ -192,6 +141,8 @@ impl GradientSimulation {
         queue.write_buffer(&lut_buffer, 0, bytemuck::cast_slice(&default_lut));
 
         Self {
+            shader_manager,
+            common_layouts,
             render_pipeline,
             vertex_buffer,
             index_buffer,

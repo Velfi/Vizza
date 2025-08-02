@@ -1,5 +1,7 @@
 use crate::error::SimulationResult;
-use crate::simulations::shared::LutManager;
+use crate::simulations::shared::{
+    BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager, LutManager,
+};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
 use std::sync::Arc;
@@ -9,6 +11,10 @@ use wgpu::{BindGroup, Buffer, Device, Queue, RenderPipeline, SurfaceConfiguratio
 
 #[derive(Debug)]
 pub struct MainMenuModel {
+    // GPU utilities
+    shader_manager: ShaderManager,
+    common_layouts: CommonBindGroupLayouts,
+    
     render_pipeline: RenderPipeline,
     time_buffer: Buffer,
     time_bind_group: BindGroup,
@@ -23,6 +29,10 @@ impl MainMenuModel {
         surface_config: &SurfaceConfiguration,
         lut_manager: &LutManager,
     ) -> SimulationResult<Self> {
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
+
         // Create the time uniform buffer and bind group
         let time_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Main Menu Time Buffer"),
@@ -31,29 +41,12 @@ impl MainMenuModel {
             mapped_at_creation: false,
         });
 
-        let time_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Main Menu Time Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let time_bind_group_layout = common_layouts.uniform_buffer.clone();
 
-        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Main Menu Time Bind Group"),
-            layout: &time_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: time_buffer.as_entire_binding(),
-            }],
-        });
+        let time_bind_group = BindGroupBuilder::new(device, &time_bind_group_layout)
+            .add_buffer(0, &time_buffer)
+            .with_label("Main Menu Time Bind Group".to_string())
+            .build();
 
         // Create LUT buffer from a random LUT and create bind group
         let lut_data = lut_manager.get_random_lut()?;
@@ -64,73 +57,30 @@ impl MainMenuModel {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let lut_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Main Menu LUT Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let lut_bind_group_layout = common_layouts.lut.clone();
 
-        let lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Main Menu LUT Bind Group"),
-            layout: &lut_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: lut_buffer.as_entire_binding(),
-            }],
-        });
+        let lut_bind_group = BindGroupBuilder::new(device, &lut_bind_group_layout)
+            .add_buffer(0, &lut_buffer)
+            .with_label("Main Menu LUT Bind Group".to_string())
+            .build();
 
-        // Create shaders
-        let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Main Menu Background Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                crate::simulations::main_menu::shaders::VERTEX_SHADER.into(),
-            ),
-        });
+        // Create shaders using GPU utilities
+        let combined_shader = shader_manager.load_shader(
+            device,
+            "main_menu_combined",
+            crate::simulations::main_menu::shaders::COMBINED_SHADER,
+        );
 
-        let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Main Menu Background Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                crate::simulations::main_menu::shaders::FRAGMENT_SHADER.into(),
-            ),
-        });
-
-        // Create render pipeline with both bind groups
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Main Menu Background Pipeline Layout"),
-                bind_group_layouts: &[&time_bind_group_layout, &lut_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Main Menu Background Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &vertex_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &fragment_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
+        // Create render pipeline using GPU utilities
+        let render_pipeline = RenderPipelineBuilder::new(device.clone())
+            .with_shader(combined_shader)
+            .with_bind_group_layouts(vec![time_bind_group_layout.clone(), lut_bind_group_layout.clone()])
+            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
+                format: surface_config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })])
+            .with_primitive(wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
@@ -138,20 +88,15 @@ impl MainMenuModel {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+            })
+            .with_label("Main Menu Background Render Pipeline".to_string())
+            .build();
 
         let start_time = Instant::now();
 
         Ok(Self {
+            shader_manager,
+            common_layouts,
             render_pipeline,
             time_buffer,
             time_bind_group,

@@ -1,4 +1,8 @@
 use crate::error::{SimulationError, SimulationResult};
+use crate::simulations::shared::{
+    BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, ShaderManager,
+    LutManager, PositionGenerator, camera::Camera,
+};
 use bytemuck::{Pod, Zeroable};
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -9,7 +13,6 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::{MatrixGenerator, Settings, TypeGenerator};
 use super::shaders;
-use crate::simulations::shared::{LutManager, PositionGenerator, camera::Camera};
 use crate::simulations::traits::Simulation;
 
 #[repr(C)]
@@ -259,6 +262,10 @@ pub enum ColorMode {
 /// Particle Life simulation model
 #[derive(Debug)]
 pub struct ParticleLifeModel {
+    // GPU utilities
+    shader_manager: ShaderManager,
+    common_layouts: CommonBindGroupLayouts,
+    
     // GPU resources
     pub particle_buffer: wgpu::Buffer,
     pub sim_params_buffer: wgpu::Buffer,
@@ -734,6 +741,10 @@ impl ParticleLifeModel {
             });
         }
 
+        // Initialize GPU utilities
+        let mut shader_manager = ShaderManager::new();
+        let common_layouts = CommonBindGroupLayouts::new(device);
+
         // Create empty particle buffer (will be initialized on GPU)
         let particle_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Particle Buffer"),
@@ -773,11 +784,12 @@ impl ParticleLifeModel {
             }),
         );
 
-        // Create compute shader and pipeline
-        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Particle Life Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shaders::COMPUTE_SHADER.into()),
-        });
+        // Create compute shader and pipeline using GPU utilities
+        let compute_shader = shader_manager.load_shader(
+            device,
+            "particle_life_compute",
+            shaders::COMPUTE_SHADER,
+        );
 
         let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -816,46 +828,25 @@ impl ParticleLifeModel {
                 ],
             });
 
-        let compute_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Particle Life Compute Pipeline Layout"),
-                bind_group_layouts: &[&compute_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let compute_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(compute_shader)
+            .with_bind_group_layouts(vec![compute_bind_group_layout.clone()])
+            .with_label("Particle Life Compute Pipeline".to_string())
+            .build();
 
-        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Particle Life Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &compute_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let compute_bind_group = BindGroupBuilder::new(device, &compute_bind_group_layout)
+            .add_buffer(0, &particle_buffer)
+            .add_buffer(1, &sim_params_buffer)
+            .add_buffer(2, &force_matrix_buffer)
+            .with_label("Particle Life Compute Bind Group".to_string())
+            .build();
 
-        let compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Life Compute Bind Group"),
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: force_matrix_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // Create initialization compute shader and pipeline
-        let init_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Particle Life Init Shader"),
-            source: wgpu::ShaderSource::Wgsl(shaders::INIT_SHADER.into()),
-        });
+        // Create initialization compute shader and pipeline using GPU utilities
+        let init_shader = shader_manager.load_shader(
+            device,
+            "particle_life_init",
+            shaders::INIT_SHADER,
+        );
 
         let init_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -884,20 +875,11 @@ impl ParticleLifeModel {
                 ],
             });
 
-        let init_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Particle Life Init Pipeline Layout"),
-            bind_group_layouts: &[&init_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let init_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Particle Life Init Pipeline"),
-            layout: Some(&init_pipeline_layout),
-            module: &init_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let init_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(init_shader)
+            .with_bind_group_layouts(vec![init_bind_group_layout.clone()])
+            .with_label("Particle Life Init Pipeline".to_string())
+            .build();
 
         // Create init params buffer
         let init_params = InitParams {
@@ -919,26 +901,18 @@ impl ParticleLifeModel {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let init_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Life Init Bind Group"),
-            layout: &init_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: init_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let init_bind_group = BindGroupBuilder::new(device, &init_bind_group_layout)
+            .add_buffer(0, &particle_buffer)
+            .add_buffer(1, &init_params_buffer)
+            .with_label("Particle Life Init Bind Group".to_string())
+            .build();
 
-        // Create force update compute shader and pipeline
-        let force_update_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Force Update Shader"),
-            source: wgpu::ShaderSource::Wgsl(shaders::FORCE_UPDATE_SHADER.into()),
-        });
+        // Create force update compute shader and pipeline using GPU utilities
+        let force_update_shader = shader_manager.load_shader(
+            device,
+            "particle_life_force_update",
+            shaders::FORCE_UPDATE_SHADER,
+        );
 
         let force_update_params = ForceUpdateParams {
             species_a: 0,
@@ -980,43 +954,24 @@ impl ParticleLifeModel {
                 ],
             });
 
-        let force_update_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Force Update Pipeline Layout"),
-                bind_group_layouts: &[&force_update_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let force_update_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(force_update_shader)
+            .with_bind_group_layouts(vec![force_update_bind_group_layout.clone()])
+            .with_label("Force Update Pipeline".to_string())
+            .build();
 
-        let force_update_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Force Update Pipeline"),
-                layout: Some(&force_update_pipeline_layout),
-                module: &force_update_shader,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
+        let force_update_bind_group = BindGroupBuilder::new(device, &force_update_bind_group_layout)
+            .add_buffer(0, &force_matrix_buffer)
+            .add_buffer(1, &force_update_params_buffer)
+            .with_label("Force Update Bind Group".to_string())
+            .build();
 
-        let force_update_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Force Update Bind Group"),
-            layout: &force_update_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: force_matrix_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: force_update_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // Create force randomization compute shader and pipeline
-        let force_randomize_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Force Randomize Shader"),
-            source: wgpu::ShaderSource::Wgsl(shaders::FORCE_RANDOMIZE_SHADER.into()),
-        });
+        // Create force randomization compute shader and pipeline using GPU utilities
+        let force_randomize_shader = shader_manager.load_shader(
+            device,
+            "particle_life_force_randomize",
+            shaders::FORCE_RANDOMIZE_SHADER,
+        );
 
         let force_randomize_params = ForceRandomizeParams {
             species_count: settings.species_count,
@@ -1058,37 +1013,17 @@ impl ParticleLifeModel {
                 ],
             });
 
-        let force_randomize_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Force Randomize Pipeline Layout"),
-                bind_group_layouts: &[&force_randomize_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let force_randomize_pipeline = ComputePipelineBuilder::new(device.clone())
+            .with_shader(force_randomize_shader)
+            .with_bind_group_layouts(vec![force_randomize_bind_group_layout.clone()])
+            .with_label("Force Randomize Pipeline".to_string())
+            .build();
 
-        let force_randomize_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Force Randomize Pipeline"),
-                layout: Some(&force_randomize_pipeline_layout),
-                module: &force_randomize_shader,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-
-        let force_randomize_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Force Randomize Bind Group"),
-            layout: &force_randomize_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: force_matrix_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: force_randomize_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let force_randomize_bind_group = BindGroupBuilder::new(device, &force_randomize_bind_group_layout)
+            .add_buffer(0, &force_matrix_buffer)
+            .add_buffer(1, &force_randomize_params_buffer)
+            .with_label("Force Randomize Bind Group".to_string())
+            .build();
 
         // Create render shaders and pipeline
         let vertex_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -2341,6 +2276,8 @@ impl ParticleLifeModel {
             });
 
         let mut result = Self {
+            shader_manager,
+            common_layouts,
             particle_buffer: particle_buffer.clone(),
             sim_params_buffer: sim_params_buffer.clone(),
             force_matrix_buffer,
