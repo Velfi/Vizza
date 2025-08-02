@@ -6,10 +6,9 @@ struct VertexOutput {
 }
 
 struct FadeUniforms {
-    fade_alpha: f32,              // Alpha for fading effect
-    _pad1: f32,
-    _pad2: f32,
-    _pad3: f32,
+    background_color: vec3<f32>,  // Background color to fade to
+    fade_alpha: f32,              // Alpha for fading effect (0.0 = full fade, 1.0 = no fade)
+    _pad1: f32,                   // Padding for 16-byte alignment
 }
 
 @group(0) @binding(0) var<uniform> fade_uniforms: FadeUniforms;
@@ -18,10 +17,14 @@ struct FadeUniforms {
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // Sample from the display texture and apply fade alpha
+    // Sample from the display texture
     let tex_color = textureSample(display_tex, display_sampler, input.uv);
-    return vec4<f32>(
-        tex_color.rgb,
-        fade_uniforms.fade_alpha
-    );
+    
+    // Apply fade by blending towards background color
+    // fade_alpha controls how much of the original color to keep
+    // 0.0 = completely fade to background, 1.0 = keep original color
+    let faded_color = mix(fade_uniforms.background_color, tex_color.rgb, fade_uniforms.fade_alpha);
+    
+    // Preserve the original alpha for proper blending
+    return vec4<f32>(faded_color, tex_color.a);
 } 

@@ -316,9 +316,15 @@ impl SlimeMoldModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: match settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            min_filter: match settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -1230,6 +1236,17 @@ impl SlimeMoldModel {
                     self.position_generator = generator;
                 }
             }
+            "trailMapFiltering" => {
+                if let Some(filtering_str) = value.as_str() {
+                    self.settings.trail_map_filtering = match filtering_str {
+                        "Nearest" => super::settings::TrailMapFiltering::Nearest,
+                        "Linear" => super::settings::TrailMapFiltering::Linear,
+                        _ => super::settings::TrailMapFiltering::Nearest,
+                    };
+                    // Update the display sampler with new filtering
+                    self.update_display_sampler(device);
+                }
+            }
             _ => {
                 return Err(format!("Unknown setting: {}", setting_name).into());
             }
@@ -1342,31 +1359,18 @@ impl SlimeMoldModel {
 
     // Camera control methods
     pub fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        tracing::debug!(
-            "Slime mold pan_camera called: delta=({:.2}, {:.2})",
-            delta_x,
-            delta_y
-        );
         self.camera.pan(delta_x, delta_y);
     }
 
     pub fn zoom_camera(&mut self, delta: f32) {
-        tracing::debug!("Slime mold zoom_camera called: delta={:.2}", delta);
         self.camera.zoom(delta);
     }
 
     pub fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        tracing::debug!(
-            "Slime mold zoom_camera_to_cursor called: delta={:.2}, cursor=({:.2}, {:.2})",
-            delta,
-            cursor_x,
-            cursor_y
-        );
         self.camera.zoom_to_cursor(delta, cursor_x, cursor_y);
     }
 
     pub fn reset_camera(&mut self) {
-        tracing::debug!("Slime mold reset_camera called");
         self.camera.reset();
     }
 
@@ -2047,5 +2051,25 @@ fn scale_trail_map_data(
         });
         encoder.copy_buffer_to_buffer(&write_staging_buffer, 0, new_buffer, 0, new_size as u64);
         queue.submit(std::iter::once(encoder.finish()));
+    }
+}
+
+impl SlimeMoldModel {
+    pub fn update_display_sampler(&mut self, device: &Arc<Device>) {
+        self.display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: match self.settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            min_filter: match self.settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
     }
 }

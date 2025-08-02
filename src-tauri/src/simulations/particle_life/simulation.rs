@@ -60,10 +60,12 @@ pub struct ForceRandomizeParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct FadeUniforms {
+    pub background_color: [f32; 3], // Background color to fade to (RGB)
     pub fade_alpha: f32, // Alpha for fading effect
-    pub _pad1: f32,
-    pub _pad2: f32,
-    pub _pad3: f32,
+    pub _pad1: u32,
+    pub _pad2: u32,
+    pub _pad3: u32,
+    pub _pad4: u32,
 }
 
 #[repr(C)]
@@ -242,10 +244,6 @@ impl State {
             species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
             particle_size: 0.1,
         }
-    }
-
-    pub fn reset(&mut self, _species_count: u32, _width: u32, _height: u32, _random_seed: u32) {
-        // No longer used - particles are initialized on GPU
     }
 }
 
@@ -1612,10 +1610,12 @@ impl ParticleLifeModel {
 
         // Create fade uniforms buffer
         let fade_uniforms = FadeUniforms {
+            background_color: [0.0, 0.0, 0.0], // Default to black background
             fade_alpha: 0.1,
-            _pad1: 0.0,
-            _pad2: 0.0,
-            _pad3: 0.0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
+            _pad4: 0,
         };
 
         let fade_uniforms_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1648,8 +1648,8 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -1831,8 +1831,8 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -1843,8 +1843,8 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -1855,8 +1855,8 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -2864,11 +2864,28 @@ impl ParticleLifeModel {
 
     /// Update fade uniforms for trace rendering
     fn update_fade_uniforms(&self, queue: &Arc<Queue>, fade_alpha: f32) {
+        // Get background color based on color mode
+        let background_color = match self.state.color_mode {
+            ColorMode::Black => [0.0, 0.0, 0.0],     // Black
+            ColorMode::White => [1.0, 1.0, 1.0],     // White
+            ColorMode::Gray18 => [0.18, 0.18, 0.18], // Gray18
+            ColorMode::Lut => {
+                // Use first color from species_colors (which includes background color)
+                if !self.state.species_colors.is_empty() {
+                    [self.state.species_colors[0][0], self.state.species_colors[0][1], self.state.species_colors[0][2]]
+                } else {
+                    [0.0, 0.0, 0.0] // Fallback to black
+                }
+            }
+        };
+
         let fade_uniforms = FadeUniforms {
+            background_color,
             fade_alpha,
-            _pad1: 0.0,
-            _pad2: 0.0,
-            _pad3: 0.0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
+            _pad4: 0,
         };
 
         queue.write_buffer(
@@ -3274,8 +3291,9 @@ impl Simulation for ParticleLifeModel {
 
             // First, apply fade effect if trace_fade < 1.0
             if self.state.trace_fade < 1.0 {
-                let fade_factor = 1.0 - self.state.trace_fade;
-                let fade_alpha = (fade_factor * fade_factor * 0.3).clamp(0.002, 0.3);
+                // Calculate fade alpha: 0.0 = full fade to background, 1.0 = no fade
+                // Use a smoother curve that provides better visual results
+                let fade_alpha = self.state.trace_fade.powf(0.7).clamp(0.1, 1.0);
 
                 self.update_fade_uniforms(queue, fade_alpha);
 

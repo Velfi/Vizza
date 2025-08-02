@@ -523,8 +523,14 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: match settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            min_filter: match settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
@@ -2795,6 +2801,17 @@ impl Simulation for FlowModel {
                     };
                 }
             }
+            "trailMapFiltering" => {
+                if let Some(filtering_str) = value.as_str() {
+                    self.settings.trail_map_filtering = match filtering_str {
+                        "Nearest" => super::settings::TrailMapFiltering::Nearest,
+                        "Linear" => super::settings::TrailMapFiltering::Linear,
+                        _ => super::settings::TrailMapFiltering::Nearest,
+                    };
+                    // Update the trail sampler with new filtering
+                    self.update_trail_sampler(device);
+                }
+            }
             _ => {}
         }
 
@@ -3357,5 +3374,24 @@ impl FlowModel {
 
         tracing::debug!("All particles removed from buffer");
         Ok(())
+    }
+
+    fn update_trail_sampler(&mut self, device: &Arc<Device>) {
+        self.trail_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Trail Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: match self.settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            min_filter: match self.settings.trail_map_filtering {
+                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
+                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
+            },
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
     }
 }

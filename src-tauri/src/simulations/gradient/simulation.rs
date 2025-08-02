@@ -1,7 +1,7 @@
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
 use crate::simulations::shared::{
-    BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager,
+    BindGroupBuilder, RenderPipelineBuilder, ShaderManager,
     lut::LutData,
 };
 use crate::simulations::traits::Simulation;
@@ -17,7 +17,6 @@ use wgpu::{
 pub struct GradientSimulation {
     // GPU utilities
     shader_manager: ShaderManager,
-    common_layouts: CommonBindGroupLayouts,
     
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
@@ -37,7 +36,6 @@ impl GradientSimulation {
     pub fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self {
         // Initialize GPU utilities
         let mut shader_manager = ShaderManager::new();
-        let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create vertex buffer for a full-screen quad
         let vertices: [f32; 16] = [
@@ -66,8 +64,34 @@ impl GradientSimulation {
             mapped_at_creation: false,
         });
 
-        // Create bind group layout using common layouts
-        let bind_group_layout = common_layouts.lut.clone();
+        // Create custom bind group layout for gradient (LUT + params)
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                // LUT buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Params buffer
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("gradient_bind_group_layout"),
+        });
 
         // Create parameters buffer
         let params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -142,7 +166,6 @@ impl GradientSimulation {
 
         Self {
             shader_manager,
-            common_layouts,
             render_pipeline,
             vertex_buffer,
             index_buffer,
