@@ -1,7 +1,7 @@
 //! # Simulations Module
 //!
 //! Contains the collection of interactive simulations that form the core of the
-//! Vizzy application. Each simulation explores different aspects of complex
+//! Vizza application. Each simulation explores different aspects of complex
 //! systems, from particle physics to emergent behavior and pattern formation.
 //!
 //! ## Simulation Philosophy

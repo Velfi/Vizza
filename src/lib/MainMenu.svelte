@@ -32,8 +32,8 @@
     </button>
   </div>
 
-  <img class="logo" src={logo} alt="Vizzy" />
-  <h1>Vizzy</h1>
+  <img class="logo" src={logo} alt="Vizza" />
+  <h1>Vizza</h1>
 
   <div class="simulation-grid">
     <button class="simulation-card how-to-play" on:click={() => selectSimulation('how-to-play')}>
@@ -76,13 +76,13 @@
       <h2>About this program</h2>
 
       <p>
-        Hi. My name is Zelda and I'm the author of Vizzy. Thanks for checking it out!. I made this
+        Hi. My name is Zelda and I'm the author of Vizza. Thanks for checking it out!. I made this
         for fun.
       </p>
       <p>
         You can find the source code for this program on <a
           target="_blank"
-          href="https://github.com/Velfi/vizzy">GitHub</a
+          href="https://github.com/Velfi/Vizza">GitHub</a
         >. You can find out more about me on my
         <a target="_blank" href="https://www.zeldas.page">website</a>.
       </p>

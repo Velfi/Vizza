@@ -172,7 +172,7 @@ where
     }
 }
 
-/// Create the Vizzy/simulation-specific presets subdirectory path
+/// Create the Vizza/simulation-specific presets subdirectory path
 fn get_user_presets_dir(simulation_name: &str) -> PathBuf {
     get_settings_dir().join(simulation_name).join("presets")
 }

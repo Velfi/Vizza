@@ -187,7 +187,7 @@
   </div>
 
   <div class="version-footer">
-    <span>Vizzy v{appVersion}</span>
+    <span>Vizza v{appVersion}</span>
   </div>
 </div>
 

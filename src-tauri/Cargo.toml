@@ -1,10 +1,10 @@
 [package]
-name = "Vizzy"
+name = "Vizza"
 version = "0.6.6"
 description = "A desktop application featuring interactive simulations built with Tauri, Svelte, and WebGPU."
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"
-repository = "https://github.com/Velfi/vizzy"
+repository = "https://github.com/Velfi/Vizza"
 edition = "2024"
 publish = false
 

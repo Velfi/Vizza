@@ -1,7 +1,7 @@
 //! # Shared Simulation Components
 //!
 //! Common utilities and systems that provide consistent behavior across all
-//! simulations in the Vizzy application. These components ensure a unified
+//! simulations in the Vizza application. These components ensure a unified
 //! user experience while reducing code duplication and maintenance overhead.
 //!
 //! ## Design Philosophy

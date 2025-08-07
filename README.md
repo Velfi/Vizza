@@ -1,4 +1,4 @@
-# Vizzy
+# Vizza
 
 Interactive GPU-accelerated simulations for desktop.
 

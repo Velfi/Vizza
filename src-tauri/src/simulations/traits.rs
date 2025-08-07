@@ -1,6 +1,6 @@
 //! # Simulation Traits Module
 //!
-//! Defines the core interfaces that unify all simulations in the Vizzy application.
+//! Defines the core interfaces that unify all simulations in the Vizza application.
 //! This module establishes the contract that ensures consistent behavior across
 //! different simulation types while preserving their unique characteristics.
 //!
