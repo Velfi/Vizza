@@ -35,6 +35,7 @@ pub trait Simulation {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()>;
 
     /// Render a static frame without updating simulation state (for paused mode)
@@ -176,6 +177,7 @@ impl SimulationType {
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
         lut_manager: &crate::simulations::shared::LutManager,
+        app_settings: &crate::commands::AppSettings,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         match simulation_type {
             "slime_mold" => {
@@ -187,6 +189,7 @@ impl SimulationType {
                     adapter_info,
                     10_000_000,
                     settings,
+                    app_settings,
                     lut_manager,
                 )?;
                 Ok(SimulationType::SlimeMold(Box::new(simulation)))
@@ -201,6 +204,7 @@ impl SimulationType {
                     surface_config.height,
                     settings,
                     lut_manager,
+                    app_settings,
                 )?;
                 Ok(SimulationType::GrayScott(Box::new(simulation)))
             }
@@ -213,6 +217,7 @@ impl SimulationType {
                     adapter_info,
                     15000,
                     settings,
+                    app_settings,
                     lut_manager,
                     crate::simulations::particle_life::simulation::ColorMode::Lut,
                 )?;
@@ -225,17 +230,19 @@ impl SimulationType {
                     queue,
                     surface_config,
                     settings,
+                    &app_settings,
                     lut_manager,
                 )?;
                 Ok(SimulationType::Flow(Box::new(simulation)))
             }
             "pellets" => {
                 let settings = crate::simulations::pellets::settings::Settings::default();
-                let simulation = crate::simulations::pellets::PelletsModel::new(
+                let simulation = crate::simulations::pellets::simulation::PelletsModel::new(
                     device,
                     queue,
                     surface_config,
                     settings,
+                    app_settings,
                     lut_manager,
                 )?;
                 Ok(SimulationType::Pellets(Box::new(simulation)))
@@ -245,6 +252,7 @@ impl SimulationType {
                     device,
                     queue,
                     surface_config.format,
+                    app_settings,
                 );
                 Ok(SimulationType::Gradient(Box::new(simulation)))
             }
@@ -253,6 +261,7 @@ impl SimulationType {
                     device,
                     surface_config,
                     lut_manager,
+                    app_settings,
                 )?;
                 Ok(SimulationType::MainMenu(Box::new(simulation)))
             }
@@ -285,26 +294,27 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
         match self {
             SimulationType::SlimeMold(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
             SimulationType::GrayScott(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
             SimulationType::ParticleLife(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
-            SimulationType::Flow(sim) => sim.render_frame(device, queue, surface_view),
+            SimulationType::Flow(sim) => sim.render_frame(device, queue, surface_view, delta_time),
             SimulationType::Pellets(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
             SimulationType::MainMenu(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
             SimulationType::Gradient(simulation) => {
-                simulation.render_frame(device, queue, surface_view)
+                simulation.render_frame(device, queue, surface_view, delta_time)
             }
         }
     }

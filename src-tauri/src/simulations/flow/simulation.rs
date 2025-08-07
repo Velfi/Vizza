@@ -1,8 +1,10 @@
 use super::settings::{Background, DisplayMode, NoiseType, Settings};
 use super::shaders::{
-    BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
-    RENDER_INFINITE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
+    BACKGROUND_RENDER_SHADER, FLOW_VECTOR_COMPUTE_SHADER, PARTICLE_RENDER_SHADER,
+    PARTICLE_UPDATE_SHADER, RENDER_INFINITE_SHADER, SHAPE_DRAWING_SHADER,
+    TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
+use crate::commands::AppSettings;
 use crate::simulations::shared::camera::Camera;
 use crate::simulations::shared::{
     AverageColorResources, BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder,
@@ -10,10 +12,7 @@ use crate::simulations::shared::{
 };
 use crate::simulations::traits::Simulation;
 use bytemuck::{Pod, Zeroable};
-use noise::{
-    Billow, Checkerboard, Cylinders, Fbm, MultiFractal, NoiseFn, OpenSimplex, Perlin, RidgedMulti,
-    Value as ValueNoise, Worley,
-};
+
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -30,12 +29,14 @@ thread_local! {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 pub struct Particle {
     pub position: [f32; 2],
     pub age: f32,
     pub color: [f32; 4],
-    pub my_parent_was: u32, // 0 = autospawned, 1 = spawned by brush
+    pub is_alive: u32,        // 0=dead, 1=alive
+    pub spawn_type: u32,      // 0=autospawn, 1=brush
+    pub last_spawn_time: f32, // Track when this particle last spawned
 }
 
 #[repr(C)]
@@ -47,13 +48,28 @@ pub struct FlowVector {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct FlowVectorParams {
+    pub grid_size: u32,
+    pub noise_type: u32,
+    pub noise_scale: f32,
+    pub noise_x: f32,
+    pub noise_y: f32,
+    pub noise_seed: u32,
+    pub time: f32,
+    pub noise_dt_multiplier: f32,
+    pub vector_magnitude: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 pub struct SimParams {
-    pub autospawn_limit: u32, // Setting for limiting autospawned particles
+    pub total_pool_size: u32, // Total number of particles (autospawn + brush)
     pub vector_count: u32,
     pub particle_lifetime: f32,
     pub particle_speed: f32,
     pub noise_seed: u32,
     pub time: f32,
+    pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub width: f32,
     pub height: f32,
     pub noise_scale: f32,
@@ -72,12 +88,35 @@ pub struct SimParams {
     pub screen_height: u32,  // Screen height in pixels
     pub cursor_x: f32,
     pub cursor_y: f32,
-    pub cursor_active: u32, // 0=inactive, 1=attract, 2=repel
     pub cursor_size: u32,
     pub cursor_strength: f32,
-    pub particle_autospawn: u32,  // 0=disabled, 1=enabled
-    pub particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
-    pub display_mode: u32,        // 0=Age, 1=Random, 2=Direction
+    pub mouse_button_down: u32, // 0=not held, 1=left click held, 2=right click held
+    pub particle_autospawn: u32, // 0=disabled, 1=enabled
+    pub autospawn_rate: u32,    // Particles per second for autospawn
+    pub brush_spawn_rate: u32,  // Particles per second when cursor is active
+    pub display_mode: u32,      // 0=Age, 1=Random, 2=Direction
+    pub autospawn_pool_size: u32, // Size of autospawn pool
+    pub brush_pool_size: u32,   // Size of brush pool
+    pub _padding_0: u32,
+    pub _padding_1: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ShapeParams {
+    pub center_x: f32,
+    pub center_y: f32,
+    pub size: f32,
+    pub shape_type: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond, 5=Line
+    pub color: [f32; 4],
+    pub intensity: f32,
+    pub antialiasing_width: f32, // Width of antialiasing edge in pixels
+    pub rotation: f32,           // Rotation angle in radians
+    pub aspect_ratio: f32,       // For ellipses and rectangles
+    pub trail_map_width: u32,
+    pub trail_map_height: u32,
+    pub _padding_0: u32,
+    pub _padding_1: u32,
 }
 
 #[derive(Debug)]
@@ -130,6 +169,7 @@ pub struct FlowModel {
     pub camera: Camera,
     pub lut_manager: Arc<LutManager>,
     pub time: f32,
+    pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub particles: Vec<Particle>,
     pub flow_vectors: Vec<FlowVector>,
     pub gui_visible: bool,
@@ -142,12 +182,17 @@ pub struct FlowModel {
     pub display_mode: DisplayMode,
     pub trail_map_filtering: super::settings::TrailMapFiltering,
 
+    // Particle pool management
+    pub autospawn_pool_size: u32,
+    pub brush_pool_size: u32,
+    pub total_pool_size: u32,
+
     // Mouse interaction state
-    pub cursor_active_mode: u32, // 0 = inactive, 1 = attract, 2 = repel
     pub cursor_world_x: f32,
     pub cursor_world_y: f32,
     pub cursor_size: u32,
     pub cursor_strength: f32,
+    pub mouse_button_down: u32, // 0 = not held, 1 = left click held, 2 = right click held
 
     // Add display textures for infinite compositing
     pub display_texture: wgpu::Texture, // Single mipmap for rendering
@@ -165,6 +210,18 @@ pub struct FlowModel {
     // Post-processing state and resources
     pub post_processing_state: PostProcessingState,
     pub post_processing_resources: PostProcessingResources,
+    pub app_settings: AppSettings,
+
+    // GPU flow vector generation
+    pub flow_vector_compute_pipeline: wgpu::ComputePipeline,
+    pub flow_vector_compute_bind_group: wgpu::BindGroup,
+    pub flow_vector_params_buffer: wgpu::Buffer,
+
+    // Shape drawing system
+    pub shape_drawing_pipeline: wgpu::ComputePipeline,
+    pub shape_drawing_bind_group: wgpu::BindGroup,
+    pub shape_params_buffer: wgpu::Buffer,
+    pub shape_drawing_enabled: bool,
 }
 
 impl FlowModel {
@@ -181,143 +238,42 @@ impl FlowModel {
     }
 
     // Generate flow direction using the noise crate
-    fn generate_flow_direction(
-        pos: [f32; 2],
-        noise_type: NoiseType,
-        noise_scale: f64,
-        noise_x: f64,
-        noise_y: f64,
-        noise_seed: u32,
-    ) -> [f32; 2] {
-        let sample_pos = [
-            pos[0] as f64 * noise_scale + noise_x,
-            pos[1] as f64 * noise_scale + noise_y,
-        ];
-
-        let noise_value = match noise_type {
-            NoiseType::OpenSimplex => {
-                let opensimplex = OpenSimplex::new(noise_seed);
-                opensimplex.get(sample_pos)
-            }
-            NoiseType::Worley => {
-                let worley = Worley::new(noise_seed);
-                worley.get(sample_pos)
-            }
-            NoiseType::Value => {
-                let value = ValueNoise::new(noise_seed);
-                value.get(sample_pos)
-            }
-            NoiseType::Fbm => {
-                let fbm = Fbm::<Perlin>::new(noise_seed)
-                    .set_octaves(6)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(2.0)
-                    .set_persistence(0.5);
-                fbm.get(sample_pos)
-            }
-            NoiseType::FBMBillow => {
-                let fbm = Fbm::<Perlin>::new(noise_seed)
-                    .set_octaves(8)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(2.5)
-                    .set_persistence(0.7);
-                fbm.get(sample_pos)
-            }
-            NoiseType::FBMClouds => {
-                let fbm = Fbm::<Perlin>::new(noise_seed)
-                    .set_octaves(4)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(1.8)
-                    .set_persistence(0.3);
-                fbm.get(sample_pos)
-            }
-            NoiseType::FBMRidged => {
-                let fbm = Fbm::<Perlin>::new(noise_seed)
-                    .set_octaves(10)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(3.0)
-                    .set_persistence(0.9);
-                fbm.get(sample_pos)
-            }
-            NoiseType::Billow => {
-                let billow = Billow::<Perlin>::new(noise_seed)
-                    .set_octaves(6)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(2.0)
-                    .set_persistence(0.5);
-                billow.get(sample_pos)
-            }
-            NoiseType::RidgedMulti => {
-                let ridged = RidgedMulti::<Perlin>::new(noise_seed)
-                    .set_octaves(6)
-                    .set_frequency(noise_scale)
-                    .set_lacunarity(2.0);
-                ridged.get(sample_pos)
-            }
-            NoiseType::Cylinders => {
-                let cylinders = Cylinders::new();
-                cylinders.get(sample_pos)
-            }
-            NoiseType::Checkerboard => {
-                let checkerboard = Checkerboard::new(16);
-                checkerboard.get(sample_pos)
-            }
-        };
-
-        // Create flow direction from noise value
-        let angle = noise_value * std::f64::consts::TAU;
-        [angle.cos() as f32, angle.sin() as f32]
-    }
 
     // Regenerate flow vectors with current settings
     fn regenerate_flow_vectors(
         &mut self,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
-        let grid_size = 128; // 128x128 grid of vectors
-        let mut flow_vectors = Vec::with_capacity(grid_size * grid_size);
+        // Update params with current time
+        self.update_flow_vector_params(queue);
 
-        for y in 0..grid_size {
-            for x in 0..grid_size {
-                let world_x = (x as f32 / (grid_size - 1) as f32) * 2.0 - 1.0;
-                let world_y = (y as f32 / (grid_size - 1) as f32) * 2.0 - 1.0;
+        // Dispatch compute shader
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Flow Vector Compute Encoder"),
+        });
 
-                // Use noise crate for flow direction
-                let direction = Self::generate_flow_direction(
-                    [world_x, world_y],
-                    self.settings.noise_type,
-                    self.settings.noise_scale,
-                    self.settings.noise_x,
-                    self.settings.noise_y,
-                    self.settings.noise_seed,
-                );
-                let direction = [
-                    direction[0] * self.settings.vector_magnitude,
-                    direction[1] * self.settings.vector_magnitude,
-                ];
-
-                flow_vectors.push(FlowVector {
-                    position: [world_x, world_y],
-                    direction,
-                });
-            }
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Flow Vector Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.flow_vector_compute_pipeline);
+            compute_pass.set_bind_group(0, &self.flow_vector_compute_bind_group, &[]);
+            compute_pass.dispatch_workgroups(128u32.div_ceil(16), 128u32.div_ceil(16), 1);
         }
 
-        queue.write_buffer(
-            &self.flow_vector_buffer,
-            0,
-            bytemuck::cast_slice(&flow_vectors),
-        );
-        self.flow_vectors = flow_vectors;
+        queue.submit(std::iter::once(encoder.finish()));
 
         // Update sim params with new vector count
         let sim_params = SimParams {
-            autospawn_limit: self.settings.autospawn_limit,
-            vector_count: self.flow_vectors.len() as u32,
+            total_pool_size: self.settings.total_pool_size,
+            vector_count: 128 * 128, // 128x128 grid
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            noise_dt_multiplier: self.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
@@ -336,12 +292,17 @@ impl FlowModel {
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
-            cursor_active: self.cursor_active_mode,
             cursor_size: self.cursor_size,
             cursor_strength: self.cursor_strength,
+            mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
-            particle_spawn_rate: self.settings.particle_spawn_rate,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
             display_mode: self.display_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
         };
 
         queue.write_buffer(
@@ -358,6 +319,7 @@ impl FlowModel {
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         settings: Settings,
+        app_settings: &AppSettings,
         lut_manager: &LutManager,
     ) -> Result<Self, crate::error::SimulationError> {
         // Initialize camera
@@ -368,61 +330,42 @@ impl FlowModel {
         )?;
 
         // Initialize particles with random positions and ages
-        // Use a much larger buffer for unlimited particles (1 million particles)
-        let max_particles = 1_000_000;
-        let mut particles = Vec::with_capacity(max_particles);
+        // Simplified particle system with separate pools
+        let autospawn_pool_size = settings.total_pool_size / 2; // Half for autospawn
+        let brush_pool_size = settings.total_pool_size / 2; // Half for brush
+        let total_pool_size = autospawn_pool_size + brush_pool_size;
+        let mut particles = Vec::with_capacity(total_pool_size as usize);
 
-        // No longer need LUT data since we use LUT in shader
-        RNG.with(|rng| {
-            let mut rng = rng.borrow_mut();
-            // Initialize with autospawn_limit particles
-            for _ in 0..settings.autospawn_limit {
-                let x = rng.random_range(-1.0..1.0);
-                let y = rng.random_range(-1.0..1.0);
-                let age = rng.random_range(0.0..settings.particle_lifetime * 0.1); // Start with 10% of lifetime max
-
-                // No longer need to generate colors here since we use LUT in shader
-                let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
-
+        // Initialize autospawn pool
+        RNG.with(|_rng| {
+            for i in 0..autospawn_pool_size {
                 let particle = Particle {
-                    position: [x, y],
-                    age,
-                    color,
-                    my_parent_was: 0, // Autospawned
+                    position: [0.0, 0.0],            // Will be set when spawned
+                    age: settings.particle_lifetime, // Start dead
+                    color: [0.0, 0.0, 0.0, 0.0],     // Invisible
+                    is_alive: 0,                     // Dead particles are inactive
+                    spawn_type: 0,                   // Autospawn particles
+                    last_spawn_time: -(i as f32 * (1.0 / settings.autospawn_rate as f32)), // Stagger spawn times
+                };
+                particles.push(particle);
+            }
+
+            // Initialize brush pool with dead particles and staggered spawn times
+            for i in 0..brush_pool_size {
+                let particle = Particle {
+                    position: [0.0, 0.0],            // Will be set when spawned
+                    age: settings.particle_lifetime, // Start dead
+                    color: [0.0, 0.0, 0.0, 0.0],     // Invisible
+                    is_alive: 0,                     // Dead particles are inactive
+                    spawn_type: 1,                   // Brush particles
+                    last_spawn_time: -(i as f32 * (1.0 / settings.brush_spawn_rate as f32)), // Stagger spawn times
                 };
                 particles.push(particle);
             }
         });
 
-        // Initialize flow vectors with simple grid
-        let grid_size = 128; // 128x128 grid of vectors
-        let mut flow_vectors = Vec::with_capacity(grid_size * grid_size);
-
-        for y in 0..grid_size {
-            for x in 0..grid_size {
-                let world_x = (x as f32 / (grid_size - 1) as f32) * 2.0 - 1.0;
-                let world_y = (y as f32 / (grid_size - 1) as f32) * 2.0 - 1.0;
-
-                // Use noise crate for flow direction
-                let direction = Self::generate_flow_direction(
-                    [world_x, world_y],
-                    settings.noise_type,
-                    settings.noise_scale,
-                    settings.noise_x,
-                    settings.noise_y,
-                    settings.noise_seed,
-                );
-                let direction = [
-                    direction[0] * settings.vector_magnitude,
-                    direction[1] * settings.vector_magnitude,
-                ];
-
-                flow_vectors.push(FlowVector {
-                    position: [world_x, world_y],
-                    direction,
-                });
-            }
-        }
+        // Initialize empty flow vectors (will be generated by GPU)
+        let flow_vectors = Vec::new();
 
         // Create GPU buffers
         let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -431,19 +374,21 @@ impl FlowModel {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let flow_vector_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let flow_vector_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Flow Vector Buffer"),
-            contents: bytemuck::cast_slice(&flow_vectors),
+            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128, // 128x128 grid
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         let sim_params = SimParams {
-            autospawn_limit: settings.autospawn_limit,
-            vector_count: flow_vectors.len() as u32,
+            total_pool_size: settings.total_pool_size,
+            vector_count: 128 * 128, // 128x128 grid
             particle_lifetime: settings.particle_lifetime,
             particle_speed: settings.particle_speed,
             noise_seed: settings.noise_seed,
             time: 0.0,
+            noise_dt_multiplier: 1.0, // Default multiplier
             width: 2.0,
             height: 2.0,
             noise_scale: settings.noise_scale as f32,
@@ -462,12 +407,17 @@ impl FlowModel {
             screen_height: surface_config.height,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_active: 0,
             cursor_size: 10,
-            cursor_strength: 0.4,
+            cursor_strength: 0.1, // Reduced from 0.4 for less aggressive spawning
+            mouse_button_down: 0,
             particle_autospawn: settings.particle_autospawn as u32,
-            particle_spawn_rate: settings.particle_spawn_rate,
+            autospawn_rate: settings.autospawn_rate,
+            brush_spawn_rate: settings.brush_spawn_rate,
             display_mode: DisplayMode::Age as u32,
+            autospawn_pool_size,
+            brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
         };
 
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -524,9 +474,9 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
-            min_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -1236,9 +1186,9 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear, // Enable mipmap filtering
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -1386,11 +1336,121 @@ impl FlowModel {
         let average_color_resources =
             AverageColorResources::new(device, &display_texture, &display_view, "Flow");
 
+        // Create GPU flow vector generation resources
+        let flow_vector_compute_shader =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Vector Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
+                    FLOW_VECTOR_COMPUTE_SHADER,
+                )),
+            });
+
+        let flow_vector_compute_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Flow Vector Compute Pipeline"),
+                layout: None,
+                module: &flow_vector_compute_shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+
+        // Create flow vector params buffer
+        let flow_vector_params = FlowVectorParams {
+            grid_size: 128,
+            noise_type: 0, // Will be set based on settings
+            noise_scale: settings.noise_scale as f32,
+            noise_x: settings.noise_x as f32,
+            noise_y: settings.noise_y as f32,
+            noise_seed: settings.noise_seed,
+            time: 0.0,
+            noise_dt_multiplier: settings.noise_dt_multiplier,
+            vector_magnitude: settings.vector_magnitude,
+        };
+
+        let flow_vector_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Flow Vector Params Buffer"),
+                contents: bytemuck::cast_slice(&[flow_vector_params]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        // Create flow vector compute bind group
+        let flow_vector_compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Flow Vector Compute Bind Group"),
+            layout: &flow_vector_compute_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: flow_vector_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: flow_vector_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Create shape drawing pipeline and resources
+        let shape_drawing_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shape Drawing Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(SHAPE_DRAWING_SHADER)),
+        });
+
+        let shape_drawing_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Shape Drawing Pipeline"),
+                layout: None,
+                module: &shape_drawing_shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+
+        // Create shape params buffer
+        let shape_params = ShapeParams {
+            center_x: 0.0,
+            center_y: 0.0,
+            size: 0.1,
+            shape_type: 0, // Circle
+            color: [1.0, 1.0, 1.0, 1.0],
+            intensity: 1.0,
+            antialiasing_width: 2.0,
+            rotation: 0.0,
+            aspect_ratio: 1.0,
+            trail_map_width: surface_config.width,
+            trail_map_height: surface_config.height,
+            _padding_0: 0,
+            _padding_1: 0,
+        };
+
+        let shape_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Shape Params Buffer"),
+            contents: bytemuck::cast_slice(&[shape_params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create shape drawing bind group
+        let shape_drawing_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Shape Drawing Bind Group"),
+            layout: &shape_drawing_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: shape_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         // Use the same camera for both offscreen and infinite rendering
 
         // Create the FlowModel instance
         let flow_model = Self {
-            settings,
+            settings: settings.clone(),
             shader_manager,
             common_layouts,
             particle_buffer,
@@ -1413,6 +1473,7 @@ impl FlowModel {
             camera,
             lut_manager: Arc::new(lut_manager.clone()),
             time: 0.0,
+            noise_dt_multiplier: settings.noise_dt_multiplier,
             particles,
             flow_vectors,
             gui_visible: true,
@@ -1433,11 +1494,11 @@ impl FlowModel {
             particle_display_render_pipeline,
 
             // Initialize mouse interaction state
-            cursor_active_mode: 0, // Inactive
             cursor_world_x: 0.0,
             cursor_world_y: 0.0,
             cursor_size: 10,
-            cursor_strength: 0.4,
+            cursor_strength: 0.1, // Reduced from 0.4 for less aggressive spawning
+            mouse_button_down: 0,
 
             display_texture,
             display_view,
@@ -1450,6 +1511,23 @@ impl FlowModel {
             average_color_uniform_buffer,
             post_processing_state: PostProcessingState::default(),
             post_processing_resources: PostProcessingResources::new(device, surface_config)?,
+            app_settings: app_settings.clone(),
+
+            // GPU flow vector generation
+            flow_vector_compute_pipeline,
+            flow_vector_compute_bind_group,
+            flow_vector_params_buffer,
+
+            // Shape drawing system
+            shape_drawing_pipeline,
+            shape_drawing_bind_group,
+            shape_params_buffer,
+            shape_drawing_enabled: false,
+
+            // Particle pool management
+            autospawn_pool_size,
+            brush_pool_size,
+            total_pool_size,
         };
 
         // Update background color buffer to reflect the default white background
@@ -1460,12 +1538,13 @@ impl FlowModel {
 
     fn write_sim_params(&self, queue: &Arc<wgpu::Queue>) {
         let sim_params = SimParams {
-            autospawn_limit: self.settings.autospawn_limit,
+            total_pool_size: self.settings.total_pool_size,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            noise_dt_multiplier: self.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
@@ -1484,18 +1563,57 @@ impl FlowModel {
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
-            cursor_active: self.cursor_active_mode,
             cursor_size: self.cursor_size,
             cursor_strength: self.cursor_strength,
+            mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
-            particle_spawn_rate: self.settings.particle_spawn_rate,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
             display_mode: self.display_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
         };
 
         queue.write_buffer(
             &self.sim_params_buffer,
             0,
             bytemuck::cast_slice(&[sim_params]),
+        );
+    }
+
+    fn update_flow_vector_params(&self, queue: &Arc<Queue>) {
+        let noise_type = match self.settings.noise_type {
+            NoiseType::OpenSimplex => 0,
+            NoiseType::Worley => 1,
+            NoiseType::Value => 2,
+            NoiseType::Fbm => 3,
+            NoiseType::FBMBillow => 4,
+            NoiseType::FBMClouds => 5,
+            NoiseType::FBMRidged => 6,
+            NoiseType::Billow => 7,
+            NoiseType::RidgedMulti => 8,
+            NoiseType::Cylinders => 9,
+            NoiseType::Checkerboard => 10,
+        };
+
+        let params = FlowVectorParams {
+            grid_size: 128,
+            noise_type,
+            noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
+            noise_seed: self.settings.noise_seed,
+            time: self.time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
+            vector_magnitude: self.settings.vector_magnitude,
+        };
+
+        queue.write_buffer(
+            &self.flow_vector_params_buffer,
+            0,
+            bytemuck::cast_slice(&[params]),
         );
     }
 
@@ -1670,15 +1788,25 @@ impl Simulation for FlowModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> crate::error::SimulationResult<()> {
-        // Update simulation time
-        self.time += 0.016; // ~60 FPS
+        // Update simulation time with overflow protection
+        let new_time = self.time + delta_time;
+        if new_time.is_finite() {
+            self.time = new_time;
+        } else {
+            // If overflow occurs, reset to 0
+            self.time = 0.0;
+        }
 
         // Update simulation parameters using the centralized method
         self.write_sim_params(queue);
 
+        // Generate flow vectors on GPU every frame for time-varying flow field
+        self.regenerate_flow_vectors(device, queue)?;
+
         // Update camera and upload to GPU
-        self.camera.update(0.016);
+        self.camera.update(delta_time);
         self.camera.upload_to_gpu(queue);
 
         // Run trail decay and diffusion compute pass (parallelized)
@@ -1715,9 +1843,8 @@ impl Simulation for FlowModel {
                 });
             compute_pass.set_pipeline(&self.particle_update_pipeline);
             compute_pass.set_bind_group(0, &self.particle_update_bind_group, &[]);
-            // Use max_particles for compute dispatch (1 million particles)
-            let active_particles = self.particles.len() as u32;
-            compute_pass.dispatch_workgroups(active_particles.div_ceil(64), 1, 1);
+            // Use total pool size for compute dispatch
+            compute_pass.dispatch_workgroups(self.total_pool_size.div_ceil(64), 1, 1);
         }
 
         queue.submit(std::iter::once(compute_encoder.finish()));
@@ -1758,8 +1885,7 @@ impl Simulation for FlowModel {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                let active_particles = self.particles.len() as u32;
-                render_pass.draw(0..6, 0..active_particles); // Single instance per particle
+                render_pass.draw(0..6, 0..self.total_pool_size); // Single instance per particle
             }
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
@@ -1884,8 +2010,7 @@ impl Simulation for FlowModel {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                let active_particles = self.particles.len() as u32;
-                render_pass.draw(0..6, 0..active_particles); // Single instance per particle
+                render_pass.draw(0..6, 0..self.total_pool_size); // Single instance per particle
             }
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
@@ -2142,12 +2267,13 @@ impl Simulation for FlowModel {
 
         // Update sim params with new dimensions
         let sim_params = SimParams {
-            autospawn_limit: self.settings.autospawn_limit,
+            total_pool_size: self.settings.total_pool_size,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
@@ -2166,12 +2292,17 @@ impl Simulation for FlowModel {
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
-            cursor_active: self.cursor_active_mode,
             cursor_size: self.cursor_size,
             cursor_strength: self.cursor_strength,
+            mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
-            particle_spawn_rate: self.settings.particle_spawn_rate,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
             display_mode: self.display_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
         };
 
         queue.write_buffer(
@@ -2235,9 +2366,9 @@ impl Simulation for FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: self.app_settings.texture_filtering.into(),
+            min_filter: self.app_settings.texture_filtering.into(),
+            mipmap_filter: self.app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -2406,35 +2537,42 @@ impl Simulation for FlowModel {
                         _ => NoiseType::OpenSimplex,
                     };
                     // Regenerate flow vectors with new noise type
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
                 }
             }
             "noiseSeed" => {
                 if let Some(seed) = value.as_u64() {
                     self.settings.noise_seed = seed as u32;
                     // Regenerate flow vectors with new seed
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
                 }
             }
             "noiseScale" => {
                 if let Some(scale) = value.as_f64() {
                     self.settings.noise_scale = scale;
                     // Regenerate flow vectors with new scale
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
                 }
             }
             "noiseX" => {
                 if let Some(x) = value.as_f64() {
                     self.settings.noise_x = x;
                     // Regenerate flow vectors with new X scale
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
                 }
             }
             "noiseY" => {
                 if let Some(y) = value.as_f64() {
                     self.settings.noise_y = y;
                     // Regenerate flow vectors with new Y scale
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
+                }
+            }
+            "noiseDtMultiplier" => {
+                if let Some(multiplier) = value.as_f64() {
+                    self.settings.noise_dt_multiplier = multiplier as f32;
+                    // Update sim params with new multiplier
+                    self.write_sim_params(queue);
                 }
             }
 
@@ -2442,24 +2580,25 @@ impl Simulation for FlowModel {
                 if let Some(magnitude) = value.as_f64() {
                     self.settings.vector_magnitude = magnitude as f32;
                     // Regenerate flow vectors with new magnitude
-                    self.regenerate_flow_vectors(queue)?;
+                    self.regenerate_flow_vectors(device, queue)?;
                 }
             }
 
             "autospawnLimit" => {
                 if let Some(count) = value.as_u64() {
                     let new_count = count as u32;
-                    if new_count != self.settings.autospawn_limit {
-                        self.settings.autospawn_limit = new_count;
+                    if new_count != self.settings.total_pool_size {
+                        self.settings.total_pool_size = new_count;
 
                         // Update sim params with new autospawn limit
                         let sim_params = SimParams {
-                            autospawn_limit: self.settings.autospawn_limit,
+                            total_pool_size: self.settings.total_pool_size,
                             vector_count: self.flow_vectors.len() as u32,
                             particle_lifetime: self.settings.particle_lifetime,
                             particle_speed: self.settings.particle_speed,
                             noise_seed: self.settings.noise_seed,
                             time: self.time,
+                            noise_dt_multiplier: self.settings.noise_dt_multiplier,
                             width: 2.0,
                             height: 2.0,
                             noise_scale: self.settings.noise_scale as f32,
@@ -2478,12 +2617,17 @@ impl Simulation for FlowModel {
                             screen_height: self.trail_map_height,
                             cursor_x: self.cursor_world_x,
                             cursor_y: self.cursor_world_y,
-                            cursor_active: self.cursor_active_mode,
                             cursor_size: self.cursor_size,
                             cursor_strength: self.cursor_strength,
+                            mouse_button_down: self.mouse_button_down,
                             particle_autospawn: self.settings.particle_autospawn as u32,
-                            particle_spawn_rate: self.settings.particle_spawn_rate,
+                            autospawn_rate: self.settings.autospawn_rate,
+                            brush_spawn_rate: self.settings.brush_spawn_rate,
                             display_mode: self.display_mode as u32,
+                            autospawn_pool_size: self.autospawn_pool_size,
+                            brush_pool_size: self.brush_pool_size,
+                            _padding_0: 0,
+                            _padding_1: 0,
                         };
 
                         queue.write_buffer(
@@ -2764,8 +2908,8 @@ impl Simulation for FlowModel {
                 }
             }
             "cursorSize" => {
-                if let Some(size) = value.as_f64() {
-                    self.cursor_size = (size as u32).clamp(10, 500); // Clamp to reasonable range
+                if let Some(size) = value.as_u64() {
+                    self.cursor_size = size as u32;
                 }
             }
             "cursorStrength" => {
@@ -2778,9 +2922,14 @@ impl Simulation for FlowModel {
                     self.settings.particle_autospawn = autospawn;
                 }
             }
-            "particleSpawnRate" => {
-                if let Some(rate) = value.as_f64() {
-                    self.settings.particle_spawn_rate = (rate as f32).clamp(0.0, 1.0);
+            "autospawnRate" => {
+                if let Some(rate) = value.as_u64() {
+                    self.settings.autospawn_rate = rate as u32;
+                }
+            }
+            "brushSpawnRate" => {
+                if let Some(rate) = value.as_u64() {
+                    self.settings.brush_spawn_rate = rate as u32;
                 }
             }
             "showParticles" => {
@@ -2827,13 +2976,13 @@ impl Simulation for FlowModel {
             "time": self.time,
             "guiVisible": self.gui_visible,
             "cursorSize": self.cursor_size,
-            "cursorStrength": self.cursor_strength,
             "background": self.background,
             "currentLut": self.current_lut,
             "lutReversed": self.lut_reversed,
             "showParticles": self.show_particles,
             "displayMode": self.display_mode,
             "trailMapFiltering": self.trail_map_filtering,
+            "autospawnRate": self.settings.autospawn_rate,
         })
     }
 
@@ -2842,107 +2991,65 @@ impl Simulation for FlowModel {
         world_x: f32,
         world_y: f32,
         mouse_button: u32,
-        device: &Arc<Device>,
+        _device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
-        // Determine cursor mode based on mouse_button
-        let cursor_mode = if mouse_button == 0 {
-            1 // left click = spawn particles
-        } else if mouse_button == 2 {
-            2 // right click = destroy particles
-        } else {
-            0 // middle click or other = no interaction
-        };
-
-        // If we're trying to spawn particles but have none, create a small batch
-        if cursor_mode == 1 && self.particles.is_empty() {
-            // Create a small initial batch of particles for painting
-            let initial_particle_count = 100;
-
-            // Create initial particles for painting
-            let mut particles = Vec::with_capacity(initial_particle_count as usize);
-
-            // No longer need LUT data since we use LUT in shader
-            RNG.with(|rng| {
-                let mut rng = rng.borrow_mut();
-                for _ in 0..initial_particle_count {
-                    // Create particles in a small area around the cursor
-                    let radius = 0.05; // Small radius around cursor
-                    let angle = rng.random_range(0.0..std::f32::consts::TAU);
-                    let distance = rng.random_range(0.0..radius);
-
-                    let x = world_x + angle.cos() * distance;
-                    let y = world_y + angle.sin() * distance;
-                    let age = 0.0; // Start fresh
-
-                    // No longer need to generate colors here since we use LUT in shader
-                    let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
-
-                    let particle = Particle {
-                        position: [x, y],
-                        age,
-                        color,
-                        my_parent_was: 1, // Brush-spawned
-                    };
-                    particles.push(particle);
-                }
-            });
-
-            // Update the particles vector
-            self.particles = particles;
-
-            // Recreate particle buffer with new particles
-            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Particle Buffer"),
-                contents: bytemuck::cast_slice(&self.particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-
-            // Update sim params with new particle count
-            let sim_params = SimParams {
-                autospawn_limit: self.settings.autospawn_limit,
-                vector_count: self.flow_vectors.len() as u32,
-                particle_lifetime: self.settings.particle_lifetime,
-                particle_speed: self.settings.particle_speed,
-                noise_seed: self.settings.noise_seed,
-                time: self.time,
-                width: 2.0,
-                height: 2.0,
-                noise_scale: self.settings.noise_scale as f32,
-                noise_x: self.settings.noise_x as f32,
-                noise_y: self.settings.noise_y as f32,
-                vector_magnitude: self.settings.vector_magnitude,
-                trail_decay_rate: self.settings.trail_decay_rate,
-                trail_deposition_rate: self.settings.trail_deposition_rate,
-                trail_diffusion_rate: self.settings.trail_diffusion_rate,
-                trail_wash_out_rate: self.settings.trail_wash_out_rate,
-                trail_map_width: self.trail_map_width,
-                trail_map_height: self.trail_map_height,
-                particle_shape: self.settings.particle_shape as u32,
-                particle_size: self.settings.particle_size,
-                screen_width: self.trail_map_width,
-                screen_height: self.trail_map_height,
-                cursor_x: world_x,
-                cursor_y: world_y,
-                cursor_active: cursor_mode,
-                cursor_size: self.cursor_size,
-                cursor_strength: self.cursor_strength,
-                particle_autospawn: self.settings.particle_autospawn as u32,
-                particle_spawn_rate: self.settings.particle_spawn_rate,
-                display_mode: self.display_mode as u32,
-            };
-
-            queue.write_buffer(
-                &self.sim_params_buffer,
-                0,
-                bytemuck::cast_slice(&[sim_params]),
-            );
-        }
-
         // Store cursor values in the model
-        self.cursor_active_mode = cursor_mode;
         self.cursor_world_x = world_x;
         self.cursor_world_y = world_y;
+
+        // Set mouse_button_down state based on which button is pressed
+        self.mouse_button_down = match mouse_button {
+            0 => 1, // Left click = spawn particles
+            2 => 2, // Right click = destroy particles
+            _ => 0, // Other buttons = no action
+        };
+
+        // Update sim params with cursor state
+        let sim_params = SimParams {
+            total_pool_size: self.settings.total_pool_size,
+            vector_count: self.flow_vectors.len() as u32,
+            particle_lifetime: self.settings.particle_lifetime,
+            particle_speed: self.settings.particle_speed,
+            noise_seed: self.settings.noise_seed,
+            time: self.time,
+            noise_dt_multiplier: self.noise_dt_multiplier,
+            width: 2.0,
+            height: 2.0,
+            noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
+            vector_magnitude: self.settings.vector_magnitude,
+            trail_decay_rate: self.settings.trail_decay_rate,
+            trail_deposition_rate: self.settings.trail_deposition_rate,
+            trail_diffusion_rate: self.settings.trail_diffusion_rate,
+            trail_wash_out_rate: self.settings.trail_wash_out_rate,
+            trail_map_width: self.trail_map_width,
+            trail_map_height: self.trail_map_height,
+            particle_shape: self.settings.particle_shape as u32,
+            particle_size: self.settings.particle_size,
+            screen_width: self.trail_map_width,
+            screen_height: self.trail_map_height,
+            cursor_x: world_x,
+            cursor_y: world_y,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
+            mouse_button_down: self.mouse_button_down,
+            particle_autospawn: self.settings.particle_autospawn as u32,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
+            display_mode: self.display_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
+        };
+
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
 
         Ok(())
     }
@@ -2953,9 +3060,9 @@ impl Simulation for FlowModel {
         _queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         // Turn off cursor interaction and reset position
-        self.cursor_active_mode = 0;
         self.cursor_world_x = 0.0;
         self.cursor_world_y = 0.0;
+        self.mouse_button_down = 0; // Set mouse button to not held
 
         tracing::debug!("Flow mouse release: cursor interaction disabled");
 
@@ -3020,18 +3127,31 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         self.time = 0.0;
         // Reset particles
-        let mut particles = Vec::with_capacity(self.settings.autospawn_limit as usize);
+        let mut particles = Vec::with_capacity(self.settings.total_pool_size as usize);
 
-        RNG.with(|rng| {
-            let mut rng = rng.borrow_mut();
-            for _ in 0..self.settings.autospawn_limit {
-                let x = rng.random_range(-1.0..1.0);
-                let y = rng.random_range(-1.0..1.0);
+        RNG.with(|_rng| {
+            // Initialize autospawn pool with dead particles and staggered spawn times
+            for i in 0..self.autospawn_pool_size {
                 let particle = Particle {
-                    position: [x, y],
-                    age: rng.random_range(0.0..self.settings.particle_lifetime),
-                    color: [0.0, 0.0, 0.0, 1.0],
-                    my_parent_was: 0, // Autospawned
+                    position: [0.0, 0.0],                 // Will be set when spawned
+                    age: self.settings.particle_lifetime, // Start dead
+                    color: [0.0, 0.0, 0.0, 0.0],          // Invisible
+                    is_alive: 0,                          // Dead particles are inactive
+                    spawn_type: 0,                        // Autospawn particles
+                    last_spawn_time: -(i as f32 * (1.0 / self.settings.autospawn_rate as f32)), // Stagger spawn times
+                };
+                particles.push(particle);
+            }
+
+            // Initialize brush pool with dead particles and staggered spawn times
+            for i in 0..self.brush_pool_size {
+                let particle = Particle {
+                    position: [0.0, 0.0],                 // Will be set when spawned
+                    age: self.settings.particle_lifetime, // Start dead
+                    color: [0.0, 0.0, 0.0, 0.0],          // Invisible
+                    is_alive: 0,                          // Dead particles are inactive
+                    spawn_type: 1,                        // Brush particles
+                    last_spawn_time: -(i as f32 * (1.0 / self.settings.brush_spawn_rate as f32)), // Stagger spawn times
                 };
                 particles.push(particle);
             }
@@ -3104,7 +3224,7 @@ impl Simulation for FlowModel {
 
     fn randomize_settings(
         &mut self,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         let mut rng = rand::rng();
@@ -3132,160 +3252,107 @@ impl Simulation for FlowModel {
         self.settings.vector_magnitude = rng.random_range(0.05..0.2);
 
         // Regenerate flow vectors with new settings
-        self.regenerate_flow_vectors(queue)?;
+        self.regenerate_flow_vectors(device, queue)?;
 
         Ok(())
     }
 }
 
 impl FlowModel {
-    pub fn kill_all_particles(
+    // Draw an antialiased shape onto the trail map
+    pub fn draw_antialiased_shape(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
+        center_x: f32,
+        center_y: f32,
+        size: f32,
+        shape_type: u32,
+        color: [f32; 4],
+        intensity: f32,
+        antialiasing_width: f32,
+        rotation: f32,
     ) -> crate::error::SimulationResult<()> {
-        // If auto-spawn is disabled, don't spawn any particles
-        if !self.settings.particle_autospawn {
-            // Update the particles vector
-            self.particles = Vec::new();
+        // Update shape parameters
+        let shape_params = ShapeParams {
+            center_x,
+            center_y,
+            size,
+            shape_type,
+            color,
+            intensity,
+            antialiasing_width,
+            rotation,
+            aspect_ratio: 1.0,
+            trail_map_width: self.trail_map_width,
+            trail_map_height: self.trail_map_height,
+            _padding_0: 0,
+            _padding_1: 0,
+        };
 
-            // Recreate particle buffer with empty particles
-            self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Empty Particle Buffer"),
-                contents: bytemuck::cast_slice(&self.particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
+        // Update the shape parameters buffer
+        queue.write_buffer(
+            &self.shape_params_buffer,
+            0,
+            bytemuck::cast_slice(&[shape_params]),
+        );
 
-            // Update sim params with zero particle count
-            let sim_params = SimParams {
-                autospawn_limit: self.settings.autospawn_limit,
-                vector_count: self.flow_vectors.len() as u32,
-                particle_lifetime: self.settings.particle_lifetime,
-                particle_speed: self.settings.particle_speed,
-                noise_seed: self.settings.noise_seed,
-                time: self.time,
-                width: 2.0,
-                height: 2.0,
-                noise_scale: self.settings.noise_scale as f32,
-                noise_x: self.settings.noise_x as f32,
-                noise_y: self.settings.noise_y as f32,
-                vector_magnitude: self.settings.vector_magnitude,
-                trail_decay_rate: self.settings.trail_decay_rate,
-                trail_deposition_rate: self.settings.trail_deposition_rate,
-                trail_diffusion_rate: self.settings.trail_diffusion_rate,
-                trail_wash_out_rate: self.settings.trail_wash_out_rate,
-                trail_map_width: self.trail_map_width,
-                trail_map_height: self.trail_map_height,
-                particle_shape: self.settings.particle_shape as u32,
-                particle_size: self.settings.particle_size,
-                screen_width: self.trail_map_width,
-                screen_height: self.trail_map_height,
-                cursor_x: self.cursor_world_x,
-                cursor_y: self.cursor_world_y,
-                cursor_active: self.cursor_active_mode,
-                cursor_size: self.cursor_size,
-                cursor_strength: self.cursor_strength,
-                particle_autospawn: self.settings.particle_autospawn as u32,
-                particle_spawn_rate: self.settings.particle_spawn_rate,
-                display_mode: self.display_mode as u32,
-            };
-
-            queue.write_buffer(
-                &self.sim_params_buffer,
-                0,
-                bytemuck::cast_slice(&[sim_params]),
-            );
-
-            // Recreate bind groups with the new empty buffer
-            self.particle_update_bind_group =
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Particle Update Bind Group"),
-                    layout: &self.particle_update_pipeline.get_bind_group_layout(0),
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.particle_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: self.flow_vector_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: self.sim_params_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(&self.trail_texture_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: self.lut_buffer.as_entire_binding(),
-                        },
-                    ],
-                });
-
-            // Also recreate particle render bind group
-            self.particle_render_bind_group =
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Particle Render Bind Group"),
-                    layout: &self.particle_render_pipeline.get_bind_group_layout(0),
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.particle_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: self.camera.buffer().as_entire_binding(),
-                        },
-                    ],
-                });
-
-            return Ok(());
-        }
-
-        // Auto-spawn is enabled - reset particles to initial state with proper random generation
-        let mut particles = Vec::with_capacity(self.settings.autospawn_limit as usize);
-        let mut rng = rand::rng();
-
-        // No longer need LUT data since we use LUT in shader
-        for _ in 0..self.settings.autospawn_limit {
-            // Use proper random number generation
-            let x = rng.random_range(-1.0..1.0);
-            let y = rng.random_range(-1.0..1.0);
-            let age = rng.random_range(0.0..self.settings.particle_lifetime * 0.1); // Start with 10% of lifetime max
-
-            // No longer need to generate colors here since we use LUT in shader
-            let color = [0.0, 0.0, 0.0, 0.9]; // Placeholder color, will be overridden by LUT
-
-            let particle = Particle {
-                position: [x, y],
-                age,
-                color,
-                my_parent_was: 1, // Brush-spawned
-            };
-            particles.push(particle);
-        }
-
-        // Update the particles vector
-        self.particles = particles;
-
-        // Recreate particle buffer with reset particles
-        self.particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Reset Particle Buffer"),
-            contents: bytemuck::cast_slice(&self.particles),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        // Dispatch the shape drawing compute shader
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Shape Drawing Encoder"),
         });
 
-        // Update sim params with original particle count
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Shape Drawing Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.shape_drawing_pipeline);
+            compute_pass.set_bind_group(0, &self.shape_drawing_bind_group, &[]);
+            compute_pass.dispatch_workgroups(
+                self.trail_map_width.div_ceil(8),
+                self.trail_map_height.div_ceil(8),
+                1,
+            );
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+
+        Ok(())
+    }
+
+    pub fn kill_all_particles(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        // Set all particles to dead state (age = lifetime)
+        for particle in &mut self.particles {
+            particle.age = self.settings.particle_lifetime;
+            particle.color = [0.0, 0.0, 0.0, 0.0]; // Make invisible
+            particle.is_alive = 0; // Mark as inactive
+            particle.spawn_type = 0; // Reset spawn type
+            particle.last_spawn_time = 0.0; // Reset spawn time
+        }
+
+        // Update particle buffer with dead particles
+        queue.write_buffer(
+            &self.particle_buffer,
+            0,
+            bytemuck::cast_slice(&self.particles),
+        );
+
+        // Update active particle counts
+
+        // Update sim params with zero active particle counts
         let sim_params = SimParams {
-            autospawn_limit: self.settings.autospawn_limit,
+            total_pool_size: self.settings.total_pool_size,
             vector_count: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
             noise_scale: self.settings.noise_scale as f32,
@@ -3304,12 +3371,17 @@ impl FlowModel {
             screen_height: self.trail_map_height,
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
-            cursor_active: self.cursor_active_mode,
             cursor_size: self.cursor_size,
             cursor_strength: self.cursor_strength,
+            mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
-            particle_spawn_rate: self.settings.particle_spawn_rate,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
             display_mode: self.display_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_0: 0,
+            _padding_1: 0,
         };
 
         queue.write_buffer(
@@ -3318,58 +3390,6 @@ impl FlowModel {
             bytemuck::cast_slice(&[sim_params]),
         );
 
-        // Recreate bind groups with the new particles
-        self.particle_update_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Update Bind Group"),
-            layout: &self.particle_update_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.trail_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // Also recreate particle render bind group
-        self.particle_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Render Bind Group"),
-            layout: &self.particle_render_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // Force GPU to finish all commands to ensure buffer updates are complete
-        device.poll(wgpu::Maintain::Wait);
-
-        tracing::debug!("All particles removed from buffer");
         Ok(())
     }
 
@@ -3379,15 +3399,9 @@ impl FlowModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match self.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            min_filter: match self.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: self.app_settings.texture_filtering.into(),
+            min_filter: self.app_settings.texture_filtering.into(),
+            mipmap_filter: self.app_settings.texture_filtering.into(),
             ..Default::default()
         });
     }

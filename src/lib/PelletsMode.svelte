@@ -83,6 +83,9 @@
         </div>
       </fieldset>
 
+      <!-- Post Processing -->
+      <PostProcessingMenu simulationType="pellets" />
+
       <!-- Controls -->
       <fieldset>
         <legend>Controls</legend>
@@ -276,6 +279,7 @@
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
+  import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import LutSelector from './components/shared/LutSelector.svelte';

@@ -1,3 +1,4 @@
+use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::shared::{
     BindGroupBuilder, CommonBindGroupLayouts, LutManager, RenderPipelineBuilder,
@@ -17,6 +18,8 @@ pub struct MainMenuModel {
     lut_bind_group: BindGroup,
     start_time: Instant,
     gui_visible: bool,
+    // App settings for consistency
+    _app_settings: AppSettings,
 }
 
 impl MainMenuModel {
@@ -24,6 +27,7 @@ impl MainMenuModel {
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
         lut_manager: &LutManager,
+        _app_settings: &AppSettings,
     ) -> SimulationResult<Self> {
         // Create common layouts
         let common_layouts = CommonBindGroupLayouts::new(device);
@@ -100,6 +104,7 @@ impl MainMenuModel {
             lut_bind_group,
             start_time,
             gui_visible: false,
+            _app_settings: _app_settings.clone(),
         })
     }
 
@@ -152,6 +157,7 @@ impl Simulation for MainMenuModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        _delta_time: f32,
     ) -> SimulationResult<()> {
         // Update the time buffer
         let time_seconds = self.get_time();

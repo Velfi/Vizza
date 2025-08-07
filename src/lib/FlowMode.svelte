@@ -110,17 +110,11 @@
             </div>
             <CursorConfig
               {cursorSize}
-              {cursorStrength}
               sizeMin={10}
               sizeMax={65}
               sizeStep={5}
-              strengthMin={0}
-              strengthMax={1}
-              strengthStep={0.01}
               sizePrecision={0}
-              strengthPrecision={2}
               on:sizechange={(e) => updateCursorSize(e.detail)}
-              on:strengthchange={(e) => updateCursorStrength(e.detail)}
             />
           </div>
         </div>
@@ -174,8 +168,6 @@
               <span class="setting-label">Noise Type:</span>
               <Selector
                 options={[
-                  'Perlin',
-                  'Simplex',
                   'OpenSimplex',
                   'Worley',
                   'Value',
@@ -226,6 +218,17 @@
                 value={settings.noise_y}
                 on:change={({ detail }) => updateNoiseY(detail)}
                 step={1.0}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Noise DT Multiplier:</span>
+              <NumberDragBox
+                value={settings.noise_dt_multiplier}
+                on:change={({ detail }) => updateNoiseDtMultiplier(detail)}
+                min={0.0}
+                max={10.0}
+                step={0.1}
+                precision={1}
               />
             </div>
             <div class="setting-item">
@@ -315,13 +318,23 @@
               </span>
             </div>
             <div class="setting-item">
-              <span class="setting-label">Particle Spawn Rate:</span>
+              <span class="setting-label">Autospawn Rate (particles/sec):</span>
               <NumberDragBox
-                value={settings.particle_spawn_rate}
-                on:change={({ detail }) => updateParticleSpawnRate(detail)}
-                min={0.0}
-                max={1.0}
-                step={0.01}
+                value={settings.autospawn_rate}
+                on:change={({ detail }) => updateAutospawnRate(detail)}
+                min={0}
+                max={1000}
+                step={1}
+              />
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">Brush Spawn Rate (particles/sec):</span>
+              <NumberDragBox
+                value={settings.brush_spawn_rate}
+                on:change={({ detail }) => updateBrushSpawnRate(detail)}
+                min={0}
+                max={100}
+                step={1}
               />
             </div>
           </div>
@@ -410,6 +423,7 @@
     noise_scale: number;
     noise_x: number;
     noise_y: number;
+    noise_dt_multiplier: number;
     vector_magnitude: number;
 
     // Particle parameters
@@ -420,7 +434,8 @@
     particle_size: number;
     particle_shape: string;
     particle_autospawn: boolean;
-    particle_spawn_rate: number;
+    autospawn_rate: number;
+    brush_spawn_rate: number;
 
     // Trail parameters
     trail_decay_rate: number;
@@ -452,7 +467,6 @@
 
   // Cursor state
   let cursorSize = 100;
-  let cursorStrength = 0.3;
 
   // Simulation control state
   let running = false;
@@ -796,6 +810,23 @@
     }
   }
 
+  async function updateNoiseDtMultiplier(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid noise DT multiplier value:', value);
+      return;
+    }
+
+    settings!.noise_dt_multiplier = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'noiseDtMultiplier',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update noise DT multiplier:', e);
+    }
+  }
+
   async function updateNoiseType(value: string) {
     settings!.noise_type = value;
     try {
@@ -932,20 +963,37 @@
     }
   }
 
-  async function updateParticleSpawnRate(value: number) {
+  async function updateAutospawnRate(value: number) {
     if (typeof value !== 'number' || isNaN(value)) {
-      console.error('Invalid particle spawn rate value:', value);
+      console.error('Invalid autospawn rate value:', value);
       return;
     }
 
-    settings!.particle_spawn_rate = value;
+    settings!.autospawn_rate = value;
     try {
       await invoke('update_simulation_setting', {
-        settingName: 'particleSpawnRate',
+        settingName: 'autospawnRate',
         value,
       });
     } catch (e) {
-      console.error('Failed to update particle spawn rate:', e);
+      console.error('Failed to update autospawn rate:', e);
+    }
+  }
+
+  async function updateBrushSpawnRate(value: number) {
+    if (typeof value !== 'number' || isNaN(value)) {
+      console.error('Invalid brush spawn rate value:', value);
+      return;
+    }
+
+    settings!.brush_spawn_rate = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'brushSpawnRate',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update brush spawn rate:', e);
     }
   }
 
@@ -1074,18 +1122,6 @@
     }
   }
 
-  async function updateCursorStrength(value: number) {
-    cursorStrength = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'cursorStrength',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update cursor strength:', e);
-    }
-  }
-
   async function updateDisplayMode(value: string) {
     try {
       await invoke('update_simulation_setting', {
@@ -1155,7 +1191,6 @@
         // Update visual parameters from backend state (not settings)
         const state = backendState as { 
           cursorSize?: number; 
-          cursorStrength?: number;
           background?: string;
           currentLut?: string;
           lutReversed?: boolean;
@@ -1164,9 +1199,6 @@
         
         if (state.cursorSize !== undefined) {
           cursorSize = state.cursorSize;
-        }
-        if (state.cursorStrength !== undefined) {
-          cursorStrength = state.cursorStrength;
         }
         if (state.background !== undefined) {
           backgroundValue = state.background;

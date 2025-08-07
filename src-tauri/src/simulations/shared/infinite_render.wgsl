@@ -16,6 +16,10 @@ var display_tex: texture_2d<f32>;
 @group(0) @binding(1)
 var display_sampler: sampler;
 
+// Render parameters for texture-based simulations
+@group(0) @binding(2)
+var<uniform> texture_render_params: RenderParams;
+
 
 
 // Gray Scott uses storage buffers instead of textures
@@ -25,6 +29,9 @@ var<storage, read> simulation_data: array<UVPair>;
 var<storage, read> lut_data: array<u32>;
 @group(0) @binding(5)
 var<uniform> params: SimulationParams;
+
+@group(0) @binding(6)
+var<uniform> render_params: RenderParams;
 
 @group(1) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -49,6 +56,13 @@ struct SimulationParams {
 struct UVPair {
     u: f32,
     v: f32,
+}
+
+struct RenderParams {
+    filtering_mode: u32, // 0 = nearest, 1 = linear, 2 = lanczos
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 // Calculate how many tiles we need based on zoom level
@@ -121,24 +135,160 @@ fn vs_main(
 // Fragment shader for texture-based simulations (Flow, Pellets, Slime Mold)
 @fragment
 fn fs_main_texture(in: VertexOutput) -> @location(0) vec4<f32> {
-    let base_color = textureSample(display_tex, display_sampler, in.uv);
+    var base_color: vec4<f32>;
+    
+    if (texture_render_params.filtering_mode == 0u) {
+        // Nearest neighbor
+        base_color = textureSample(display_tex, display_sampler, in.uv);
+    } else if (texture_render_params.filtering_mode == 1u) {
+        // Linear (bilinear interpolation)
+        base_color = textureSample(display_tex, display_sampler, in.uv);
+    } else {
+        // Lanczos filtering
+        let tex_dims = textureDimensions(display_tex);
+        let tex_x = in.uv.x * f32(tex_dims.x);
+        let tex_y = in.uv.y * f32(tex_dims.y);
+        
+        let lanczos_a = 2.0; // Lanczos window size
+        let radius = i32(lanczos_a);
+        
+        var color_sum = vec4<f32>(0.0);
+        var weight_sum = 0.0;
+        
+        // Sample in a radius around the target pixel
+        for (var dy = -radius; dy <= radius; dy++) {
+            for (var dx = -radius; dx <= radius; dx++) {
+                let sample_x = i32(floor(tex_x)) + dx;
+                let sample_y = i32(floor(tex_y)) + dy;
+                
+                // Clamp to texture bounds
+                let clamped_x = u32(clamp(f32(sample_x), 0.0, f32(tex_dims.x - 1u)));
+                let clamped_y = u32(clamp(f32(sample_y), 0.0, f32(tex_dims.y - 1u)));
+                
+                // Calculate distance from target pixel
+                let dist_x = (f32(sample_x) - tex_x);
+                let dist_y = (f32(sample_y) - tex_y);
+                
+                // Calculate Lanczos weights
+                let weight_x = lanczos_kernel(dist_x, lanczos_a);
+                let weight_y = lanczos_kernel(dist_y, lanczos_a);
+                let weight = weight_x * weight_y;
+                
+                // Sample the pixel
+                let sample_uv = vec2<f32>(
+                    f32(clamped_x) / f32(tex_dims.x),
+                    f32(clamped_y) / f32(tex_dims.y)
+                );
+                let sample_color = textureSample(display_tex, display_sampler, sample_uv);
+                
+                color_sum += sample_color * weight;
+                weight_sum += weight;
+            }
+        }
+        
+        // Normalize by total weight
+        base_color = color_sum / weight_sum;
+    }
     
     // Don't discard transparent pixels, just return them as-is
     // This allows the background to show through transparent areas
     return base_color;
 }
 
+// Lanczos kernel function
+fn lanczos_kernel(x: f32, a: f32) -> f32 {
+    if (abs(x) >= a) {
+        return 0.0;
+    }
+    if (abs(x) < 0.0001) {
+        return 1.0;
+    }
+    let x_pi = x * 3.14159265359;
+    let x_pi_a = x_pi / a;
+    return (sin(x_pi) * sin(x_pi_a)) / (x_pi * x_pi_a);
+}
+
 // Fragment shader for storage buffer-based simulations (Gray Scott)
 fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
-    let tex_x = u32(in.uv.x * f32(params.width));
-    let tex_y = u32(in.uv.y * f32(params.height));
-    let index = tex_y * params.width + tex_x;
+    // Calculate exact texture coordinates
+    let tex_x = in.uv.x * f32(params.width);
+    let tex_y = in.uv.y * f32(params.height);
     
-    let uv_pair = simulation_data[index];
-    let u = uv_pair.u;
-    let v = uv_pair.v;
+    var u_interpolated: f32;
     
-    let lut_index = u32(clamp(u * 255.0, 0.0, 255.0));
+    if (render_params.filtering_mode == 0u) {
+        // Nearest neighbor
+        let tex_x_int = u32(floor(tex_x));
+        let tex_y_int = u32(floor(tex_y));
+        let index = tex_y_int * params.width + tex_x_int;
+        let uv_pair = simulation_data[index];
+        u_interpolated = uv_pair.u;
+    } else if (render_params.filtering_mode == 1u) {
+        // Bilinear interpolation
+        let x0 = u32(floor(tex_x));
+        let y0 = u32(floor(tex_y));
+        let x1 = min(x0 + 1u, params.width - 1u);
+        let y1 = min(y0 + 1u, params.height - 1u);
+        
+        let fx = fract(tex_x);
+        let fy = fract(tex_y);
+        
+        let index00 = y0 * params.width + x0;
+        let index01 = y0 * params.width + x1;
+        let index10 = y1 * params.width + x0;
+        let index11 = y1 * params.width + x1;
+        
+        let u00 = simulation_data[index00].u;
+        let u01 = simulation_data[index01].u;
+        let u10 = simulation_data[index10].u;
+        let u11 = simulation_data[index11].u;
+        
+        let u0 = mix(u00, u01, fx);
+        let u1 = mix(u10, u11, fx);
+        u_interpolated = mix(u0, u1, fy);
+    } else {
+        // Lanczos filtering
+        let lanczos_a = 2.0; // Lanczos window size
+        let radius = i32(lanczos_a);
+        
+        var u_sum = 0.0;
+        var weight_sum = 0.0;
+        
+        // Sample in a radius around the target pixel
+        for (var dy = -radius; dy <= radius; dy++) {
+            for (var dx = -radius; dx <= radius; dx++) {
+                let sample_x = i32(floor(tex_x)) + dx;
+                let sample_y = i32(floor(tex_y)) + dy;
+                
+                // Clamp to texture bounds
+                let clamped_x = u32(clamp(f32(sample_x), 0.0, f32(params.width - 1u)));
+                let clamped_y = u32(clamp(f32(sample_y), 0.0, f32(params.height - 1u)));
+                
+                // Calculate distance from target pixel
+                let dist_x = (f32(sample_x) - tex_x);
+                let dist_y = (f32(sample_y) - tex_y);
+                
+                // Calculate Lanczos weights
+                let weight_x = lanczos_kernel(dist_x, lanczos_a);
+                let weight_y = lanczos_kernel(dist_y, lanczos_a);
+                let weight = weight_x * weight_y;
+                
+                // Sample the pixel
+                let index = clamped_y * params.width + clamped_x;
+                let uv_pair = simulation_data[index];
+                let u = uv_pair.u;
+                
+                u_sum += u * weight;
+                weight_sum += weight;
+            }
+        }
+        
+        // Normalize by total weight
+        u_interpolated = u_sum / weight_sum;
+    }
+    
+    // Use interpolated u value for LUT lookup
+    let lut_index = u32(clamp(u_interpolated * 255.0, 0.0, 255.0));
     let r = f32(lut_data[lut_index]) / 255.0;
     let g = f32(lut_data[lut_index + 256u]) / 255.0;
     let b = f32(lut_data[lut_index + 512u]) / 255.0;

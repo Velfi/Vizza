@@ -18,6 +18,7 @@
 //! This design enables both high-performance physics simulation and
 //! intuitive user control over the system's behavior.
 
+use crate::commands::app_settings::{AppSettings, TextureFiltering};
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::{
     AverageColorResources, BindGroupBuilder, ComputePipelineBuilder, LutManager,
@@ -34,6 +35,7 @@ use super::shaders::{
     RENDER_INFINITE_SHADER,
 };
 use super::{settings::Settings, state::State};
+use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
@@ -196,6 +198,7 @@ pub struct PelletsModel {
     pub state: State,
     pub camera: Camera,
     pub lut_manager: Arc<LutManager>,
+    pub app_settings: AppSettings,
 
     // Surface configuration
     pub surface_config: SurfaceConfiguration,
@@ -208,6 +211,9 @@ pub struct PelletsModel {
     pub grid_width: u32,
     pub grid_height: u32,
     pub cell_size: f32,
+
+    pub post_processing_state: PostProcessingState,
+    pub post_processing_resources: PostProcessingResources,
 }
 
 impl PelletsModel {
@@ -216,6 +222,7 @@ impl PelletsModel {
         _queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         settings: Settings,
+        app_settings: &AppSettings,
         lut_manager: &LutManager,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize particles
@@ -863,14 +870,20 @@ impl PelletsModel {
         });
 
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let filter_mode = if app_settings.texture_filtering == TextureFiltering::Linear {
+            wgpu::FilterMode::Linear
+        } else {
+            wgpu::FilterMode::Nearest
+        };
+
         let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Pellets Display Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: filter_mode,
+            min_filter: filter_mode,
+            mipmap_filter: filter_mode,
             ..Default::default()
         });
 
@@ -1343,6 +1356,9 @@ impl PelletsModel {
         let average_color_resources =
             AverageColorResources::new(device, &post_effect_texture, &post_effect_view, "Pellets");
 
+        let post_processing_state = PostProcessingState::default();
+        let post_processing_resources = PostProcessingResources::new(device, &surface_config)?;
+
         Ok(PelletsModel {
             particle_buffer,
             physics_params_buffer,
@@ -1392,12 +1408,15 @@ impl PelletsModel {
             state,
             camera,
             lut_manager: Arc::new(lut_manager.clone()),
+            app_settings: app_settings.clone(),
             surface_config: surface_config.clone(),
             frame_count: 0,
             density_update_frequency: 3, // Update density every 3 frames for performance
             grid_width,
             grid_height,
             cell_size,
+            post_processing_state,
+            post_processing_resources,
         })
     }
 
@@ -2127,6 +2146,74 @@ impl PelletsModel {
     }
 
     // GPU compute shaders handle all physics interactions
+
+    fn apply_post_processing(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        input_texture_view: &wgpu::TextureView,
+        output_texture_view: &wgpu::TextureView,
+    ) -> crate::error::SimulationResult<()> {
+        if self.post_processing_state.blur_filter.enabled {
+            self.post_processing_resources.update_blur_params(
+                queue,
+                self.post_processing_state.blur_filter.radius,
+                self.post_processing_state.blur_filter.sigma,
+                self.surface_config.width,
+                self.surface_config.height,
+            );
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Post Processing Blur Bind Group"),
+                layout: &self
+                    .post_processing_resources
+                    .blur_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.post_processing_resources.blur_sampler,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self
+                            .post_processing_resources
+                            .blur_params_buffer
+                            .as_entire_binding(),
+                    },
+                ],
+            });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Blur Encoder"),
+            });
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Post Processing Blur Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                render_pass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                render_pass.set_bind_group(0, &blur_bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for PelletsModel {
@@ -2146,12 +2233,13 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
         // Step GPU physics simulation
         self.step_physics(device, queue)?;
 
         // Update camera with smoothing
-        self.camera.update(0.016); // Assume 60 FPS for now
+        self.camera.update(delta_time);
 
         // Update uniforms
         self.update_camera_uniform(queue);
@@ -2276,6 +2364,17 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             render_pass.draw(0..6, 0..total_instances);
         }
         queue.submit(std::iter::once(encoder.finish()));
+
+        if self.post_processing_state.blur_filter.enabled {
+            self.apply_post_processing(
+                device,
+                queue,
+                &self.display_view,
+                &self.post_processing_resources.intermediate_view,
+            )?;
+            // Copy result back to display_view if needed
+        }
+
         Ok(())
     }
 
@@ -2408,6 +2507,17 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             render_pass.draw(0..6, 0..total_instances);
         }
         queue.submit(std::iter::once(encoder.finish()));
+
+        if self.post_processing_state.blur_filter.enabled {
+            self.apply_post_processing(
+                device,
+                queue,
+                &self.display_view,
+                &self.post_processing_resources.intermediate_view,
+            )?;
+            // Copy result back to display_view if needed
+        }
+
         Ok(())
     }
 
@@ -2438,14 +2548,21 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         });
 
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let filter_mode = if self.app_settings.texture_filtering == TextureFiltering::Linear {
+            wgpu::FilterMode::Linear
+        } else {
+            wgpu::FilterMode::Nearest
+        };
+
         let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Pellets Display Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mag_filter: filter_mode,
+            min_filter: filter_mode,
+            mipmap_filter: filter_mode,
             ..Default::default()
         });
 
@@ -2499,6 +2616,10 @@ impl crate::simulations::traits::Simulation for PelletsModel {
 
         // Update render params to reflect new screen dimensions
         self.update_render_params(queue);
+
+        self.post_processing_resources
+            .resize(device, &self.surface_config)?;
+
         Ok(())
     }
 

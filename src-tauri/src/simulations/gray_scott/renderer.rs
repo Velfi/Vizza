@@ -21,6 +21,7 @@ pub struct Renderer {
 
     lut_buffer: wgpu::Buffer,
     background_color_buffer: wgpu::Buffer,
+    render_params_buffer: wgpu::Buffer,
     render_infinite_pipeline: wgpu::RenderPipeline,
     background_render_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -50,6 +51,7 @@ impl Renderer {
         width: u32,
         height: u32,
         lut_manager: &crate::simulations::shared::LutManager,
+        app_settings: &crate::commands::app_settings::AppSettings,
     ) -> SimulationResult<Self> {
         let settings = Settings::default();
 
@@ -69,6 +71,19 @@ impl Renderer {
                 contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Black background
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
+
+        // Create render parameters buffer
+        let filtering_mode = match app_settings.texture_filtering {
+            crate::commands::app_settings::TextureFiltering::Nearest => 0u32,
+            crate::commands::app_settings::TextureFiltering::Linear => 1u32,
+            crate::commands::app_settings::TextureFiltering::Lanczos => 2u32,
+        };
+        let render_params = [filtering_mode, 0u32, 0u32, 0u32];
+        let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Render Params Buffer"),
+            contents: bytemuck::cast_slice(&render_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
 
         // Create simulation data bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -110,6 +125,17 @@ impl Renderer {
                 // Binding 5: Simulation parameters
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Binding 6: Render parameters
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -206,6 +232,7 @@ impl Renderer {
             settings,
             lut_buffer,
             background_color_buffer,
+            render_params_buffer,
             render_infinite_pipeline,
             background_render_pipeline,
             bind_group_layout,
@@ -235,6 +262,7 @@ impl Renderer {
             .add_buffer(3, simulation_buffer)
             .add_buffer(4, &self.lut_buffer)
             .add_buffer(5, params_buffer)
+            .add_buffer(6, &self.render_params_buffer)
             .with_label("Render Bind Group".to_string())
             .build()
     }

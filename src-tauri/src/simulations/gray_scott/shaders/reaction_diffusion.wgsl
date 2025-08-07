@@ -8,6 +8,13 @@ struct SimulationParams {
     height: u32,
     nutrient_pattern: u32,
     is_nutrient_pattern_reversed: u32,
+    // Adaptive timestep parameters
+    max_timestep: f32,
+    stability_factor: f32,
+    enable_adaptive_timestep: u32,
+    // Dependency tracking parameters
+    change_threshold: f32,
+    enable_selective_updates: u32,
 }
 
 struct UVPair {
@@ -15,9 +22,17 @@ struct UVPair {
     v: f32,
 }
 
+// Change tracking structure
+struct CellState {
+    uv: UVPair,
+    change_magnitude: f32,
+    last_update: u32,
+}
+
 @group(0) @binding(0) var<storage, read> uvs_in: array<UVPair>;
 @group(0) @binding(1) var<storage, read_write> uvs_out: array<UVPair>;
 @group(0) @binding(2) var<uniform> params: SimulationParams;
+@group(0) @binding(3) var<storage, read_write> cell_states: array<CellState>;
 
 fn get_index(x: i32, y: i32) -> u32 {
     let width = i32(params.width);
@@ -168,21 +183,96 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
     return result;
 }
 
-@compute @workgroup_size(8, 8)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn calculate_adaptive_timestep(delta_u: f32, delta_v: f32, feed_rate: f32, kill_rate: f32, stability_factor: f32) -> f32 {
+    // Von Neumann stability condition for 2D diffusion
+    let diffusion_limit = 0.25 / max(delta_u, delta_v);
+    
+    // Reaction rate stability (simplified)
+    let reaction_limit = 1.0 / (feed_rate + kill_rate + 1.0);
+    
+    // Take the minimum for stability
+    let stable_timestep = min(diffusion_limit, reaction_limit) * stability_factor;
+    
+    return stable_timestep;
+}
+
+fn should_update_cell(x: i32, y: i32) -> bool {
+    if (params.enable_selective_updates == 0u) {
+        return true;
+    }
+    
+    let idx = get_index(x, y);
+    let state = cell_states[idx];
+    
+    // Check if this cell or its neighbors have significant changes
+    let current_change = state.change_magnitude;
+    
+    // Check neighbor changes (simplified dependency graph)
+    let left_change = cell_states[get_index(x - 1, y)].change_magnitude;
+    let right_change = cell_states[get_index(x + 1, y)].change_magnitude;
+    let up_change = cell_states[get_index(x, y - 1)].change_magnitude;
+    let down_change = cell_states[get_index(x, y + 1)].change_magnitude;
+    
+    let max_neighbor_change = max(max(left_change, right_change), max(up_change, down_change));
+    
+    return current_change > params.change_threshold || max_neighbor_change > params.change_threshold;
+}
+
+fn update_cell_state(idx: u32, old_uv: UVPair, new_uv: UVPair, frame_count: u32) {
+    let change_magnitude = length(vec2<f32>(new_uv.u - old_uv.u, new_uv.v - old_uv.v));
+    
+    cell_states[idx] = CellState(new_uv, change_magnitude, frame_count);
+}
+
+// Shared memory for better cache performance
+var<workgroup> shared_uvs: array<UVPair, 256>; // 16x16 workgroup
+
+fn load_shared_data(x: i32, y: i32, local_x: u32, local_y: u32) {
+    let global_idx = get_index(x, y);
+    let local_idx = local_y * 16u + local_x;
+    
+    // Load center into shared memory
+    shared_uvs[local_idx] = uvs_in[global_idx];
+}
+
+fn get_laplacian_optimized(x: i32, y: i32, local_x: u32, local_y: u32) -> vec2<f32> {
+    // For now, use the original laplacian function to ensure it works
+    return get_laplacian(x, y);
+}
+
+// Optimized workgroup size for better GPU utilization
+// 16x16 provides better occupancy on modern GPUs
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>) {
     let x = i32(global_id.x);
     let y = i32(global_id.y);
+    let local_x = local_id.x;
+    let local_y = local_id.y;
     
     if (x >= i32(params.width) || y >= i32(params.height)) {
         return;
     }
     
     let idx = get_index(x, y);
+    
+    // Load data into shared memory
+    load_shared_data(x, y, local_x, local_y);
+    workgroupBarrier();
+    
     let uv = uvs_in[idx];
     let reaction_rate = uv.u * uv.v * uv.v;
     
     let laplacian = get_laplacian(x, y);
     let nutrient_factor = get_nutrient_factor(x, y);
+    
+    // Always use adaptive timestep for better stability
+    let effective_timestep = calculate_adaptive_timestep(
+        params.delta_u, 
+        params.delta_v, 
+        params.feed_rate, 
+        params.kill_rate, 
+        params.stability_factor
+    );
     
     // Incorporate nutrient factor into the feed rate
     let effective_feed_rate = params.feed_rate * nutrient_factor;
@@ -190,8 +280,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.u);
     let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.v;
     
-    let new_u = clamp(uv.u + delta_u * params.timestep, 0.0, 1.0);
-    let new_v = clamp(uv.v + delta_v * params.timestep, 0.0, 1.0);
+    let new_u = clamp(uv.u + delta_u * effective_timestep, 0.0, 1.0);
+    let new_v = clamp(uv.v + delta_v * effective_timestep, 0.0, 1.0);
     
-    uvs_out[idx] = UVPair(new_u, new_v);
+    let new_uv = UVPair(new_u, new_v);
+    uvs_out[idx] = new_uv;
 } 

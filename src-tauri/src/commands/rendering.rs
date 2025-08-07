@@ -28,7 +28,7 @@ pub async fn render_frame(
     let queue = gpu_ctx.queue.clone();
     let result = gpu_ctx
         .main_menu
-        .render_frame(&device, &queue, &surface_view);
+        .render_frame(&device, &queue, &surface_view, 0.0);
 
     match result {
         Ok(_) => {
@@ -67,7 +67,7 @@ pub async fn render_single_frame(
     let queue = gpu_ctx.queue.clone();
     let result = gpu_ctx
         .main_menu
-        .render_frame(&device, &queue, &surface_view);
+        .render_frame(&device, &queue, &surface_view, 0.0);
 
     match result {
         Ok(_) => {

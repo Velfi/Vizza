@@ -4,20 +4,20 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
-pub async fn update_slime_mold_post_processing_state(
+pub async fn update_pellets_post_processing_state(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     effect_name: String,
     enabled: bool,
     params: Value,
 ) -> Result<String, String> {
     tracing::debug!(
-        "update_slime_mold_post_processing_state called: {} = {}",
+        "update_pellets_post_processing_state called: {} = {}",
         effect_name,
         enabled
     );
     let mut sim_manager = manager.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::SlimeMold(simulation)) =
+    if let Some(crate::simulations::traits::SimulationType::Pellets(simulation)) =
         &mut sim_manager.current_simulation
     {
         match effect_name.as_str() {
@@ -34,17 +34,17 @@ pub async fn update_slime_mold_post_processing_state(
             _ => Err(format!("Unknown effect: {}", effect_name)),
         }
     } else {
-        Err("Slime Mold simulation not active".to_string())
+        Err("Pellets simulation not active".to_string())
     }
 }
 
 #[tauri::command]
-pub async fn get_slime_mold_post_processing_state(
+pub async fn get_pellets_post_processing_state(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<serde_json::Value, String> {
     let sim_manager = manager.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::SlimeMold(simulation)) =
+    if let Some(crate::simulations::traits::SimulationType::Pellets(simulation)) =
         &sim_manager.current_simulation
     {
         Ok(serde_json::json!({
@@ -55,9 +55,6 @@ pub async fn get_slime_mold_post_processing_state(
             }
         }))
     } else {
-        Err("Slime Mold simulation not active".to_string())
+        Err("Pellets simulation not active".to_string())
     }
 }
-
-// Re-export slime mold specific commands
-pub use crate::simulations::slime_mold::commands::*;

@@ -36,6 +36,12 @@ pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
             timestep: 1.0,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
+            // Optimization defaults
+            max_timestep: 2.0,
+            stability_factor: 0.8,
+            enable_adaptive_timestep: false,
+            change_threshold: 0.001,
+            enable_selective_updates: false,
         };
 
         preset_manager.add_preset(Preset::new(preset_name.to_string(), settings));

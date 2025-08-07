@@ -162,16 +162,18 @@ pub struct Settings {
     pub noise_scale: f64,
     pub noise_x: f64,
     pub noise_y: f64,
+    pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub vector_magnitude: f32,
 
     // Particle parameters
-    pub autospawn_limit: u32, // Setting for limiting autospawned particles
+    pub total_pool_size: u32, // Total number of particles (autospawn + brush)
     pub particle_lifetime: f32,
     pub particle_speed: f32,
     pub particle_size: u32,
     pub particle_shape: ParticleShape,
     pub particle_autospawn: bool,
-    pub particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
+    pub autospawn_rate: u32,   // Particles per second for autospawn
+    pub brush_spawn_rate: u32, // Particles per second when cursor is active
 
     // Trail parameters
     pub trail_decay_rate: f32,
@@ -185,20 +187,22 @@ impl Default for Settings {
         Self {
             // Flow field parameters
             noise_type: NoiseType::OpenSimplex,
-            noise_seed: 42,
+            noise_seed: 0,
             noise_scale: 1.0,
             noise_x: 1.0,
             noise_y: 1.0,
+            noise_dt_multiplier: 0.0, // Default multiplier
             vector_magnitude: 0.1,
 
             // Particle parameters
-            autospawn_limit: 50000, // Setting for autospawn limit
+            total_pool_size: 10000, // Total particle pool size (will be divided evenly between autospawn and brush)
             particle_lifetime: 3.0, // 3 seconds
             particle_speed: 0.02,   // Consistent speed for all particles
             particle_size: 4,
             particle_shape: ParticleShape::Circle,
             particle_autospawn: true,
-            particle_spawn_rate: 0.1, // 10% spawn rate by default
+            autospawn_rate: 100,  // Default autospawn rate
+            brush_spawn_rate: 10, // Default brush spawn rate
 
             // Trail parameters
             trail_decay_rate: 0.0,      // No trail decay by default

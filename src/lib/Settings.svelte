@@ -64,6 +64,14 @@
               }}
             />
           </div>
+          <div class="setting-item">
+            <span class="setting-label">Texture Filtering:</span>
+            <Selector
+              options={['Linear', 'Nearest', 'Lanczos']}
+              bind:value={settings.texture_filtering}
+              on:change={() => scheduleAutoSave()}
+            />
+          </div>
         </div>
       </fieldset>
 
@@ -177,6 +185,10 @@
       </fieldset>
     </form>
   </div>
+
+  <div class="version-footer">
+    <span>Vizzy v{appVersion}</span>
+  </div>
 </div>
 
 <script lang="ts">
@@ -194,6 +206,7 @@
     // Display Settings
     default_fps_limit: 60,
     default_fps_limit_enabled: false,
+    texture_filtering: 'Linear',
 
     // Window Settings
     window_width: 1200,
@@ -214,6 +227,7 @@
   let loading = false;
   let saving = false;
   let lastSaved = '';
+  let appVersion = '';
 
   // Load settings from backend
   async function loadSettings() {
@@ -228,6 +242,17 @@
       console.error('Failed to load settings:', e);
     } finally {
       loading = false;
+    }
+  }
+
+  // Load app version from backend
+  async function loadAppVersion() {
+    try {
+      appVersion = await invoke('get_app_version');
+      console.log('App version loaded:', appVersion);
+    } catch (e) {
+      console.error('Failed to load app version:', e);
+      appVersion = 'unknown';
     }
   }
 
@@ -314,6 +339,7 @@
 
   onMount(() => {
     loadSettings();
+    loadAppVersion();
   });
 </script>
 
@@ -442,6 +468,15 @@
   .setting-item input[type='checkbox'] {
     width: auto;
     margin: 0;
+  }
+
+  .version-footer {
+    padding: 0.5rem 1rem;
+    background-color: rgb(255 255 255 / 10%);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.875rem;
   }
 
   /* Responsive design */

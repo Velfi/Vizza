@@ -58,6 +58,9 @@
         </div>
       </fieldset>
 
+      <!-- Post Processing -->
+      <PostProcessingMenu simulationType="gray_scott" />
+
       <!-- Controls -->
       <fieldset>
         <legend>Controls</legend>
@@ -215,6 +218,7 @@
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
+  import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import Button from './components/shared/Button.svelte';
   import './shared-theme.css';
 

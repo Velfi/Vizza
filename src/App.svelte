@@ -36,6 +36,7 @@
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
+
   {:else if currentMode === 'gradient'}
     <SimulationLayout
       simulationName="Gradient"
@@ -67,6 +68,7 @@
   import FlowMode from './lib/FlowMode.svelte';
   import PelletsMode from './lib/PelletsMode.svelte';
   import GradientEditorMode from './lib/GradientEditorMode.svelte';
+
   import SimulationLayout from './lib/components/shared/SimulationLayout.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
   import Settings from './lib/Settings.svelte';
@@ -79,6 +81,7 @@
     | 'flow'
     | 'pellets'
     | 'gradient-editor'
+
     | 'gradient'
     | 'how-to-play'
     | 'settings';

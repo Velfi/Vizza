@@ -2,7 +2,9 @@ struct Particle {
     position: vec2<f32>,
     age: f32,
     color: vec4<f32>,
-    my_parent_was: u32, // 0 = autospawned, 1 = spawned by brush
+    is_alive: u32, // 0=dead, 1=alive
+    spawn_type: u32, // 0=autospawn, 1=brush
+    last_spawn_time: f32, // Track when this particle last spawned
 }
 
 struct FlowVector {
@@ -11,12 +13,13 @@ struct FlowVector {
 }
 
 struct SimParams {
-    autospawn_limit: u32, // Setting for limiting autospawned particles
+    total_pool_size: u32, // Total number of particles (autospawn + brush)
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
     noise_seed: u32,
     time: f32,
+    noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     width: f32,
     height: f32,
     noise_scale: f32,
@@ -35,12 +38,17 @@ struct SimParams {
     screen_height: u32, // Screen height in pixels
     cursor_x: f32,
     cursor_y: f32,
-    cursor_active: u32, // 0=inactive, 1=attract, 2=repel
     cursor_size: u32,
     cursor_strength: f32,
+    mouse_button_down: u32, // 0=not held, 1=left click held, 2=right click held
     particle_autospawn: u32, // 0=disabled, 1=enabled
-    particle_spawn_rate: f32, // 0 = no spawn, 1.0 = full spawn rate
+    autospawn_rate: u32,     // Particles per second for autospawn
+    brush_spawn_rate: u32,   // Particles per second when cursor is active
     display_mode: u32, // 0=Age, 1=Random, 2=Direction
+    autospawn_pool_size: u32, // Size of autospawn pool
+    brush_pool_size: u32,     // Size of brush pool
+    total_pool_size: u32,     // Total pool size (autospawn + brush)
+
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
@@ -193,26 +201,79 @@ fn deposit_trail(pos: vec2<f32>, particle_color: vec4<f32>) {
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let particle_index = global_id.x;
     
-    // No longer limit by particle_limit - process all particles
-    // The actual particle count is managed by the buffer size
+    // Only process particles within the total pool size
+    if (particle_index >= sim_params.total_pool_size) {
+        return;
+    }
     
     var particle = particles[particle_index];
     
-    // Update age
+    // Update age for all particles
     particle.age += 0.016; // ~60 FPS
     
-    // Check if particle should be reset or if we should spawn new particles at cursor
+    // Check if particle should be reset due to age
     var should_reset = particle.age >= sim_params.particle_lifetime;
     var spawn_x: f32;
     var spawn_y: f32;
     
-    // Determine spawn position based on cursor state
-    if (sim_params.cursor_active == 1u) {
-        // Only allow forced reset for autospawned particles
-        if (particle.my_parent_was == 0u) {
-            let spawn_chance = fract(f32(particle_index) * 0.1234 + sim_params.time * 2.0);
-            let scaled_strength = sim_params.cursor_strength * 0.2 * sim_params.particle_spawn_rate;
-            if (spawn_chance < scaled_strength) {
+    // Unified spawning logic based on spawn_type
+    if (particle.spawn_type == 0u) {
+        // Autospawn particles
+        if (sim_params.particle_autospawn == 1u && particle.is_alive == 0u) {
+            // Check if it's time to spawn this autospawn particle
+            let spawn_interval = 1.0 / f32(sim_params.autospawn_rate);
+            let time_since_last_spawn = sim_params.time - particle.last_spawn_time;
+            
+            if (time_since_last_spawn >= spawn_interval) {
+                // Spawn at random position in world space
+                let random_x = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
+                let random_y = f32(particle_index) * 0.5678 + sim_params.time * 0.1;
+                spawn_x = fract(sin(random_x) * 43758.5453) * 2.0 - 1.0;
+                spawn_y = fract(cos(random_y) * 43758.5453) * 2.0 - 1.0;
+                should_reset = true; // Force spawn
+                particle.last_spawn_time = sim_params.time + spawn_interval; // Update spawn time to next spawn
+            } else {
+                // Don't spawn yet - keep particle dead
+                particle.position = vec2<f32>(0.0, 0.0);
+                particle.age = 0.0;
+                particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+                particle.is_alive = 0u;
+                particles[particle_index] = particle;
+                return;
+            }
+        } else if (particle.is_alive == 1u) {
+            // Particle is alive - continue normally
+            if (should_reset) {
+                // Particle is dying - zero out particle
+                particle.position = vec2<f32>(0.0, 0.0);
+                particle.age = 0.0;
+                particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+                particle.is_alive = 0u;
+                particles[particle_index] = particle;
+                return;
+            } else {
+                // Particle continues normally
+                spawn_x = particle.position.x;
+                spawn_y = particle.position.y;
+            }
+        } else {
+            // Autospawn disabled or particle is dead - keep dead
+            particle.position = vec2<f32>(0.0, 0.0);
+            particle.age = 0.0;
+            particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            particle.is_alive = 0u;
+            particles[particle_index] = particle;
+            return;
+        }
+    } else {
+        // Brush particles (spawn_type == 1u)
+        if (sim_params.mouse_button_down == 1u && particle.is_alive == 0u) {
+            // Left click is held - spawn brush particles like a spray can
+            let spawn_interval = 1.0 / f32(sim_params.brush_spawn_rate);
+            let time_since_last_spawn = sim_params.time - particle.last_spawn_time;
+            
+            if (time_since_last_spawn >= spawn_interval) {
+                // Spawn at cursor with random offset (spray can effect)
                 let radius = f32(sim_params.cursor_size) * 0.01;
                 let seed1 = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
                 let seed2 = f32(particle_index) * 0.5678 + sim_params.time * 0.05;
@@ -222,115 +283,48 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
                 let offset_y = sin(angle) * radius * distance;
                 spawn_x = sim_params.cursor_x + offset_x;
                 spawn_y = sim_params.cursor_y + offset_y;
-                should_reset = true;
-                particle.my_parent_was = 1u;
-                            } else if (should_reset) {
-                    // If dying naturally, allow respawn at cursor for both types
-                    let natural_spawn_chance = fract(f32(particle_index) * 0.5678 + sim_params.time * 0.3);
-                    if (natural_spawn_chance < scaled_strength * 0.5 * sim_params.particle_spawn_rate) {
-                    let radius = f32(sim_params.cursor_size) * 0.01;
-                    let seed1 = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-                    let seed2 = f32(particle_index) * 0.5678 + sim_params.time * 0.05;
-                    let angle = fract(sin(seed1) * 43758.5453) * 2.0 * 3.14159;
-                    let distance = fract(cos(seed2) * 43758.5453);
-                    let offset_x = cos(angle) * radius * distance;
-                    let offset_y = sin(angle) * radius * distance;
-                    spawn_x = sim_params.cursor_x + offset_x;
-                    spawn_y = sim_params.cursor_y + offset_y;
-                    particle.my_parent_was = 1u;
-                } else {
-                    let random_x = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-                    let random_y = f32(particle_index) * 0.5678 + sim_params.time * 0.1;
-                    spawn_x = fract(sin(random_x) * 43758.5453) * 2.0 - 1.0;
-                    spawn_y = fract(cos(random_y) * 43758.5453) * 2.0 - 1.0;
-                    particle.my_parent_was = 0u;
-                }
+                should_reset = true; // Force spawn
+                particle.last_spawn_time = sim_params.time + spawn_interval; // Update spawn time to next spawn
             } else {
-                spawn_x = particle.position.x;
-                spawn_y = particle.position.y;
-            }
-        } else {
-            // For brush-spawned particles, only reset if they naturally expire
-            if (should_reset) {
-                let spawn_chance = fract(f32(particle_index) * 0.9012 + sim_params.time * 0.2);
-                if (spawn_chance < sim_params.particle_spawn_rate) {
-                    let radius = f32(sim_params.cursor_size) * 0.01;
-                    let seed1 = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-                    let seed2 = f32(particle_index) * 0.5678 + sim_params.time * 0.05;
-                    let angle = fract(sin(seed1) * 43758.5453) * 2.0 * 3.14159;
-                    let distance = fract(cos(seed2) * 43758.5453);
-                    let offset_x = cos(angle) * radius * distance;
-                    let offset_y = sin(angle) * radius * distance;
-                    spawn_x = sim_params.cursor_x + offset_x;
-                    spawn_y = sim_params.cursor_y + offset_y;
-                    particle.my_parent_was = 1u;
-                } else {
-                    // Spawn at random position instead
-                    let random_x = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-                    let random_y = f32(particle_index) * 0.5678 + sim_params.time * 0.1;
-                    spawn_x = fract(sin(random_x) * 43758.5453) * 2.0 - 1.0;
-                    spawn_y = fract(cos(random_y) * 43758.5453) * 2.0 - 1.0;
-                    particle.my_parent_was = 0u;
-                }
-            } else {
-                spawn_x = particle.position.x;
-                spawn_y = particle.position.y;
-            }
-        }
-    } else if (sim_params.cursor_active == 2u) {
-        // Destroy mode - don't spawn new particles, let existing ones die naturally
-        if (should_reset) {
-            // Spawn at random position instead of at cursor
-            let random_x = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-            let random_y = f32(particle_index) * 0.5678 + sim_params.time * 0.1;
-            spawn_x = fract(sin(random_x) * 43758.5453) * 2.0 - 1.0;
-            spawn_y = fract(cos(random_y) * 43758.5453) * 2.0 - 1.0;
-        } else {
-            // Particle continues normally
-            spawn_x = particle.position.x;
-            spawn_y = particle.position.y;
-        }
-    } else if (should_reset) {
-        // Check if autospawn is enabled and within autospawn limit
-        if (sim_params.particle_autospawn == 1u && particle_index < sim_params.autospawn_limit) {
-            // Apply spawn rate to autospawn
-            let spawn_chance = fract(f32(particle_index) * 0.3456 + sim_params.time * 0.1);
-            if (spawn_chance < sim_params.particle_spawn_rate) {
-                // Normal mode - spawn at random position when dying
-                let random_x = f32(particle_index) * 0.1234 + sim_params.time * 0.1;
-                let random_y = f32(particle_index) * 0.5678 + sim_params.time * 0.1;
-                spawn_x = fract(sin(random_x) * 43758.5453) * 2.0 - 1.0;
-                spawn_y = fract(cos(random_y) * 43758.5453) * 2.0 - 1.0;
-                particle.my_parent_was = 0u;
-            } else {
-                // Don't spawn - keep particle dead
-                spawn_x = particle.position.x;
-                spawn_y = particle.position.y;
-                should_reset = false;
-                particle.age = sim_params.particle_lifetime;
+                // Don't spawn yet - keep particle dead
+                particle.position = vec2<f32>(0.0, 0.0);
+                particle.age = 0.0;
+                particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+                particle.is_alive = 0u;
                 particles[particle_index] = particle;
                 return;
             }
+        } else if (particle.is_alive == 1u) {
+            // Particle is alive - continue normally
+            if (should_reset) {
+                // Particle is dying - zero out particle
+                particle.position = vec2<f32>(0.0, 0.0);
+                particle.age = 0.0;
+                particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+                particle.is_alive = 0u;
+                particles[particle_index] = particle;
+                return;
+            } else {
+                // Particle continues normally
+                spawn_x = particle.position.x;
+                spawn_y = particle.position.y;
+            }
         } else {
-            // Autospawn disabled or beyond autospawn limit - particle stays dead (age remains at lifetime)
-            spawn_x = particle.position.x;
-            spawn_y = particle.position.y;
-            should_reset = false; // Don't reset, keep particle dead
-            // Don't update position or age - particle remains at lifetime
-            particle.age = sim_params.particle_lifetime;
+            // Particle is dead and left click is not held - keep dead
+            particle.position = vec2<f32>(0.0, 0.0);
+            particle.age = 0.0;
+            particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            particle.is_alive = 0u;
             particles[particle_index] = particle;
-            return; // Exit early, don't process this particle further
+            return;
         }
-    } else {
-        // Particle continues normally
-        spawn_x = particle.position.x;
-        spawn_y = particle.position.y;
     }
     
     // Reset particle if needed
     if (should_reset) {
         particle.position = vec2<f32>(spawn_x, spawn_y);
         particle.age = 0.0;
+        particle.is_alive = 1u; // Mark as active when spawning
     }
     
     // Set particle color based on display mode (every frame to handle mode changes)
@@ -358,17 +352,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         particle.color.r = normalized_angle;
     }
     
-    // Apply cursor interaction if active
-    if (sim_params.cursor_active == 2u) {
-        // Destroy mode - destroy particles near cursor
+    // Apply cursor interaction if active (right click destroys particles)
+    if (sim_params.mouse_button_down == 2u) {
+        // Right click destroy mode - destroy particles near cursor
         let cursor_pos = vec2<f32>(sim_params.cursor_x, sim_params.cursor_y);
         let to_cursor = cursor_pos - particle.position;
         let cursor_dist = length(to_cursor);
         let cursor_radius = f32(sim_params.cursor_size) * 0.01; // Scale cursor size
         
         if (cursor_dist < cursor_radius) {
-            // Add a small delay to prevent instant death cycle
-            particle.age = min(particle.age + 0.1, sim_params.particle_lifetime);
+            // Zero out particle when destroyed
+            particle.position = vec2<f32>(0.0, 0.0);
+            particle.age = 0.0;
+            particle.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+            particle.is_alive = 0u;
+            particles[particle_index] = particle;
+            return;
         }
     }
     

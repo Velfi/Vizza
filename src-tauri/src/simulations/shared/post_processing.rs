@@ -38,6 +38,8 @@ pub struct PostProcessingResources {
     // Intermediate textures for post-processing chain
     pub intermediate_texture: wgpu::Texture,
     pub intermediate_view: wgpu::TextureView,
+    pub output_texture: wgpu::Texture,
+    pub output_view: wgpu::TextureView,
     pub blur_sampler: wgpu::Sampler,
 }
 
@@ -45,6 +47,14 @@ impl PostProcessingResources {
     pub fn new(
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
+    ) -> Result<Self, crate::error::SimulationError> {
+        Self::new_with_format(device, surface_config, surface_config.format)
+    }
+
+    pub fn new_with_format(
+        device: &Arc<Device>,
+        surface_config: &SurfaceConfiguration,
+        format: wgpu::TextureFormat,
     ) -> Result<Self, crate::error::SimulationError> {
         // Create blur parameters buffer
         let blur_params = [0.0f32, 0.0f32, 0.0f32, 0.0f32]; // radius, sigma, width, height
@@ -65,7 +75,7 @@ impl PostProcessingResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
@@ -73,6 +83,25 @@ impl PostProcessingResources {
         });
         let intermediate_view =
             intermediate_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create output texture for post-processing chain
+        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Post Processing Output Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create blur shader
         let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -138,7 +167,7 @@ impl PostProcessingResources {
                 module: &blur_shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    format,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -200,6 +229,8 @@ impl PostProcessingResources {
             blur_params_buffer,
             intermediate_texture,
             intermediate_view,
+            output_texture,
+            output_view,
             blur_sampler,
         })
     }
@@ -221,6 +252,15 @@ impl PostProcessingResources {
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
     ) -> Result<(), crate::error::SimulationError> {
+        self.resize_with_format(device, surface_config, surface_config.format)
+    }
+
+    pub fn resize_with_format(
+        &mut self,
+        device: &Arc<Device>,
+        surface_config: &SurfaceConfiguration,
+        format: wgpu::TextureFormat,
+    ) -> Result<(), crate::error::SimulationError> {
         // Recreate intermediate texture
         self.intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Post Processing Intermediate Texture"),
@@ -232,7 +272,7 @@ impl PostProcessingResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
@@ -240,6 +280,27 @@ impl PostProcessingResources {
         });
         self.intermediate_view = self
             .intermediate_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Recreate output texture
+        self.output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Post Processing Output Texture"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        self.output_view = self
+            .output_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         Ok(())
     }

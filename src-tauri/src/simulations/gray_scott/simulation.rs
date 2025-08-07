@@ -23,10 +23,13 @@ pub struct SimulationParams {
     pub height: u32,
     pub nutrient_pattern: u32,
     pub is_nutrient_pattern_reversed: u32,
-    pub cursor_x: f32,
-    pub cursor_y: f32,
-    pub cursor_size: f32,
-    pub cursor_strength: f32,
+    // Adaptive timestep parameters
+    pub max_timestep: f32,
+    pub stability_factor: f32,
+    pub enable_adaptive_timestep: u32,
+    // Dependency tracking parameters
+    pub change_threshold: f32,
+    pub enable_selective_updates: u32,
 }
 
 #[repr(C)]
@@ -47,6 +50,18 @@ pub struct BackgroundParams {
 struct UVPair {
     u: f32,
     v: f32,
+}
+
+#[derive(Debug)]
+pub struct PostProcessingState {
+    pub blur_filter: BlurFilterState,
+}
+
+#[derive(Debug)]
+pub struct BlurFilterState {
+    pub enabled: bool,
+    pub radius: f32,
+    pub sigma: f32,
 }
 
 #[derive(Debug)]
@@ -73,6 +88,9 @@ pub struct GrayScottModel {
     // Background parameters
     pub background_params_buffer: wgpu::Buffer,
     pub background_bind_group: wgpu::BindGroup,
+
+    // Post processing state
+    pub post_processing_state: PostProcessingState,
 }
 
 impl GrayScottModel {
@@ -84,6 +102,7 @@ impl GrayScottModel {
         height: u32,
         settings: Settings,
         lut_manager: &crate::simulations::shared::LutManager,
+        app_settings: &crate::commands::app_settings::AppSettings,
     ) -> SimulationResult<Self> {
         let vec_capacity = (width * height) as usize;
         let mut uvs: Vec<UVPair> =
@@ -154,10 +173,13 @@ impl GrayScottModel {
             height,
             nutrient_pattern: settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: 40.0,
-            cursor_strength: 0.5,
+            // Adaptive timestep parameters
+            max_timestep: 1.0,
+            stability_factor: 0.5,
+            enable_adaptive_timestep: 1,
+            // Dependency tracking parameters
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -263,7 +285,15 @@ impl GrayScottModel {
             }),
         ];
 
-        let renderer = Renderer::new(device, queue, surface_config, width, height, lut_manager)?;
+        let renderer = Renderer::new(
+            device,
+            queue,
+            surface_config,
+            width,
+            height,
+            lut_manager,
+            app_settings,
+        )?;
         let noise_seed_compute = NoiseSeedCompute::new(device);
 
         // Create background parameters
@@ -314,6 +344,13 @@ impl GrayScottModel {
             cursor_strength: 0.5,
             background_params_buffer,
             background_bind_group,
+            post_processing_state: PostProcessingState {
+                blur_filter: BlurFilterState {
+                    enabled: false,
+                    radius: 1.0,
+                    sigma: 1.0,
+                },
+            },
         };
 
         // Apply initial LUT
@@ -341,10 +378,13 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            // Adaptive timestep parameters
+            max_timestep: 1.0,
+            stability_factor: 0.5,
+            enable_adaptive_timestep: 1,
+            // Dependency tracking parameters
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -495,10 +535,13 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            // Adaptive timestep parameters
+            max_timestep: 1.0,
+            stability_factor: 0.5,
+            enable_adaptive_timestep: 1,
+            // Dependency tracking parameters
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -512,6 +555,7 @@ impl GrayScottModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        _delta_time: f32,
     ) -> SimulationResult<()> {
         // Calculate delta time
         let now = std::time::Instant::now();
@@ -556,8 +600,8 @@ impl GrayScottModel {
 
     pub fn update_cursor_position(
         &mut self,
-        x: f32,
-        y: f32,
+        _x: f32,
+        _y: f32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // x and y are world coordinates, pass them directly to shader
@@ -573,10 +617,13 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            cursor_x: x,
-            cursor_y: y,
-            cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
+            // Adaptive timestep parameters
+            max_timestep: 1.0,
+            stability_factor: 0.5,
+            enable_adaptive_timestep: 1,
+            // Dependency tracking parameters
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         // Update params buffer
@@ -759,8 +806,9 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
-        self.render_frame(device, queue, surface_view)
+        self.render_frame(device, queue, surface_view, delta_time)
     }
 
     fn resize(

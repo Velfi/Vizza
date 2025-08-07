@@ -1,3 +1,4 @@
+use crate::commands::app_settings::AppSettings;
 use crate::error::{SimulationError, SimulationResult};
 use bytemuck::{Pod, Zeroable};
 use serde_json::Value;
@@ -9,6 +10,7 @@ use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 use crate::simulations::shared::{LutData, LutManager, camera::Camera};
 
 #[repr(C)]
@@ -169,6 +171,9 @@ pub struct SlimeMoldModel {
     pub average_color_bind_group: wgpu::BindGroup,
     pub average_color_uniform_buffer: wgpu::Buffer,
     pub lut_manager: Arc<LutManager>,
+    pub post_processing_state: PostProcessingState,
+    pub post_processing_resources: PostProcessingResources,
+    pub app_settings: AppSettings,
 }
 
 impl SlimeMoldModel {
@@ -193,6 +198,7 @@ impl SlimeMoldModel {
         adapter_info: &wgpu::AdapterInfo,
         agent_count: usize,
         settings: Settings,
+        app_settings: &AppSettings,
         lut_manager: &LutManager,
     ) -> SimulationResult<Self> {
         let physical_width = surface_config.width;
@@ -317,9 +323,9 @@ impl SlimeMoldModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
-            min_filter: wgpu::FilterMode::Nearest, // Default to nearest, will be updated later
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -462,6 +468,8 @@ impl SlimeMoldModel {
         let buffer_pool = BufferPool::new();
 
         let agent_buffer_size_bytes = (agent_count * 4 * std::mem::size_of::<f32>()) as u64;
+        let post_processing_state = PostProcessingState::default();
+        let post_processing_resources = PostProcessingResources::new(device, surface_config)?;
         let mut simulation = Self {
             bind_group_manager,
             pipeline_manager,
@@ -504,6 +512,9 @@ impl SlimeMoldModel {
             average_color_bind_group,
             average_color_uniform_buffer,
             lut_manager: Arc::new(lut_manager.clone()),
+            post_processing_state,
+            post_processing_resources,
+            app_settings: app_settings.clone(),
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -804,6 +815,8 @@ impl SlimeMoldModel {
         self.camera
             .resize(effective_width as f32, effective_height as f32);
 
+        self.post_processing_resources.resize(device, new_config)?;
+
         tracing::info!("Slime mold resize completed successfully");
         Ok(())
     }
@@ -814,9 +827,10 @@ impl SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
         // Update camera for smooth movement
-        self.camera.update(0.016); // Assume 60 FPS for now
+        self.camera.update(delta_time);
         self.camera.upload_to_gpu(queue);
 
         // Update background parameters
@@ -908,6 +922,17 @@ impl SlimeMoldModel {
             render_pass.draw(0..6, 0..total_instances);
         }
         queue.submit(std::iter::once(encoder.finish()));
+
+        if self.post_processing_state.blur_filter.enabled {
+            self.apply_post_processing(
+                device,
+                queue,
+                &self.display_view,
+                &self.post_processing_resources.intermediate_view,
+            )?;
+            // Copy result back to display_view if needed
+        }
+
         Ok(())
     }
 
@@ -1435,6 +1460,74 @@ impl SlimeMoldModel {
             );
         }
     }
+
+    fn apply_post_processing(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        input_texture_view: &wgpu::TextureView,
+        output_texture_view: &wgpu::TextureView,
+    ) -> crate::error::SimulationResult<()> {
+        if self.post_processing_state.blur_filter.enabled {
+            self.post_processing_resources.update_blur_params(
+                queue,
+                self.post_processing_state.blur_filter.radius,
+                self.post_processing_state.blur_filter.sigma,
+                self.current_width,
+                self.current_height,
+            );
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Post Processing Blur Bind Group"),
+                layout: &self
+                    .post_processing_resources
+                    .blur_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.post_processing_resources.blur_sampler,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self
+                            .post_processing_resources
+                            .blur_params_buffer
+                            .as_entire_binding(),
+                    },
+                ],
+            });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Blur Encoder"),
+            });
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Post Processing Blur Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                render_pass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                render_pass.set_bind_group(0, &blur_bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+        Ok(())
+    }
 }
 
 impl Drop for SlimeMoldModel {
@@ -1529,8 +1622,9 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
-        self.render_frame(device, queue, surface_view)
+        self.render_frame(device, queue, surface_view, delta_time)
     }
 
     fn resize(
@@ -2057,15 +2151,9 @@ impl SlimeMoldModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: match self.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            min_filter: match self.trail_map_filtering {
-                super::settings::TrailMapFiltering::Nearest => wgpu::FilterMode::Nearest,
-                super::settings::TrailMapFiltering::Linear => wgpu::FilterMode::Linear,
-            },
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: self.app_settings.texture_filtering.into(),
+            min_filter: self.app_settings.texture_filtering.into(),
+            mipmap_filter: self.app_settings.texture_filtering.into(),
             ..Default::default()
         });
     }

@@ -99,6 +99,9 @@
         </div>
       </fieldset>
 
+      <!-- Post Processing -->
+      <PostProcessingMenu simulationType="particle_life" />
+
       <!-- Controls -->
       <fieldset>
         <legend>Controls</legend>
@@ -298,6 +301,7 @@
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
+  import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();

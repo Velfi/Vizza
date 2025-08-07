@@ -1,6 +1,8 @@
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::{
-    BindGroupBuilder, ComputePipelineBuilder, LutManager, PositionGenerator, camera::Camera,
+    BindGroupBuilder, ComputePipelineBuilder, LutManager, PositionGenerator,
+    camera::Camera,
+    post_processing::{PostProcessingResources, PostProcessingState},
 };
 use bytemuck::{Pod, Zeroable};
 use rand::{Rng, SeedableRng};
@@ -365,6 +367,7 @@ pub struct ParticleLifeModel {
     pub post_effect_params_buffer: wgpu::Buffer,
     pub post_effect_bind_group_layout: wgpu::BindGroupLayout,
     pub infinite_render_bind_group_layout: wgpu::BindGroupLayout,
+    pub texture_render_params_buffer: wgpu::Buffer,
 
     // Samplers
     pub blit_sampler: wgpu::Sampler,
@@ -402,6 +405,10 @@ pub struct ParticleLifeModel {
 
     // Camera-aware parameters
     pub camera_aware_params_buffer: wgpu::Buffer,
+
+    // Post-processing state and resources
+    pub post_processing_state: PostProcessingState,
+    pub post_processing_resources: PostProcessingResources,
 }
 
 impl ParticleLifeModel {
@@ -651,6 +658,10 @@ impl ParticleLifeModel {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.texture_render_params_buffer.as_entire_binding(),
+                    },
                 ],
             });
 
@@ -665,6 +676,10 @@ impl ParticleLifeModel {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.texture_render_params_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -700,6 +715,7 @@ impl ParticleLifeModel {
         _adapter_info: &wgpu::AdapterInfo,
         particle_count: usize,
         settings: Settings,
+        app_settings: &crate::commands::app_settings::AppSettings,
         lut_manager: &LutManager,
         color_mode: ColorMode, // Add color mode param
     ) -> SimulationResult<Self> {
@@ -1694,9 +1710,9 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -1898,9 +1914,9 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -1910,9 +1926,9 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -1922,9 +1938,9 @@ impl ParticleLifeModel {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: app_settings.texture_filtering.into(),
+            min_filter: app_settings.texture_filtering.into(),
+            mipmap_filter: app_settings.texture_filtering.into(),
             ..Default::default()
         });
 
@@ -2120,6 +2136,15 @@ impl ParticleLifeModel {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
+        // Texture render parameters buffer for infinite render shader
+        let texture_render_params = [1u32, 0u32, 0u32, 0u32]; // filtering_mode, _pad1, _pad2, _pad3
+        let texture_render_params_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Texture Render Params Buffer"),
+                contents: bytemuck::cast_slice(&texture_render_params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
         // Create post effect shader
         let post_effect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Post Effect Shader"),
@@ -2239,6 +2264,17 @@ impl ParticleLifeModel {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // Texture render params
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -2322,6 +2358,10 @@ impl ParticleLifeModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&blit_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: texture_render_params_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -2338,6 +2378,10 @@ impl ParticleLifeModel {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&blit_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: texture_render_params_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -2445,6 +2489,7 @@ impl ParticleLifeModel {
             post_effect_params_buffer,
             post_effect_bind_group_layout,
             infinite_render_bind_group_layout,
+            texture_render_params_buffer,
             blit_sampler,
             post_effect_sampler,
             display_sampler,
@@ -2469,6 +2514,8 @@ impl ParticleLifeModel {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
+            post_processing_state: PostProcessingState::default(),
+            post_processing_resources: PostProcessingResources::new(device, surface_config)?,
         };
 
         // Initialize LUT and species colors properly
@@ -3122,6 +3169,114 @@ impl ParticleLifeModel {
             bytemuck::cast_slice(&[camera_aware_params]),
         );
     }
+
+    fn apply_post_processing(
+        &self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        input_texture_view: &wgpu::TextureView,
+        output_texture_view: &wgpu::TextureView,
+    ) -> crate::error::SimulationResult<()> {
+        // Apply blur filter if enabled
+        if self.post_processing_state.blur_filter.enabled {
+            // Update blur parameters
+            self.post_processing_resources.update_blur_params(
+                queue,
+                self.post_processing_state.blur_filter.radius,
+                self.post_processing_state.blur_filter.sigma,
+                self.width,
+                self.height,
+            );
+
+            // Create blur bind group with the input texture
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Post Processing Blur Bind Group"),
+                layout: &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Blur Bind Group Layout"),
+                    entries: &[
+                        // Input texture
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        // Sampler
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                        // Parameters
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                }),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.post_processing_resources.blur_sampler,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self
+                            .post_processing_resources
+                            .blur_params_buffer
+                            .as_entire_binding(),
+                    },
+                ],
+            });
+
+            // Apply blur filter
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Blur Encoder"),
+            });
+
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Post Processing Blur Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                render_pass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                render_pass.set_bind_group(0, &blur_bind_group, &[]);
+                render_pass.draw(0..6, 0..1);
+            }
+
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+
+        Ok(())
+    }
 }
 
 impl Simulation for ParticleLifeModel {
@@ -3252,7 +3407,45 @@ impl Simulation for ParticleLifeModel {
             display_render_pass.draw(0..6, 0..particle_count);
         }
 
-        // Step 3: Render post effects from display texture to post-effect texture (offscreen)
+        // Step 3: Apply post-processing if enabled
+        if self.post_processing_state.blur_filter.enabled {
+            // Apply post-processing: input from display_view, output to intermediate_view
+            self.apply_post_processing(
+                device,
+                queue,
+                &self.display_view,
+                &self.post_processing_resources.intermediate_view,
+            )?;
+
+            // Copy the blurred result back to the display texture
+            let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Post Processing Copy Encoder"),
+            });
+
+            copy_encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.post_processing_resources.intermediate_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.display_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            queue.submit(std::iter::once(copy_encoder.finish()));
+        }
+
+        // Step 4: Render post effects from display texture to post-effect texture (offscreen)
         // Skip expensive post-effect pass when using default parameters
         if self.needs_post_effects() {
             let mut post_effect_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -3316,20 +3509,14 @@ impl Simulation for ParticleLifeModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        delta_time: f32,
     ) -> SimulationResult<()> {
         // Check if resolution needs to be updated based on zoom level
         if self.should_update_resolution() {
             self.update_resolution(device)?;
         }
 
-        // Calculate delta time for smooth camera movement
-        let current_time = std::time::Instant::now();
-        let delta_time = current_time
-            .duration_since(self.last_frame_time)
-            .as_secs_f32();
-        self.last_frame_time = current_time;
-
-        // Use actual delta time for real-time simulation
+        // Use provided delta time for smooth camera movement
         // Only clamp to prevent extreme jumps when tab is inactive
         let delta_time = delta_time.min(1.0); // Max 1 second jump
 
@@ -3626,6 +3813,9 @@ impl Simulation for ParticleLifeModel {
         // Update camera viewport
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
+
+        // Update post-processing resources
+        self.post_processing_resources.resize(device, new_config)?;
 
         Ok(())
     }

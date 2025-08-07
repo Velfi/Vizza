@@ -87,10 +87,12 @@ impl GrayScottValidator {
             height: 1080,
             nutrient_pattern: 0,
             is_nutrient_pattern_reversed: 0,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: 50.0,
-            cursor_strength: 1.0,
+            // Optimization parameters
+            max_timestep: 2.0,
+            stability_factor: 0.8,
+            enable_adaptive_timestep: 1,
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         // Create buffers
@@ -134,10 +136,12 @@ impl GrayScottValidator {
             height: 1080,
             nutrient_pattern: 0,
             is_nutrient_pattern_reversed: 0,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: 50.0,
-            cursor_strength: 1.0,
+            // Optimization parameters
+            max_timestep: 2.0,
+            stability_factor: 0.8,
+            enable_adaptive_timestep: 1,
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         // Create buffers
@@ -334,10 +338,12 @@ fn test_struct_layout_consistency() {
             height: 1080,
             nutrient_pattern: 0,
             is_nutrient_pattern_reversed: 0,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: 50.0,
-            cursor_strength: 1.0,
+            // Optimization parameters
+            max_timestep: 2.0,
+            stability_factor: 0.8,
+            enable_adaptive_timestep: 1,
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
         };
 
         let dummy_background_params = BackgroundParams {

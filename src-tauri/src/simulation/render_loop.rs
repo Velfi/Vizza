@@ -68,8 +68,11 @@ impl RenderLoopManager {
                         Ok(surface_texture) => {
                             let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+                            // Calculate delta time
+                            let delta_time = frame_start.duration_since(last_frame_time).as_secs_f32();
+                            
                             // Render the current simulation or main menu
-                            if let Err(e) = manager_guard.render(&gpu_context_guard.device, &gpu_context_guard.queue, &surface_view) {
+                            if let Err(e) = manager_guard.render(&gpu_context_guard.device, &gpu_context_guard.queue, &surface_view, delta_time) {
                                 tracing::error!("Render error: {}", e);
                             }
 

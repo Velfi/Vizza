@@ -3,6 +3,11 @@ use std::sync::Arc;
 use tauri::{Manager, State};
 
 #[tauri::command]
+pub async fn get_app_version() -> Result<String, String> {
+    Ok(env!("CARGO_PKG_VERSION").to_string())
+}
+
+#[tauri::command]
 pub async fn check_gpu_context_ready(
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<bool, String> {

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
+use crate::commands::AppSettings;
 use crate::error::{AppError, AppResult};
 use crate::simulation::preset_manager::SimulationPresetManager;
 use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
@@ -24,10 +25,11 @@ pub struct SimulationManager {
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
     pub is_paused: Arc<AtomicBool>,
+    pub app_settings: Arc<AppSettings>,
 }
 
 impl SimulationManager {
-    pub fn new() -> Self {
+    pub fn new(app_settings: Arc<AppSettings>) -> Self {
         // Simulations start paused to prevent race conditions between initialization
         // and render loop startup. They are automatically unpaused after successful
         // initialization to ensure all GPU resources and state are ready.
@@ -40,6 +42,7 @@ impl SimulationManager {
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
             is_paused: Arc::new(AtomicBool::new(true)), // Start paused to avoid race condition
+            app_settings,
         }
     }
 
@@ -67,6 +70,7 @@ impl SimulationManager {
                     adapter_info,
                     10_000_000,
                     settings,
+                    &self.app_settings,
                     &self.lut_manager,
                 )?;
 
@@ -89,6 +93,7 @@ impl SimulationManager {
                     surface_config.height,
                     settings,
                     &self.lut_manager,
+                    &self.app_settings,
                 )?;
 
                 self.current_simulation = Some(SimulationType::GrayScott(Box::new(simulation)));
@@ -108,6 +113,7 @@ impl SimulationManager {
                     adapter_info,
                     15000, // Default particle count
                     settings,
+                    &self.app_settings,
                     &self.lut_manager,
                     ColorMode::Lut,
                 )?;
@@ -135,6 +141,7 @@ impl SimulationManager {
                     queue,
                     surface_config,
                     settings,
+                    &self.app_settings,
                     &self.lut_manager,
                 )
                 .map_err(|e| format!("Failed to initialize Flow simulation: {}", e))?;
@@ -151,6 +158,7 @@ impl SimulationManager {
                     queue,
                     surface_config,
                     settings,
+                    &self.app_settings,
                     &self.lut_manager,
                 )
                 .map_err(|e| format!("Failed to initialize Pellets simulation: {}", e))?;
@@ -165,12 +173,14 @@ impl SimulationManager {
                     device,
                     queue,
                     surface_config.format,
+                    &self.app_settings,
                 );
 
                 self.current_simulation = Some(SimulationType::Gradient(Box::new(simulation)));
                 self.resume();
                 Ok(())
             }
+
             _ => Err("Unknown simulation type".into()),
         }
     }
@@ -184,9 +194,10 @@ impl SimulationManager {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &wgpu::TextureView,
+        delta_time: f32,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
-            simulation.render_frame(device, queue, surface_view)?;
+            simulation.render_frame(device, queue, surface_view, delta_time)?;
         }
         Ok(())
     }
@@ -320,6 +331,7 @@ impl SimulationManager {
                         queue,
                     )?;
                 }
+
                 _ => (),
             }
         }
@@ -345,6 +357,7 @@ impl SimulationManager {
                 SimulationType::Pellets(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
+
                 _ => (),
             }
         }
@@ -668,6 +681,7 @@ impl SimulationManager {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
                 }
+
                 _ => {
                     // Other simulations don't support LUT reversal
                     tracing::warn!("LUT reversal not supported for this simulation type");
@@ -759,6 +773,7 @@ impl SimulationManager {
         tokio::spawn(async move {
             let mut frame_count = 0u32;
             let mut last_fps_update = Instant::now();
+            let mut last_frame_time = Instant::now();
 
             while render_loop_running.load(Ordering::Relaxed) {
                 let frame_start = Instant::now();
@@ -774,12 +789,21 @@ impl SimulationManager {
                                 .texture
                                 .create_view(&wgpu::TextureViewDescriptor::default());
 
+                            // Calculate delta time
+                            let delta_time =
+                                frame_start.duration_since(last_frame_time).as_secs_f32();
+
                             let render_result = if is_paused.load(Ordering::Relaxed) {
                                 // When paused, render without updating simulation state
                                 sim_manager.render_paused(&gpu_ctx.device, &gpu_ctx.queue, &view)
                             } else {
                                 // When running, render normally with simulation updates
-                                sim_manager.render(&gpu_ctx.device, &gpu_ctx.queue, &view)
+                                sim_manager.render(
+                                    &gpu_ctx.device,
+                                    &gpu_ctx.queue,
+                                    &view,
+                                    delta_time,
+                                )
                             };
 
                             if render_result.is_ok() {
@@ -792,6 +816,8 @@ impl SimulationManager {
                     }
                 }
 
+                // Update last frame time for next iteration
+                last_frame_time = frame_start;
                 frame_count += 1;
 
                 // Update FPS every second
@@ -867,6 +893,7 @@ impl SimulationManager {
                 SimulationType::ParticleLife(sim) => {
                     sim.reset_particles_gpu(device, queue)?;
                 }
+
                 _ => {
                     simulation.reset_runtime_state(device, queue)?;
                 }
@@ -886,7 +913,7 @@ impl SimulationManager {
         Ok(())
     }
 
-    // Note: seed_random_noise is Gray-Scott specific functionality
+    // Note: seed_random_noise is Gray-Scott and CSA specific functionality
     pub fn seed_random_noise(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
@@ -894,9 +921,12 @@ impl SimulationManager {
                     sim.seed_random_noise(device, queue)
                         .map_err(AppError::Simulation)?;
                 }
+
                 _ => {
-                    // Seed random noise is only supported for Gray-Scott simulation
-                    tracing::warn!("Seed random noise is only supported for Gray-Scott simulation");
+                    // Seed random noise is only supported for Gray-Scott and CSA simulations
+                    tracing::warn!(
+                        "Seed random noise is only supported for Gray-Scott and CSA simulations"
+                    );
                 }
             }
         }

@@ -27,9 +27,26 @@
 
   let show_post_processing_section = false;
 
+  function getCommandName(command: string): string {
+    switch (simulationType) {
+      case 'particle_life':
+        return command === 'get' ? 'get_particle_life_post_processing_state' : 'update_particle_life_post_processing_state';
+      case 'gray_scott':
+        return command === 'get' ? 'get_gray_scott_post_processing_state' : 'update_gray_scott_post_processing_state';
+      case 'slime_mold':
+        return command === 'get' ? 'get_slime_mold_post_processing_state' : 'update_slime_mold_post_processing_state';
+      case 'pellets':
+        return command === 'get' ? 'get_pellets_post_processing_state' : 'update_pellets_post_processing_state';
+      case 'flow':
+      default:
+        return command === 'get' ? 'get_post_processing_state' : 'update_post_processing_state';
+    }
+  }
+
   async function loadPostProcessingState() {
     try {
-      const state = await invoke('get_post_processing_state');
+      const command = getCommandName('get');
+      const state = await invoke(command);
       postProcessingState = state as PostProcessingState;
     } catch (error) {
       console.error('Failed to load post processing state:', error);
@@ -42,7 +59,8 @@
       if (radius !== undefined) params.radius = radius;
       if (sigma !== undefined) params.sigma = sigma;
 
-      await invoke('update_post_processing_state', {
+      const command = getCommandName('update');
+      await invoke(command, {
         effectName: 'blur_filter',
         enabled: enabled ?? postProcessingState.blur_filter.enabled,
         params

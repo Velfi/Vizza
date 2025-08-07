@@ -1,6 +1,7 @@
 use crate::simulation::SimulationManager;
 use crate::simulations::traits::SimulationType;
 use bytemuck;
+use serde_json::Value;
 use std::sync::Arc;
 use tauri::State;
 use wgpu::util::DeviceExt;
@@ -389,6 +390,69 @@ pub async fn flip_force_matrix_sign(
         simulation.recreate_bind_groups_with_force_matrix(&gpu_ctx.device);
 
         Ok("Force matrix sign flipped successfully".to_string())
+    } else {
+        Err("This command is only available for Particle Life simulation".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn update_particle_life_post_processing_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    effect_name: String,
+    enabled: bool,
+    params: Value,
+) -> Result<String, String> {
+    tracing::debug!(
+        "update_particle_life_post_processing_state called: {} = {}",
+        effect_name,
+        enabled
+    );
+    let mut sim_manager = manager.lock().await;
+
+    if let Some(crate::simulations::traits::SimulationType::ParticleLife(simulation)) =
+        &mut sim_manager.current_simulation
+    {
+        match effect_name.as_str() {
+            "blur_filter" => {
+                simulation.post_processing_state.blur_filter.enabled = enabled;
+                if let Some(radius) = params.get("radius").and_then(|v| v.as_f64()) {
+                    simulation.post_processing_state.blur_filter.radius = radius as f32;
+                }
+                if let Some(sigma) = params.get("sigma").and_then(|v| v.as_f64()) {
+                    simulation.post_processing_state.blur_filter.sigma = sigma as f32;
+                }
+                tracing::info!(
+                    "Blur filter updated: enabled={}, radius={}, sigma={}",
+                    enabled,
+                    simulation.post_processing_state.blur_filter.radius,
+                    simulation.post_processing_state.blur_filter.sigma
+                );
+                Ok("Post processing state updated successfully".to_string())
+            }
+            _ => Err(format!("Unknown post processing effect: {}", effect_name)),
+        }
+    } else {
+        Err("This command is only available for Particle Life simulation".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn get_particle_life_post_processing_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<serde_json::Value, String> {
+    tracing::debug!("get_particle_life_post_processing_state called");
+    let sim_manager = manager.lock().await;
+
+    if let Some(crate::simulations::traits::SimulationType::ParticleLife(simulation)) =
+        &sim_manager.current_simulation
+    {
+        Ok(serde_json::json!({
+            "blur_filter": {
+                "enabled": simulation.post_processing_state.blur_filter.enabled,
+                "radius": simulation.post_processing_state.blur_filter.radius,
+                "sigma": simulation.post_processing_state.blur_filter.sigma,
+            }
+        }))
     } else {
         Err("This command is only available for Particle Life simulation".to_string())
     }

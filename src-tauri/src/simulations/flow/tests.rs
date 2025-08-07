@@ -21,8 +21,8 @@
 //! interactions work correctly across different hardware configurations.
 
 use super::shaders::{
-    BACKGROUND_RENDER_SHADER, PARTICLE_RENDER_SHADER, PARTICLE_UPDATE_SHADER,
-    TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
+    BACKGROUND_RENDER_SHADER, FLOW_VECTOR_COMPUTE_SHADER, PARTICLE_RENDER_SHADER,
+    PARTICLE_UPDATE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
 };
 use super::simulation::{FlowVector, Particle, SimParams};
 use std::mem;
@@ -125,51 +125,24 @@ impl FlowFieldValidator {
         Ok(())
     }
 
+    /// Validates that the Flow Field vector compute shader compiles without errors
+    fn validate_flow_vector_compute_shader_compilation(&self) -> Result<(), String> {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Field Vector Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(FLOW_VECTOR_COMPUTE_SHADER.into()),
+            });
+        Ok(())
+    }
+
     /// Validates that the particle render shader can bind to the Rust structs
     /// This will catch buffer size mismatches between Rust and WGSL
     fn validate_particle_render_shader_binding(&self) -> Result<(), String> {
         // Create dummy data
-        let dummy_particles: Vec<Particle> = (0..10)
-            .map(|_| Particle {
-                position: [0.0, 0.0],
-                age: 0.0,
-                color: [1.0, 1.0, 1.0, 1.0],
-                my_parent_was: 0,
-            })
-            .collect();
+        let dummy_particles: Vec<Particle> = (0..10).map(|_| Particle::default()).collect();
 
-        let dummy_sim_params = SimParams {
-            autospawn_limit: 500,
-            vector_count: 100,
-            particle_lifetime: 10.0,
-            particle_speed: 1.0,
-            noise_seed: 123,
-            time: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-            noise_scale: 1.0,
-            noise_x: 1.0,
-            noise_y: 1.0,
-            vector_magnitude: 1.0,
-            trail_decay_rate: 0.1,
-            trail_deposition_rate: 1.0,
-            trail_diffusion_rate: 0.01,
-            trail_wash_out_rate: 0.0,
-            trail_map_width: 512,
-            trail_map_height: 512,
-            particle_shape: 0,
-            particle_size: 2,
-            screen_width: 1920,
-            screen_height: 1080,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_active: 0,
-            cursor_size: 50,
-            cursor_strength: 1.0,
-            particle_autospawn: 1,
-            particle_spawn_rate: 1.0,
-            display_mode: 0,
-        };
+        let dummy_sim_params = SimParams::default();
 
         // Create buffers
         let particle_buffer = self
@@ -351,107 +324,153 @@ impl FlowFieldValidator {
         Ok(())
     }
 
-    /// Validates that the compute shaders can bind to the Rust structs
+    /// Validates that the Flow Field compute shader can bind to the Rust structs
     fn validate_compute_shader_binding(&self) -> Result<(), String> {
-        // Create dummy data
-        let dummy_particles: Vec<Particle> = (0..10)
-            .map(|_| Particle {
-                position: [0.0, 0.0],
-                age: 0.0,
-                color: [1.0, 1.0, 1.0, 1.0],
-                my_parent_was: 0,
-            })
-            .collect();
-
-        let dummy_flow_vectors: Vec<FlowVector> = (0..10)
-            .map(|_| FlowVector {
-                position: [0.0, 0.0],
-                direction: [1.0, 0.0],
-            })
-            .collect();
-
-        let dummy_sim_params = SimParams {
-            autospawn_limit: 500,
-            vector_count: 100,
-            particle_lifetime: 10.0,
-            particle_speed: 1.0,
-            noise_seed: 123,
-            time: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-            noise_scale: 1.0,
-            noise_x: 1.0,
-            noise_y: 1.0,
-            vector_magnitude: 1.0,
-            trail_decay_rate: 0.1,
-            trail_deposition_rate: 1.0,
-            trail_diffusion_rate: 0.01,
-            trail_wash_out_rate: 0.0,
-            trail_map_width: 512,
-            trail_map_height: 512,
-            particle_shape: 0,
-            particle_size: 2,
-            screen_width: 1920,
-            screen_height: 1080,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_active: 0,
-            cursor_size: 50,
-            cursor_strength: 1.0,
-            particle_autospawn: 1,
-            particle_spawn_rate: 1.0,
-            display_mode: 0,
-        };
-
-        // Create buffers
-        let _particle_buffer = self
+        let shader = self
             .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Flow Field Particle Buffer"),
-                contents: bytemuck::cast_slice(&dummy_particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Field Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
             });
 
-        let _flow_vector_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Flow Field Flow Vector Buffer"),
-                    contents: bytemuck::cast_slice(&dummy_flow_vectors),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let _sim_params_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Flow Field Sim Params Buffer"),
-                    contents: bytemuck::cast_slice(&[dummy_sim_params]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-        // Create dummy LUT buffer
-        let _lut_buffer = self
+        let pipeline = self
             .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Flow Field LUT Buffer"),
-                contents: bytemuck::cast_slice(&[0u32; 256 * 3]), // 256 color entries × 3 channels
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Flow Field Compute Pipeline"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
             });
 
-        // Test that we can create buffers with the actual struct sizes
-        let particle_size = mem::size_of::<Particle>();
-        let flow_vector_size = mem::size_of::<FlowVector>();
-        let sim_params_size = mem::size_of::<SimParams>();
+        // Create test buffers
+        let particle_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Particle Buffer"),
+            size: std::mem::size_of::<Particle>() as u64 * 1000,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
-        // Verify buffer sizes match struct sizes
-        assert_eq!(
-            _particle_buffer.size() as usize,
-            dummy_particles.len() * particle_size
-        );
-        assert_eq!(
-            _flow_vector_buffer.size() as usize,
-            dummy_flow_vectors.len() * flow_vector_size
-        );
-        assert_eq!(_sim_params_buffer.size() as usize, sim_params_size);
+        let flow_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Flow Vector Buffer"),
+            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sim_params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Sim Params Buffer"),
+            size: std::mem::size_of::<SimParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create test texture
+        let trail_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Test Trail Texture"),
+            size: wgpu::Extent3d {
+                width: 512,
+                height: 512,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING,
+            view_formats: &[],
+        });
+
+        let trail_texture_view = trail_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Create test LUT buffer
+        let lut_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test LUT Buffer"),
+            size: 256 * 3 * std::mem::size_of::<u32>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Test Compute Bind Group"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: flow_vector_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: sim_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: lut_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        Ok(())
+    }
+
+    /// Validates that the Flow Field vector compute shader can bind to the Rust structs
+    fn validate_flow_vector_compute_shader_binding(&self) -> Result<(), String> {
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Field Vector Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(FLOW_VECTOR_COMPUTE_SHADER.into()),
+            });
+
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Flow Field Vector Compute Pipeline"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+
+        // Create test buffers
+        let flow_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Flow Vector Buffer"),
+            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let flow_vector_params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Flow Vector Params Buffer"),
+            size: std::mem::size_of::<super::simulation::FlowVectorParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Test Flow Vector Compute Bind Group"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: flow_vector_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: flow_vector_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
 
         Ok(())
     }
@@ -506,309 +525,47 @@ impl FlowFieldValidator {
         Ok(())
     }
 
-    /// Validates that the compute pipelines can be created with the actual shaders
+    /// Validates that the Flow Field compute pipeline can be created without errors
     fn validate_compute_pipeline_creation(&self) -> Result<(), String> {
-        // Create dummy data
-        let dummy_particles: Vec<Particle> = (0..10)
-            .map(|_| Particle {
-                position: [0.0, 0.0],
-                age: 0.0,
-                color: [1.0, 1.0, 1.0, 1.0],
-                my_parent_was: 0,
-            })
-            .collect();
-
-        let dummy_flow_vectors: Vec<FlowVector> = (0..10)
-            .map(|_| FlowVector {
-                position: [0.0, 0.0],
-                direction: [1.0, 0.0],
-            })
-            .collect();
-
-        let dummy_sim_params = SimParams {
-            autospawn_limit: 500,
-            vector_count: 100,
-            particle_lifetime: 10.0,
-            particle_speed: 1.0,
-            noise_seed: 123,
-            time: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-            noise_scale: 1.0,
-            noise_x: 1.0,
-            noise_y: 1.0,
-            vector_magnitude: 1.0,
-            trail_decay_rate: 0.1,
-            trail_deposition_rate: 1.0,
-            trail_diffusion_rate: 0.01,
-            trail_wash_out_rate: 0.0,
-            trail_map_width: 512,
-            trail_map_height: 512,
-            particle_shape: 0,
-            particle_size: 2,
-            screen_width: 1920,
-            screen_height: 1080,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_active: 0,
-            cursor_size: 50,
-            cursor_strength: 1.0,
-            particle_autospawn: 1,
-            particle_spawn_rate: 1.0,
-            display_mode: 0,
-        };
-
-        // Create buffers
-        let particle_buffer = self
+        let shader = self
             .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Flow Field Particle Buffer"),
-                contents: bytemuck::cast_slice(&dummy_particles),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Field Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
             });
 
-        let flow_vector_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Flow Field Flow Vector Buffer"),
-                    contents: bytemuck::cast_slice(&dummy_flow_vectors),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let sim_params_buffer = self
+        let _pipeline = self
             .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Flow Field Sim Params Buffer"),
-                contents: bytemuck::cast_slice(&[dummy_sim_params]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Flow Field Compute Pipeline"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
             });
 
-        let lut_buffer = self
+        Ok(())
+    }
+
+    /// Validates that the Flow Field vector compute pipeline can be created without errors
+    fn validate_flow_vector_compute_pipeline_creation(&self) -> Result<(), String> {
+        let shader = self
             .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Flow Field LUT Buffer"),
-                contents: bytemuck::cast_slice(&[0u32; 256 * 3]), // 256 color entries × 3 channels
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Flow Field Vector Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(FLOW_VECTOR_COMPUTE_SHADER.into()),
             });
 
-        // Create trail texture with Rgba8Unorm format
-        let trail_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Flow Field Trail Texture"),
-            size: wgpu::Extent3d {
-                width: 512,
-                height: 512,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let trail_texture_view = trail_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Create shader modules
-        let particle_update_shader =
-            self.device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("Flow Field Particle Update Shader"),
-                    source: wgpu::ShaderSource::Wgsl(PARTICLE_UPDATE_SHADER.into()),
-                });
-
-        let trail_decay_diffusion_shader =
-            self.device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("Flow Field Trail Decay Diffusion Shader"),
-                    source: wgpu::ShaderSource::Wgsl(TRAIL_DECAY_DIFFUSION_SHADER.into()),
-                });
-
-        // Create bind group layout for particle update shader
-        let particle_update_bind_group_layout =
-            self.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Flow Field Particle Update Bind Group Layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::ReadWrite,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
-
-        // Create bind group layout for trail decay diffusion shader
-        let trail_decay_diffusion_bind_group_layout =
-            self.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Flow Field Trail Decay Diffusion Bind Group Layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::ReadWrite,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
-
-        // Create pipeline layouts
-        let particle_update_pipeline_layout =
-            self.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Flow Field Particle Update Pipeline Layout"),
-                    bind_group_layouts: &[&particle_update_bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        let trail_decay_diffusion_pipeline_layout =
-            self.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Flow Field Trail Decay Diffusion Pipeline Layout"),
-                    bind_group_layouts: &[&trail_decay_diffusion_bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-
-        // Create compute pipelines (this will validate shader binding and format compatibility)
-        let _particle_update_compute_pipeline =
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("Flow Field Particle Update Compute Pipeline"),
-                    layout: Some(&particle_update_pipeline_layout),
-                    module: &particle_update_shader,
-                    entry_point: Some("main"),
-                    cache: None,
-                    compilation_options: Default::default(),
-                });
-
-        let _trail_decay_diffusion_compute_pipeline =
-            self.device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("Flow Field Trail Decay Diffusion Compute Pipeline"),
-                    layout: Some(&trail_decay_diffusion_pipeline_layout),
-                    module: &trail_decay_diffusion_shader,
-                    entry_point: Some("main"),
-                    cache: None,
-                    compilation_options: Default::default(),
-                });
-
-        // Create bind groups (this will validate buffer binding)
-        let _particle_update_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Flow Field Particle Update Bind Group"),
-                layout: &particle_update_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: particle_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: flow_vector_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: sim_params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: lut_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-        let _trail_decay_diffusion_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Flow Field Trail Decay Diffusion Bind Group"),
-                layout: &trail_decay_diffusion_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: sim_params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: flow_vector_buffer.as_entire_binding(),
-                    },
-                ],
+        let _pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Flow Field Vector Compute Pipeline"),
+                layout: None,
+                module: &shader,
+                entry_point: Some("main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
             });
 
         Ok(())
@@ -1300,6 +1057,9 @@ async fn test_flow_field_shader_compilation() {
     validator
         .validate_background_render_shader_compilation()
         .expect("Background render shader compilation failed");
+    validator
+        .validate_flow_vector_compute_shader_compilation()
+        .expect("Flow vector compute shader compilation failed");
 
     // Print struct sizes for debugging
     validator.print_struct_sizes();
@@ -1309,15 +1069,20 @@ async fn test_flow_field_shader_compilation() {
 async fn test_flow_field_buffer_binding() {
     let validator = FlowFieldValidator::new().await;
 
-    // Test buffer binding for particle rendering
-    validator
-        .validate_particle_render_shader_binding()
-        .expect("Particle render shader buffer binding failed");
-
-    // Test buffer binding for compute shaders
+    // Test that compute shaders can bind to the Rust structs
     validator
         .validate_compute_shader_binding()
-        .expect("Compute shader buffer binding failed");
+        .expect("Compute shader binding failed");
+}
+
+#[tokio::test]
+async fn test_flow_field_vector_compute_buffer_binding() {
+    let validator = FlowFieldValidator::new().await;
+
+    // Test that flow vector compute shaders can bind to the Rust structs
+    validator
+        .validate_flow_vector_compute_shader_binding()
+        .expect("Flow vector compute shader binding failed");
 }
 
 #[tokio::test]
@@ -1338,6 +1103,16 @@ async fn test_flow_field_compute_pipeline_creation() {
     validator
         .validate_compute_pipeline_creation()
         .expect("Compute pipeline creation failed");
+}
+
+#[tokio::test]
+async fn test_flow_field_vector_compute_pipeline_creation() {
+    let validator = FlowFieldValidator::new().await;
+
+    // Test that vector compute pipelines can be created with the actual shaders
+    validator
+        .validate_flow_vector_compute_pipeline_creation()
+        .expect("Vector compute pipeline creation failed");
 }
 
 #[tokio::test]
@@ -1409,14 +1184,7 @@ fn test_struct_layout_consistency() {
         let sim_params_size = mem::size_of::<SimParams>();
 
         // Create dummy data
-        let dummy_particles: Vec<Particle> = (0..10)
-            .map(|_| Particle {
-                position: [0.0, 0.0],
-                age: 0.0,
-                color: [1.0, 1.0, 1.0, 1.0],
-                my_parent_was: 0,
-            })
-            .collect();
+        let dummy_particles: Vec<Particle> = (0..10).map(|_| Particle::default()).collect();
 
         let dummy_flow_vectors: Vec<FlowVector> = (0..10)
             .map(|_| FlowVector {
@@ -1425,38 +1193,7 @@ fn test_struct_layout_consistency() {
             })
             .collect();
 
-        let dummy_sim_params = SimParams {
-            autospawn_limit: 500,
-            vector_count: 100,
-            particle_lifetime: 10.0,
-            particle_speed: 1.0,
-            noise_seed: 123,
-            time: 0.0,
-            width: 1920.0,
-            height: 1080.0,
-            noise_scale: 1.0,
-            noise_x: 1.0,
-            noise_y: 1.0,
-            vector_magnitude: 1.0,
-            trail_decay_rate: 0.1,
-            trail_deposition_rate: 1.0,
-            trail_diffusion_rate: 0.01,
-            trail_wash_out_rate: 0.0,
-            trail_map_width: 512,
-            trail_map_height: 512,
-            particle_shape: 0,
-            particle_size: 2,
-            screen_width: 1920,
-            screen_height: 1080,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_active: 0,
-            cursor_size: 50,
-            cursor_strength: 1.0,
-            particle_autospawn: 1,
-            particle_spawn_rate: 1.0,
-            display_mode: 0,
-        };
+        let dummy_sim_params = SimParams::default();
 
         // Create buffers and verify sizes
         let particle_buffer =

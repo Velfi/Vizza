@@ -11,6 +11,7 @@
 - FF: Flow Field. A simulation of a flow field.
 - PS: Pellets. A particles and gravity simulation.
 - GEM: Gradient Editor. A gradient editor for color schemes.
+- CSA: Continuous Spatial Automata. Like a cellular automata, but without the cells.
 
 ## LUTs (Color Schemes)
 

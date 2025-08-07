@@ -1,3 +1,4 @@
+use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
 use crate::simulations::shared::{BindGroupBuilder, RenderPipelineBuilder, lut::LutData};
@@ -27,7 +28,12 @@ pub struct GradientSimulation {
 }
 
 impl GradientSimulation {
-    pub fn new(device: &Device, queue: &Queue, format: TextureFormat) -> Self {
+    pub fn new(
+        device: &Device,
+        queue: &Queue,
+        format: TextureFormat,
+        _app_settings: &AppSettings,
+    ) -> Self {
         // Create vertex buffer for a full-screen quad
         let vertices: [f32; 16] = [
             -1.0, -1.0, 0.0, 0.0, // position, uv
@@ -192,6 +198,7 @@ impl Simulation for GradientSimulation {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
+        _delta_time: f32,
     ) -> SimulationResult<()> {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Gradient Render Encoder"),
@@ -229,7 +236,7 @@ impl Simulation for GradientSimulation {
         queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
-        self.render_frame(device, queue, surface_view)
+        self.render_frame(device, queue, surface_view, 0.0)
     }
 
     fn get_settings(&self) -> Value {

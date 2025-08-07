@@ -70,6 +70,8 @@
       <p>Advanced color gradient editor</p>
     </button>
 
+
+
     <div class="about-container">
       <h2>About this program</h2>
 

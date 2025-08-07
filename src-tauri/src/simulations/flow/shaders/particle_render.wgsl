@@ -2,16 +2,17 @@ struct Particle {
     position: vec2<f32>,
     age: f32,
     color: vec4<f32>,
-    my_parent_was: u32, // 0= autospawned, 1 = spawned by brush
+    is_alive: u32, // 0=dead, 1=alive
 }
 
 struct SimParams {
-    autospawn_limit: u32,
+    total_pool_size: u32,
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
     noise_seed: u32,
     time: f32,
+    noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     width: f32,
     height: f32,
     noise_scale: f32,
@@ -85,6 +86,15 @@ struct VertexOutput {
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32, @builtin(instance_index) instance_index: u32) -> VertexOutput {
     let particle = particles[instance_index];
+    
+    // Skip inactive particles by moving them off-screen
+    if (particle.is_alive == 0u) {
+        return VertexOutput(
+            vec4<f32>(-10.0, -10.0, 0.0, 1.0), // Move off-screen
+            vec2<f32>(0.0, 0.0),
+            instance_index,
+        );
+    }
     
     // Create a quad centered at particle position
     let positions = array<vec2<f32>, 6>(

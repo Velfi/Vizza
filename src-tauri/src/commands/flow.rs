@@ -88,3 +88,58 @@ pub async fn get_post_processing_state(
         Err("This command is only available for Flow simulation".to_string())
     }
 }
+
+#[tauri::command]
+pub async fn draw_antialiased_shape(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    center_x: f32,
+    center_y: f32,
+    size: f32,
+    shape_type: u32,
+    color: Vec<f32>, // RGBA color as array
+    intensity: f32,
+    antialiasing_width: f32,
+    rotation: f32,
+) -> Result<String, String> {
+    tracing::debug!(
+        "draw_antialiased_shape called at ({}, {}) with size {}",
+        center_x,
+        center_y,
+        size
+    );
+
+    // Validate color array
+    if color.len() != 4 {
+        return Err("Color must be an RGBA array with 4 values".to_string());
+    }
+
+    let color_array = [color[0], color[1], color[2], color[3]];
+
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
+        &mut sim_manager.current_simulation
+    {
+        simulation
+            .draw_antialiased_shape(
+                &gpu_ctx.device,
+                &gpu_ctx.queue,
+                center_x,
+                center_y,
+                size,
+                shape_type,
+                color_array,
+                intensity,
+                antialiasing_width,
+                rotation,
+            )
+            .map_err(|e| format!("Failed to draw shape: {}", e))?;
+
+        tracing::info!("Antialiased shape drawn successfully");
+        Ok("Shape drawn successfully".to_string())
+    } else {
+        Err("This command is only available for Flow simulation".to_string())
+    }
+}

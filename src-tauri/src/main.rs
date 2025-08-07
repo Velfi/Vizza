@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use crate::commands::AppSettings;
 use crate::error::{AppError, AppResult, GpuError};
 use crate::simulations::shared::LutManager;
 use crate::simulations::traits::SimulationType;
@@ -27,7 +28,10 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    pub async fn new_with_surface(window: &WebviewWindow) -> AppResult<Self> {
+    pub async fn new_with_surface(
+        window: &WebviewWindow,
+        app_settings: &AppSettings,
+    ) -> AppResult<Self> {
         // Create wgpu instance
         let instance = Instance::new(&wgpu::InstanceDescriptor {
             backends: Backends::all(),
@@ -116,6 +120,7 @@ impl GpuContext {
             &surface_config,
             &adapter_info,
             &lut_manager,
+            &app_settings,
         )
         .await
         .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
@@ -155,15 +160,24 @@ fn main() {
     // Initialize tracing
     tracing_subscriber::fmt::init();
 
+    // Load app settings from file
+    let app_settings =
+        Arc::new(AppSettings::load_from_file().expect("Failed to load app settings"));
+
+    let app_settings_clone = app_settings.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(Arc::new(tokio::sync::Mutex::new(SimulationManager::new())))
-        .setup(|app| {
+        .manage(Arc::new(tokio::sync::Mutex::new(SimulationManager::new(
+            app_settings,
+        ))))
+        .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
 
             // Initialize GPU context
             let gpu_context = tauri::async_runtime::block_on(async {
-                GpuContext::new_with_surface(&window).await.unwrap()
+                GpuContext::new_with_surface(&window, &app_settings_clone)
+                    .await
+                    .unwrap()
             });
 
             app.manage(Arc::new(tokio::sync::Mutex::new(gpu_context)));
@@ -196,8 +210,17 @@ fn main() {
             commands::flip_force_matrix_sign,
             commands::clear_trail_texture,
             commands::kill_all_particles,
-            commands::update_post_processing_state,
-            commands::get_post_processing_state,
+            commands::draw_antialiased_shape,       // Flow
+            commands::update_post_processing_state, // Flow
+            commands::get_post_processing_state,    // Flow
+            commands::update_particle_life_post_processing_state, // Particle Life
+            commands::get_particle_life_post_processing_state, // Particle Life
+            commands::update_gray_scott_post_processing_state, // Gray Scott
+            commands::get_gray_scott_post_processing_state, // Gray Scott
+            commands::update_slime_mold_post_processing_state, // Slime Mold
+            commands::get_slime_mold_post_processing_state, // Slime Mold
+            commands::update_pellets_post_processing_state, // Pellets
+            commands::get_pellets_post_processing_state, // Pellets
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
@@ -250,6 +273,7 @@ fn main() {
             commands::get_gui_state,
             commands::set_fps_limit,
             commands::toggle_fullscreen,
+            commands::get_app_version,
             // Reset commands
             commands::reset_trails,
             commands::reset_agents,

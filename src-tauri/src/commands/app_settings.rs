@@ -4,12 +4,31 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 use toml;
+use wgpu;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum TextureFiltering {
+    Linear,
+    Nearest,
+    Lanczos,
+}
+
+impl From<TextureFiltering> for wgpu::FilterMode {
+    fn from(filtering: TextureFiltering) -> Self {
+        match filtering {
+            TextureFiltering::Linear => wgpu::FilterMode::Linear,
+            TextureFiltering::Nearest => wgpu::FilterMode::Nearest,
+            TextureFiltering::Lanczos => wgpu::FilterMode::Linear, // Lanczos uses Linear as base, custom shader handles the rest
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     // Display Settings
     pub default_fps_limit: u32,
     pub default_fps_limit_enabled: bool,
+    pub texture_filtering: TextureFiltering,
 
     // Window Settings
     pub window_width: u32,
@@ -26,12 +45,25 @@ pub struct AppSettings {
     pub default_camera_sensitivity: f32,
 }
 
+impl AppSettings {
+    pub(crate) fn load_from_file() -> Result<Self, String> {
+        let settings_path = get_settings_path();
+        if !settings_path.exists() {
+            return Ok(Self::default());
+        }
+        let content = fs::read_to_string(settings_path)
+            .map_err(|e| format!("Failed to read settings file: {}", e))?;
+        toml::from_str(&content).map_err(|e| format!("Failed to parse settings file: {}", e))
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             // Display Settings
             default_fps_limit: 60,
             default_fps_limit_enabled: false,
+            texture_filtering: TextureFiltering::Linear,
 
             // Window Settings
             window_width: 1200,

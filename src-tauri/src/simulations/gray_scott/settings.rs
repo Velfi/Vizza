@@ -104,6 +104,12 @@ pub struct Settings {
     pub timestep: f32,
     pub nutrient_pattern: NutrientPattern,
     pub nutrient_pattern_reversed: bool,
+    // New optimization settings
+    pub max_timestep: f32,
+    pub stability_factor: f32,
+    pub enable_adaptive_timestep: bool,
+    pub change_threshold: f32,
+    pub enable_selective_updates: bool,
 }
 
 impl Default for Settings {
@@ -111,11 +117,17 @@ impl Default for Settings {
         Self {
             feed_rate: 0.055,
             kill_rate: 0.062,
-            diffusion_rate_u: 0.2097,
-            diffusion_rate_v: 0.105,
+            diffusion_rate_u: 0.16,
+            diffusion_rate_v: 0.08,
             timestep: 1.0,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
+            // Optimization defaults
+            max_timestep: 2.0,
+            stability_factor: 0.8,
+            enable_adaptive_timestep: false,
+            change_threshold: 0.001,
+            enable_selective_updates: false,
         }
     }
 }

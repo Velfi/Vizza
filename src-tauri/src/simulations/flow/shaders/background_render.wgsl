@@ -6,12 +6,13 @@ struct FlowVector {
 }
 
 struct SimParams {
-    autospawn_limit: u32,
+    total_pool_size: u32,
     vector_count: u32,
     particle_lifetime: f32,
     particle_speed: f32,
     noise_seed: u32,
     time: f32,
+    noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     width: f32,
     height: f32,
     noise_scale: f32,
