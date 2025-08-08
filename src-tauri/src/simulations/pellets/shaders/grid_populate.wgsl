@@ -27,12 +27,14 @@ struct GridParams {
 // Grid cell structure - each cell stores particle indices
 struct GridCell {
     particle_count: u32,
-    particle_indices: array<u32, 32>, // Max 32 particles per cell
+    particle_indices: array<u32, 64>, // Max 64 particles per cell
 }
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
 @group(0) @binding(1) var<storage, read_write> grid: array<GridCell>;
 @group(0) @binding(2) var<uniform> params: GridParams;
+// Atomic per-cell particle counts for safe concurrent insertion
+@group(0) @binding(3) var<storage, read_write> grid_counts: array<atomic<u32>>;
 
 // Convert world position to grid coordinates
 fn world_to_grid(pos: vec2<f32>) -> vec2<u32> {
@@ -71,15 +73,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let grid_coord = world_to_grid(particle.position);
     let cell_index = grid_coord_to_index(grid_coord);
     
-    // Add particle to grid cell
-    // Note: This is a simplified approach without atomic operations
-    // For now, we'll just set the first slot if the cell is empty
-    // A more sophisticated approach would be needed for true concurrent access
-    let cell = grid[cell_index];
-    if (cell.particle_count < 32u) {
-        var new_cell = cell;
-        new_cell.particle_indices[cell.particle_count] = index;
-        new_cell.particle_count = cell.particle_count + 1u;
-        grid[cell_index] = new_cell;
+    // Concurrently add particle to grid cell using atomic counter
+    let slot = atomicAdd(&grid_counts[cell_index], 1u);
+    if (slot < 64u) {
+        // Write the index directly to the slot to avoid racy struct writebacks
+        grid[cell_index].particle_indices[slot] = index;
     }
 } 

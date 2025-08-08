@@ -3,15 +3,17 @@
 ## GPU Boilerplate Reduction
 
 ### High Priority
+
 - [x] **Create GPU utilities module** (`src-tauri/src/simulations/shared/gpu_utils.rs`)
   - [x] Pipeline builder pattern for render pipelines
-  - [x] Pipeline builder pattern for compute pipelines  
+  - [x] Pipeline builder pattern for compute pipelines
   - [x] Bind group builder pattern
   - [x] Common bind group layout templates
   - [x] Shader manager with caching
   - [x] Common pipeline templates (basic render, compute, post-processing)
 
 ### Medium Priority
+
 - [x] **Refactor existing simulations to use GPU utilities**
   - [x] Flow simulation - refactor pipeline creation
   - [x] Gray-Scott simulation - refactor pipeline creation
@@ -22,6 +24,7 @@
   - [x] Slime Mold simulation - already has good abstraction
 
 ### Low Priority
+
 - [ ] **Advanced GPU utilities**
   - [ ] Automatic bind group layout generation from shader reflection
   - [ ] Pipeline state caching
@@ -31,6 +34,7 @@
 ## Progress Summary
 
 ### ✅ **Completed Refactoring**
+
 - ✅ **Flow simulation refactored** - Complete
   - ✅ Compute pipeline using ComputePipelineBuilder
   - ✅ Bind groups using BindGroupBuilder
@@ -90,6 +94,7 @@
   - ✅ No refactoring needed
 
 ### 🔧 **Critical Bug Fixes**
+
 - ✅ **Fixed LUT bind group layout mismatch** - Critical runtime error resolved
   - ✅ Updated `CommonBindGroupLayouts::create_lut_layout()` to expect `STORAGE` buffer instead of `UNIFORM`
   - ✅ Resolved "Usage flags BufferUsages(COPY_DST | STORAGE) do not contain required usage flags BufferUsages(UNIFORM)" error
@@ -121,6 +126,7 @@
   - ✅ All simulations now compile and run without runtime errors
 
 ### 📊 **Impact Metrics**
+
 - **Total lines of boilerplate code eliminated**: ~1200+ lines
 - **Average reduction per simulation**: 75-85%
 - **Simulations refactored**: 6/7 (86%)
@@ -129,13 +135,16 @@
 - **Critical bugs fixed**: 5 (LUT bind group layout, Main Menu shader entry point, Gray-Scott shader entry point, Particle Life shader entry point conflict, Pellets shader entry point)
 
 ### 🎯 **Mission Accomplished**
+
 ✅ **GPU Boilerplate Reduction - COMPLETE**
 
 All simulations have been successfully refactored to use the new GPU utilities:
+
 - **Flow, Gray-Scott, Particle Life, Pellets, Gradient, Main Menu**: Fully refactored
 - **Slime Mold**: Already well-architected, no changes needed
 
 The GPU boilerplate reduction project has achieved its goals:
+
 - **Massive code reduction**: ~1200+ lines of boilerplate eliminated
 - **Improved maintainability**: Consistent patterns across all simulations
 - **Better developer experience**: Fluent builder APIs and automatic caching
@@ -144,6 +153,7 @@ The GPU boilerplate reduction project has achieved its goals:
 - **Runtime stability**: Fixed critical bind group layout issues
 
 ### 🚀 **Next Steps (Optional)**
+
 1. **Advanced utilities** - Shader reflection, caching, resource pools
 2. **Documentation** - Comprehensive guides for using the utilities
 3. **Testing** - Unit tests for the GPU utilities

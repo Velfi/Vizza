@@ -1,42 +1,50 @@
 struct Particle {
     position: vec2<f32>,
     age: f32,
-    color: vec4<f32>,
+    lut_index: u32, // 0-255 LUT stop index
     is_alive: u32, // 0=dead, 1=alive
+    spawn_type: u32, // 0=autospawn, 1=brush
+    pad0: u32,
+    pad1: u32,
 }
 
 struct SimParams {
-    total_pool_size: u32,
-    vector_count: u32,
-    particle_lifetime: f32,
-    particle_speed: f32,
-    noise_seed: u32,
-    time: f32,
-    noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
-    width: f32,
+    autospawn_pool_size: u32,
+    autospawn_rate: u32,
+    brush_pool_size: u32,
+    brush_spawn_rate: u32,
+    cursor_size: f32,
+    cursor_x: f32,
+    cursor_y: f32,
+    display_mode: u32,
+    flow_field_resolution: u32,
     height: f32,
+    mouse_button_down: u32,
+    noise_dt_multiplier: f32,
     noise_scale: f32,
+    noise_seed: u32,
     noise_x: f32,
     noise_y: f32,
-    vector_magnitude: f32,
+    particle_autospawn: u32,
+    particle_lifetime: f32,
+    particle_shape: u32,
+    particle_size: u32,
+    particle_speed: f32,
+    screen_height: u32,
+    screen_width: u32,
+    time: f32,
+    total_pool_size: u32,
     trail_decay_rate: f32,
     trail_deposition_rate: f32,
     trail_diffusion_rate: f32,
-    trail_wash_out_rate: f32,
-    trail_map_width: u32,
     trail_map_height: u32,
-    particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
-    particle_size: u32, // Particle size in pixels
-    screen_width: u32, // Screen width in pixels
-    screen_height: u32, // Screen height in pixels
-    cursor_x: f32,
-    cursor_y: f32,
-    cursor_active: u32, // 0=inactive, 1=attract, 2=repel
-    cursor_size: u32,
-    cursor_strength: f32,
-    particle_autospawn: u32, // 0=disabled, 1=enabled
-    particle_spawn_rate: f32, // 0.0 = no spawn, 1.0 = full spawn rate
-    display_mode: u32, // 0=Age, 1=Random, 2=Direction
+    trail_map_width: u32,
+    trail_wash_out_rate: f32,
+    vector_magnitude: f32,
+    width: f32,
+    delta_time: f32,
+    _padding_1: u32,
+    _padding_2: u32,
 }
 
 struct CameraUniform {
@@ -187,11 +195,11 @@ fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32) -> @loc
         let age_ratio = particle.age / sim_params.particle_lifetime;
         color_intensity = 1.0 - age_ratio; // Younger particles = higher intensity
     } else if (sim_params.display_mode == 1u) { // Random mode
-        // Use the stored color from the particle (set during creation)
-        color_intensity = particle.color.r; // Use red channel as intensity
+        // Use the stored LUT index from the particle (set during creation)
+        color_intensity = f32(particle.lut_index) / 255.0;
     } else if (sim_params.display_mode == 2u) { // Direction mode
-        // Use the stored color from the particle (set during update based on velocity)
-        color_intensity = particle.color.r; // Use red channel as intensity
+        // Use the stored LUT index from the particle (set during update based on velocity)
+        color_intensity = f32(particle.lut_index) / 255.0;
     } else {
         // Fallback to age mode if display mode is invalid
         let age_ratio = particle.age / sim_params.particle_lifetime;
@@ -201,5 +209,6 @@ fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32) -> @loc
     let particle_color = get_lut_color(color_intensity);
     
     // Apply particle fade
-    return vec4<f32>(particle_color, particle.color.a * fade);
+    let alpha = 1.0 - (particle.age / sim_params.particle_lifetime) * 0.5;
+    return vec4<f32>(particle_color, alpha * fade);
 } 

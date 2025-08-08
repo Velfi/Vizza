@@ -15,21 +15,23 @@
     />
   </div>
 
-  <div class="control-group">
-    <div class="control-header">
-      <label for="cursorStrength">Strength</label>
-      <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
+  {#if cursorStrength}
+    <div class="control-group">
+      <div class="control-header">
+        <label for="cursorStrength">Strength</label>
+        <span class="range-value">{cursorStrength.toFixed(strengthPrecision)}</span>
+      </div>
+      <input
+        type="range"
+        id="cursorStrength"
+        bind:value={cursorStrength}
+        min={strengthMin}
+        max={strengthMax}
+        step={strengthStep}
+        on:input={handleStrengthChange}
+      />
     </div>
-    <input
-      type="range"
-      id="cursorStrength"
-      bind:value={cursorStrength}
-      min={strengthMin}
-      max={strengthMax}
-      step={strengthStep}
-      on:input={handleStrengthChange}
-    />
-  </div>
+  {/if}
 </div>
 
 <script lang="ts">
@@ -39,7 +41,7 @@
 
   // Props
   export let cursorSize: number = 0.5;
-  export let cursorStrength: number = 1.0;
+  export let cursorStrength: number | undefined = undefined;
   export let sizeMin: number = 0.05;
   export let sizeMax: number = 1.0;
   export let sizeStep: number = 0.05;

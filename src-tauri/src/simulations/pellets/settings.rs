@@ -59,9 +59,6 @@ pub struct Settings {
     /// Coloring mode: "Density" or "Velocity"
     pub coloring_mode: String,
 
-    /// Long-range gravity strength for orbital motion (0.0 = no orbital motion, 1.0 = strong orbital motion)
-    pub long_range_gravity_strength: f32,
-
     /// Whether to apply density-based velocity damping
     pub density_damping_enabled: bool,
 
@@ -76,17 +73,16 @@ impl Default for Settings {
             particle_count: 5000,
             particle_size: 0.015,
             collision_damping: 1.0,
-            initial_velocity_max: 0.15,
-            initial_velocity_min: 0.05,
+            initial_velocity_max: 0.1,
+            initial_velocity_min: 0.1,
             random_seed: 0,
             background_type: "White".to_string(),
-            gravitational_constant: 17e-6,
+            gravitational_constant: 1e-7,
             energy_damping: 1.0,
             gravity_softening: 0.003,
             density_radius: 0.045,
             coloring_mode: "Density".to_string(),
-            long_range_gravity_strength: 0.0,
-            density_damping_enabled: true,
+            density_damping_enabled: false,
             overlap_resolution_strength: 0.02,
         }
     }
@@ -109,7 +105,6 @@ impl Settings {
         self.energy_damping = rng.random_range(0.9..0.99); // Adjusted to match collision_damping range
         self.gravity_softening = rng.random_range(0.003..0.008);
         self.density_radius = rng.random_range(0.02..0.05);
-        self.long_range_gravity_strength = rng.random_range(0.0..1.0);
         self.density_damping_enabled = rng.random_bool(0.5); // 50% chance of being enabled
         self.overlap_resolution_strength = rng.random_range(0.01..0.2); // Conservative range, max 20%
     }

@@ -110,10 +110,10 @@
             </div>
             <CursorConfig
               {cursorSize}
-              sizeMin={10}
-              sizeMax={65}
-              sizeStep={5}
-              sizePrecision={0}
+              sizeMin={0.01}
+              sizeMax={1.0}
+              sizeStep={0.01}
+              sizePrecision={2}
               on:sizechange={(e) => updateCursorSize(e.detail)}
             />
           </div>
@@ -152,10 +152,8 @@
                 }
               }}>🎲 Randomize Settings</Button
             >
-            <Button
-              variant="danger"
-              type="button"
-              on:click={killAllParticles}>💀 Kill All Particles</Button
+            <Button variant="danger" type="button" on:click={killAllParticles}
+              >💀 Kill All Particles</Button
             >
           </div>
         </div>
@@ -249,22 +247,12 @@
           <h3 class="section-header">Particles</h3>
           <div class="settings-grid">
             <div class="setting-item">
-              <span class="setting-label">Autospawn Limit:</span>
-              <NumberDragBox
-                value={settings.autospawn_limit}
-                on:change={({ detail }) => updateAutospawnLimit(detail)}
-                min={100}
-                max={50000}
-                step={100}
-              />
-            </div>
-            <div class="setting-item">
               <span class="setting-label">Particle Lifetime:</span>
               <NumberDragBox
                 value={settings.particle_lifetime}
                 on:change={({ detail }) => updateParticleLifetime(detail)}
                 min={0.1}
-                max={10.0}
+                max={60.0}
                 step={0.1}
               />
             </div>
@@ -274,7 +262,7 @@
                 value={settings.particle_speed}
                 on:change={({ detail }) => updateParticleSpeed(detail)}
                 min={0.001}
-                max={0.2}
+                max={100.0}
                 step={0.001}
                 precision={3}
               />
@@ -323,7 +311,7 @@
                 value={settings.autospawn_rate}
                 on:change={({ detail }) => updateAutospawnRate(detail)}
                 min={0}
-                max={1000}
+                max={10000}
                 step={1}
               />
             </div>
@@ -332,8 +320,8 @@
               <NumberDragBox
                 value={settings.brush_spawn_rate}
                 on:change={({ detail }) => updateBrushSpawnRate(detail)}
-                min={0}
-                max={100}
+                min={1}
+                max={10000}
                 step={1}
               />
             </div>
@@ -428,7 +416,6 @@
 
     // Particle parameters
     particle_limit: number;
-    autospawn_limit: number;
     particle_lifetime: number;
     particle_speed: number;
     particle_size: number;
@@ -466,7 +453,7 @@
   let show_about_section = false;
 
   // Cursor state
-  let cursorSize = 100;
+  let cursorSize = 0.5;
 
   // Simulation control state
   let running = false;
@@ -710,6 +697,10 @@
         `Flow context menu interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: 2`
       );
 
+      // Track as active right-button press to ensure release is generated later
+      isMousePressed = true;
+      currentMouseButton = 2;
+
       try {
         await invoke('handle_mouse_interaction_screen', {
           screenX: physicalCursorX,
@@ -853,23 +844,6 @@
       });
     } catch (e) {
       console.error('Failed to update vector magnitude:', e);
-    }
-  }
-
-  async function updateAutospawnLimit(value: number) {
-    if (typeof value !== 'number' || isNaN(value)) {
-      console.error('Invalid autospawn limit value:', value);
-      return;
-    }
-
-    settings!.autospawn_limit = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'autospawnLimit',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update autospawn limit:', e);
     }
   }
 
@@ -1114,7 +1088,7 @@
     cursorSize = value;
     try {
       await invoke('update_simulation_setting', {
-        settingName: 'cursorSize',
+        settingName: 'cursor_size',
         value,
       });
     } catch (e) {
@@ -1189,14 +1163,14 @@
 
       if (backendState) {
         // Update visual parameters from backend state (not settings)
-        const state = backendState as { 
-          cursorSize?: number; 
+        const state = backendState as {
+          cursorSize?: number;
           background?: string;
           currentLut?: string;
           lutReversed?: boolean;
           displayMode?: string;
         };
-        
+
         if (state.cursorSize !== undefined) {
           cursorSize = state.cursorSize;
         }

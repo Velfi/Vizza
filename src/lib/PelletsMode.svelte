@@ -76,10 +76,22 @@
             <small>
               <strong>Density:</strong> Particles are colored based on how many other particles are
               nearby.<br />
-              <strong>Velocity:</strong> Particles are colored based on their speed (faster = brighter).<br />
+              <strong>Velocity:</strong> Particles are colored based on their speed (faster =
+              brighter).<br />
               <strong>Random:</strong> Each particle gets a unique random color that stays constant.
             </small>
           </div>
+        </div>
+        <div class="control-group">
+          <label for="densityRadius">Density Radius</label>
+          <NumberDragBox
+            value={settings?.density_radius ?? 0.04}
+            min={0.005}
+            max={0.1}
+            step={0.005}
+            precision={3}
+            on:change={({ detail }) => updateSetting('density_radius', detail)}
+          />
         </div>
       </fieldset>
 
@@ -180,31 +192,21 @@
               <NumberDragBox
                 value={settings?.gravitational_constant ?? 0.0}
                 min={0.0}
-                max={1.0}
+                max={0.01}
                 step={1e-6}
-                precision={6}
+                precision={7}
                 on:change={({ detail }) => updateSetting('gravitational_constant', detail)}
               />
             </div>
-            <div class="setting-item">
-              <span class="setting-label">Long-Range Gravity Strength:</span>
-              <NumberDragBox
-                value={settings?.long_range_gravity_strength ?? 0.0}
-                min={0.0}
-                max={1.0}
-                step={0.01}
-                precision={2}
-                on:change={({ detail }) => updateSetting('long_range_gravity_strength', detail)}
-              />
-            </div>
+
             <div class="setting-item">
               <span class="setting-label">Energy Lost per Tick (%):</span>
               <NumberDragBox
-                value={Number(((1 - (settings?.energy_damping ?? 0.999)) * 100).toFixed(3))}
+                value={Number(((1 - (settings?.energy_damping ?? 0.999)) * 100).toFixed(2))}
                 min={0.0}
-                max={100.0}
-                step={0.1}
-                precision={3}
+                max={10.0}
+                step={0.05}
+                precision={2}
                 on:change={({ detail }) => updateSetting('energy_damping', 1 - detail / 100)}
               />
             </div>
@@ -213,8 +215,8 @@
               <NumberDragBox
                 value={Number(((1 - settings.collision_damping) * 100).toFixed(1))}
                 min={0.0}
-                max={100.0}
-                step={0.1}
+                max={20.0}
+                step={0.5}
                 precision={1}
                 on:change={({ detail }) => updateSetting('collision_damping', 1 - detail / 100)}
               />
@@ -224,10 +226,11 @@
               <NumberDragBox
                 value={Number(((settings.overlap_resolution_strength ?? 0.02) * 100).toFixed(1))}
                 min={0.0}
-                max={50.0}
-                step={0.1}
+                max={10.0}
+                step={0.5}
                 precision={1}
-                on:change={({ detail }) => updateSetting('overlap_resolution_strength', detail / 100)}
+                on:change={({ detail }) =>
+                  updateSetting('overlap_resolution_strength', detail / 100)}
               />
             </div>
             <div class="setting-item">
@@ -235,21 +238,10 @@
               <NumberDragBox
                 value={settings?.gravity_softening ?? 0.003}
                 min={0.0}
-                max={0.1}
-                step={0.001}
-                precision={3}
+                max={0.02}
+                step={0.0005}
+                precision={4}
                 on:change={({ detail }) => updateSetting('gravity_softening', detail)}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Density Radius:</span>
-              <NumberDragBox
-                value={settings?.density_radius ?? 0.04}
-                min={0.01}
-                max={0.2}
-                step={0.01}
-                precision={3}
-                on:change={({ detail }) => updateSetting('density_radius', detail)}
               />
             </div>
             <div class="setting-item">
@@ -305,7 +297,6 @@
     energy_damping?: number;
     gravity_softening?: number;
     density_radius?: number;
-    long_range_gravity_strength?: number;
     density_damping_enabled?: boolean;
     overlap_resolution_strength?: number;
   }
@@ -348,6 +339,10 @@
   // Cursor hiding functionality
   let cursorHidden = false;
   let cursorHideTimeout: number | null = null;
+
+  // Mouse press tracking for consistent interaction and release handling
+  let isMousePressed = false;
+  let currentMouseButton = 0;
 
   const returnToMenu = () => {
     dispatch('back');
@@ -403,21 +398,37 @@
 
       try {
         if (mouseEvent.type === 'mousedown') {
+          isMousePressed = true;
+          currentMouseButton = mouseEvent.button;
           await invoke('handle_mouse_interaction_screen', {
             screenX,
             screenY,
-            mouseButton: mouseEvent.button,
+            mouseButton: currentMouseButton,
           });
-        } else if (mouseEvent.type === 'mousemove' && mouseEvent.buttons !== 0) {
-          // Continue interaction while button is held
-          await invoke('handle_mouse_interaction_screen', {
-            screenX,
-            screenY,
-            mouseButton: mouseEvent.button,
-          });
+        } else if (mouseEvent.type === 'mousemove') {
+          if (isMousePressed) {
+            // Continue interaction while button is held
+            await invoke('handle_mouse_interaction_screen', {
+              screenX,
+              screenY,
+              mouseButton: currentMouseButton,
+            });
+          }
         } else if (mouseEvent.type === 'mouseup') {
-          await invoke('handle_mouse_release', {
-            mouseButton: mouseEvent.button,
+          if (isMousePressed) {
+            isMousePressed = false;
+            await invoke('handle_mouse_release', {
+              mouseButton: currentMouseButton,
+            });
+          }
+        } else if (mouseEvent.type === 'contextmenu') {
+          // Treat context menu as a right-button press
+          isMousePressed = true;
+          currentMouseButton = 2;
+          await invoke('handle_mouse_interaction_screen', {
+            screenX,
+            screenY,
+            mouseButton: 2,
           });
         }
       } catch (err) {
@@ -501,7 +512,7 @@
       await invoke('update_simulation_setting', { settingName: key, value });
       // Update local settings
       if (settings) {
-        (settings as any)[key] = value;
+        (settings as unknown as Record<string, unknown>)[key] = value;
       }
       console.log('Setting updated successfully');
     } catch (error) {
@@ -611,7 +622,7 @@
     try {
       const presets = await invoke('get_available_presets');
       available_presets = presets as string[];
-      
+
       // Set the default preset if available
       if (available_presets.includes('Default')) {
         current_preset = 'Default';

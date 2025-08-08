@@ -33,10 +33,11 @@ thread_local! {
 pub struct Particle {
     pub position: [f32; 2],
     pub age: f32,
-    pub color: [f32; 4],
-    pub is_alive: u32,        // 0=dead, 1=alive
-    pub spawn_type: u32,      // 0=autospawn, 1=brush
-    pub last_spawn_time: f32, // Track when this particle last spawned
+    pub lut_index: u32,
+    pub is_alive: u32,   // 0=dead, 1=alive
+    pub spawn_type: u32, // 0=autospawn, 1=brush
+    pub _pad0: u32,      // Padding to keep 32-byte stride aligned with WGSL
+    pub _pad1: u32,
 }
 
 #[repr(C)]
@@ -62,43 +63,52 @@ pub struct FlowVectorParams {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
+pub struct SpawnControl {
+    pub allowed: u32,
+    pub _pad0: u32,
+    pub count: u32,
+    pub _pad1: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 pub struct SimParams {
-    pub total_pool_size: u32, // Total number of particles (autospawn + brush)
-    pub vector_count: u32,
-    pub particle_lifetime: f32,
-    pub particle_speed: f32,
-    pub noise_seed: u32,
-    pub time: f32,
-    pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
-    pub width: f32,
+    pub autospawn_pool_size: u32, // Size of autospawn pool
+    pub autospawn_rate: u32,      // Particles per second for autospawn
+    pub brush_pool_size: u32,     // Size of brush pool
+    pub brush_spawn_rate: u32,    // Particles per second when cursor is active
+    pub cursor_size: f32,
+    pub cursor_x: f32,
+    pub cursor_y: f32,
+    pub display_mode: u32, // 0=Age, 1=Random, 2=Direction
+    pub flow_field_resolution: u32,
     pub height: f32,
+    pub mouse_button_down: u32, // 0=not held, 1=left click held, 2=right click held
+    pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub noise_scale: f32,
+    pub noise_seed: u32,
     pub noise_x: f32,
     pub noise_y: f32,
-    pub vector_magnitude: f32,
+    pub particle_autospawn: u32, // 0=disabled, 1=enabled
+    pub particle_lifetime: f32,
+    pub particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
+    pub particle_size: u32,  // Particle size in pixels
+    pub particle_speed: f32,
+    pub screen_height: u32, // Screen height in pixels
+    pub screen_width: u32,  // Screen width in pixels
+    pub time: f32,
+    pub total_pool_size: u32, // Total number of particles (autospawn + brush)
     pub trail_decay_rate: f32,
     pub trail_deposition_rate: f32,
     pub trail_diffusion_rate: f32,
-    pub trail_wash_out_rate: f32,
-    pub trail_map_width: u32,
     pub trail_map_height: u32,
-    pub particle_shape: u32, // 0=Circle, 1=Square, 2=Triangle, 3=Star, 4=Diamond
-    pub particle_size: u32,  // Particle size in pixels
-    pub screen_width: u32,   // Screen width in pixels
-    pub screen_height: u32,  // Screen height in pixels
-    pub cursor_x: f32,
-    pub cursor_y: f32,
-    pub cursor_size: u32,
-    pub cursor_strength: f32,
-    pub mouse_button_down: u32, // 0=not held, 1=left click held, 2=right click held
-    pub particle_autospawn: u32, // 0=disabled, 1=enabled
-    pub autospawn_rate: u32,    // Particles per second for autospawn
-    pub brush_spawn_rate: u32,  // Particles per second when cursor is active
-    pub display_mode: u32,      // 0=Age, 1=Random, 2=Direction
-    pub autospawn_pool_size: u32, // Size of autospawn pool
-    pub brush_pool_size: u32,   // Size of brush pool
-    pub _padding_0: u32,
+    pub trail_map_width: u32,
+    pub trail_wash_out_rate: f32,
+    pub vector_magnitude: f32,
+    pub width: f32,
+    pub delta_time: f32,
     pub _padding_1: u32,
+    pub _padding_2: u32,
 }
 
 #[repr(C)]
@@ -133,6 +143,7 @@ pub struct FlowModel {
     pub sim_params_buffer: wgpu::Buffer,
     pub lut_buffer: wgpu::Buffer,
     pub background_color_buffer: wgpu::Buffer,
+    pub spawn_control_buffer: wgpu::Buffer,
 
     // Trail system
     pub trail_texture: wgpu::Texture,
@@ -169,6 +180,8 @@ pub struct FlowModel {
     pub camera: Camera,
     pub lut_manager: Arc<LutManager>,
     pub time: f32,
+    pub delta_time: f32,
+    pub autospawn_accumulator: f32,
     pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub particles: Vec<Particle>,
     pub flow_vectors: Vec<FlowVector>,
@@ -190,8 +203,7 @@ pub struct FlowModel {
     // Mouse interaction state
     pub cursor_world_x: f32,
     pub cursor_world_y: f32,
-    pub cursor_size: u32,
-    pub cursor_strength: f32,
+    pub cursor_size: f32,
     pub mouse_button_down: u32, // 0 = not held, 1 = left click held, 2 = right click held
 
     // Add display textures for infinite compositing
@@ -265,14 +277,15 @@ impl FlowModel {
 
         queue.submit(std::iter::once(encoder.finish()));
 
-        // Update sim params with new vector count
+        // Update sim params with new flow field resolution
         let sim_params = SimParams {
             total_pool_size: self.settings.total_pool_size,
-            vector_count: 128 * 128, // 128x128 grid
+            flow_field_resolution: 128 * 128, // 128x128 grid
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            delta_time: self.delta_time,
             noise_dt_multiplier: self.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
@@ -293,7 +306,6 @@ impl FlowModel {
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
             cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
             mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
@@ -301,8 +313,8 @@ impl FlowModel {
             display_mode: self.display_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         queue.write_buffer(
@@ -338,27 +350,29 @@ impl FlowModel {
 
         // Initialize autospawn pool
         RNG.with(|_rng| {
-            for i in 0..autospawn_pool_size {
+            for _ in 0..autospawn_pool_size {
                 let particle = Particle {
                     position: [0.0, 0.0],            // Will be set when spawned
                     age: settings.particle_lifetime, // Start dead
-                    color: [0.0, 0.0, 0.0, 0.0],     // Invisible
+                    lut_index: 0,                    // No color
                     is_alive: 0,                     // Dead particles are inactive
                     spawn_type: 0,                   // Autospawn particles
-                    last_spawn_time: -(i as f32 * (1.0 / settings.autospawn_rate as f32)), // Stagger spawn times
+                    _pad0: 0,
+                    _pad1: 0,
                 };
                 particles.push(particle);
             }
 
             // Initialize brush pool with dead particles and staggered spawn times
-            for i in 0..brush_pool_size {
+            for _ in 0..brush_pool_size {
                 let particle = Particle {
                     position: [0.0, 0.0],            // Will be set when spawned
                     age: settings.particle_lifetime, // Start dead
-                    color: [0.0, 0.0, 0.0, 0.0],     // Invisible
+                    lut_index: 0,                    // No color
                     is_alive: 0,                     // Dead particles are inactive
                     spawn_type: 1,                   // Brush particles
-                    last_spawn_time: -(i as f32 * (1.0 / settings.brush_spawn_rate as f32)), // Stagger spawn times
+                    _pad0: 0,
+                    _pad1: 0,
                 };
                 particles.push(particle);
             }
@@ -383,11 +397,12 @@ impl FlowModel {
 
         let sim_params = SimParams {
             total_pool_size: settings.total_pool_size,
-            vector_count: 128 * 128, // 128x128 grid
+            flow_field_resolution: 128 * 128, // 128x128 grid
             particle_lifetime: settings.particle_lifetime,
             particle_speed: settings.particle_speed,
             noise_seed: settings.noise_seed,
             time: 0.0,
+            delta_time: 0.016,
             noise_dt_multiplier: 1.0, // Default multiplier
             width: 2.0,
             height: 2.0,
@@ -407,8 +422,7 @@ impl FlowModel {
             screen_height: surface_config.height,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_size: 10,
-            cursor_strength: 0.1, // Reduced from 0.4 for less aggressive spawning
+            cursor_size: 0.25,
             mouse_button_down: 0,
             particle_autospawn: settings.particle_autospawn as u32,
             autospawn_rate: settings.autospawn_rate,
@@ -416,8 +430,8 @@ impl FlowModel {
             display_mode: DisplayMode::Age as u32,
             autospawn_pool_size,
             brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -432,6 +446,19 @@ impl FlowModel {
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("LUT Buffer"),
             contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create spawn control buffer
+        let spawn_control_init = SpawnControl {
+            allowed: 0,
+            _pad0: 0,
+            count: 0,
+            _pad1: 0,
+        };
+        let spawn_control_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Spawn Control Buffer"),
+            contents: bytemuck::cast_slice(&[spawn_control_init]),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -542,6 +569,16 @@ impl FlowModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -557,6 +594,7 @@ impl FlowModel {
             .add_buffer(2, &sim_params_buffer)
             .add_texture_view(3, &trail_texture_view)
             .add_buffer(4, &lut_buffer)
+            .add_buffer(5, &spawn_control_buffer)
             .with_label("Particle Update Bind Group".to_string())
             .build();
 
@@ -1192,6 +1230,8 @@ impl FlowModel {
             ..Default::default()
         });
 
+        // No explicit filtering-mode uniform needed; sampler already uses app setting
+
         // Create infinite render pipeline for truly infinite tiling
         let render_infinite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Flow Render Infinite Shader"),
@@ -1271,14 +1311,8 @@ impl FlowModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&display_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: average_color_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
+                wgpu::BindGroupEntry { binding: 2, resource: average_color_uniform_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: background_color_buffer.as_entire_binding() },
             ],
         });
 
@@ -1458,6 +1492,7 @@ impl FlowModel {
             sim_params_buffer,
             lut_buffer,
             background_color_buffer,
+            spawn_control_buffer,
 
             trail_texture,
             trail_texture_view,
@@ -1473,6 +1508,8 @@ impl FlowModel {
             camera,
             lut_manager: Arc::new(lut_manager.clone()),
             time: 0.0,
+            delta_time: 0.016,
+            autospawn_accumulator: 0.0,
             noise_dt_multiplier: settings.noise_dt_multiplier,
             particles,
             flow_vectors,
@@ -1496,8 +1533,7 @@ impl FlowModel {
             // Initialize mouse interaction state
             cursor_world_x: 0.0,
             cursor_world_y: 0.0,
-            cursor_size: 10,
-            cursor_strength: 0.1, // Reduced from 0.4 for less aggressive spawning
+            cursor_size: 0.33,
             mouse_button_down: 0,
 
             display_texture,
@@ -1539,11 +1575,12 @@ impl FlowModel {
     fn write_sim_params(&self, queue: &Arc<wgpu::Queue>) {
         let sim_params = SimParams {
             total_pool_size: self.settings.total_pool_size,
-            vector_count: self.flow_vectors.len() as u32,
+            flow_field_resolution: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            delta_time: self.delta_time,
             noise_dt_multiplier: self.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
@@ -1564,7 +1601,6 @@ impl FlowModel {
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
             cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
             mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
@@ -1572,8 +1608,8 @@ impl FlowModel {
             display_mode: self.display_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         queue.write_buffer(
@@ -1790,6 +1826,9 @@ impl Simulation for FlowModel {
         surface_view: &TextureView,
         delta_time: f32,
     ) -> crate::error::SimulationResult<()> {
+        // Store actual delta time for GPU uniforms
+        self.delta_time = delta_time;
+
         // Update simulation time with overflow protection
         let new_time = self.time + delta_time;
         if new_time.is_finite() {
@@ -1829,6 +1868,29 @@ impl Simulation for FlowModel {
         }
 
         queue.submit(std::iter::once(trail_encoder.finish()));
+
+        // Prepare spawn control: accumulator -> integer tickets
+        let rate = self.settings.autospawn_rate as f32;
+        self.autospawn_accumulator += rate * delta_time;
+        let mut allowed = self.autospawn_accumulator.floor() as u32;
+        self.autospawn_accumulator -= allowed as f32;
+        // Clamp by a reasonable maximum per frame to avoid long frames
+        let max_per_frame = 100000u32;
+        if allowed > max_per_frame {
+            allowed = max_per_frame;
+        }
+        // Reset GPU counter and set allowed
+        let spawn_control = SpawnControl {
+            allowed,
+            _pad0: 0,
+            count: 0,
+            _pad1: 0,
+        };
+        queue.write_buffer(
+            &self.spawn_control_buffer,
+            0,
+            bytemuck::cast_slice(&[spawn_control]),
+        );
 
         // Run particle update compute pass
         let mut compute_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2146,6 +2208,16 @@ impl Simulation for FlowModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             }),
             entries: &[
@@ -2168,6 +2240,10 @@ impl Simulation for FlowModel {
                 wgpu::BindGroupEntry {
                     binding: 4,
                     resource: self.lut_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self.spawn_control_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -2268,11 +2344,12 @@ impl Simulation for FlowModel {
         // Update sim params with new dimensions
         let sim_params = SimParams {
             total_pool_size: self.settings.total_pool_size,
-            vector_count: self.flow_vectors.len() as u32,
+            flow_field_resolution: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            delta_time: self.delta_time,
             noise_dt_multiplier: self.settings.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
@@ -2293,7 +2370,6 @@ impl Simulation for FlowModel {
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
             cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
             mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
@@ -2301,8 +2377,8 @@ impl Simulation for FlowModel {
             display_mode: self.display_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         queue.write_buffer(
@@ -2593,11 +2669,12 @@ impl Simulation for FlowModel {
                         // Update sim params with new autospawn limit
                         let sim_params = SimParams {
                             total_pool_size: self.settings.total_pool_size,
-                            vector_count: self.flow_vectors.len() as u32,
+                            flow_field_resolution: self.flow_vectors.len() as u32,
                             particle_lifetime: self.settings.particle_lifetime,
                             particle_speed: self.settings.particle_speed,
                             noise_seed: self.settings.noise_seed,
                             time: self.time,
+                            delta_time: self.delta_time,
                             noise_dt_multiplier: self.settings.noise_dt_multiplier,
                             width: 2.0,
                             height: 2.0,
@@ -2618,7 +2695,6 @@ impl Simulation for FlowModel {
                             cursor_x: self.cursor_world_x,
                             cursor_y: self.cursor_world_y,
                             cursor_size: self.cursor_size,
-                            cursor_strength: self.cursor_strength,
                             mouse_button_down: self.mouse_button_down,
                             particle_autospawn: self.settings.particle_autospawn as u32,
                             autospawn_rate: self.settings.autospawn_rate,
@@ -2626,8 +2702,8 @@ impl Simulation for FlowModel {
                             display_mode: self.display_mode as u32,
                             autospawn_pool_size: self.autospawn_pool_size,
                             brush_pool_size: self.brush_pool_size,
-                            _padding_0: 0,
                             _padding_1: 0,
+                            _padding_2: 0,
                         };
 
                         queue.write_buffer(
@@ -2907,14 +2983,9 @@ impl Simulation for FlowModel {
                     };
                 }
             }
-            "cursorSize" => {
-                if let Some(size) = value.as_u64() {
-                    self.cursor_size = size as u32;
-                }
-            }
-            "cursorStrength" => {
-                if let Some(strength) = value.as_f64() {
-                    self.cursor_strength = (strength as f32).clamp(0.0, 1.0); // Clamp to 0.0-1.0 range
+            "cursor_size" => {
+                if let Some(size) = value.as_f64() {
+                    self.cursor_size = size as f32;
                 }
             }
             "particleAutospawn" => {
@@ -3008,11 +3079,12 @@ impl Simulation for FlowModel {
         // Update sim params with cursor state
         let sim_params = SimParams {
             total_pool_size: self.settings.total_pool_size,
-            vector_count: self.flow_vectors.len() as u32,
+            flow_field_resolution: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            delta_time: self.delta_time,
             noise_dt_multiplier: self.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
@@ -3033,7 +3105,6 @@ impl Simulation for FlowModel {
             cursor_x: world_x,
             cursor_y: world_y,
             cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
             mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
@@ -3041,8 +3112,8 @@ impl Simulation for FlowModel {
             display_mode: self.display_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         queue.write_buffer(
@@ -3131,27 +3202,29 @@ impl Simulation for FlowModel {
 
         RNG.with(|_rng| {
             // Initialize autospawn pool with dead particles and staggered spawn times
-            for i in 0..self.autospawn_pool_size {
+            for _ in 0..self.autospawn_pool_size {
                 let particle = Particle {
                     position: [0.0, 0.0],                 // Will be set when spawned
                     age: self.settings.particle_lifetime, // Start dead
-                    color: [0.0, 0.0, 0.0, 0.0],          // Invisible
+                    lut_index: 0,                         // No color
                     is_alive: 0,                          // Dead particles are inactive
                     spawn_type: 0,                        // Autospawn particles
-                    last_spawn_time: -(i as f32 * (1.0 / self.settings.autospawn_rate as f32)), // Stagger spawn times
+                    _pad0: 0,
+                    _pad1: 0,
                 };
                 particles.push(particle);
             }
 
             // Initialize brush pool with dead particles and staggered spawn times
-            for i in 0..self.brush_pool_size {
+            for _ in 0..self.brush_pool_size {
                 let particle = Particle {
                     position: [0.0, 0.0],                 // Will be set when spawned
                     age: self.settings.particle_lifetime, // Start dead
-                    color: [0.0, 0.0, 0.0, 0.0],          // Invisible
+                    lut_index: 0,                         // No color
                     is_alive: 0,                          // Dead particles are inactive
                     spawn_type: 1,                        // Brush particles
-                    last_spawn_time: -(i as f32 * (1.0 / self.settings.brush_spawn_rate as f32)), // Stagger spawn times
+                    _pad0: 0,
+                    _pad1: 0,
                 };
                 particles.push(particle);
             }
@@ -3329,10 +3402,9 @@ impl FlowModel {
         // Set all particles to dead state (age = lifetime)
         for particle in &mut self.particles {
             particle.age = self.settings.particle_lifetime;
-            particle.color = [0.0, 0.0, 0.0, 0.0]; // Make invisible
+            particle.lut_index = 0; // Clear color index
             particle.is_alive = 0; // Mark as inactive
             particle.spawn_type = 0; // Reset spawn type
-            particle.last_spawn_time = 0.0; // Reset spawn time
         }
 
         // Update particle buffer with dead particles
@@ -3347,11 +3419,12 @@ impl FlowModel {
         // Update sim params with zero active particle counts
         let sim_params = SimParams {
             total_pool_size: self.settings.total_pool_size,
-            vector_count: self.flow_vectors.len() as u32,
+            flow_field_resolution: self.flow_vectors.len() as u32,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
             time: self.time,
+            delta_time: self.delta_time,
             noise_dt_multiplier: self.settings.noise_dt_multiplier,
             width: 2.0,
             height: 2.0,
@@ -3372,7 +3445,6 @@ impl FlowModel {
             cursor_x: self.cursor_world_x,
             cursor_y: self.cursor_world_y,
             cursor_size: self.cursor_size,
-            cursor_strength: self.cursor_strength,
             mouse_button_down: self.mouse_button_down,
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
@@ -3380,8 +3452,8 @@ impl FlowModel {
             display_mode: self.display_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
-            _padding_0: 0,
             _padding_1: 0,
+            _padding_2: 0,
         };
 
         queue.write_buffer(

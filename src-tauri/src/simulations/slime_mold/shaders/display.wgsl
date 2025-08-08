@@ -43,17 +43,16 @@ var<storage, read> gradient_map: array<f32>;
 fn sample_trail_map_smooth(pos: vec2<f32>) -> f32 {
     let width = i32(sim_size.width);
     let height = i32(sim_size.height);
+    // Wrap position to valid range (toroidal)
+    let fx = floor(pos.x);
+    let fy = floor(pos.y);
+    let x0 = ((i32(fx) % width) + width) % width;
+    let y0 = ((i32(fy) % height) + height) % height;
+    let x1 = (x0 + 1) % width;
+    let y1 = (y0 + 1) % height;
     
-    // Clamp position to valid range
-    let clamped_pos = clamp(pos, vec2<f32>(0.0), vec2<f32>(f32(width - 1), f32(height - 1)));
-    
-    let x0 = i32(floor(clamped_pos.x));
-    let y0 = i32(floor(clamped_pos.y));
-    let x1 = min(x0 + 1, width - 1);
-    let y1 = min(y0 + 1, height - 1);
-    
-    let dx = clamped_pos.x - f32(x0);
-    let dy = clamped_pos.y - f32(y0);
+    let dx = pos.x - fx;
+    let dy = pos.y - fy;
     
     let v00 = trail_map[y0 * width + x0];
     let v10 = trail_map[y0 * width + x1];
@@ -69,17 +68,16 @@ fn sample_trail_map_smooth(pos: vec2<f32>) -> f32 {
 fn sample_gradient_map_smooth(pos: vec2<f32>) -> f32 {
     let width = i32(sim_size.width);
     let height = i32(sim_size.height);
+    // Wrap position to valid range (toroidal)
+    let fx = floor(pos.x);
+    let fy = floor(pos.y);
+    let x0 = ((i32(fx) % width) + width) % width;
+    let y0 = ((i32(fy) % height) + height) % height;
+    let x1 = (x0 + 1) % width;
+    let y1 = (y0 + 1) % height;
     
-    // Clamp position to valid range
-    let clamped_pos = clamp(pos, vec2<f32>(0.0), vec2<f32>(f32(width - 1), f32(height - 1)));
-    
-    let x0 = i32(floor(clamped_pos.x));
-    let y0 = i32(floor(clamped_pos.y));
-    let x1 = min(x0 + 1, width - 1);
-    let y1 = min(y0 + 1, height - 1);
-    
-    let dx = clamped_pos.x - f32(x0);
-    let dy = clamped_pos.y - f32(y0);
+    let dx = pos.x - fx;
+    let dy = pos.y - fy;
     
     let v00 = gradient_map[y0 * width + x0];
     let v10 = gradient_map[y0 * width + x1];

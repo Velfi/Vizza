@@ -627,6 +627,17 @@ impl PelletsValidator {
                             },
                             count: None,
                         },
+                        // Physics compute now uses an additional storage buffer for atomic grid counts (binding 4)
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 4,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -808,10 +819,9 @@ fn test_struct_layout_consistency() {
             cursor_strength: 0.02,
             particle_size: 0.01,
             aspect_ratio: 1.0,
-            long_range_gravity_strength: 0.3,
             density_damping_enabled: 1,
             overlap_resolution_strength: 0.02,
-            _padding: 0,
+            frame_index: 0,
         };
 
         let physics_params_buffer =

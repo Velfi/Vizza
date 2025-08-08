@@ -592,6 +592,10 @@
         `Gray-Scott context menu interaction at screen coords: (${physicalCursorX}, ${physicalCursorY}), button: 2`
       );
 
+      // Track as active right-button press to ensure release is generated later
+      isMousePressed = true;
+      currentMouseButton = 2;
+
       try {
         await invoke('handle_mouse_interaction_screen', {
           screenX: physicalCursorX,

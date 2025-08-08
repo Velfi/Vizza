@@ -222,7 +222,7 @@
 
   // State variables
   let lutName = '';
-  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'RGB';
+  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'OkLab';
   let selectedPreset = 'Custom';
   let selectedDisplayMode = 'Smooth';
   let selectedRandomScheme: string = 'Basic';
@@ -471,12 +471,12 @@
       const r = Math.round(parseInt(color.slice(1, 3), 16));
       const g = Math.round(parseInt(color.slice(3, 5), 16));
       const b = Math.round(parseInt(color.slice(5, 7), 16));
-      
+
       // Ensure values are valid integers in 0-255 range
       const rClamped = Math.max(0, Math.min(255, r));
       const gClamped = Math.max(0, Math.min(255, g));
       const bClamped = Math.max(0, Math.min(255, b));
-      
+
       rArr.push(rClamped);
       gArr.push(gClamped);
       bArr.push(bClamped);

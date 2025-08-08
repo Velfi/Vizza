@@ -30,6 +30,8 @@
     tabindex="-1"
     on:keydown={(e) => e.key === 'Escape' && closeGradientEditor()}
   >
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="dialog-content gradient-editor-content" role="document" on:click|stopPropagation>
       <h3 id="gradient-editor-title">Color Scheme Editor</h3>
 

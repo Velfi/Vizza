@@ -69,10 +69,9 @@ pub struct PhysicsParams {
     pub cursor_strength: f32,
     pub particle_size: f32, // Pre-calculated particle size for consistent collision and rendering
     pub aspect_ratio: f32,  // Screen aspect ratio for collision correction
-    pub long_range_gravity_strength: f32, // Controls orbital motion strength
     pub density_damping_enabled: u32, // Whether to apply density-based velocity damping
     pub overlap_resolution_strength: f32, // Controls how aggressively overlapping particles are separated
-    pub _padding: u32,
+    pub frame_index: u32,
 }
 
 #[repr(C)]
@@ -126,7 +125,7 @@ pub struct GridParams {
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct GridCell {
     pub particle_count: u32,
-    pub particle_indices: [u32; 32], // Max 32 particles per cell
+    pub particle_indices: [u32; 64], // Max 64 particles per cell
 }
 
 // GPU-based physics implementation - no Rapier needed
@@ -145,6 +144,7 @@ pub struct PelletsModel {
     // Spatial partitioning resources
     pub grid_buffer: wgpu::Buffer,
     pub grid_params_buffer: wgpu::Buffer,
+    pub grid_counts_buffer: wgpu::Buffer,
 
     // Compute pipelines
     pub physics_compute_pipeline: wgpu::ComputePipeline,
@@ -340,10 +340,9 @@ impl PelletsModel {
             cursor_strength: state.cursor_strength,
             particle_size: settings.particle_size,
             aspect_ratio: surface_config.width as f32 / surface_config.height as f32,
-            long_range_gravity_strength: 0.0, // Initialize new field
             density_damping_enabled: settings.density_damping_enabled as u32,
             overlap_resolution_strength: settings.overlap_resolution_strength,
-            _padding: 0,
+            frame_index: 0,
         };
 
         let physics_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -356,7 +355,7 @@ impl PelletsModel {
         let density_params = DensityParams {
             particle_count: settings.particle_count,
             density_radius: settings.density_radius,
-            coloring_mode: match settings.coloring_mode.as_str() {
+            coloring_mode: match settings.coloring_mode.to_lowercase().as_str() {
                 "velocity" => 1,
                 "random" => 2,
                 _ => 0, // Default to density
@@ -484,6 +483,16 @@ impl PelletsModel {
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -646,7 +655,8 @@ impl PelletsModel {
         });
 
         // Initialize spatial partitioning grid
-        let cell_size = 0.1; // Each cell is 0.1 world units
+        // Derive cell size from particle size to bound neighbor counts
+        let cell_size = (settings.particle_size * 3.0).max(0.01);
         let grid_width = (2.0 / cell_size) as u32; // 20 cells across [-1,1]
         let grid_height = (2.0 / cell_size) as u32; // 20 cells across [-1,1]
         let total_cells = grid_width * grid_height;
@@ -655,7 +665,7 @@ impl PelletsModel {
         let grid_cells = vec![
             GridCell {
                 particle_count: 0,
-                particle_indices: [0; 32],
+                particle_indices: [0; 64],
             };
             total_cells as usize
         ];
@@ -664,6 +674,14 @@ impl PelletsModel {
         let grid_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Pellets Grid Buffer"),
             contents: bytemuck::cast_slice(&grid_cells),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create atomic counts buffer (one u32 per cell)
+        let grid_counts_zeroes: Vec<u32> = vec![0u32; total_cells as usize];
+        let grid_counts_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Pellets Grid Counts Buffer"),
+            contents: bytemuck::cast_slice(&grid_counts_zeroes),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -721,6 +739,16 @@ impl PelletsModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -758,6 +786,16 @@ impl PelletsModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -773,6 +811,10 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: grid_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: grid_counts_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -792,6 +834,10 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: grid_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: grid_counts_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -849,6 +895,10 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: grid_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: grid_counts_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1370,6 +1420,7 @@ impl PelletsModel {
             background_color_buffer,
             grid_buffer,
             grid_params_buffer,
+            grid_counts_buffer,
             physics_compute_pipeline,
             density_compute_pipeline,
             grid_clear_pipeline,
@@ -1496,8 +1547,14 @@ impl PelletsModel {
 
                 // Random velocities
                 let angle = rng.random_range(0.0..2.0 * std::f32::consts::PI);
-                let speed =
-                    rng.random_range(settings.initial_velocity_min..settings.initial_velocity_max);
+                // Robust speed sampling: tolerate equal or inverted ranges from settings/UI
+                let vmin = settings.initial_velocity_min.min(settings.initial_velocity_max);
+                let vmax = settings.initial_velocity_min.max(settings.initial_velocity_max);
+                let speed = if (vmax - vmin) > f32::EPSILON {
+                    rng.random_range(vmin..vmax)
+                } else {
+                    vmin
+                };
                 let velocity = [angle.cos() * speed, angle.sin() * speed];
 
                 // For Verlet integration: previous_position = current_position - velocity * dt
@@ -1632,14 +1689,13 @@ impl PelletsModel {
             cursor_strength: self.state.cursor_strength,
             particle_size: self.settings.particle_size,
             aspect_ratio: self.surface_config.width as f32 / self.surface_config.height as f32,
-            long_range_gravity_strength: self.settings.long_range_gravity_strength,
             density_damping_enabled: if self.settings.density_damping_enabled {
                 1
             } else {
                 0
             },
             overlap_resolution_strength: self.settings.overlap_resolution_strength,
-            _padding: 0,
+            frame_index: self.frame_count as u32,
         };
 
         queue.write_buffer(
@@ -1671,7 +1727,7 @@ impl PelletsModel {
         let density_params = DensityParams {
             particle_count: self.settings.particle_count,
             density_radius: self.settings.density_radius,
-            coloring_mode: match self.settings.coloring_mode.as_str() {
+            coloring_mode: match self.settings.coloring_mode.to_lowercase().as_str() {
                 "velocity" => 1,
                 "random" => 2,
                 _ => 0, // Default to density
@@ -1780,6 +1836,16 @@ impl PelletsModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -1846,6 +1912,16 @@ impl PelletsModel {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -1869,6 +1945,10 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: self.grid_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.grid_counts_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1905,6 +1985,10 @@ impl PelletsModel {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: self.grid_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.grid_counts_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -2010,7 +2094,7 @@ impl PelletsModel {
             particle_size: self.settings.particle_size,
             screen_width: (self.surface_config.width * 2) as f32,
             screen_height: (self.surface_config.height * 2) as f32,
-            coloring_mode: match self.settings.coloring_mode.as_str() {
+            coloring_mode: match self.settings.coloring_mode.to_lowercase().as_str() {
                 "velocity" => 1,
                 "random" => 2,
                 _ => 0, // Default to density
@@ -2692,6 +2776,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             "coloring_mode" => {
                 if let Some(mode) = value.as_str() {
                     self.settings.coloring_mode = mode.to_string();
+                    // Update GPU params immediately so the change is visible without waiting
+                    self.update_render_params(queue);
+                    self.update_density_params(queue);
                 }
             }
             "initial_velocity_max" => {
@@ -2710,11 +2797,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     // GPU compute shaders will use the updated value
                 }
             }
-            "long_range_gravity_strength" => {
-                if let Some(strength) = value.as_f64() {
-                    self.settings.long_range_gravity_strength = strength as f32;
-                }
-            }
+            // removed long_range_gravity_strength setting
             "density_damping_enabled" => {
                 if let Some(enabled) = value.as_bool() {
                     self.settings.density_damping_enabled = enabled;

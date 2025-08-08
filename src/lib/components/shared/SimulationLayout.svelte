@@ -108,7 +108,7 @@
         clientX: event.clientX,
         clientY: event.clientY,
         bubbles: true,
-        cancelable: true
+        cancelable: true,
       });
       dispatch('mouseEvent', syntheticEvent);
     }
@@ -125,7 +125,7 @@
         clientX: mouseEvent.clientX,
         clientY: mouseEvent.clientY,
         bubbles: true,
-        cancelable: true
+        cancelable: true,
       });
       dispatch('mouseEvent', syntheticEvent);
     }
@@ -135,7 +135,7 @@
   function handleMouseEvent(event: MouseEvent | WheelEvent) {
     if (isDirectTarget(event)) {
       event.preventDefault();
-      
+
       // Track mouse press state for global mouse up detection
       if (event.type === 'mousedown') {
         isMousePressed = true;
@@ -143,7 +143,7 @@
       } else if (event.type === 'mouseup') {
         isMousePressed = false;
       }
-      
+
       dispatch('mouseEvent', event);
     }
   }
@@ -152,6 +152,9 @@
   function handleContextMenu(event: MouseEvent) {
     if (isDirectTarget(event)) {
       event.preventDefault();
+      // Treat contextmenu as a right-button press so we reliably get a release later
+      isMousePressed = true;
+      currentMouseButton = 2;
       dispatch('mouseEvent', event);
     }
   }
@@ -159,7 +162,7 @@
   onMount(() => {
     // Add global mouse up listener
     document.addEventListener('mouseup', handleGlobalMouseUp);
-    
+
     // Add mouse enter listener to menu container using CSS selector
     // Use a small delay to ensure the menu container is rendered
     setTimeout(() => {
@@ -173,7 +176,7 @@
   onDestroy(() => {
     // Remove global mouse up listener
     document.removeEventListener('mouseup', handleGlobalMouseUp);
-    
+
     // Remove menu mouse enter listener
     const menuContainer = document.querySelector('.simulation-menu-container');
     if (menuContainer) {

@@ -3,16 +3,16 @@
   <!-- Header Row -->
   <div class="matrix-header-row">
     <div class="header-corner"></div>
-    {#each Array(settings.species_count) as _, j}
+    {#each Array.from({ length: settings.species_count }, (_, j) => j) as j}
       <div class="header-label" style="color: {speciesColors[j] || '#ffffff'}">S{j + 1}</div>
     {/each}
   </div>
 
   <div class="matrix-grid">
-    {#each Array(settings.species_count) as _, i}
+    {#each Array.from({ length: settings.species_count }, (_, i) => i) as i}
       <div class="matrix-row">
         <div class="row-label" style="color: {speciesColors[i] || '#ffffff'}">S{i + 1}</div>
-        {#each Array(settings.species_count) as _, j}
+        {#each Array.from({ length: settings.species_count }, (_, j) => j) as j}
           {@const matrixValue =
             settings.force_matrix &&
             settings.force_matrix[i] &&

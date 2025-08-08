@@ -191,24 +191,24 @@ impl Default for Settings {
             noise_scale: 1.0,
             noise_x: 1.0,
             noise_y: 1.0,
-            noise_dt_multiplier: 0.0, // Default multiplier
+            noise_dt_multiplier: 0.0,
             vector_magnitude: 0.1,
 
             // Particle parameters
-            total_pool_size: 10000, // Total particle pool size (will be divided evenly between autospawn and brush)
-            particle_lifetime: 3.0, // 3 seconds
-            particle_speed: 0.02,   // Consistent speed for all particles
+            total_pool_size: 100000,
+            particle_lifetime: 5.0,
+            particle_speed: 1.0,
             particle_size: 4,
             particle_shape: ParticleShape::Circle,
             particle_autospawn: true,
-            autospawn_rate: 100,  // Default autospawn rate
-            brush_spawn_rate: 10, // Default brush spawn rate
+            autospawn_rate: 500,
+            brush_spawn_rate: 100,
 
             // Trail parameters
-            trail_decay_rate: 0.0,      // No trail decay by default
-            trail_deposition_rate: 1.0, // Maximum trail deposition strength
-            trail_diffusion_rate: 0.0,  // No trail diffusion by default
-            trail_wash_out_rate: 0.0,
+            trail_decay_rate: 0.0,
+            trail_deposition_rate: 1.0,
+            trail_diffusion_rate: 0.0,
+            trail_wash_out_rate: 0.1,
         }
     }
 }

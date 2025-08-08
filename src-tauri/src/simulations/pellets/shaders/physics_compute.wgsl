@@ -36,9 +36,9 @@ struct PhysicsParams {
     cursor_strength: f32,
     particle_size: f32,
     aspect_ratio: f32,
-    long_range_gravity_strength: f32,
     density_damping_enabled: u32,
     overlap_resolution_strength: f32,
+    frame_index: u32,
 }
 
 struct GridParams {
@@ -54,13 +54,15 @@ struct GridParams {
 
 struct GridCell {
     particle_count: u32,
-    particle_indices: array<u32, 32>,
+    particle_indices: array<u32, 64>,
 }
 
 @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
 @group(0) @binding(1) var<uniform> params: PhysicsParams;
 @group(0) @binding(2) var<storage, read> grid: array<GridCell>;
 @group(0) @binding(3) var<uniform> grid_params: GridParams;
+// Atomic per-cell particle counts for deterministic neighbor iteration
+@group(0) @binding(4) var<storage, read> grid_counts: array<atomic<u32>>;
 
 // Convert world position to grid coordinates
 fn world_to_grid(pos: vec2<f32>) -> vec2<u32> {
@@ -79,52 +81,9 @@ fn grid_coord_to_index(coord: vec2<u32>) -> u32 {
     return coord.y * grid_params.grid_width + coord.x;
 }
 
-// Get particles from neighboring grid cells
-fn get_neighbor_particles(particle_pos: vec2<f32>, particle_index: u32) -> array<u32, 256> {
-    var neighbors: array<u32, 256>;
-    var neighbor_count = 0u;
-    
-    // Get the grid cell this particle is in
-    let center_cell = world_to_grid(particle_pos);
-    
-    // Check 3x3 neighborhood of cells
-    for (var dy = -1i; dy <= 1i; dy++) {
-        for (var dx = -1i; dx <= 1i; dx++) {
-            let cell_x = i32(center_cell.x) + dx;
-            let cell_y = i32(center_cell.y) + dy;
-            
-            // Handle toroidal wrapping for grid cells
-            let wrapped_x = (cell_x + i32(grid_params.grid_width)) % i32(grid_params.grid_width);
-            let wrapped_y = (cell_y + i32(grid_params.grid_height)) % i32(grid_params.grid_height);
-            
-            let cell_index = grid_coord_to_index(vec2<u32>(u32(wrapped_x), u32(wrapped_y)));
-            let cell = grid[cell_index];
-            
-            // Add particles from this cell
-            for (var i = 0u; i < cell.particle_count; i++) {
-                let neighbor_index = cell.particle_indices[i];
-                
-                // Skip self
-                if (neighbor_index == particle_index) {
-                    continue;
-                }
-                
-                // Add to neighbors if we have space
-                if (neighbor_count < 256u) {
-                    neighbors[neighbor_count] = neighbor_index;
-                    neighbor_count += 1u;
-                }
-            }
-        }
-    }
-    
-    // Pad remaining slots with invalid index
-    for (var i = neighbor_count; i < 256u; i++) {
-        neighbors[i] = 0xFFFFFFFFu; // Invalid index
-    }
-    
-    return neighbors;
-}
+// Stream neighbors from 3x3 grid neighborhood and apply a callback-like operation
+fn for_each_neighbor(particle_pos: vec2<f32>, self_index: u32, op: ptr<function, i32>) { }
+// Note: WGSL does not support function pointers. We'll inline neighbor loops where needed below.
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -203,40 +162,33 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     particle.position += (params.dt / 6.0) * (k1_pos + 2.0 * k2_pos + 2.0 * k3_pos + k4_pos);
     particle.velocity += (params.dt / 6.0) * (k1_vel + 2.0 * k2_vel + 2.0 * k3_vel + k4_vel);
     
-    // Apply energy damping
-    let damping_factor = 0.999;
-    particle.velocity *= damping_factor;
+    // Apply energy damping from settings (retention factor)
+    particle.velocity *= params.energy_damping;
     
-    // Density-based velocity damping - check all particles for accurate density
-    var nearby_count = 0u;
-    
-    for (var i = 0u; i < params.particle_count; i++) {
-        if (i == index) {
-            continue;
-        }
-        
-        let other = particles[i];
-        var delta = other.position - particle.position;
-        
-        // Toroidal wrapping
-        if (abs(delta.x) > 1.0) {
-            delta.x = delta.x - sign(delta.x) * 2.0;
-        }
-        if (abs(delta.y) > 1.0) {
-            delta.y = delta.y - sign(delta.y) * 2.0;
-        }
-        
-        let distance_sq = dot(delta, delta);
+    // Density-based velocity damping only if enabled, using grid neighbors
+    if (params.density_damping_enabled != 0u) {
+        var nearby_count = 0u;
+        let center_cell = world_to_grid(particle.position);
         let particle_radius = params.particle_size;
         let nearby_radius_sq = particle_radius * particle_radius * 4.0;
-        
-        if (distance_sq < nearby_radius_sq) {
-            nearby_count += 1u;
+        for (var dy = -1i; dy <= 1i; dy++) {
+            for (var dx = -1i; dx <= 1i; dx++) {
+                let cx = (i32(center_cell.x) + dx + i32(grid_params.grid_width)) % i32(grid_params.grid_width);
+                let cy = (i32(center_cell.y) + dy + i32(grid_params.grid_height)) % i32(grid_params.grid_height);
+                let cell_index = grid_coord_to_index(vec2<u32>(u32(cx), u32(cy)));
+                let count = atomicLoad(&grid_counts[cell_index]);
+                for (var k = 0u; k < min(count, 64u); k++) {
+                    let j = grid[cell_index].particle_indices[k];
+                    if (j == index) { continue; }
+                    let other = particles[j];
+                    var delta = other.position - particle.position;
+                    if (abs(delta.x) > 1.0) { delta.x = delta.x - sign(delta.x) * 2.0; }
+                    if (abs(delta.y) > 1.0) { delta.y = delta.y - sign(delta.y) * 2.0; }
+                    let distance_sq = dot(delta, delta);
+                    if (distance_sq < nearby_radius_sq) { nearby_count += 1u; }
+                }
+            }
         }
-    }
-    
-    // Apply density-based velocity damping only if enabled
-    if (params.density_damping_enabled != 0u) {
         let density_factor = min(f32(nearby_count) / 10.0, 1.0);
         let velocity_damping = 1.0 - density_factor * 0.1;
         particle.velocity *= velocity_damping;
@@ -258,8 +210,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         particle.position.y += 2.0;
     }
     
-    // Clamp velocities
-    let max_velocity = 5.0;
+    // Clamp velocities: particle-size- and dt-aware to prevent excessive oscillation/tunneling
+    let inv_dt = 1.0 / max(params.dt, 1e-4);
+    let dynamic_cap = 0.8 * params.particle_size * inv_dt;
+    let max_velocity = min(5.0, dynamic_cap);
     let velocity_magnitude = length(particle.velocity);
     if (velocity_magnitude > max_velocity) {
         particle.velocity = normalize(particle.velocity) * max_velocity;
@@ -273,7 +227,7 @@ fn compute_acceleration(particle: Particle, particle_index: u32) -> vec2<f32> {
     
     // Gravitational forces using spatial grid
     if (params.gravitational_constant > 0.0) {
-        acceleration += compute_gravitational_force(particle, particle_index);
+        acceleration += compute_gravity_grid(particle, particle_index);
     }
     
     // Mouse interaction
@@ -282,63 +236,48 @@ fn compute_acceleration(particle: Particle, particle_index: u32) -> vec2<f32> {
     }
     
     // Collision forces using spatial grid
-    acceleration += compute_collision_forces(particle, particle_index);
+    acceleration += compute_collision_forces_grid(particle, particle_index);
     
     return acceleration;
 }
 
-fn compute_gravitational_force(particle: Particle, particle_index: u32) -> vec2<f32> {
+fn compute_gravity_grid(particle: Particle, particle_index: u32) -> vec2<f32> {
     var total_force = vec2<f32>(0.0, 0.0);
     let interaction_radius_sq = params.interaction_radius * params.interaction_radius;
     let long_range_radius_sq = 4.0;
     
-    // Use spatial grid for neighbor lookup
-    let neighbors = get_neighbor_particles(particle.position, particle_index);
-    
-    for (var i = 0u; i < 256u; i++) {
-        let neighbor_index = neighbors[i];
-        if (neighbor_index == 0xFFFFFFFFu) {
-            break;
+    let center_cell = world_to_grid(particle.position);
+    for (var dy = -1i; dy <= 1i; dy++) {
+        for (var dx = -1i; dx <= 1i; dx++) {
+            let cx = (i32(center_cell.x) + dx + i32(grid_params.grid_width)) % i32(grid_params.grid_width);
+            let cy = (i32(center_cell.y) + dy + i32(grid_params.grid_height)) % i32(grid_params.grid_height);
+            let cell_index = grid_coord_to_index(vec2<u32>(u32(cx), u32(cy)));
+            let count = atomicLoad(&grid_counts[cell_index]);
+            for (var k = 0u; k < min(count, 64u); k++) {
+                let neighbor_index = grid[cell_index].particle_indices[k];
+                if (neighbor_index == particle_index) { continue; }
+                let other = particles[neighbor_index];
+                var delta = other.position - particle.position;
+                if (abs(delta.x) > 1.0) { delta.x = delta.x - sign(delta.x) * 2.0; }
+                if (abs(delta.y) > 1.0) { delta.y = delta.y - sign(delta.y) * 2.0; }
+                let distance_sq = dot(delta, delta);
+                if (distance_sq < 1e-6) { continue; }
+                if (distance_sq > long_range_radius_sq) { continue; }
+                let distance = sqrt(distance_sq);
+                let softened_distance_sq = distance_sq + params.gravity_softening * params.gravity_softening;
+                let softened_distance = sqrt(softened_distance_sq);
+                let force_magnitude = params.gravitational_constant * particle.mass * other.mass / softened_distance_sq;
+                var attenuated_force = force_magnitude;
+                if (distance_sq <= interaction_radius_sq) {
+                    let distance_factor = (params.interaction_radius - distance) / params.interaction_radius;
+                    attenuated_force = force_magnitude * max(distance_factor, 0.0) * 2.0;
+                } else {
+                    attenuated_force = 0.0;
+                }
+                let force_direction = delta / softened_distance;
+                total_force += force_direction * attenuated_force;
+            }
         }
-        
-        let other = particles[neighbor_index];
-        var delta = other.position - particle.position;
-        
-        // Toroidal wrapping
-        if (abs(delta.x) > 1.0) {
-            delta.x = delta.x - sign(delta.x) * 2.0;
-        }
-        if (abs(delta.y) > 1.0) {
-            delta.y = delta.y - sign(delta.y) * 2.0;
-        }
-        
-        let distance_sq = dot(delta, delta);
-        
-        if (distance_sq < 1e-6) {
-            continue;
-        }
-        
-        if (distance_sq > long_range_radius_sq) {
-            continue;
-        }
-        
-        let distance = sqrt(distance_sq);
-        let softened_distance_sq = distance_sq + params.gravity_softening * params.gravity_softening;
-        let softened_distance = sqrt(softened_distance_sq);
-        
-        let force_magnitude = params.gravitational_constant * particle.mass * other.mass / softened_distance_sq;
-        var attenuated_force = force_magnitude;
-        
-        if (distance_sq <= interaction_radius_sq) {
-            let distance_factor = (params.interaction_radius - distance) / params.interaction_radius;
-            attenuated_force = force_magnitude * max(distance_factor, 0.0) * 2.0;
-        } else {
-            let long_range_factor = 1.0 - (distance - sqrt(interaction_radius_sq)) / (sqrt(long_range_radius_sq) - sqrt(interaction_radius_sq));
-            attenuated_force = force_magnitude * max(long_range_factor, 0.0) * params.long_range_gravity_strength;
-        }
-        
-        let force_direction = delta / softened_distance;
-        total_force += force_direction * attenuated_force;
     }
     
     return total_force / particle.mass;
@@ -363,64 +302,46 @@ fn compute_mouse_force(particle: Particle) -> vec2<f32> {
     return vec2<f32>(0.0, 0.0);
 }
 
-fn compute_collision_forces(particle: Particle, particle_index: u32) -> vec2<f32> {
+fn compute_collision_forces_grid(particle: Particle, particle_index: u32) -> vec2<f32> {
     var collision_impulse = vec2<f32>(0.0, 0.0);
     
     // Use the pre-calculated particle size that matches the rendering size exactly
     let particle_radius = params.particle_size;
     
-    var nearby_count = 0u;
     var total_impulse = vec2<f32>(0.0, 0.0);
-    
-    // For pixel-perfect collision, check ALL particles
-    // The grid is used for gravitational forces, but collision needs to be exact
-    for (var i = 0u; i < params.particle_count; i++) {
-        if (i == particle_index) {
-            continue;
-        }
-        
-        let other = particles[i];
-        var delta = other.position - particle.position;
-        
-        // Toroidal wrapping
-        if (abs(delta.x) > 1.0) {
-            delta.x = delta.x - sign(delta.x) * 2.0;
-        }
-        if (abs(delta.y) > 1.0) {
-            delta.y = delta.y - sign(delta.y) * 2.0;
-        }
-        
-        let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
-        let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
-        let combined_radius = particle_radius + particle_radius;
-        let collision_distance_sq = combined_radius * combined_radius;
-        
-        if (distance_sq < collision_distance_sq * 4.0) {
-            nearby_count += 1u;
-        }
-        
-        if (distance_sq > collision_distance_sq * 1.1) {
-            continue;
-        }
-        
-        let distance = sqrt(distance_sq);
-        
-        if (distance < combined_radius && distance > 1e-6) {
-            let collision_normal = normalize(aspect_corrected_delta);
-            let relative_velocity = particle.velocity - other.velocity;
-            let velocity_along_normal = dot(relative_velocity, collision_normal);
-            
-            if (velocity_along_normal > 0.0) {
-                continue;
+    let center_cell = world_to_grid(particle.position);
+    for (var dy = -1i; dy <= 1i; dy++) {
+        for (var dx = -1i; dx <= 1i; dx++) {
+            let cx = (i32(center_cell.x) + dx + i32(grid_params.grid_width)) % i32(grid_params.grid_width);
+            let cy = (i32(center_cell.y) + dy + i32(grid_params.grid_height)) % i32(grid_params.grid_height);
+            let cell_index = grid_coord_to_index(vec2<u32>(u32(cx), u32(cy)));
+            let count = atomicLoad(&grid_counts[cell_index]);
+            for (var k = 0u; k < min(count, 64u); k++) {
+                let j = grid[cell_index].particle_indices[k];
+                if (j == particle_index) { continue; }
+                let other = particles[j];
+                var delta = other.position - particle.position;
+                if (abs(delta.x) > 1.0) { delta.x = delta.x - sign(delta.x) * 2.0; }
+                if (abs(delta.y) > 1.0) { delta.y = delta.y - sign(delta.y) * 2.0; }
+                let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
+                let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
+                let combined_radius = particle_radius + particle_radius;
+                let collision_distance_sq = combined_radius * combined_radius;
+                if (distance_sq > collision_distance_sq * 1.1) { continue; }
+                let distance = sqrt(distance_sq);
+                if (distance < combined_radius && distance > 1e-6) {
+                    let collision_normal = normalize(aspect_corrected_delta);
+                    let relative_velocity = particle.velocity - other.velocity;
+                    let velocity_along_normal = dot(relative_velocity, collision_normal);
+                    if (velocity_along_normal > 0.0) { continue; }
+                    var impulse_magnitude = -2.0 * velocity_along_normal;
+                    impulse_magnitude = impulse_magnitude / (1.0 / particle.mass + 1.0 / other.mass);
+                    // Slight inelastic bias to help damp oscillations
+                    impulse_magnitude *= min(params.collision_damping, 0.98);
+                    let impulse = collision_normal * impulse_magnitude;
+                    total_impulse += impulse / particle.mass;
+                }
             }
-            
-            var impulse_magnitude = -2.0 * velocity_along_normal;
-            impulse_magnitude = impulse_magnitude / (1.0 / particle.mass + 1.0 / other.mass);
-            // Apply collision damping from settings
-            impulse_magnitude *= params.collision_damping;
-            
-            let impulse = collision_normal * impulse_magnitude;
-            total_impulse += impulse / particle.mass;
         }
     }
     
@@ -434,51 +355,43 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
     // Use the pre-calculated particle size that matches the rendering size exactly
     let particle_radius = params.particle_size;
     
-    // Run 2 iterations of overlap resolution for better separation
-    for (var iteration = 0u; iteration < 2u; iteration++) {
+    // Run 3 iterations of overlap resolution for better separation
+    for (var iteration = 0u; iteration < 3u; iteration++) {
         var nearby_count = 0u;
         var total_overlap = 0.0;
         var overlap_direction = vec2<f32>(0.0, 0.0);
         
-        // For pixel-perfect collision resolution, check ALL particles
-        for (var i = 0u; i < params.particle_count; i++) {
-            if (i == particle_index) {
-                continue;
-            }
-            
-            let other = particles[i];
-            var delta = (*particle).position - other.position;
-            
-            // Toroidal wrapping
-            if (abs(delta.x) > 1.0) {
-                delta.x = delta.x - sign(delta.x) * 2.0;
-            }
-            if (abs(delta.y) > 1.0) {
-                delta.y = delta.y - sign(delta.y) * 2.0;
-            }
-            
-            let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
-            let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
-            let combined_radius = particle_radius + particle_radius;
-            let distance = sqrt(distance_sq);
-            
-            if (distance_sq < combined_radius * combined_radius * 4.0) {
-                nearby_count += 1u;
-            }
-            
-            if (distance < combined_radius && distance > 1e-6) {
-                let overlap = combined_radius - distance;
-                
-                if (overlap > 0.0) {
-                    total_overlap += overlap;
-                    
-                    let separation_direction = normalize(aspect_corrected_delta);
-                    let world_separation_direction = vec2<f32>(
-                        separation_direction.x / params.aspect_ratio, 
-                        separation_direction.y
-                    );
-                    
-                    overlap_direction += world_separation_direction * overlap;
+        // Use only neighbors from the 3x3 cells
+        let center_cell = world_to_grid((*particle).position);
+        for (var dy = -1i; dy <= 1i; dy++) {
+            for (var dx = -1i; dx <= 1i; dx++) {
+                let cx = (i32(center_cell.x) + dx + i32(grid_params.grid_width)) % i32(grid_params.grid_width);
+                let cy = (i32(center_cell.y) + dy + i32(grid_params.grid_height)) % i32(grid_params.grid_height);
+                let cell_index = grid_coord_to_index(vec2<u32>(u32(cx), u32(cy)));
+                let count = atomicLoad(&grid_counts[cell_index]);
+                for (var k = 0u; k < min(count, 64u); k++) {
+                    let i = grid[cell_index].particle_indices[k];
+                    if (i == particle_index) { continue; }
+                    let other = particles[i];
+                    var delta = (*particle).position - other.position;
+                    if (abs(delta.x) > 1.0) { delta.x = delta.x - sign(delta.x) * 2.0; }
+                    if (abs(delta.y) > 1.0) { delta.y = delta.y - sign(delta.y) * 2.0; }
+                    let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
+                    let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
+                    let combined_radius = particle_radius + particle_radius;
+                    let distance = sqrt(distance_sq);
+                    if (distance < combined_radius && distance > 1e-6) {
+                        let overlap = combined_radius - distance;
+                        if (overlap > 0.0) {
+                            total_overlap += overlap;
+                            let separation_direction = normalize(aspect_corrected_delta);
+                            let world_separation_direction = vec2<f32>(
+                                separation_direction.x / params.aspect_ratio,
+                                separation_direction.y
+                            );
+                            overlap_direction += world_separation_direction * overlap;
+                        }
+                    }
                 }
             }
         }
@@ -494,7 +407,19 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
             let max_separation_distance = particle_radius * 0.5;
             let separation_magnitude = min(total_overlap * clamped_strength, max_separation_distance);
             
-            let separation = normalize(overlap_direction) * separation_magnitude;
+            var separation_dir = normalize(overlap_direction);
+            // Deterministic, zero-mean tangent jitter to break symmetry
+            let h = fract(sin(f32(particle_index) * 12.9898 + f32(params.frame_index) * 78.233) * 43758.5453);
+            let jitter_sign = select(-1.0, 1.0, h > 0.5);
+            let tangent = vec2<f32>(-separation_dir.y, separation_dir.x);
+            // Add a small deadband to avoid micro-oscillation when nearly touching
+            if (total_overlap < particle_radius * 0.003) {
+                return;
+            }
+            let jitter_amp = min(0.25 * total_overlap, particle_radius * 0.01);
+            let jitter = tangent * jitter_amp * jitter_sign;
+
+            let separation = separation_dir * separation_magnitude + jitter;
             (*particle).position += separation;
         }
     }

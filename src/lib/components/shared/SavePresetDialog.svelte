@@ -1,3 +1,5 @@
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="dialog-backdrop"
   role="button"

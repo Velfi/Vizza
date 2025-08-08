@@ -32,11 +32,7 @@
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'gradient-editor'}
-    <GradientEditorMode
-      on:back={goBack}
-      on:navigate={(e) => navigateToMode(e.detail)}
-    />
-
+    <GradientEditorMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
   {:else if currentMode === 'gradient'}
     <SimulationLayout
       simulationName="Gradient"
@@ -81,7 +77,6 @@
     | 'flow'
     | 'pellets'
     | 'gradient-editor'
-
     | 'gradient'
     | 'how-to-play'
     | 'settings';

@@ -416,6 +416,18 @@ impl FlowFieldValidator {
                     binding: 4,
                     resource: lut_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: self
+                        .device
+                        .create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("Test Spawn Control Buffer"),
+                            size: std::mem::size_of::<super::simulation::SpawnControl>() as u64,
+                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        })
+                        .as_entire_binding(),
+                },
             ],
         });
 

@@ -989,6 +989,10 @@
         `Particle Life context menu (repel) at screen coords: (${physicalCursorX}, ${physicalCursorY}), raw: (${mouseEvent.clientX}, ${mouseEvent.clientY})`
       );
 
+      // Track as active right-button press to ensure release is generated later
+      isMousePressed = true;
+      currentMouseButton = 2;
+
       try {
         await invoke('handle_mouse_interaction_screen', {
           screenX: physicalCursorX,

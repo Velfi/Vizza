@@ -5,8 +5,6 @@
   import { invoke } from '@tauri-apps/api/core';
   import { createEventDispatcher } from 'svelte';
 
-
-
   const dispatch = createEventDispatcher();
 
   export let enabled: boolean = true;
