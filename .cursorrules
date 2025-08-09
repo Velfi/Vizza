@@ -7,11 +7,9 @@
   - IM: Interaction Matrix. A matrix of force relationships between particles.
 - GS: Gray-Scott. A simulation of Gray-Scott reaction-diffusion.
 - SM: Slime Mold. A simulation of slime molds.
-- EM: Ecosystem. A simulation of an ecosystem.
 - FF: Flow Field. A simulation of a flow field.
 - PS: Pellets. A particles and gravity simulation.
 - GEM: Gradient Editor. A gradient editor for color schemes.
-- CSA: Continuous Spatial Automata. Like a cellular automata, but without the cells.
 
 ## LUTs (Color Schemes)
 
