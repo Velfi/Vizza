@@ -57,12 +57,12 @@ struct SimParams {
 @group(0) @binding(2) var<uniform> sim_params: SimParams;
 @group(0) @binding(3) var trail_map: texture_storage_2d<rgba8unorm, read_write>;
 @group(0) @binding(4) var<storage, read> lut_data: array<u32>;
-// Per-frame autospawn quota controlled by CPU
+// Per-frame quotas for autospawn and brush, controlled by CPU
 struct SpawnControl {
-    allowed: u32,
-    _pad0: u32,
-    count: atomic<u32>,
-    _pad1: u32,
+    autospawn_allowed: u32,
+    brush_allowed: u32,
+    autospawn_count: atomic<u32>,
+    brush_count: atomic<u32>,
 }
 @group(0) @binding(5) var<storage, read_write> spawn_control: SpawnControl;
 
@@ -242,9 +242,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let randv = fract(sin(seed) * 43758.5453);
 
             if (randv < p) {
-                // Claim a spawn ticket to cap spawns this frame
-                let ticket = atomicAdd(&spawn_control.count, 1u);
-                if (ticket >= spawn_control.allowed) {
+                // Claim an autospawn ticket to cap spawns this frame
+                let ticket = atomicAdd(&spawn_control.autospawn_count, 1u);
+                if (ticket >= spawn_control.autospawn_allowed) {
                     // Quota exhausted: do not spawn
                     particle.position = vec2<f32>(0.0, 0.0);
                     particle.age = 0.0;
@@ -299,14 +299,28 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             // Expected spawns this frame = rate * dt
             let dt = sim_params.delta_time;
             let expected_spawns = f32(sim_params.brush_spawn_rate) * dt;
-            // Per-particle probability based on pool size
-            let p = clamp(expected_spawns / f32(max(1u, sim_params.brush_pool_size)), 0.0, 1.0);
+            let pool = max(1u, sim_params.brush_pool_size);
+            // Adjust probability by estimating number of dead particles to maintain target rate as pool fills
+            let expected_alive = min(f32(sim_params.brush_spawn_rate) * sim_params.particle_lifetime, f32(pool));
+            let estimated_dead = max(1.0, f32(pool) - expected_alive);
+            let p = clamp(expected_spawns / estimated_dead, 0.0, 1.0);
             // Deterministic per-frame random for brush spawning
             let frame_idx = floor(sim_params.time / max(dt, 1e-6));
             let seed = f32(particle_index) * 3.14159 + frame_idx;
             let randv = fract(sin(seed) * 43758.5453);
 
             if (randv < p) {
+                // Claim a brush ticket to cap spawns this frame
+                let ticket = atomicAdd(&spawn_control.brush_count, 1u);
+                if (ticket >= spawn_control.brush_allowed) {
+                    // Quota exhausted: do not spawn
+                    particle.position = vec2<f32>(0.0, 0.0);
+                    particle.age = 0.0;
+                    particle.lut_index = 0u;
+                    particle.is_alive = 0u;
+                    particles[particle_index] = particle;
+                    return;
+                }
                 // Spawn at cursor with random offset (spray can effect)
                 let radius = sim_params.cursor_size;
                 let seed1 = f32(particle_index) * 0.1234 + sim_params.time * 0.1;

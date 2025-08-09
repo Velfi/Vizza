@@ -65,7 +65,7 @@
             />
           </div>
           <div class="setting-item">
-            <span class="setting-label">Texture Filtering:</span>
+            <span class="setting-label">Texture Filtering (requires restart):</span>
             <Selector
               options={['Linear', 'Nearest', 'Lanczos']}
               bind:value={settings.texture_filtering}

@@ -120,7 +120,7 @@ impl GpuContext {
             &surface_config,
             &adapter_info,
             &lut_manager,
-            &app_settings,
+            app_settings,
         )
         .await
         .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;

@@ -88,20 +88,21 @@ pub async fn handle_window_resize(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
+    // Avoid holding both locks concurrently to prevent deadlocks during rapid resize
+    let (device, queue, surface_config) = {
+        let gpu_ctx = gpu_context.lock().await;
+        if let Err(e) = gpu_ctx.resize_surface(width, height).await {
+            tracing::error!("Failed to resize surface: {}", e);
+            return Err(format!("Failed to resize surface: {}", e));
+        }
+        let device = gpu_ctx.device.clone();
+        let queue = gpu_ctx.queue.clone();
+        let surface_config = gpu_ctx.surface_config.lock().await.clone();
+        (device, queue, surface_config)
+    };
+
     let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    // Resize the surface
-    if let Err(e) = gpu_ctx.resize_surface(width, height).await {
-        tracing::error!("Failed to resize surface: {}", e);
-        return Err(format!("Failed to resize surface: {}", e));
-    }
-
-    // Get updated surface configuration
-    let surface_config = gpu_ctx.surface_config.lock().await.clone();
-
-    // Handle simulation resize
-    if let Err(e) = sim_manager.handle_resize(&gpu_ctx.device, &gpu_ctx.queue, &surface_config) {
+    if let Err(e) = sim_manager.handle_resize(&device, &queue, &surface_config) {
         tracing::error!("Failed to handle simulation resize: {}", e);
         return Err(format!("Failed to handle simulation resize: {}", e));
     }

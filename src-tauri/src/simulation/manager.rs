@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
 use crate::commands::AppSettings;
@@ -726,22 +726,44 @@ impl SimulationManager {
                     tracing::info!("Custom LUT applied to particle life simulation");
                 }
                 SimulationType::Flow(simulation) => {
-                    simulation.update_setting(
-                        "currentLut",
-                        serde_json::json!("temp_lut"),
-                        device,
-                        queue,
-                    )?;
-                    tracing::info!("Custom LUT applied to Flow simulation");
+                    // Direct-write the temporary LUT to the GPU buffer for immediate preview
+                    if let Ok(lut) = self.lut_manager.get("temp_lut") {
+                        let data_u32 = lut.to_u32_buffer();
+                        queue.write_buffer(
+                            &simulation.lut_buffer,
+                            0,
+                            bytemuck::cast_slice(&data_u32),
+                        );
+                        tracing::info!("Custom LUT directly written to Flow LUT buffer");
+                    } else {
+                        // Fallback to settings path if temp LUT missing
+                        simulation.update_setting(
+                            "currentLut",
+                            serde_json::json!("temp_lut"),
+                            device,
+                            queue,
+                        )?;
+                    }
                 }
                 SimulationType::Pellets(simulation) => {
-                    simulation.update_setting(
-                        "currentLut",
-                        serde_json::json!("temp_lut"),
-                        device,
-                        queue,
-                    )?;
-                    tracing::info!("Custom LUT applied to Pellets simulation");
+                    // Direct-write to the Pellets LUT buffer to avoid relying on the sim's internal LUT manager clone
+                    if let Ok(lut) = self.lut_manager.get("temp_lut") {
+                        let data_u32 = lut.to_u32_buffer();
+                        queue.write_buffer(
+                            &simulation.lut_buffer,
+                            0,
+                            bytemuck::cast_slice(&data_u32),
+                        );
+                        tracing::info!("Custom LUT directly written to Pellets LUT buffer");
+                    } else {
+                        // Fallback to sim path
+                        simulation.update_setting(
+                            "currentLut",
+                            serde_json::json!("temp_lut"),
+                            device,
+                            queue,
+                        )?;
+                    }
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support custom LUTs
@@ -784,30 +806,92 @@ impl SimulationManager {
                     let gpu_ctx = gpu_context.lock().await;
 
                     if sim_manager.is_running() {
-                        if let Ok(output) = gpu_ctx.get_current_texture() {
-                            let view = output
-                                .texture
-                                .create_view(&wgpu::TextureViewDescriptor::default());
+                        match gpu_ctx.get_current_texture() {
+                            Ok(output) => {
+                                let view = output
+                                    .texture
+                                    .create_view(&wgpu::TextureViewDescriptor::default());
 
-                            // Calculate delta time
-                            let delta_time =
-                                frame_start.duration_since(last_frame_time).as_secs_f32();
+                                // Calculate delta time
+                                let delta_time =
+                                    frame_start.duration_since(last_frame_time).as_secs_f32();
 
-                            let render_result = if is_paused.load(Ordering::Relaxed) {
-                                // When paused, render without updating simulation state
-                                sim_manager.render_paused(&gpu_ctx.device, &gpu_ctx.queue, &view)
-                            } else {
-                                // When running, render normally with simulation updates
-                                sim_manager.render(
-                                    &gpu_ctx.device,
-                                    &gpu_ctx.queue,
-                                    &view,
-                                    delta_time,
-                                )
-                            };
+                                let render_result = if is_paused.load(Ordering::Relaxed) {
+                                    // When paused, render without updating simulation state
+                                    sim_manager.render_paused(
+                                        &gpu_ctx.device,
+                                        &gpu_ctx.queue,
+                                        &view,
+                                    )
+                                } else {
+                                    // When running, render normally with simulation updates
+                                    sim_manager.render(
+                                        &gpu_ctx.device,
+                                        &gpu_ctx.queue,
+                                        &view,
+                                        delta_time,
+                                    )
+                                };
 
-                            if render_result.is_ok() {
-                                output.present();
+                                if render_result.is_ok() {
+                                    output.present();
+                                }
+                            }
+                            Err(e) => {
+                                // Attempt to recover from surface errors (e.g., after fullscreen)
+                                tracing::warn!(
+                                    "Failed to acquire surface texture ({}). Attempting recovery...",
+                                    e
+                                );
+
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    match window.inner_size() {
+                                        Ok(size) => {
+                                            let width = size.width;
+                                            let height = size.height;
+
+                                            // Reconfigure the surface to current window size
+                                            if let Err(recfg_err) =
+                                                gpu_ctx.resize_surface(width, height).await
+                                            {
+                                                tracing::error!(
+                                                    "Surface reconfigure failed during recovery: {}",
+                                                    recfg_err
+                                                );
+                                            } else {
+                                                // Propagate resize to current simulation so it can rebuild resources
+                                                let new_config =
+                                                    gpu_ctx.surface_config.lock().await.clone();
+                                                if let Err(resize_err) = sim_manager.handle_resize(
+                                                    &gpu_ctx.device,
+                                                    &gpu_ctx.queue,
+                                                    &new_config,
+                                                ) {
+                                                    tracing::error!(
+                                                        "Simulation resize failed during recovery: {}",
+                                                        resize_err
+                                                    );
+                                                } else {
+                                                    tracing::info!(
+                                                        "Surface and simulation successfully recovered after resize to {}x{}",
+                                                        width,
+                                                        height
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        Err(err) => {
+                                            tracing::error!(
+                                                "Failed to query window size during recovery: {}",
+                                                err
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    tracing::error!(
+                                        "Main window not found during surface recovery"
+                                    );
+                                }
                             }
                         }
                     } else {

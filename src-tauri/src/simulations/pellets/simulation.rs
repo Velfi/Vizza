@@ -1407,7 +1407,7 @@ impl PelletsModel {
             AverageColorResources::new(device, &post_effect_texture, &post_effect_view, "Pellets");
 
         let post_processing_state = PostProcessingState::default();
-        let post_processing_resources = PostProcessingResources::new(device, &surface_config)?;
+        let post_processing_resources = PostProcessingResources::new(device, surface_config)?;
 
         Ok(PelletsModel {
             particle_buffer,
@@ -1548,8 +1548,12 @@ impl PelletsModel {
                 // Random velocities
                 let angle = rng.random_range(0.0..2.0 * std::f32::consts::PI);
                 // Robust speed sampling: tolerate equal or inverted ranges from settings/UI
-                let vmin = settings.initial_velocity_min.min(settings.initial_velocity_max);
-                let vmax = settings.initial_velocity_min.max(settings.initial_velocity_max);
+                let vmin = settings
+                    .initial_velocity_min
+                    .min(settings.initial_velocity_max);
+                let vmax = settings
+                    .initial_velocity_min
+                    .max(settings.initial_velocity_max);
                 let speed = if (vmax - vmin) > f32::EPSILON {
                     rng.random_range(vmin..vmax)
                 } else {
@@ -2697,6 +2701,79 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         let density_view = density_texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.density_texture = density_texture;
         self.density_view = density_view;
+
+        // Recreate bind groups that depend on resized texture views
+        // 1) Post-effect bind group samples from the display_view
+        self.post_effect_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Post Effect Bind Group"),
+            layout: &self.post_effect_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.post_effect_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.display_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+            ],
+        });
+
+        // 2) Infinite render bind group samples from post_effect_view
+        self.render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Render Infinite Bind Group"),
+            layout: &self.render_infinite_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.post_effect_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.background_color_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.average_color_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // 3) Background render bind group uses density_view
+        self.background_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Pellets Background Render Bind Group"),
+            layout: &self.background_render_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.background_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.density_view),
+                },
+            ],
+        });
+
+        // 4) Average color resources depend on the post_effect texture/view
+        self.average_color_resources = AverageColorResources::new(
+            device,
+            &self.post_effect_texture,
+            &self.post_effect_view,
+            "Pellets",
+        );
 
         // Update render params to reflect new screen dimensions
         self.update_render_params(queue);

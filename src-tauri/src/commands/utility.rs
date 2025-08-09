@@ -77,12 +77,47 @@ pub async fn toggle_fullscreen(app: tauri::AppHandle) -> Result<String, String> 
             .set_fullscreen(false)
             .map_err(|e| format!("Failed to exit fullscreen: {}", e))?;
         tracing::debug!("Exited fullscreen mode");
-        Ok("Exited fullscreen mode".to_string())
     } else {
         window
             .set_fullscreen(true)
             .map_err(|e| format!("Failed to enter fullscreen: {}", e))?;
         tracing::debug!("Entered fullscreen mode");
-        Ok("Entered fullscreen mode".to_string())
     }
+
+    // After toggling, query the new window size and force a backend resize/reconfigure
+    if let Ok(size) = window.inner_size() {
+        let gpu_context_state = app.state::<Arc<tokio::sync::Mutex<crate::GpuContext>>>();
+        let manager_state = app.state::<Arc<tokio::sync::Mutex<SimulationManager>>>();
+
+        let width = size.width;
+        let height = size.height;
+
+        // Reconfigure surface and notify simulation using consistent lock order: manager first, then GPU context
+        let mut errors: Vec<String> = Vec::new();
+        let mut sim_manager = manager_state.lock().await;
+        let gpu_ctx = gpu_context_state.lock().await;
+
+        if let Err(e) = gpu_ctx.resize_surface(width, height).await {
+            errors.push(format!("resize_surface failed: {}", e));
+        } else {
+            let surface_config = gpu_ctx.surface_config.lock().await.clone();
+            if let Err(e) =
+                sim_manager.handle_resize(&gpu_ctx.device, &gpu_ctx.queue, &surface_config)
+            {
+                errors.push(format!("simulation handle_resize failed: {}", e));
+            }
+        }
+
+        if errors.is_empty() {
+            tracing::debug!(
+                "Forced resize after fullscreen toggle to {}x{}",
+                width,
+                height
+            );
+        } else {
+            tracing::warn!("Fullscreen toggle post-resize warnings: {:?}", errors);
+        }
+    }
+
+    Ok("Toggled fullscreen".to_string())
 }

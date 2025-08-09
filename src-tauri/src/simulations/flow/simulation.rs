@@ -64,10 +64,10 @@ pub struct FlowVectorParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
 pub struct SpawnControl {
-    pub allowed: u32,
-    pub _pad0: u32,
-    pub count: u32,
-    pub _pad1: u32,
+    pub autospawn_allowed: u32,
+    pub brush_allowed: u32,
+    pub autospawn_count: u32,
+    pub brush_count: u32,
 }
 
 #[repr(C)]
@@ -182,6 +182,7 @@ pub struct FlowModel {
     pub time: f32,
     pub delta_time: f32,
     pub autospawn_accumulator: f32,
+    pub brush_spawn_accumulator: f32,
     pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub particles: Vec<Particle>,
     pub flow_vectors: Vec<FlowVector>,
@@ -451,10 +452,10 @@ impl FlowModel {
 
         // Create spawn control buffer
         let spawn_control_init = SpawnControl {
-            allowed: 0,
-            _pad0: 0,
-            count: 0,
-            _pad1: 0,
+            autospawn_allowed: 0,
+            brush_allowed: 0,
+            autospawn_count: 0,
+            brush_count: 0,
         };
         let spawn_control_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Spawn Control Buffer"),
@@ -1311,8 +1312,14 @@ impl FlowModel {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&display_sampler),
                 },
-                wgpu::BindGroupEntry { binding: 2, resource: average_color_uniform_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: background_color_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: average_color_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: background_color_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -1510,6 +1517,7 @@ impl FlowModel {
             time: 0.0,
             delta_time: 0.016,
             autospawn_accumulator: 0.0,
+            brush_spawn_accumulator: 0.0,
             noise_dt_multiplier: settings.noise_dt_multiplier,
             particles,
             flow_vectors,
@@ -1870,21 +1878,36 @@ impl Simulation for FlowModel {
         queue.submit(std::iter::once(trail_encoder.finish()));
 
         // Prepare spawn control: accumulator -> integer tickets
-        let rate = self.settings.autospawn_rate as f32;
-        self.autospawn_accumulator += rate * delta_time;
-        let mut allowed = self.autospawn_accumulator.floor() as u32;
-        self.autospawn_accumulator -= allowed as f32;
+        let autospawn_rate = self.settings.autospawn_rate as f32;
+        self.autospawn_accumulator += autospawn_rate * delta_time;
+        let mut autospawn_allowed = self.autospawn_accumulator.floor() as u32;
+        self.autospawn_accumulator -= autospawn_allowed as f32;
+
+        // Brush tickets only when left mouse is held
+        let brush_rate = if self.mouse_button_down == 1 {
+            self.settings.brush_spawn_rate as f32
+        } else {
+            0.0
+        };
+        self.brush_spawn_accumulator += brush_rate * delta_time;
+        let mut brush_allowed = self.brush_spawn_accumulator.floor() as u32;
+        self.brush_spawn_accumulator -= brush_allowed as f32;
+
         // Clamp by a reasonable maximum per frame to avoid long frames
         let max_per_frame = 100000u32;
-        if allowed > max_per_frame {
-            allowed = max_per_frame;
+        if autospawn_allowed > max_per_frame {
+            autospawn_allowed = max_per_frame;
         }
-        // Reset GPU counter and set allowed
+        if brush_allowed > max_per_frame {
+            brush_allowed = max_per_frame;
+        }
+
+        // Reset GPU counters and set allowed quotas
         let spawn_control = SpawnControl {
-            allowed,
-            _pad0: 0,
-            count: 0,
-            _pad1: 0,
+            autospawn_allowed,
+            brush_allowed,
+            autospawn_count: 0,
+            brush_count: 0,
         };
         queue.write_buffer(
             &self.spawn_control_buffer,
@@ -2837,6 +2860,16 @@ impl Simulation for FlowModel {
                                     },
                                     count: None,
                                 },
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 5,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
+                                },
                             ],
                         });
 
@@ -2935,6 +2968,16 @@ impl Simulation for FlowModel {
                                     visibility: wgpu::ShaderStages::COMPUTE,
                                     ty: wgpu::BindingType::Buffer {
                                         ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                        has_dynamic_offset: false,
+                                        min_binding_size: None,
+                                    },
+                                    count: None,
+                                },
+                                wgpu::BindGroupLayoutEntry {
+                                    binding: 5,
+                                    visibility: wgpu::ShaderStages::COMPUTE,
+                                    ty: wgpu::BindingType::Buffer {
+                                        ty: wgpu::BufferBindingType::Storage { read_only: false },
                                         has_dynamic_offset: false,
                                         min_binding_size: None,
                                     },

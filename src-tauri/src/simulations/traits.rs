@@ -230,7 +230,7 @@ impl SimulationType {
                     queue,
                     surface_config,
                     settings,
-                    &app_settings,
+                    app_settings,
                     lut_manager,
                 )?;
                 Ok(SimulationType::Flow(Box::new(simulation)))

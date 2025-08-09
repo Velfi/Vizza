@@ -202,7 +202,7 @@ impl Default for Settings {
             particle_shape: ParticleShape::Circle,
             particle_autospawn: true,
             autospawn_rate: 500,
-            brush_spawn_rate: 100,
+            brush_spawn_rate: 1000,
 
             // Trail parameters
             trail_decay_rate: 0.0,
