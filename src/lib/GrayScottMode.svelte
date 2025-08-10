@@ -178,27 +178,48 @@
           on:update={async (e) => {
             console.log('GrayScottDiagram update event:', e.detail);
             try {
-              // Update local settings first for immediate UI feedback
-              const settingName = e.detail.setting;
-              const value = e.detail.value;
+              const settingName = e.detail.setting as keyof Settings;
+              const value = e.detail.value as number;
+              if (!settings) return;
 
-              // Update the local settings object to match the backend
-              if (settingName in settings) {
-                settings = { ...settings, [settingName]: value };
-              }
+              const updated: Settings = { ...settings };
+              if (settingName === 'feed_rate') updated.feed_rate = value;
+              else if (settingName === 'kill_rate') updated.kill_rate = value;
+              else if (settingName === 'diffusion_rate_u') updated.diffusion_rate_u = value;
+              else if (settingName === 'diffusion_rate_v') updated.diffusion_rate_v = value;
+              else if (settingName === 'timestep') updated.timestep = value;
+              settings = updated;
 
-              // Send the update to the backend
               await invoke('update_simulation_setting', {
-                settingName: settingName,
-                value: value,
+                settingName,
+                value,
               });
-
-              console.log(`Updated ${settingName} to ${value}`);
             } catch (err) {
               console.error('Failed to update setting:', err);
             }
           }}
         />
+
+        <!-- Nutrient Gradients (merged) -->
+        <div class="control-group" style="margin-top: 0.5rem;">
+          <Selector
+            label="Nutrient Pattern"
+            options={nutrient_pattern_options}
+            value={settings?.nutrient_pattern || 'Uniform'}
+            placeholder="Select pattern..."
+            on:change={({ detail }) => updateNutrientPattern(detail.value)}
+          />
+        </div>
+        <div class="control-group">
+          <label class="checkbox">
+            <input
+              type="checkbox"
+              checked={settings?.nutrient_pattern_reversed || false}
+              on:change={(e) => updateNutrientPatternReversed((e.target as HTMLInputElement).checked)}
+            />
+            Reverse nutrient pattern
+          </label>
+        </div>
       </fieldset>
     </form>
   {/if}
@@ -220,6 +241,7 @@
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import Button from './components/shared/Button.svelte';
+  import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
@@ -247,6 +269,45 @@
   let current_preset = '';
   let available_presets: string[] = [];
   let available_luts: string[] = [];
+
+  // Nutrient gradient options (display names match backend serialization)
+  const nutrient_pattern_options: string[] = [
+    'Uniform',
+    'Checkerboard',
+    'Diagonal Gradient',
+    'Radial Gradient',
+    'Vertical Stripes',
+    'Horizontal Stripes',
+    'Enhanced Noise',
+    'Wave Function',
+    'Cosine Grid',
+  ];
+
+  async function updateNutrientPattern(value: string) {
+    if (!settings) return;
+    try {
+      settings = { ...settings, nutrient_pattern: value };
+      await invoke('update_simulation_setting', {
+        settingName: 'nutrient_pattern',
+        value,
+      });
+    } catch (err) {
+      console.error('Failed to set nutrient pattern:', err);
+    }
+  }
+
+  async function updateNutrientPatternReversed(checked: boolean) {
+    if (!settings) return;
+    try {
+      settings = { ...settings, nutrient_pattern_reversed: checked };
+      await invoke('update_simulation_setting', {
+        settingName: 'nutrient_pattern_reversed',
+        value: checked,
+      });
+    } catch (err) {
+      console.error('Failed to toggle nutrient reversal:', err);
+    }
+  }
 
   // UI state
   let show_about_section = false;

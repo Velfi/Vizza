@@ -221,6 +221,7 @@ fn main() {
             commands::get_slime_mold_post_processing_state, // Slime Mold
             commands::update_pellets_post_processing_state, // Pellets
             commands::get_pellets_post_processing_state, // Pellets
+            commands::update_pellets_trails_state, // Pellets trails
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

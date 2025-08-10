@@ -173,6 +173,24 @@ pub struct PelletsModel {
     pub density_texture: wgpu::Texture,
     pub density_view: wgpu::TextureView,
 
+    // Trail resources (optional persistent trails)
+    pub trail_texture_a: wgpu::Texture,
+    pub trail_texture_view_a: wgpu::TextureView,
+    pub trail_texture_b: wgpu::Texture,
+    pub trail_texture_view_b: wgpu::TextureView,
+    pub current_trail_is_a: bool,
+    pub trail_sampler: wgpu::Sampler,
+
+    // Trail fade pipeline + uniforms
+    pub trail_fade_pipeline: wgpu::RenderPipeline,
+    pub trail_fade_bind_group_layout: wgpu::BindGroupLayout,
+    pub trail_fade_bind_group: wgpu::BindGroup,
+    pub trail_fade_uniforms_buffer: wgpu::Buffer,
+
+    // Trail blit pipeline
+    pub trail_blit_pipeline: wgpu::RenderPipeline,
+    pub trail_blit_bind_group: wgpu::BindGroup,
+
     // Offscreen render pipelines
     pub background_render_pipeline: wgpu::RenderPipeline,
     pub background_render_bind_group: wgpu::BindGroup,
@@ -219,7 +237,7 @@ pub struct PelletsModel {
 impl PelletsModel {
     pub fn new(
         device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         settings: Settings,
         app_settings: &AppSettings,
@@ -1367,7 +1385,141 @@ impl PelletsModel {
                 cache: None,
             });
 
-        // Create average color uniform buffer for infinite render shader
+        // Trail resources
+        let trail_texture_a = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Trail Texture A"),
+            size: wgpu::Extent3d {
+                width: surface_config.width * 2,
+                height: surface_config.height * 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let trail_texture_view_a = trail_texture_a.create_view(&wgpu::TextureViewDescriptor::default());
+        let trail_texture_b = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Trail Texture B"),
+            size: wgpu::Extent3d {
+                width: surface_config.width * 2,
+                height: surface_config.height * 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let trail_texture_view_b = trail_texture_b.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let trail_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Pellets Trail Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Trail fade uniforms buffer
+        #[repr(C)]
+        #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+        struct TrailFadeUniforms { fade_amount: f32, _pad1: f32, _pad2: f32, _pad3: f32 }
+        let trail_fade_uniforms_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Pellets Trail Fade Uniforms"),
+            contents: bytemuck::cast_slice(&[TrailFadeUniforms{ fade_amount: 0.01, _pad1: 0.0, _pad2: 0.0, _pad3: 0.0 }]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Trail fade pipeline
+        let trail_fade_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Pellets Trail Fade BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let trail_fade_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Pellets Trail Fade Pipeline"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{
+                label: Some("Pellets Trail Fade Pipeline Layout"),
+                bind_group_layouts: &[&trail_fade_bind_group_layout],
+                push_constant_ranges: &[],
+            })),
+            vertex: wgpu::VertexState{
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor{ label: Some("Pellets Trail Fade VS"), source: wgpu::ShaderSource::Wgsl(super::shaders::TRAIL_FADE_VERTEX_SHADER.into()) }),
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState{
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor{ label: Some("Pellets Trail Fade FS"), source: wgpu::ShaderSource::Wgsl(super::shaders::TRAIL_FADE_FRAGMENT_SHADER.into()) }),
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::REPLACE), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // Trail blit pipeline
+        let trail_blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Pellets Trail Blit Pipeline"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{
+                label: Some("Pellets Trail Blit Pipeline Layout"),
+                bind_group_layouts: &[&device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor{
+                    label: Some("Pellets Trail Blit BGL"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry { binding:0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture{ sample_type: wgpu::TextureSampleType::Float{ filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled:false }, count: None },
+                        wgpu::BindGroupLayoutEntry { binding:1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                    ]
+                })],
+                push_constant_ranges: &[],
+            })),
+            vertex: wgpu::VertexState{
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor{ label: Some("Pellets Trail Blit Shader"), source: wgpu::ShaderSource::Wgsl(super::shaders::TRAIL_BLIT_SHADER.into()) }),
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState{
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor{ label: Some("Pellets Trail Blit Shader"), source: wgpu::ShaderSource::Wgsl(super::shaders::TRAIL_BLIT_SHADER.into()) }),
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
         let average_color_uniform_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Pellets Average Color Uniform Buffer"),
@@ -1409,7 +1561,45 @@ impl PelletsModel {
         let post_processing_state = PostProcessingState::default();
         let post_processing_resources = PostProcessingResources::new(device, surface_config)?;
 
-        Ok(PelletsModel {
+        // Create initial trail bind groups BEFORE moving resources into struct
+        let _initial_trail_fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Fade Bind Group"),
+            layout: &trail_fade_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: trail_fade_uniforms_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::TextureView(&trail_texture_view_b) },
+                wgpu::BindGroupEntry{ binding:2, resource: wgpu::BindingResource::Sampler(&trail_sampler) },
+            ],
+        });
+        let _initial_trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Blit Bind Group"),
+            layout: &trail_blit_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: wgpu::BindingResource::TextureView(&trail_texture_view_a) },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::Sampler(&trail_sampler) },
+            ],
+        });
+
+        // Placeholders to satisfy struct init; will be replaced below
+        let placeholder_trail_fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Fade Bind Group (placeholder)"),
+            layout: &trail_fade_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: trail_fade_uniforms_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::TextureView(&display_view) },
+                wgpu::BindGroupEntry{ binding:2, resource: wgpu::BindingResource::Sampler(&display_sampler) },
+            ],
+        });
+        let placeholder_trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Blit Bind Group (placeholder)"),
+            layout: &trail_blit_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: wgpu::BindingResource::TextureView(&display_view) },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::Sampler(&display_sampler) },
+            ],
+        });
+
+        let mut result = PelletsModel {
             particle_buffer,
             physics_params_buffer,
             density_params_buffer,
@@ -1442,6 +1632,18 @@ impl PelletsModel {
             post_effect_view,
             density_texture,
             density_view,
+            trail_texture_a,
+            trail_texture_view_a,
+            trail_texture_b,
+            trail_texture_view_b,
+            current_trail_is_a: true,
+            trail_sampler,
+            trail_fade_pipeline,
+            trail_fade_bind_group_layout,
+            trail_fade_bind_group: placeholder_trail_fade_bind_group,
+            trail_fade_uniforms_buffer: trail_fade_uniforms_buffer,
+            trail_blit_pipeline,
+            trail_blit_bind_group: placeholder_trail_blit_bind_group,
             background_render_pipeline,
             background_render_bind_group,
             particle_render_pipeline,
@@ -1468,7 +1670,60 @@ impl PelletsModel {
             cell_size,
             post_processing_state,
             post_processing_resources,
-        })
+        };
+
+        // Now that textures/views are owned by the struct, create correct bind groups
+        result.trail_fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Fade Bind Group"),
+            layout: &result.trail_fade_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: result.trail_fade_uniforms_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::TextureView(&result.trail_texture_view_b) },
+                wgpu::BindGroupEntry{ binding:2, resource: wgpu::BindingResource::Sampler(&result.trail_sampler) },
+            ],
+        });
+        result.trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+            label: Some("Pellets Trail Blit Bind Group"),
+            layout: &result.trail_blit_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry{ binding:0, resource: wgpu::BindingResource::TextureView(&result.trail_texture_view_a) },
+                wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::Sampler(&result.trail_sampler) },
+            ],
+        });
+
+        // Initialize trail textures to transparent
+        {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor{ label: Some("Pellets Trail Clear Encoder")});
+            {
+                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Trail Clear A"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: &result.trail_texture_view_a,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Clear(wgpu::Color{ r:0.0, g:0.0, b:0.0, a:0.0 }), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+            }
+            {
+                let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Trail Clear B"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: &result.trail_texture_view_b,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Clear(wgpu::Color{ r:0.0, g:0.0, b:0.0, a:0.0 }), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+            }
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+
+        Ok(result)
     }
 
     fn initialize_particles(count: u32, settings: &Settings) -> Vec<Particle> {
@@ -2365,32 +2620,111 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
 
-        // 2. Render particles to display texture (offscreen)
-        let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Pellets Particle Encoder"),
-        });
-        {
-            let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Pellets Particle Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.display_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
+        if self.state.trails_enabled {
+            // Trails path: render into ping-pong trail texture with fade, then blit to display
+            // Update fade uniforms from state
+            let fade_strength = (1.0 - self.state.trail_fade).max(0.0);
+            let fade_amount = fade_strength * 0.1;
+            queue.write_buffer(&self.trail_fade_uniforms_buffer, 0, bytemuck::bytes_of(&[fade_amount, 0.0f32, 0.0, 0.0]));
+
+            // Update fade bind group to read from previous trail texture
+            let read_trail_view = if self.current_trail_is_a { &self.trail_texture_view_b } else { &self.trail_texture_view_a };
+            self.trail_fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+                label: Some("Pellets Trail Fade Bind Group (frame)"),
+                layout: &self.trail_fade_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry{ binding:0, resource: self.trail_fade_uniforms_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::TextureView(read_trail_view) },
+                    wgpu::BindGroupEntry{ binding:2, resource: wgpu::BindingResource::Sampler(&self.trail_sampler) },
+                ],
             });
 
-            // Render particles (9 instances per particle for wrapping)
-            render_pass.set_pipeline(&self.particle_render_pipeline);
-            render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-            render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            // Render fade + particles into write trail texture
+            let write_trail_view = if self.current_trail_is_a { &self.trail_texture_view_a } else { &self.trail_texture_view_b };
+            let mut trail_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Pellets Trail Encoder") });
+            {
+                let mut trail_pass = trail_encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Trail Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: write_trail_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+
+                // Apply fade from previous trail into current
+                trail_pass.set_pipeline(&self.trail_fade_pipeline);
+                trail_pass.set_bind_group(0, &self.trail_fade_bind_group, &[]);
+                trail_pass.draw(0..3, 0..1);
+
+                // Draw particles over the faded trail texture
+                trail_pass.set_pipeline(&self.particle_render_pipeline);
+                trail_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                trail_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            }
+            queue.submit(std::iter::once(trail_encoder.finish()));
+
+            // Blit the trail texture to the display texture
+            let read_for_blit = write_trail_view;
+            self.trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+                label: Some("Pellets Trail Blit Bind Group (frame)"),
+                layout: &self.trail_blit_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry{ binding:0, resource: wgpu::BindingResource::TextureView(read_for_blit) },
+                    wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::Sampler(&self.trail_sampler) },
+                ],
+            });
+
+            let mut blit_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor{ label: Some("Pellets Trail Blit Encoder") });
+            {
+                let mut pass = blit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Trail Blit Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.trail_blit_pipeline);
+                pass.set_bind_group(0, &self.trail_blit_bind_group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            queue.submit(std::iter::once(blit_encoder.finish()));
+
+            // Swap ping-pong
+            self.current_trail_is_a = !self.current_trail_is_a;
+        } else {
+            // Non-trail path: draw particles to display
+            let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Particle Encoder"),
+            });
+            {
+                let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Particle Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                render_pass.set_pipeline(&self.particle_render_pipeline);
+                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            }
+            queue.submit(std::iter::once(particle_encoder.finish()));
         }
-        queue.submit(std::iter::once(particle_encoder.finish()));
 
         // 3. Render post effects to post-effect texture (offscreen)
         let mut post_effect_encoder =
@@ -2511,32 +2845,98 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         }
         queue.submit(std::iter::once(offscreen_encoder.finish()));
 
-        // 2. Render particles to display texture (offscreen)
-        let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Pellets Static Particle Encoder"),
-        });
-        {
-            let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Pellets Static Particle Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.display_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
+        if self.state.trails_enabled {
+            let fade_strength = (1.0 - self.state.trail_fade).max(0.0);
+            let fade_amount = fade_strength * 0.1;
+            queue.write_buffer(&self.trail_fade_uniforms_buffer, 0, bytemuck::bytes_of(&[fade_amount, 0.0f32, 0.0, 0.0]));
+
+            let read_trail_view = if self.current_trail_is_a { &self.trail_texture_view_b } else { &self.trail_texture_view_a };
+            self.trail_fade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+                label: Some("Pellets Trail Fade Bind Group (static)"),
+                layout: &self.trail_fade_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry{ binding:0, resource: self.trail_fade_uniforms_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::TextureView(read_trail_view) },
+                    wgpu::BindGroupEntry{ binding:2, resource: wgpu::BindingResource::Sampler(&self.trail_sampler) },
+                ],
             });
 
-            // Render particles (9 instances per particle for wrapping)
-            render_pass.set_pipeline(&self.particle_render_pipeline);
-            render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
-            render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            let write_trail_view = if self.current_trail_is_a { &self.trail_texture_view_a } else { &self.trail_texture_view_b };
+            let mut trail_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("Pellets Static Trail Encoder") });
+            {
+                let mut trail_pass = trail_encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Static Trail Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: write_trail_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                trail_pass.set_pipeline(&self.trail_fade_pipeline);
+                trail_pass.set_bind_group(0, &self.trail_fade_bind_group, &[]);
+                trail_pass.draw(0..3, 0..1);
+                trail_pass.set_pipeline(&self.particle_render_pipeline);
+                trail_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                trail_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            }
+            queue.submit(std::iter::once(trail_encoder.finish()));
+
+            let read_for_blit = write_trail_view;
+            self.trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor{
+                label: Some("Pellets Static Trail Blit Bind Group"),
+                layout: &self.trail_blit_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry{ binding:0, resource: wgpu::BindingResource::TextureView(read_for_blit) },
+                    wgpu::BindGroupEntry{ binding:1, resource: wgpu::BindingResource::Sampler(&self.trail_sampler) },
+                ],
+            });
+            let mut blit_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor{ label: Some("Pellets Static Trail Blit Encoder") });
+            {
+                let mut pass = blit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor{
+                    label: Some("Pellets Static Trail Blit Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment{
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations{ load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.trail_blit_pipeline);
+                pass.set_bind_group(0, &self.trail_blit_bind_group, &[]);
+                pass.draw(0..3, 0..1);
+            }
+            queue.submit(std::iter::once(blit_encoder.finish()));
+            self.current_trail_is_a = !self.current_trail_is_a;
+        } else {
+            let mut particle_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Pellets Static Particle Encoder"),
+            });
+            {
+                let mut render_pass = particle_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Pellets Static Particle Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.display_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                render_pass.set_pipeline(&self.particle_render_pipeline);
+                render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
+                render_pass.draw(0..6, 0..(self.particles.len() * 9) as u32);
+            }
+            queue.submit(std::iter::once(particle_encoder.finish()));
         }
-        queue.submit(std::iter::once(particle_encoder.finish()));
 
         // 3. Render post effects to post-effect texture (offscreen)
         let mut post_effect_encoder =
@@ -2681,6 +3081,36 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             post_effect_texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.post_effect_texture = post_effect_texture;
         self.post_effect_view = post_effect_view;
+
+        // Recreate trail textures for new dimensions
+        let trail_texture_a = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Trail Texture A"),
+            size: wgpu::Extent3d { width: new_config.width * 2, height: new_config.height * 2, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let trail_texture_view_a = trail_texture_a.create_view(&wgpu::TextureViewDescriptor::default());
+        let trail_texture_b = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pellets Trail Texture B"),
+            size: wgpu::Extent3d { width: new_config.width * 2, height: new_config.height * 2, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let trail_texture_view_b = trail_texture_b.create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.trail_texture_a = trail_texture_a;
+        self.trail_texture_view_a = trail_texture_view_a;
+        self.trail_texture_b = trail_texture_b;
+        self.trail_texture_view_b = trail_texture_view_b;
+        self.current_trail_is_a = true;
 
         // Recreate density texture for new dimensions
         let density_texture = device.create_texture(&wgpu::TextureDescriptor {

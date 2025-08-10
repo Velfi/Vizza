@@ -51,6 +51,12 @@ pub struct State {
     /// Simulation runtime state
     pub simulation_time: f32,
     pub is_running: bool,
+
+    /// Optional trails rendering
+    /// When enabled, particle renders accumulate into a persistent trail texture
+    pub trails_enabled: bool,
+    /// Trail fade amount control in [0,1]. 0 = fast fade, 1 = no fade
+    pub trail_fade: f32,
 }
 
 impl Default for State {
@@ -72,6 +78,8 @@ impl Default for State {
             camera_zoom: 1.0,
             simulation_time: 0.0,
             is_running: true,
+            trails_enabled: false,
+            trail_fade: 0.5,
         }
     }
 }

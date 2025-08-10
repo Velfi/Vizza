@@ -30,3 +30,8 @@ pub const PARTICLE_FRAGMENT_RENDER_SHADER: &str = include_str!("particle_fragmen
 pub const POST_EFFECT_VERTEX_SHADER: &str = include_str!("post_effect_vertex.wgsl");
 pub const POST_EFFECT_FRAGMENT_SHADER: &str = include_str!("post_effect_fragment.wgsl");
 pub const RENDER_INFINITE_SHADER: &str = crate::simulations::shared::INFINITE_RENDER_SHADER;
+
+// Trail shaders
+pub const TRAIL_FADE_VERTEX_SHADER: &str = include_str!("trail_fade_vertex.wgsl");
+pub const TRAIL_FADE_FRAGMENT_SHADER: &str = include_str!("trail_fade_fragment.wgsl");
+pub const TRAIL_BLIT_SHADER: &str = include_str!("trail_blit.wgsl");

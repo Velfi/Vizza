@@ -39,6 +39,24 @@ pub async fn update_pellets_post_processing_state(
 }
 
 #[tauri::command]
+pub async fn update_pellets_trails_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    enabled: bool,
+    fade: f32,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    if let Some(crate::simulations::traits::SimulationType::Pellets(simulation)) =
+        &mut sim_manager.current_simulation
+    {
+        simulation.state.trails_enabled = enabled;
+        simulation.state.trail_fade = fade.clamp(0.0, 1.0);
+        Ok("Pellets trails state updated".to_string())
+    } else {
+        Err("Pellets simulation not active".to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn get_pellets_post_processing_state(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<serde_json::Value, String> {

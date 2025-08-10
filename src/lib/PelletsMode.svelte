@@ -93,6 +93,31 @@
             on:change={({ detail }) => updateSetting('density_radius', detail)}
           />
         </div>
+        <div class="control-group">
+          <label>
+            <input
+              type="checkbox"
+              checked={state?.trails_enabled || false}
+              on:change={(e) => updatePelletsTrailsEnabled((e.target as HTMLInputElement).checked)}
+            />
+            Enable Trails
+          </label>
+        </div>
+        {#if state?.trails_enabled}
+          <div class="control-group">
+            <label for="trailFade">Trail Fade</label>
+            <input
+              type="range"
+              id="trailFade"
+              min="0"
+              max="1"
+              step="0.01"
+              value={state?.trail_fade ?? 0.5}
+              on:input={(e) => updatePelletsTrailFade(parseFloat((e.target as HTMLInputElement).value))}
+            />
+            <span class="range-value">{(state?.trail_fade ?? 0.5).toFixed(2)}</span>
+          </div>
+        {/if}
       </fieldset>
 
       <!-- Post Processing -->
@@ -314,6 +339,8 @@
     is_running: boolean;
     cursor_size: number;
     cursor_strength: number;
+    trails_enabled?: boolean;
+    trail_fade?: number;
   }
 
   let settings: PelletsSettings | null = null;
@@ -658,6 +685,26 @@
       console.error('Failed to update LUT reversed:', error);
     }
   };
+
+  async function updatePelletsTrailsEnabled(enabled: boolean) {
+    if (!state) return;
+    state.trails_enabled = enabled;
+    try {
+      await invoke('update_pellets_trails_state', { enabled, fade: state.trail_fade ?? 0.5 });
+    } catch (e) {
+      console.error('Failed to update pellets trails enabled', e);
+    }
+  }
+
+  async function updatePelletsTrailFade(fade: number) {
+    if (!state) return;
+    state.trail_fade = fade;
+    try {
+      await invoke('update_pellets_trails_state', { enabled: state.trails_enabled ?? false, fade });
+    } catch (e) {
+      console.error('Failed to update pellets trail fade', e);
+    }
+  }
 
   const updateCursorSize = async (value: number) => {
     cursorSize = value;
