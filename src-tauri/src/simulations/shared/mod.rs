@@ -37,3 +37,4 @@ pub use post_processing::{PostProcessingResources, PostProcessingState};
 
 pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
 pub const AVERAGE_COLOR_SHADER: &str = include_str!("average_color.wgsl");
+pub const COLOR_LUT_UTILS_WGSL: &str = include_str!("color_lut_utils.wgsl");

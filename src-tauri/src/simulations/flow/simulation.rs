@@ -513,8 +513,9 @@ impl FlowModel {
         let common_layouts = CommonBindGroupLayouts::new(device);
 
         // Create particle update pipeline using GPU utilities
+        let particle_update_wgsl = format!("{}\n{}", crate::simulations::shared::COLOR_LUT_UTILS_WGSL, PARTICLE_UPDATE_SHADER);
         let particle_update_shader =
-            shader_manager.load_shader(device, "flow_particle_update", PARTICLE_UPDATE_SHADER);
+            shader_manager.load_shader(device, "flow_particle_update", &particle_update_wgsl);
 
         let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -680,9 +681,10 @@ impl FlowModel {
             });
 
         // Create particle render pipeline
+        let particle_render_wgsl = format!("{}\n{}", crate::simulations::shared::COLOR_LUT_UTILS_WGSL, PARTICLE_RENDER_SHADER);
         let particle_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Flow Particle Render Shader"),
-            source: wgpu::ShaderSource::Wgsl(PARTICLE_RENDER_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(particle_render_wgsl.into()),
         });
 
         let render_bind_group_layout =

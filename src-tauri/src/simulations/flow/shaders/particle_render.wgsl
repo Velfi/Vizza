@@ -59,32 +59,6 @@ struct CameraUniform {
 @group(0) @binding(2) var<storage, read> lut_data: array<u32>;
 @group(1) @binding(0) var<uniform> camera: CameraUniform;
 
-// Convert from sRGB (gamma-corrected) to linear RGB
-fn srgb_to_linear(srgb: f32) -> f32 {
-    if (srgb <= 0.04045) {
-        return srgb / 12.92;
-    } else {
-        return pow((srgb + 0.055) / 1.055, 2.4);
-    }
-}
-
-// Get color from LUT
-fn get_lut_color(intensity: f32) -> vec3<f32> {
-    let lut_index = clamp(intensity * 255.0, 0.0, 255.0);
-    let index = u32(lut_index);
-    
-    // LUT data format: [r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]
-    let r_srgb = f32(lut_data[index]) / 255.0;
-    let g_srgb = f32(lut_data[index + 256u]) / 255.0;
-    let b_srgb = f32(lut_data[index + 512u]) / 255.0;
-    
-    return vec3<f32>(
-        srgb_to_linear(r_srgb),
-        srgb_to_linear(g_srgb),
-        srgb_to_linear(b_srgb)
-    );
-}
-
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -206,7 +180,7 @@ fn fs_main(@location(0) uv: vec2<f32>, @location(1) particle_index: u32) -> @loc
         color_intensity = 1.0 - age_ratio;
     }
     
-    let particle_color = get_lut_color(color_intensity);
+    let particle_color = get_lut_color_from_intensity(color_intensity);
     
     // Apply particle fade
     let alpha = 1.0 - (particle.age / sim_params.particle_lifetime) * 0.5;

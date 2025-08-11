@@ -388,9 +388,10 @@ impl PelletsModel {
         });
 
         // Create render shaders using GPU utilities
+        let pellets_render_wgsl = format!("{}\n{}", crate::simulations::shared::COLOR_LUT_UTILS_WGSL, super::shaders::PARTICLE_RENDER_SHADER);
         let render_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("pellets_render"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_RENDER_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(pellets_render_wgsl.into()),
         }));
 
         let render_bind_group_layout =
@@ -574,9 +575,10 @@ impl PelletsModel {
             .build();
 
         // Create background pipeline
+        let pellets_background_wgsl = format!("{}\n{}", crate::simulations::shared::COLOR_LUT_UTILS_WGSL, super::shaders::BACKGROUND_RENDER_SHADER);
         let background_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Pellets Background Shader"),
-            source: wgpu::ShaderSource::Wgsl(super::shaders::BACKGROUND_RENDER_SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(pellets_background_wgsl.into()),
         });
 
         // Create dummy texture for density visualization
