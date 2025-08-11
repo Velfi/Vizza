@@ -27,3 +27,4 @@ pub mod pellets;
 pub mod shared;
 pub mod slime_mold;
 pub mod traits;
+pub mod voronoi_ca;

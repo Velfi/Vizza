@@ -180,6 +180,23 @@ impl SimulationManager {
                 self.resume();
                 Ok(())
             }
+            "voronoi_ca" => {
+                // Initialize Voronoi CA simulation
+                let settings = crate::simulations::voronoi_ca::settings::Settings::default();
+                let simulation = crate::simulations::voronoi_ca::VoronoiCAModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &self.app_settings,
+                    &self.lut_manager,
+                )
+                .map_err(|e| format!("Failed to initialize Voronoi CA simulation: {}", e))?;
+
+                self.current_simulation = Some(SimulationType::VoronoiCA(Box::new(simulation)));
+                self.resume();
+                Ok(())
+            }
 
             _ => Err("Unknown simulation type".into()),
         }
@@ -331,6 +348,18 @@ impl SimulationManager {
                         queue,
                     )?;
                 }
+                SimulationType::VoronoiCA(simulation) => {
+                    let camera = &simulation.camera;
+                    let screen = ScreenCoords::new(screen_x, screen_y);
+                    let world = camera.screen_to_world(screen);
+                    simulation.handle_mouse_interaction(
+                        world.x,
+                        world.y,
+                        mouse_button,
+                        device,
+                        queue,
+                    )?;
+                }
 
                 _ => (),
             }
@@ -355,6 +384,9 @@ impl SimulationManager {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 SimulationType::Pellets(simulation) => {
+                    simulation.handle_mouse_release(mouse_button, queue)?;
+                }
+                SimulationType::VoronoiCA(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
 
@@ -582,6 +614,16 @@ impl SimulationManager {
 
                     tracing::info!("LUT '{}' applied to gradient simulation", lut_name);
                 }
+                SimulationType::VoronoiCA(simulation) => {
+                    // Store LUT name in settings through update_setting for consistency
+                    simulation.update_setting(
+                        "currentLut",
+                        serde_json::json!(lut_name),
+                        device,
+                        queue,
+                    )?;
+                    tracing::info!("LUT '{}' applied to Voronoi CA simulation", lut_name);
+                }
             }
         }
         Ok(())
@@ -681,10 +723,15 @@ impl SimulationManager {
                     // Main menu doesn't support LUT changes
                     tracing::warn!("LUT reversal not supported for main menu simulation");
                 }
-
-                _ => {
-                    // Other simulations don't support LUT reversal
-                    tracing::warn!("LUT reversal not supported for this simulation type");
+                SimulationType::VoronoiCA(simulation) => {
+                    let current_reversed = simulation.settings.lut_reversed;
+                    simulation.update_setting(
+                        "lut_reversed",
+                        serde_json::json!(!current_reversed),
+                        device,
+                        queue,
+                    )?;
+                    tracing::info!("LUT reversed for Voronoi CA simulation");
                 }
             }
         }
@@ -772,6 +819,16 @@ impl SimulationManager {
                 SimulationType::Gradient(simulation) => {
                     simulation.update_lut(device, queue, lut_data);
                     tracing::info!("Custom LUT applied to gradient simulation");
+                }
+                SimulationType::VoronoiCA(simulation) => {
+                    // For Voronoi CA, use settings path to select temp LUT name
+                    simulation.update_setting(
+                        "currentLut",
+                        serde_json::json!("temp_lut"),
+                        device,
+                        queue,
+                    )?;
+                    tracing::info!("Custom LUT applied to Voronoi CA simulation");
                 }
             }
         }
@@ -1029,6 +1086,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::MainMenu(_) => {}
+                SimulationType::VoronoiCA(simulation) => simulation.pan_camera(delta_x, delta_y),
                 _ => {}
             }
         }
@@ -1043,6 +1101,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Pellets(simulation) => simulation.camera.zoom(delta),
                 SimulationType::MainMenu(_) => {}
+                SimulationType::VoronoiCA(simulation) => simulation.camera.zoom(delta),
                 _ => {}
             }
         }
@@ -1068,6 +1127,9 @@ impl SimulationManager {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
                 SimulationType::MainMenu(_) => {}
+                SimulationType::VoronoiCA(simulation) => {
+                    simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
+                }
                 _ => {}
             }
         }
@@ -1082,6 +1144,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.camera.reset(),
                 SimulationType::Pellets(simulation) => simulation.camera.reset(),
                 SimulationType::MainMenu(_) => {}
+                SimulationType::VoronoiCA(simulation) => simulation.camera.reset(),
                 _ => {}
             }
         }
@@ -1098,6 +1161,7 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::Pellets(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
+                SimulationType::VoronoiCA(simulation) => Some(simulation.get_camera_state()),
                 _ => Some(serde_json::json!({})), // No camera for other simulations
             }
         } else {
@@ -1126,6 +1190,9 @@ impl SimulationManager {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
+                SimulationType::VoronoiCA(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
                 _ => {}                           // No camera for other simulations
             }
         }
@@ -1149,6 +1216,9 @@ impl SimulationManager {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
+                SimulationType::VoronoiCA(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
+                }
                 _ => {}                           // No camera for other simulations
             }
         }
@@ -1188,6 +1258,30 @@ impl SimulationManager {
                         .map_err(AppError::Simulation)?;
                 }
                 SimulationType::Pellets(simulation) => {
+                    simulation
+                        .update_setting(
+                            "cursor_size",
+                            serde_json::Value::Number(
+                                serde_json::Number::from_f64(size as f64).unwrap(),
+                            ),
+                            device,
+                            queue,
+                        )
+                        .map_err(AppError::Simulation)?;
+                }
+                SimulationType::Flow(simulation) => {
+                    simulation
+                        .update_setting(
+                            "cursor_size",
+                            serde_json::Value::Number(
+                                serde_json::Number::from_f64(size as f64).unwrap(),
+                            ),
+                            device,
+                            queue,
+                        )
+                        .map_err(AppError::Simulation)?;
+                }
+                SimulationType::VoronoiCA(simulation) => {
                     simulation
                         .update_setting(
                             "cursor_size",
@@ -1251,6 +1345,30 @@ impl SimulationManager {
                         .map_err(AppError::Simulation)?;
                 }
                 SimulationType::Pellets(simulation) => {
+                    simulation
+                        .update_setting(
+                            "cursor_strength",
+                            serde_json::Value::Number(
+                                serde_json::Number::from_f64(strength as f64).unwrap(),
+                            ),
+                            device,
+                            queue,
+                        )
+                        .map_err(AppError::Simulation)?;
+                }
+                SimulationType::Flow(simulation) => {
+                    simulation
+                        .update_setting(
+                            "cursor_strength",
+                            serde_json::Value::Number(
+                                serde_json::Number::from_f64(strength as f64).unwrap(),
+                            ),
+                            device,
+                            queue,
+                        )
+                        .map_err(AppError::Simulation)?;
+                }
+                SimulationType::VoronoiCA(simulation) => {
                     simulation
                         .update_setting(
                             "cursor_strength",

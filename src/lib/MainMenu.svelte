@@ -104,6 +104,11 @@
       <p>Advanced color gradient editor</p>
     </button>
 
+    <button class="simulation-card" on:click={() => selectSimulation('voronoi-ca')}>
+      <h2>Voronoi CA</h2>
+      <p>Configurable cellular automata</p>
+    </button>
+
     <div class="about-container">
       <h2>About this program</h2>
 

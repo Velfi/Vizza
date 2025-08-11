@@ -33,6 +33,12 @@
     />
   {:else if currentMode === 'gradient-editor'}
     <GradientEditorMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+  {:else if currentMode === 'voronoi-ca'}
+    <VoronoiCAMode
+      menuPosition={appSettings.menu_position}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
   {:else if currentMode === 'gradient'}
     <SimulationLayout
       simulationName="Gradient"
@@ -64,6 +70,7 @@
   import FlowMode from './lib/FlowMode.svelte';
   import PelletsMode from './lib/PelletsMode.svelte';
   import GradientEditorMode from './lib/GradientEditorMode.svelte';
+  import VoronoiCAMode from './lib/VoronoiCAMode.svelte';
 
   import SimulationLayout from './lib/components/shared/SimulationLayout.svelte';
   import HowToPlay from './lib/HowToPlay.svelte';
@@ -77,6 +84,7 @@
     | 'flow'
     | 'pellets'
     | 'gradient-editor'
+    | 'voronoi-ca'
     | 'gradient'
     | 'how-to-play'
     | 'settings';
