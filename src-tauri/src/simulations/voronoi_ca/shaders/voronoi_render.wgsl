@@ -79,9 +79,12 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let pixel_pos = vec2<f32>(uv * fdim);
   var closest_site: u32 = 0u;
   var min_distance: f32 = 1e30;
+  // Clamp iteration count to available vertices to avoid OOB on faulty params
+  let vertex_count: u32 = arrayLength(&vertices);
+  let max_sites: u32 = min(u32(params.count), vertex_count);
   
   // Check all sites to find the closest one
-  for (var i: u32 = 0u; i < u32(params.count); i = i + 1u) {
+  for (var i: u32 = 0u; i < max_sites; i = i + 1u) {
     let v = vertices[i];
     let site_pos = v.position;
     
@@ -112,7 +115,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     var second_closest_site: u32 = 0u;
     var second_min_distance: f32 = 1e30;
     
-    for (var i: u32 = 0u; i < u32(params.count); i = i + 1u) {
+    for (var i: u32 = 0u; i < max_sites; i = i + 1u) {
       if (i == closest_site) { continue; } // Skip the closest site
       
       let v2 = vertices[i];
