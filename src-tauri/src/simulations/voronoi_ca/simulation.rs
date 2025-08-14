@@ -50,7 +50,6 @@ struct VoronoiParams {
     border_threshold: f32,
     // Texture filtering mode: 0=Nearest, 1=Linear, 2=Lanczos (treated as Linear here)
     filter_mode: f32,
-    _pad2: f32,
 }
 
 #[repr(C)]
@@ -715,7 +714,7 @@ impl VoronoiCASimulation {
         let initial_params = VoronoiParams {
             jfa_width: jfa_width as f32,
             jfa_height: jfa_height as f32,
-            count: 0.0,
+            count: num_points as f32,
             color_mode: 0.0,
             neighbor_radius: 60.0,
             border_enabled: 1.0,
@@ -725,7 +724,6 @@ impl VoronoiCASimulation {
                 crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                 crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
             },
-            _pad2: 0.0,
         };
         queue.write_buffer(&voronoi_params, 0, bytemuck::bytes_of(&initial_params));
 
@@ -1867,7 +1865,6 @@ impl Simulation for VoronoiCASimulation {
                 crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                 crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
             },
-            _pad2: 0.0,
         };
         queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
@@ -1906,7 +1903,6 @@ impl Simulation for VoronoiCASimulation {
                     crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                     crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
                 },
-                _pad2: 0.0,
             };
             queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
