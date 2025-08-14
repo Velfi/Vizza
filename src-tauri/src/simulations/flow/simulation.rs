@@ -1528,7 +1528,7 @@ impl FlowModel {
             current_lut: "MATPLOTLIB_terrain".to_string(),
             lut_reversed: false,
             show_particles: true,
-            display_mode: DisplayMode::Age,
+            display_mode: settings.display_mode,
             trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
             trail_render_pipeline,
             trail_display_render_pipeline,
@@ -3053,12 +3053,14 @@ impl Simulation for FlowModel {
             }
             "displayMode" => {
                 if let Some(mode_str) = value.as_str() {
-                    self.display_mode = match mode_str {
+                    self.settings.display_mode = match mode_str {
                         "Age" => super::settings::DisplayMode::Age,
                         "Random" => super::settings::DisplayMode::Random,
                         "Direction" => super::settings::DisplayMode::Direction,
                         _ => super::settings::DisplayMode::Age,
                     };
+                    // Update the local display_mode field to match settings
+                    self.display_mode = self.settings.display_mode;
                 }
             }
             "trailMapFiltering" => {
@@ -3094,7 +3096,7 @@ impl Simulation for FlowModel {
             "currentLut": self.current_lut,
             "lutReversed": self.lut_reversed,
             "showParticles": self.show_particles,
-            "displayMode": self.display_mode,
+            "displayMode": self.settings.display_mode,
             "trailMapFiltering": self.trail_map_filtering,
             "autospawnRate": self.settings.autospawn_rate,
         })
@@ -3226,6 +3228,9 @@ impl Simulation for FlowModel {
     ) -> crate::error::SimulationResult<()> {
         if let Ok(new_settings) = serde_json::from_value::<Settings>(settings) {
             self.settings = new_settings;
+
+            // Update local display_mode field to match settings
+            self.display_mode = self.settings.display_mode;
 
             // Update GPU buffers after applying new settings
             self.update_background_color(queue);

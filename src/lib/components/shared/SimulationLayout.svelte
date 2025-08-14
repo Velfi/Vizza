@@ -18,10 +18,12 @@
     {showCenterControls}
     {showRightControls}
     {controlModeButton}
+    {showStep}
     on:back={handleBack}
     on:toggleUI={handleToggleUI}
     on:pause={handlePause}
     on:resume={handleResume}
+    on:step={handleStep}
     on:reset={handleReset}
     on:randomize={handleRandomize}
     on:userInteraction={handleUserInteraction}
@@ -60,6 +62,7 @@
   export let showCenterControls: boolean = true;
   export let showRightControls: boolean = true;
   export let controlModeButton: import('svelte').Snippet | undefined = undefined;
+  export let showStep: boolean = false;
 
   let isMousePressed = false;
   let currentMouseButton = 0;
@@ -79,6 +82,10 @@
 
   function handleResume() {
     dispatch('resume');
+  }
+
+  function handleStep() {
+    dispatch('step');
   }
 
   function handleReset() {

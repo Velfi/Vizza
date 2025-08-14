@@ -113,7 +113,8 @@
               max="1"
               step="0.01"
               value={state?.trail_fade ?? 0.5}
-              on:input={(e) => updatePelletsTrailFade(parseFloat((e.target as HTMLInputElement).value))}
+              on:input={(e) =>
+                updatePelletsTrailFade(parseFloat((e.target as HTMLInputElement).value))}
             />
             <span class="range-value">{(state?.trail_fade ?? 0.5).toFixed(2)}</span>
           </div>

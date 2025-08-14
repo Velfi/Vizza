@@ -215,7 +215,8 @@
             <input
               type="checkbox"
               checked={settings?.nutrient_pattern_reversed || false}
-              on:change={(e) => updateNutrientPatternReversed((e.target as HTMLInputElement).checked)}
+              on:change={(e) =>
+                updateNutrientPatternReversed((e.target as HTMLInputElement).checked)}
             />
             Reverse nutrient pattern
           </label>

@@ -1183,9 +1183,7 @@
         if (state.lutReversed !== undefined) {
           lutReversedValue = state.lutReversed;
         }
-        if (state.displayMode !== undefined && settings) {
-          settings.display_mode = state.displayMode;
-        }
+        // display_mode is now part of settings, not state
 
         console.log('Flow settings and state synced:', {
           background: backgroundValue,

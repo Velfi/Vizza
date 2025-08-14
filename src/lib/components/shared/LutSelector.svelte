@@ -53,15 +53,7 @@
         <label for="presetSelector">Preset</label>
         <Selector
           id="presetSelector"
-          options={[
-            'Custom',
-            'Rainbow',
-            'Heat',
-            'Cool',
-            'Viridis',
-            'Plasma',
-            'Inferno',
-          ]}
+          options={['Custom', 'Rainbow', 'Heat', 'Cool', 'Viridis', 'Plasma', 'Inferno']}
           bind:value={selectedPreset}
           on:change={applyPreset}
         />
@@ -131,35 +123,33 @@
         {#if selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length}
           <h4>Color Stop {selectedStopIndex + 1}</h4>
 
-          
-
           <div class="control-row">
-          <div class="control-group">
-            <label for="stopColor">Color</label>
-            <input
-              type="color"
-              id="stopColor"
-              value={gradientStops[selectedStopIndex].color}
-              on:input={(e) => {
-                const color = (e.target as HTMLInputElement).value;
-                updateStopColor(selectedStopIndex, color);
-              }}
-              class="color-input"
-            />
-          </div>
-          <div class="control-group">
-            <label for="positionSlider">Position</label>
-            <input
-              type="range"
-              id="positionSlider"
-              min="0"
-              max="1"
-              step="0.01"
-              bind:value={gradientStops[selectedStopIndex].position}
-              on:input={handlePositionInput}
-              class="position-slider"
-            />
-          </div>
+            <div class="control-group">
+              <label for="stopColor">Color</label>
+              <input
+                type="color"
+                id="stopColor"
+                value={gradientStops[selectedStopIndex].color}
+                on:input={(e) => {
+                  const color = (e.target as HTMLInputElement).value;
+                  updateStopColor(selectedStopIndex, color);
+                }}
+                class="color-input"
+              />
+            </div>
+            <div class="control-group">
+              <label for="positionSlider">Position</label>
+              <input
+                type="range"
+                id="positionSlider"
+                min="0"
+                max="1"
+                step="0.01"
+                bind:value={gradientStops[selectedStopIndex].position}
+                on:input={handlePositionInput}
+                class="position-slider"
+              />
+            </div>
             {#if gradientStops.length > 2}
               <div class="control-group">
                 <span class="section-label">&nbsp;</span>
@@ -195,13 +185,27 @@
             <label for="randScheme">Random Scheme</label>
             <Selector
               id="randScheme"
-              options={['Basic', 'Warm', 'Cool', 'Pastel', 'Neon', 'Earth', 'Monochrome', 'Complementary', 'Truly Random']}
+              options={[
+                'Basic',
+                'Warm',
+                'Cool',
+                'Pastel',
+                'Neon',
+                'Earth',
+                'Monochrome',
+                'Complementary',
+                'Truly Random',
+              ]}
               bind:value={selectedRandomScheme}
             />
           </div>
           <div class="control-group">
             <label for="randPlacement">Stop Placement</label>
-            <Selector id="randPlacement" options={['Random', 'Even']} bind:value={randomStopPlacement} />
+            <Selector
+              id="randPlacement"
+              options={['Random', 'Even']}
+              bind:value={randomStopPlacement}
+            />
           </div>
         </div>
         <div class="control-row">
@@ -218,7 +222,11 @@
           </div>
           <div class="control-group">
             <span class="section-label">&nbsp;</span>
-            <button type="button" class="primary-button" on:click={() => randomizeGradient(selectedRandomScheme)}>
+            <button
+              type="button"
+              class="primary-button"
+              on:click={() => randomizeGradient(selectedRandomScheme)}
+            >
               Generate
             </button>
           </div>
@@ -597,22 +605,76 @@
     let colors: string[] = [];
     switch (scheme) {
       case 'Basic':
-        colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ff8000', '#8000ff'];
+        colors = [
+          '#ff0000',
+          '#00ff00',
+          '#0000ff',
+          '#ffff00',
+          '#ff00ff',
+          '#00ffff',
+          '#ff8000',
+          '#8000ff',
+        ];
         break;
       case 'Warm':
-        colors = ['#ff4500', '#ff6347', '#ffa500', '#ff8c00', '#dc143c', '#b22222', '#cd853f', '#d2691e'];
+        colors = [
+          '#ff4500',
+          '#ff6347',
+          '#ffa500',
+          '#ff8c00',
+          '#dc143c',
+          '#b22222',
+          '#cd853f',
+          '#d2691e',
+        ];
         break;
       case 'Cool':
-        colors = ['#4169e1', '#0000cd', '#1e90ff', '#00bfff', '#87ceeb', '#20b2aa', '#008b8b', '#4682b4'];
+        colors = [
+          '#4169e1',
+          '#0000cd',
+          '#1e90ff',
+          '#00bfff',
+          '#87ceeb',
+          '#20b2aa',
+          '#008b8b',
+          '#4682b4',
+        ];
         break;
       case 'Pastel':
-        colors = ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff', '#e6baff', '#ffc9ba', '#c9baff'];
+        colors = [
+          '#ffb3ba',
+          '#ffdfba',
+          '#ffffba',
+          '#baffc9',
+          '#bae1ff',
+          '#e6baff',
+          '#ffc9ba',
+          '#c9baff',
+        ];
         break;
       case 'Neon':
-        colors = ['#ff073a', '#39ff14', '#00ffff', '#ff00ff', '#ffff00', '#ff4500', '#8a2be2', '#00ff7f'];
+        colors = [
+          '#ff073a',
+          '#39ff14',
+          '#00ffff',
+          '#ff00ff',
+          '#ffff00',
+          '#ff4500',
+          '#8a2be2',
+          '#00ff7f',
+        ];
         break;
       case 'Earth':
-        colors = ['#8b4513', '#a0522d', '#cd853f', '#daa520', '#b8860b', '#9acd32', '#6b8e23', '#556b2f'];
+        colors = [
+          '#8b4513',
+          '#a0522d',
+          '#cd853f',
+          '#daa520',
+          '#b8860b',
+          '#9acd32',
+          '#6b8e23',
+          '#556b2f',
+        ];
         break;
       case 'Monochrome': {
         const baseHue = Math.floor(Math.random() * 360);
@@ -643,7 +705,9 @@
           const r = Math.floor(Math.random() * 256);
           const g = Math.floor(Math.random() * 256);
           const b = Math.floor(Math.random() * 256);
-          colors.push(`#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`);
+          colors.push(
+            `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+          );
         }
         break;
     }
@@ -666,7 +730,10 @@
     const colors = generateRandomColors(scheme);
     const stopCount = randomStopCount;
     const positions = generateStopPositions(stopCount, randomStopPlacement);
-    gradientStops = positions.map((position) => ({ position, color: colors[Math.floor(Math.random() * colors.length)] }));
+    gradientStops = positions.map((position) => ({
+      position,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    }));
     selectedStopIndex = 0;
     updateGradientPreview();
   }
@@ -903,16 +970,16 @@
 
   .gradient-editor-content {
     pointer-events: auto; /* re-enable inside dialog */
-    background: rgba(0,0,0,0.85);
-    color: rgba(255,255,255,0.9);
+    background: rgba(0, 0, 0, 0.85);
+    color: rgba(255, 255, 255, 0.9);
     padding: 1rem;
     border-radius: 8px;
     min-width: 720px;
     max-width: min(900px, 95vw);
     max-height: 85vh;
     overflow-y: auto;
-    border: 1px solid rgba(255,255,255,0.2);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
     position: fixed;
     top: 10vh;
     left: 50%;
@@ -923,7 +990,7 @@
 
   .gradient-editor-content h3 {
     margin: 0 0 1rem 0;
-    color: rgba(255,255,255,0.95);
+    color: rgba(255, 255, 255, 0.95);
     font-size: 1.25rem;
   }
 
@@ -953,7 +1020,7 @@
   .gradient-preview {
     position: relative;
     height: 48px;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     margin-bottom: 12px;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -964,7 +1031,9 @@
     -ms-user-select: none;
   }
 
-  .gradient-preview:hover { border-color: var(--ui-border-focus, rgba(255,255,255,0.5)); }
+  .gradient-preview:hover {
+    border-color: var(--ui-border-focus, rgba(255, 255, 255, 0.5));
+  }
 
   .gradient-stop {
     position: absolute;
@@ -972,7 +1041,7 @@
     transform: translateX(-50%) translateY(-50%);
     width: 24px;
     height: 48px;
-    border: 2px solid rgba(255,255,255,0.9);
+    border: 2px solid rgba(255, 255, 255, 0.9);
     border-radius: 6px;
     cursor: grab;
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
@@ -985,7 +1054,11 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   }
 
-  .gradient-stop.selected { border-color: #646cff; border-width: 3px; box-shadow: 0 4px 16px rgba(100,108,255,0.5); }
+  .gradient-stop.selected {
+    border-color: #646cff;
+    border-width: 3px;
+    box-shadow: 0 4px 16px rgba(100, 108, 255, 0.5);
+  }
 
   .gradient-stop.dragging {
     cursor: grabbing;
@@ -999,17 +1072,21 @@
   }
 
   .stop-controls {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     padding: 1rem;
     border-radius: 6px;
     margin: 1rem 0;
-    border: 1px solid rgba(255,255,255,0.15);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     min-height: 160px;
     display: flex;
     flex-direction: column;
   }
 
-  .stop-controls h4 { margin: 0 0 0.75rem 0; color: rgba(255,255,255,0.95); font-size: 1rem; }
+  .stop-controls h4 {
+    margin: 0 0 0.75rem 0;
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 1rem;
+  }
 
   .control-row {
     display: flex;
@@ -1026,11 +1103,28 @@
     margin-bottom: 1rem;
   }
 
-  .control-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: rgba(255,255,255,0.8); }
+  .control-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.8);
+  }
 
-  .color-input { width: 100%; height: 40px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.1); color: white; border-radius: 4px; cursor: pointer; }
+  .color-input {
+    width: 100%;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
 
-  .color-input:focus { outline: none; border-color: #646cff; box-shadow: 0 0 0 2px rgba(100,108,255,0.2); }
+  .color-input:focus {
+    outline: none;
+    border-color: #646cff;
+    box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
+  }
 
   /* Compact actions styling - keep defined even if minifier misses usage */
   :global(.action-row) {
@@ -1080,7 +1174,14 @@
     line-height: 1.4;
   }
 
-  .dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.15); }
+  .dialog-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+  }
 
   .primary-button {
     background: #646cff;
@@ -1109,9 +1210,24 @@
     box-shadow: none;
   }
 
-  .secondary-button { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 500; transition: all 0.2s ease; }
+  .secondary-button {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 0.6rem 1.2rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
 
-  .secondary-button:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.35); transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+  .secondary-button:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.35);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
 
   .delete-stop-btn {
     background: #dc3545;

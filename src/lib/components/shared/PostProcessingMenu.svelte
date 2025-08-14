@@ -57,6 +57,7 @@
   const dispatch = createEventDispatcher();
 
   export let simulationType: string = 'flow';
+  export let enabled: boolean = true; // Whether the component should load state
 
   type PostProcessingState = {
     blur_filter: {
@@ -94,6 +95,10 @@
         return command === 'get'
           ? 'get_pellets_post_processing_state'
           : 'update_pellets_post_processing_state';
+      case 'voronoi_ca':
+        return command === 'get'
+          ? 'get_voronoi_ca_post_processing_state'
+          : 'update_voronoi_ca_post_processing_state';
       case 'flow':
       default:
         return command === 'get' ? 'get_post_processing_state' : 'update_post_processing_state';
@@ -106,7 +111,10 @@
       const state = await invoke(command);
       postProcessingState = state as PostProcessingState;
     } catch (error) {
-      console.error('Failed to load post processing state:', error);
+      // Only log error if it's not a "simulation not running" error
+      if (!String(error).includes('only available for')) {
+        console.error('Failed to load post processing state:', error);
+      }
     }
   }
 
@@ -135,7 +143,9 @@
   }
 
   onMount(() => {
-    loadPostProcessingState();
+    if (enabled) {
+      loadPostProcessingState();
+    }
   });
 </script>
 

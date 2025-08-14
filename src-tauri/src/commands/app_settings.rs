@@ -220,19 +220,18 @@ pub async fn apply_window_settings_on_startup(app: tauri::AppHandle) -> Result<S
         .get_webview_window("main")
         .ok_or("Main window not found")?;
 
-    // Apply window size
-    window
-        .set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: settings.window_width as f64,
-            height: settings.window_height as f64,
-        }))
-        .map_err(|e| format!("Failed to set window size: {}", e))?;
-
-    // Apply maximized state (only on startup)
+    // Apply maximized state or size (only on startup)
     if settings.window_maximized {
         window
             .maximize()
             .map_err(|e| format!("Failed to maximize window: {}", e))?;
+    } else {
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: settings.window_width as f64,
+                height: settings.window_height as f64,
+            }))
+            .map_err(|e| format!("Failed to set window size: {}", e))?;
     }
 
     tracing::debug!(

@@ -173,6 +173,19 @@ fn main() {
         .setup(move |app| {
             let window = app.get_webview_window("main").unwrap();
 
+            // Apply startup window settings early so "Start Maximized" is respected
+            // before the frontend loads. If maximized is disabled, apply the saved size.
+            if app_settings_clone.window_maximized {
+                if let Err(e) = window.maximize() {
+                    tracing::warn!("Failed to maximize window on startup: {}", e);
+                }
+            } else if let Err(e) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                width: app_settings_clone.window_width as f64,
+                height: app_settings_clone.window_height as f64,
+            })) {
+                tracing::warn!("Failed to set window size on startup: {}", e);
+            }
+
             // Initialize GPU context
             let gpu_context = tauri::async_runtime::block_on(async {
                 GpuContext::new_with_surface(&window, &app_settings_clone)
@@ -190,11 +203,11 @@ fn main() {
             commands::start_slime_mold_simulation,
             commands::start_gray_scott_simulation,
             commands::start_particle_life_simulation,
-            commands::start_ecosystem_simulation,
             commands::start_flow_simulation,
             commands::start_pellets_simulation,
             commands::pause_simulation,
             commands::resume_simulation,
+            commands::step_simulation,
             commands::destroy_simulation,
             commands::get_simulation_status,
             commands::scale_force_matrix,
@@ -221,7 +234,10 @@ fn main() {
             commands::get_slime_mold_post_processing_state, // Slime Mold
             commands::update_pellets_post_processing_state, // Pellets
             commands::get_pellets_post_processing_state, // Pellets
-            commands::update_pellets_trails_state, // Pellets trails
+            commands::update_pellets_trails_state,  // Pellets trails
+            commands::update_voronoi_ca_post_processing_state, // Voronoi CA
+            commands::get_voronoi_ca_post_processing_state, // Voronoi CA
+            commands::update_voronoi_ca_border_threshold, // Voronoi CA
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

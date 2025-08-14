@@ -14,6 +14,7 @@ pub mod settings;
 pub mod simulation;
 pub mod slime_mold;
 pub mod utility;
+pub mod voronoi_ca;
 
 // Re-export all command functions for easy access
 pub use app_settings::*;
@@ -32,3 +33,4 @@ pub use settings::*;
 pub use simulation::*;
 pub use slime_mold::*;
 pub use utility::*;
+pub use voronoi_ca::*;

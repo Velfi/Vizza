@@ -397,10 +397,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let world_x = (f32(x) / f32(params.grid_size - 1u)) * 2.0 - 1.0;
     let world_y = (f32(y) / f32(params.grid_size - 1u)) * 2.0 - 1.0;
     
-    // Apply noise scale and offset
+    // Apply noise scale and offset with proper coordinate system
+    // Convert from [-1,1] world space to [0,1] normalized space for noise sampling
+    let normalized_x = (world_x + 1.0) * 0.5;
+    let normalized_y = (world_y + 1.0) * 0.5;
+    
+    // Apply noise scale to normalized coordinates, then add offset
     let sample_pos = vec2<f32>(
-        world_x * params.noise_scale + params.noise_x,
-        world_y * params.noise_scale + params.noise_y
+        normalized_x * params.noise_scale + params.noise_x,
+        normalized_y * params.noise_scale + params.noise_y
     );
     
     // Generate noise value

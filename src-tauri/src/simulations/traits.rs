@@ -19,6 +19,7 @@
 //! consistently across all simulation types.
 
 use crate::error::SimulationResult;
+use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
@@ -166,6 +167,7 @@ pub enum SimulationType {
     Pellets(Box<crate::simulations::pellets::PelletsModel>),
     MainMenu(Box<crate::simulations::main_menu::MainMenuModel>),
     Gradient(Box<crate::simulations::gradient::GradientSimulation>),
+    VoronoiCA(Box<VoronoiCASimulation>),
 }
 
 impl SimulationType {
@@ -265,6 +267,11 @@ impl SimulationType {
                 )?;
                 Ok(SimulationType::MainMenu(Box::new(simulation)))
             }
+            "voronoi_ca" => {
+                let simulation =
+                    VoronoiCASimulation::new(device, queue, surface_config, app_settings)?;
+                Ok(SimulationType::VoronoiCA(Box::new(simulation)))
+            }
             _ => Err(format!("Unknown simulation type: {}", simulation_type).into()),
         }
     }
@@ -284,6 +291,7 @@ impl SimulationType {
             SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::Gradient(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::VoronoiCA(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
 }
@@ -316,6 +324,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.render_frame(device, queue, surface_view, delta_time)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.render_frame(device, queue, surface_view, delta_time)
+            }
         }
     }
 
@@ -345,6 +356,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.render_frame_static(device, queue, surface_view)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.render_frame_static(device, queue, surface_view)
+            }
         }
     }
 
@@ -364,6 +378,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Gradient(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::VoronoiCA(simulation) => simulation.resize(device, queue, new_config),
         }
     }
 
@@ -394,6 +409,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.update_setting(setting_name, value, device, queue)
+            }
         }
     }
 
@@ -406,6 +424,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.get_settings(),
             SimulationType::MainMenu(simulation) => simulation.get_settings(),
             SimulationType::Gradient(simulation) => simulation.get_settings(),
+            SimulationType::VoronoiCA(simulation) => simulation.get_settings(),
         }
     }
 
@@ -418,6 +437,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.get_state(),
             SimulationType::MainMenu(simulation) => simulation.get_state(),
             SimulationType::Gradient(simulation) => simulation.get_state(),
+            SimulationType::VoronoiCA(simulation) => simulation.get_state(),
         }
     }
 
@@ -451,6 +471,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
+            }
         }
     }
 
@@ -479,6 +502,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.handle_mouse_release(mouse_button, queue)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.handle_mouse_release(mouse_button, queue)
+            }
         }
     }
 
@@ -491,6 +517,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::MainMenu(simulation) => simulation.pan_camera(delta_x, delta_y),
             SimulationType::Gradient(simulation) => simulation.pan_camera(delta_x, delta_y),
+            SimulationType::VoronoiCA(simulation) => simulation.pan_camera(delta_x, delta_y),
         }
     }
 
@@ -503,6 +530,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.zoom_camera(delta),
             SimulationType::MainMenu(simulation) => simulation.zoom_camera(delta),
             SimulationType::Gradient(simulation) => simulation.zoom_camera(delta),
+            SimulationType::VoronoiCA(simulation) => simulation.zoom_camera(delta),
         }
     }
 
@@ -527,6 +555,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+            }
         }
     }
 
@@ -539,6 +570,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.reset_camera(),
             SimulationType::MainMenu(simulation) => simulation.reset_camera(),
             SimulationType::Gradient(simulation) => simulation.reset_camera(),
+            SimulationType::VoronoiCA(simulation) => simulation.reset_camera(),
         }
     }
 
@@ -551,6 +583,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.get_camera_state(),
             SimulationType::MainMenu(simulation) => simulation.get_camera_state(),
             SimulationType::Gradient(simulation) => simulation.get_camera_state(),
+            SimulationType::VoronoiCA(simulation) => simulation.get_camera_state(),
         }
     }
 
@@ -563,6 +596,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.save_preset(preset_name),
             SimulationType::MainMenu(simulation) => simulation.save_preset(preset_name),
             SimulationType::Gradient(simulation) => simulation.save_preset(preset_name),
+            SimulationType::VoronoiCA(simulation) => simulation.save_preset(preset_name),
         }
     }
 
@@ -575,6 +609,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::MainMenu(simulation) => simulation.load_preset(preset_name, queue),
             SimulationType::Gradient(simulation) => simulation.load_preset(preset_name, queue),
+            SimulationType::VoronoiCA(simulation) => simulation.load_preset(preset_name, queue),
         }
     }
 
@@ -604,6 +639,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => {
                 simulation.apply_settings(settings, device, queue)
             }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.apply_settings(settings, device, queue)
+            }
         }
     }
 
@@ -622,6 +660,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
             SimulationType::Gradient(simulation) => simulation.reset_runtime_state(device, queue),
+            SimulationType::VoronoiCA(simulation) => simulation.reset_runtime_state(device, queue),
         }
     }
 
@@ -634,6 +673,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.toggle_gui(),
             SimulationType::MainMenu(simulation) => simulation.toggle_gui(),
             SimulationType::Gradient(simulation) => simulation.toggle_gui(),
+            SimulationType::VoronoiCA(simulation) => simulation.toggle_gui(),
         }
     }
 
@@ -646,6 +686,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.is_gui_visible(),
             SimulationType::MainMenu(simulation) => simulation.is_gui_visible(),
             SimulationType::Gradient(simulation) => simulation.is_gui_visible(),
+            SimulationType::VoronoiCA(simulation) => simulation.is_gui_visible(),
         }
     }
 
@@ -664,6 +705,7 @@ impl Simulation for SimulationType {
             SimulationType::Pellets(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::Gradient(simulation) => simulation.randomize_settings(device, queue),
+            SimulationType::VoronoiCA(simulation) => simulation.randomize_settings(device, queue),
         }
     }
 }

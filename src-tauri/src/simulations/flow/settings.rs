@@ -175,6 +175,9 @@ pub struct Settings {
     pub autospawn_rate: u32,   // Particles per second for autospawn
     pub brush_spawn_rate: u32, // Particles per second when cursor is active
 
+    // Display parameters
+    pub display_mode: DisplayMode,
+
     // Trail parameters
     pub trail_decay_rate: f32,
     pub trail_deposition_rate: f32,
@@ -203,6 +206,9 @@ impl Default for Settings {
             particle_autospawn: true,
             autospawn_rate: 500,
             brush_spawn_rate: 1000,
+
+            // Display parameters
+            display_mode: DisplayMode::Age,
 
             // Trail parameters
             trail_decay_rate: 0.0,

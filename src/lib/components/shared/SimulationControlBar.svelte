@@ -16,6 +16,11 @@
         <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
           {running ? '⏸ Pause' : '▶ Resume'}
         </Button>
+        {#if showStep}
+          <Button variant="default" on:click={() => dispatch('step')} disabled={running}>
+            ⏭ Step
+          </Button>
+        {/if}
         <span class="status-text">
           {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
         </span>
@@ -60,6 +65,11 @@
         <Button variant={running ? 'danger' : 'success'} on:click={handlePauseResume}>
           {running ? '⏸ Pause' : '▶ Resume'}
         </Button>
+        {#if showStep}
+          <Button variant="default" on:click={() => dispatch('step')} disabled={running}>
+            ⏭ Step
+          </Button>
+        {/if}
         <span class="status-text">
           {loading ? 'Loading...' : running ? 'Running' : 'Stopped'}
         </span>
@@ -92,6 +102,7 @@
   export let showCenterControls: boolean = true; // Control center section visibility
   export let showRightControls: boolean = true; // Control right section visibility
   export let controlModeButton: import('svelte').Snippet | undefined = undefined;
+  export let showStep: boolean = false; // Show optional step control when paused
 
   function handleBackClick() {
     dispatch('back');

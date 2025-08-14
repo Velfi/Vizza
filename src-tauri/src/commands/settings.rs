@@ -11,7 +11,7 @@ pub async fn update_simulation_setting(
     value: serde_json::Value,
 ) -> Result<String, String> {
     tracing::debug!(
-        "update_simulation_setting called with setting_name: '{}', value: {:?}",
+        "update_simulation_setting called with settingName: '{}', value: {:?}",
         setting_name,
         value
     );
@@ -31,7 +31,10 @@ pub async fn update_simulation_setting(
         }
         Err(e) => {
             tracing::error!("Failed to update setting '{}': {}", setting_name, e);
-            Err(format!("Failed to update setting: {}", e))
+            Err(format!(
+                "Failed to update setting '{}': {}",
+                setting_name, e
+            ))
         }
     }
 }

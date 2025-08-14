@@ -457,6 +457,7 @@ impl SimulationPresetManager {
             SimulationType::Flow(_) => "flow",
             SimulationType::MainMenu(_) => "main_menu",
             SimulationType::Gradient(_) => "gradient",
+            SimulationType::VoronoiCA(_) => "voronoi_ca",
         }
     }
 

@@ -10,6 +10,7 @@
 - FF: Flow Field. A simulation of a flow field.
 - PS: Pellets. A particles and gravity simulation.
 - GEM: Gradient Editor. A gradient editor for color schemes.
+- VCA: Voronoi Cellular Automata. A simulation of a cellular automata.
 
 ## LUTs (Color Schemes)
 

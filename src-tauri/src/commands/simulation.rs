@@ -144,53 +144,6 @@ pub async fn start_gray_scott_simulation(
 }
 
 #[tauri::command]
-pub async fn start_ecosystem_simulation(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    app: tauri::AppHandle,
-) -> Result<String, String> {
-    tracing::debug!("start_ecosystem_simulation called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    // Get current surface configuration
-    let surface_config = gpu_ctx.surface_config.lock().await.clone();
-
-    match sim_manager
-        .start_simulation(
-            "ecosystem".to_string(),
-            &gpu_ctx.device,
-            &gpu_ctx.queue,
-            &surface_config,
-            &gpu_ctx.adapter_info,
-        )
-        .await
-    {
-        Ok(_) => {
-            tracing::info!("Ecosystem simulation started successfully");
-
-            // Start the backend render loop
-            sim_manager.start_render_loop(
-                app.clone(),
-                gpu_context.inner().clone(),
-                manager.inner().clone(),
-            );
-
-            // Emit event to notify frontend that simulation is initialized
-            if let Err(e) = app.emit("simulation-initialized", ()) {
-                tracing::warn!("Failed to emit simulation-initialized event: {}", e);
-            }
-
-            Ok("Ecosystem simulation started successfully".to_string())
-        }
-        Err(e) => {
-            tracing::error!("Failed to start simulation: {}", e);
-            Err(format!("Failed to start simulation: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
 pub async fn start_flow_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
@@ -365,6 +318,21 @@ pub async fn resume_simulation(
         Ok("Simulation resumed".to_string())
     } else {
         Err("No simulation to resume".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn step_simulation(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    tracing::debug!("step_simulation called");
+    let sim_manager = manager.lock().await;
+    if sim_manager.is_running() {
+        // Queue one frame of simulation update even if paused
+        sim_manager.step_once();
+        Ok("Simulation stepped one frame".to_string())
+    } else {
+        Err("No simulation to step".to_string())
     }
 }
 

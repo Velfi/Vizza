@@ -46,21 +46,21 @@
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-          />
+          ></path>
           <path
             d="M18 8l4 4-4 4"
             stroke="currentColor"
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-          />
+          ></path>
           <path
             d="M8 12h13"
             stroke="currentColor"
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-          />
+          ></path>
         </svg>
       </button>
     </div>
@@ -102,6 +102,11 @@
     <button class="simulation-card" on:click={() => selectSimulation('gradient-editor')}>
       <h2>Gradient Editor</h2>
       <p>Advanced color gradient editor</p>
+    </button>
+
+    <button class="simulation-card" on:click={() => selectSimulation('voronoi-ca')}>
+      <h2>Voronoi CA</h2>
+      <p>Voronoi cellular automata</p>
     </button>
 
     <div class="about-container">
