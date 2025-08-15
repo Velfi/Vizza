@@ -16,12 +16,9 @@ use crate::simulations::traits::Simulation;
 
 use super::shaders::{
     COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    JFA_SEED_CLEAR_SHADER, JFA_SEED_POPULATE_SHADER, JFA_STEP_SHADER, VCA_INFINITE_RENDER_SHADER,
-    VORONOI_RENDER_SHADER,
+    VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_SHADER,
 };
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
-
-// (JFA removed)
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -38,19 +35,17 @@ struct Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct VoronoiParams {
-    jfa_width: f32,
-    jfa_height: f32,
     count: f32,
     color_mode: f32,
-    // Added: neighbor radius for density normalization in render shader
     neighbor_radius: f32,
     // Borders enabled flag (1.0 = on, 0.0 = off)
     border_enabled: f32,
     // Border threshold for detection (0.0-1.0)
     border_threshold: f32,
-    // Texture filtering mode: 0=Nearest, 1=Linear, 2=Lanczos (treated as Linear here)
+    // Texture filtering mode: 0=Nearest, 1=Linear, 2=Lanczos (TODO treated as Linear here)
     filter_mode: f32,
-    _pad2: f32,
+    resolution_x: f32,
+    resolution_y: f32,
 }
 
 #[repr(C)]
@@ -73,27 +68,9 @@ struct GridParams {
     grid_height: u32,
     cell_capacity: u32,
     cell_size: f32,
-    jfa_width: f32,
-    jfa_height: f32,
-    _pad: f32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-struct JfaParamsStep {
-    width: u32,
-    height: u32,
-    step: u32,
-    _pad: u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-struct JfaSeedParams {
-    width: u32,
-    height: u32,
-    count: u32,
-    _pad: u32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
 }
 
 #[derive(Debug)]
@@ -115,15 +92,8 @@ pub struct VoronoiCASimulation {
     grid_populate_pipeline: ComputePipeline,
     grid_clear_bg: BindGroup,
     grid_populate_bg: BindGroup,
-    // Site texture written by CPU EDT
-    jfa_tex_a_view: TextureView,
-    // JFA secondary texture and views
-    jfa_tex_b_view: TextureView,
     voronoi_params: Buffer,
-    voronoi_render_bg_a: BindGroup,
-    voronoi_render_bg_b: BindGroup,
-    jfa_width: u32,
-    jfa_height: u32,
+    voronoi_render_bg: BindGroup,
     num_points: u32,
     time_accum: f32,
     time_scale: f32,
@@ -132,15 +102,12 @@ pub struct VoronoiCASimulation {
     alive_threshold: f32,
     resolution: [f32; 2],
     gui_visible: bool,
-    // Rebuild Voronoi field every N frames
-    edt_update_interval: u32,
-    edt_frame_counter: u32,
     points: Vec<Vertex>,
     // Run-and-tumble state
     headings: Vec<f32>,         // radians
     run_time_left: Vec<f32>,    // seconds
     tumble_time_left: Vec<f32>, // seconds
-    run_speed: f32,             // pixels per second (in JFA grid units)
+    run_speed: f32,             // pixels per second
     avg_run_time: f32,          // seconds (mean of exponential)
     tumble_time: f32,           // seconds (fixed)
     // Cursor config (settings)
@@ -167,17 +134,6 @@ pub struct VoronoiCASimulation {
     texture_render_params_buffer: Buffer,
     render_infinite_pipeline: RenderPipeline,
     render_infinite_bind_group: BindGroup,
-    // JFA pipelines and resources
-    jfa_seed_clear_pipeline: ComputePipeline,
-    jfa_seed_populate_pipeline: ComputePipeline,
-    jfa_step_pipeline: ComputePipeline,
-    jfa_params_step: Buffer,
-    jfa_params_seed: Buffer,
-    jfa_seed_clear_bg_a: BindGroup,
-    jfa_seed_populate_bg_a: BindGroup,
-    jfa_step_bg_a_to_b: BindGroup,
-    jfa_step_bg_b_to_a: BindGroup,
-    jfa_result_is_a: bool,
 }
 
 impl VoronoiCASimulation {
@@ -363,33 +319,7 @@ impl VoronoiCASimulation {
                 cache: None,
             });
 
-        // Create JFA textures
-        let jfa_scale: f32 = 1.0; // full resolution for now to debug
-        let jfa_width = (width * jfa_scale).max(1.0) as u32;
-        let jfa_height = (height * jfa_scale).max(1.0) as u32;
-        let tex_desc = wgpu::TextureDescriptor {
-            label: Some("VCA JFA Tex"),
-            size: wgpu::Extent3d {
-                width: jfa_width,
-                height: jfa_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba32Float,
-            // Allow CPU writes for EDT output
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        };
-        let jfa_tex_a = device.create_texture(&tex_desc);
-        let jfa_tex_a_view = jfa_tex_a.create_view(&wgpu::TextureViewDescriptor::default());
-        let jfa_tex_b = device.create_texture(&tex_desc);
-        let jfa_tex_b_view = jfa_tex_b.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Initialize points in JFA grid coordinates
+        // Initialize points
         let mut rng = rand::rng();
         let num_points = 300u32; // modest default
         let mut points: Vec<Vertex> = Vec::with_capacity(num_points as usize);
@@ -399,8 +329,8 @@ impl VoronoiCASimulation {
         for _ in 0..num_points {
             points.push(Vertex {
                 position: [
-                    rng.random_range(0.0..(jfa_width as f32)),
-                    rng.random_range(0.0..(jfa_height as f32)),
+                    rng.random_range(0.0..(width)),
+                    rng.random_range(0.0..(height)),
                 ],
                 state: if rng.random::<f32>() > 0.7 { 1.0 } else { 0.0 },
                 pad0: 0.0,
@@ -428,8 +358,8 @@ impl VoronoiCASimulation {
         // Create spatial grid buffers (fixed cell size and capacity)
         let cell_capacity: u32 = 64;
         let cell_size: f32 = (uniforms.neighbor_radius * 1.25).max(8.0); // tie to radius to bound neighbor cells
-        let grid_width = ((jfa_width as f32 + cell_size - 1.0) / cell_size).ceil() as u32;
-        let grid_height = ((jfa_height as f32 + cell_size - 1.0) / cell_size).ceil() as u32;
+        let grid_width = ((width + cell_size - 1.0) / cell_size).ceil() as u32;
+        let grid_height = ((height + cell_size - 1.0) / cell_size).ceil() as u32;
         let num_cells = grid_width * grid_height;
         let grid_counts = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("VCA Grid Counts"),
@@ -458,9 +388,9 @@ impl VoronoiCASimulation {
             grid_height,
             cell_capacity,
             cell_size,
-            jfa_width: jfa_width as f32,
-            jfa_height: jfa_height as f32,
-            _pad: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
+            _pad3: 0.0,
         };
         queue.write_buffer(&grid_params, 0, bytemuck::bytes_of(&gp));
 
@@ -653,24 +583,12 @@ impl VoronoiCASimulation {
             ],
         });
 
-        // (No JFA bind group layouts in EDT mode)
         let voronoi_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("VCA Voronoi Render BGL"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
-                    // jfa texture
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
                     // params
-                    binding: 1,
+                    binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -681,7 +599,7 @@ impl VoronoiCASimulation {
                 },
                 wgpu::BindGroupLayoutEntry {
                     // vertices (states)
-                    binding: 2,
+                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -692,7 +610,7 @@ impl VoronoiCASimulation {
                 },
                 wgpu::BindGroupLayoutEntry {
                     // LUT buffer
-                    binding: 3,
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -713,8 +631,6 @@ impl VoronoiCASimulation {
         });
         // init params
         let initial_params = VoronoiParams {
-            jfa_width: jfa_width as f32,
-            jfa_height: jfa_height as f32,
             count: 0.0,
             color_mode: 0.0,
             neighbor_radius: 60.0,
@@ -725,7 +641,8 @@ impl VoronoiCASimulation {
                 crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                 crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
             },
-            _pad2: 0.0,
+            resolution_x: width,
+            resolution_y: height,
         };
         queue.write_buffer(&voronoi_params, 0, bytemuck::bytes_of(&initial_params));
 
@@ -739,46 +656,20 @@ impl VoronoiCASimulation {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let voronoi_render_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG A"),
+        let voronoi_render_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Voronoi Render BG"),
             layout: &voronoi_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
                     resource: voronoi_params.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        let voronoi_render_bg_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG B"),
-            layout: &voronoi_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_b_view),
-                },
-                wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: voronoi_params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: vertex_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: lut_buffer.as_entire_binding(),
                 },
             ],
@@ -819,259 +710,6 @@ impl VoronoiCASimulation {
                 multiview: None,
                 cache: None,
             });
-
-        // (removed)
-
-        // JFA: shader modules
-        let jfa_seed_clear_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VCA JFA Seed Clear"),
-            source: wgpu::ShaderSource::Wgsl(JFA_SEED_CLEAR_SHADER.into()),
-        });
-        let jfa_seed_populate_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VCA JFA Seed Populate"),
-            source: wgpu::ShaderSource::Wgsl(JFA_SEED_POPULATE_SHADER.into()),
-        });
-        let jfa_step_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VCA JFA Step"),
-            source: wgpu::ShaderSource::Wgsl(JFA_STEP_SHADER.into()),
-        });
-
-        // JFA: uniform buffers
-        let jfa_params_step = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("VCA JFA Params Step"),
-            size: std::mem::size_of::<JfaParamsStep>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let jfa_params_seed = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("VCA JFA Params Seed"),
-            size: std::mem::size_of::<JfaSeedParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // JFA: bind group layouts
-        let jfa_seed_clear_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("VCA JFA Seed Clear BGL"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba32Float,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        let jfa_seed_populate_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("VCA JFA Seed Populate BGL"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        // vertices
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // dst storage texture
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba32Float,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // params
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-        let jfa_step_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("VCA JFA Step BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    // src sampled texture
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    // dst storage texture
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba32Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    // params
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        // JFA: pipelines
-        let jfa_seed_clear_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("VCA JFA Seed Clear Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("VCA JFA Seed Clear PL"),
-                        bind_group_layouts: &[&jfa_seed_clear_bgl],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &jfa_seed_clear_module,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-        let jfa_seed_populate_pipeline =
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("VCA JFA Seed Populate Pipeline"),
-                layout: Some(
-                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("VCA JFA Seed Populate PL"),
-                        bind_group_layouts: &[&jfa_seed_populate_bgl],
-                        push_constant_ranges: &[],
-                    }),
-                ),
-                module: &jfa_seed_populate_module,
-                entry_point: Some("main"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-        let jfa_step_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("VCA JFA Step Pipeline"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("VCA JFA Step PL"),
-                    bind_group_layouts: &[&jfa_step_bgl],
-                    push_constant_ranges: &[],
-                }),
-            ),
-            module: &jfa_step_module,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-
-        // JFA: bind groups
-        let jfa_seed_clear_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA JFA Seed Clear BG A"),
-            layout: &jfa_seed_clear_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: jfa_params_step.as_entire_binding(),
-                },
-            ],
-        });
-        let jfa_seed_populate_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA JFA Seed Populate BG A"),
-            layout: &jfa_seed_populate_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: jfa_params_seed.as_entire_binding(),
-                },
-            ],
-        });
-        let jfa_step_bg_a_to_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA JFA Step BG A->B"),
-            layout: &jfa_step_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_b_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: jfa_params_step.as_entire_binding(),
-                },
-            ],
-        });
-        let jfa_step_bg_b_to_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA JFA Step BG B->A"),
-            layout: &jfa_step_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_b_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: jfa_params_step.as_entire_binding(),
-                },
-            ],
-        });
 
         // Create offscreen display texture that we'll tile infinitely to the surface
         let display_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -1255,12 +893,8 @@ impl VoronoiCASimulation {
             grid_populate_pipeline,
             grid_clear_bg,
             grid_populate_bg,
-            jfa_tex_a_view,
             voronoi_params,
-            voronoi_render_bg_a,
-            voronoi_render_bg_b,
-            jfa_width,
-            jfa_height,
+            voronoi_render_bg,
             num_points,
             time_accum: 0.0,
             time_scale: 1.0,
@@ -1269,8 +903,6 @@ impl VoronoiCASimulation {
             alive_threshold: 0.5,
             resolution: [width, height],
             gui_visible: true,
-            edt_update_interval: 1,
-            edt_frame_counter: 0,
             points,
             // LUT + coloring defaults
             lut_buffer,
@@ -1290,26 +922,15 @@ impl VoronoiCASimulation {
             render_infinite_bind_group,
             post_processing_state,
             post_processing_resources,
-            jfa_seed_clear_pipeline,
-            jfa_seed_populate_pipeline,
-            jfa_step_pipeline,
-            jfa_params_step,
-            jfa_params_seed,
-            jfa_seed_clear_bg_a,
-            jfa_seed_populate_bg_a,
-            jfa_step_bg_a_to_b,
-            jfa_step_bg_b_to_a,
-            jfa_result_is_a: true,
             // run-and-tumble defaults
             headings,
             run_time_left,
             tumble_time_left,
-            run_speed: 10.0,   // px/sec on JFA grid
+            run_speed: 10.0,   // px/sec
             avg_run_time: 1.5, // seconds
             tumble_time: 0.2,  // seconds
             cursor_size: 0.20,
             cursor_strength: 1.0,
-            jfa_tex_b_view,
         })
     }
 
@@ -1328,8 +949,8 @@ impl VoronoiCASimulation {
         for _ in 0..new_count {
             points.push(Vertex {
                 position: [
-                    rng.random_range(0.0..(self.jfa_width as f32)),
-                    rng.random_range(0.0..(self.jfa_height as f32)),
+                    rng.random_range(0.0..(self.resolution[0] as f32)),
+                    rng.random_range(0.0..(self.resolution[1] as f32)),
                 ],
                 state: if rng.random::<f32>() > 0.7 { 1.0 } else { 0.0 },
                 pad0: 0.0,
@@ -1487,19 +1108,8 @@ impl VoronoiCASimulation {
             label: Some("VCA Voronoi Render BGL Rebind"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
-                    // jfa texture
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
                     // params
-                    binding: 1,
+                    binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -1510,7 +1120,7 @@ impl VoronoiCASimulation {
                 },
                 wgpu::BindGroupLayoutEntry {
                     // vertices (states)
-                    binding: 2,
+                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -1521,7 +1131,7 @@ impl VoronoiCASimulation {
                 },
                 wgpu::BindGroupLayoutEntry {
                     // LUT buffer
-                    binding: 3,
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -1533,52 +1143,24 @@ impl VoronoiCASimulation {
             ],
         });
 
-        self.voronoi_render_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG A Rebind"),
+        self.voronoi_render_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Voronoi Render BG Rebind"),
             layout: &voronoi_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
                     resource: self.voronoi_params.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 2,
+                    binding: 1,
                     resource: vertex_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
+                    binding: 2,
                     resource: self.lut_buffer.as_entire_binding(),
                 },
             ],
         });
-        // Rebind Voronoi BG for texture B as well
-        self.voronoi_render_bg_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG B Rebind"),
-            layout: &voronoi_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.jfa_tex_b_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.voronoi_params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        // No JFA bind groups in EDT mode
 
         // Recreate grid populate BG which also depends on vertex buffer
         let grid_populate_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1649,65 +1231,6 @@ impl VoronoiCASimulation {
             ],
         });
 
-        // Recreate JFA seed populate bind group referencing new vertex buffer
-        let jfa_seed_populate_bgl =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("VCA JFA Seed Populate BGL Rebind"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        // vertices
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // dst storage texture
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba32Float,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        // params
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
-        self.jfa_seed_populate_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA JFA Seed Populate BG A Rebind"),
-            layout: &jfa_seed_populate_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.jfa_tex_a_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.jfa_params_seed.as_entire_binding(),
-                },
-            ],
-        });
-
         // Update fields
         self.points = points;
         self.headings = headings;
@@ -1746,8 +1269,8 @@ impl Simulation for VoronoiCASimulation {
         let mut rng = rand::rng();
         let min_x = 0.0f32;
         let min_y = 0.0f32;
-        let size_x = self.jfa_width as f32;
-        let size_y = self.jfa_height as f32;
+        let size_x = self.resolution[0] as f32;
+        let size_y = self.resolution[1] as f32;
         let speed = self.run_speed.max(0.0) * self.drift.max(0.0); // px/sec
         for i in 0..(self.num_points as usize) {
             // Progress timers
@@ -1780,7 +1303,7 @@ impl Simulation for VoronoiCASimulation {
                 self.run_time_left[i] = -self.avg_run_time.max(0.05) * u.ln();
             }
         }
-        // Sync updated CPU-side positions to the GPU so compute/JFA use latest data
+        // Sync updated CPU-side positions to the GPU so compute uses latest data
         // This writes the entire array for simplicity; can be optimized later
         queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
 
@@ -1791,17 +1314,17 @@ impl Simulation for VoronoiCASimulation {
         // Update grid params each frame (particle count and possibly cell size)
         let gp = GridParams {
             particle_count: self.num_points,
-            grid_width: (((self.jfa_width as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
+            grid_width: (((self.resolution[0] as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
                 / (self.neighbor_radius * 1.25).max(8.0))
             .ceil() as u32,
-            grid_height: (((self.jfa_height as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
+            grid_height: (((self.resolution[1] as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
                 / (self.neighbor_radius * 1.25).max(8.0))
             .ceil() as u32,
             cell_capacity: 64,
             cell_size: (self.neighbor_radius * 1.25).max(8.0),
-            jfa_width: self.jfa_width as f32,
-            jfa_height: self.jfa_height as f32,
-            _pad: 0.0,
+            _pad1: 0.0,
+            _pad2: 0.0,
+            _pad3: 0.0,
         };
         queue.write_buffer(&self.grid_params, 0, bytemuck::bytes_of(&gp));
 
@@ -1848,15 +1371,8 @@ impl Simulation for VoronoiCASimulation {
             cpass.dispatch_workgroups(wg_count, 1, 1);
         }
 
-        if (self.edt_frame_counter % self.edt_update_interval) == 0 {
-            // JFA is no longer used - brute-force Voronoi is computed in render shader
-            // This section is kept for potential future use but currently disabled
-        }
-        self.edt_frame_counter = self.edt_frame_counter.wrapping_add(1);
         // Update uniform params (count and color mode)
         let params = VoronoiParams {
-            jfa_width: self.jfa_width as f32,
-            jfa_height: self.jfa_height as f32,
             count: self.num_points as f32,
             color_mode: self.color_mode as f32,
             neighbor_radius: self.neighbor_radius,
@@ -1867,7 +1383,8 @@ impl Simulation for VoronoiCASimulation {
                 crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                 crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
             },
-            _pad2: 0.0,
+            resolution_x: self.resolution[0],
+            resolution_y: self.resolution[1],
         };
         queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
@@ -1894,8 +1411,6 @@ impl Simulation for VoronoiCASimulation {
             rpass.set_pipeline(&self.voronoi_render_pipeline);
             // Update params before draw
             let params = VoronoiParams {
-                jfa_width: self.jfa_width as f32,
-                jfa_height: self.jfa_height as f32,
                 count: self.num_points as f32,
                 color_mode: self.color_mode as f32,
                 neighbor_radius: self.neighbor_radius,
@@ -1906,12 +1421,12 @@ impl Simulation for VoronoiCASimulation {
                     crate::commands::app_settings::TextureFiltering::Linear => 1.0,
                     crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
                 },
-                _pad2: 0.0,
+                resolution_x: self.resolution[0],
+                resolution_y: self.resolution[1],
             };
             queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
-            // Use either A or B texture (doesn't matter since we're not using JFA)
-            rpass.set_bind_group(0, &self.voronoi_render_bg_a, &[]);
+            rpass.set_bind_group(0, &self.voronoi_render_bg, &[]);
             rpass.draw(0..3, 0..1);
         }
 
@@ -2038,96 +1553,9 @@ impl Simulation for VoronoiCASimulation {
         self.camera.update(0.016);
         self.camera.upload_to_gpu(queue);
 
-        // Rebuild Voronoi via GPU JFA (same as dynamic path)
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("VoronoiCA Static Encoder"),
         });
-        // Update JFA params
-        let step_params = JfaParamsStep {
-            width: self.jfa_width,
-            height: self.jfa_height,
-            step: 0,
-            _pad: 0,
-        };
-        let seed_params = JfaSeedParams {
-            width: self.jfa_width,
-            height: self.jfa_height,
-            count: self.num_points,
-            _pad: 0,
-        };
-        queue.write_buffer(&self.jfa_params_step, 0, bytemuck::bytes_of(&step_params));
-        queue.write_buffer(&self.jfa_params_seed, 0, bytemuck::bytes_of(&seed_params));
-
-        // Clear A
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VCA JFA Seed Clear Static"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.jfa_seed_clear_pipeline);
-            cpass.set_bind_group(0, &self.jfa_seed_clear_bg_a, &[]);
-            cpass.dispatch_workgroups(self.jfa_width.div_ceil(8), self.jfa_height.div_ceil(8), 1);
-        }
-        // Populate seeds into A
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VCA JFA Seed Populate Static"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.jfa_seed_populate_pipeline);
-            cpass.set_bind_group(0, &self.jfa_seed_populate_bg_a, &[]);
-            cpass.dispatch_workgroups(self.num_points.div_ceil(64), 1, 1);
-        }
-
-        // JFA steps
-        let max_dim = self.jfa_width.max(self.jfa_height);
-        let mut step = 1;
-        self.jfa_result_is_a = true;
-        while step <= max_dim {
-            let step_params = JfaParamsStep {
-                width: self.jfa_width,
-                height: self.jfa_height,
-                step,
-                _pad: 0,
-            };
-            queue.write_buffer(&self.jfa_params_step, 0, bytemuck::bytes_of(&step_params));
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VCA JFA Step Static"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.jfa_step_pipeline);
-            if self.jfa_result_is_a {
-                cpass.set_bind_group(0, &self.jfa_step_bg_a_to_b, &[]);
-            } else {
-                cpass.set_bind_group(0, &self.jfa_step_bg_b_to_a, &[]);
-            }
-            cpass.dispatch_workgroups(self.jfa_width.div_ceil(8), self.jfa_height.div_ceil(8), 1);
-            self.jfa_result_is_a = !self.jfa_result_is_a;
-            step <<= 1;
-        }
-        // Refine
-        let step_params = JfaParamsStep {
-            width: self.jfa_width,
-            height: self.jfa_height,
-            step: 1,
-            _pad: 0,
-        };
-        queue.write_buffer(&self.jfa_params_step, 0, bytemuck::bytes_of(&step_params));
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VCA JFA Step Refine Static"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.jfa_step_pipeline);
-            if self.jfa_result_is_a {
-                cpass.set_bind_group(0, &self.jfa_step_bg_a_to_b, &[]);
-            } else {
-                cpass.set_bind_group(0, &self.jfa_step_bg_b_to_a, &[]);
-            }
-            cpass.dispatch_workgroups(self.jfa_width.div_ceil(8), self.jfa_height.div_ceil(8), 1);
-            self.jfa_result_is_a = !self.jfa_result_is_a;
-        }
-
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("VoronoiCA Render Pass Static"),
@@ -2144,11 +1572,7 @@ impl Simulation for VoronoiCASimulation {
                 timestamp_writes: None,
             });
             rpass.set_pipeline(&self.voronoi_render_pipeline);
-            if self.jfa_result_is_a {
-                rpass.set_bind_group(0, &self.voronoi_render_bg_a, &[]);
-            } else {
-                rpass.set_bind_group(0, &self.voronoi_render_bg_b, &[]);
-            }
+
             rpass.draw(0..3, 0..1);
         }
 
@@ -2188,7 +1612,7 @@ impl Simulation for VoronoiCASimulation {
     fn resize(
         &mut self,
         device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
     ) -> SimulationResult<()> {
         // Update resolution and camera
@@ -2198,6 +1622,17 @@ impl Simulation for VoronoiCASimulation {
         ];
         self.camera
             .resize(new_config.width as f32, new_config.height as f32);
+
+        // Redistribute points to match new resolution
+        let mut rng = rand::rng();
+        for i in 0..(self.num_points as usize) {
+            self.points[i].position = [
+                rng.random_range(0.0..self.resolution[0]),
+                rng.random_range(0.0..self.resolution[1]),
+            ];
+        }
+        // Update GPU buffer with new positions
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
 
         // Recreate display texture and related bind group
         self.display_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -2467,29 +1902,26 @@ impl Simulation for VoronoiCASimulation {
         _device: &Arc<Device>,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Convert world coordinates to JFA grid coordinates
-        // World coords are in [-1,1] range, need to convert to [0, jfa_width] x [0, jfa_height]
+        // Convert world coordinates to simulation coordinates
+        // World coords are in [-1,1] range, need to convert to [0, width] x [0, height]
         // Account for camera position and zoom
         let camera_x = self.camera.position[0];
         let camera_y = self.camera.position[1];
         let zoom = self.camera.zoom;
 
-        // Convert world coordinates to JFA grid coordinates
-        // First, apply camera transform to get local coordinates
+        // Use cursor size as world space radius, convert to simulation space
+        let world_radius = self.cursor_size;
+        let sim_radius = world_radius * zoom * (self.resolution[0].min(self.resolution[1]) as f32) * 0.5;
+        let radius_sq = sim_radius * sim_radius;
+
+        // Apply camera transform to get local coordinates in [-1,1] range
         let local_x = (world_x - camera_x) / zoom;
         let local_y = (world_y - camera_y) / zoom;
 
-        // Then convert to JFA grid coordinates [0, width] x [0, height]
-        let x =
-            ((local_x + 1.0) * 0.5 * self.jfa_width as f32).clamp(0.0, (self.jfa_width - 1) as f32);
-        let y = ((1.0 - local_y) * 0.5 * self.jfa_height as f32)
-            .clamp(0.0, (self.jfa_height - 1) as f32);
-
-        // Calculate radius in JFA grid units
-        // cursor_size is in world units, convert to JFA grid units
-        let radius_world = self.cursor_size;
-        let radius_jfa = radius_world / zoom * (self.jfa_width.min(self.jfa_height) as f32) * 0.5;
-        let radius_sq = radius_jfa * radius_jfa;
+        // Convert from [-1,1] range to [0, resolution] range
+        // Flip Y axis: world Y increases upward, simulation Y increases downward
+        let x = (local_x + 1.0) * 0.5 * self.resolution[0] as f32;
+        let y = (1.0 - local_y) * 0.5 * self.resolution[1] as f32;
 
         // Buttons: 0 = left => set alive, 2 = right => set dead
         let set_alive = mouse_button == 0;
@@ -2498,9 +1930,14 @@ impl Simulation for VoronoiCASimulation {
             return Ok(());
         }
 
+        tracing::debug!(
+            "VCA mouse interaction: world=({:.3}, {:.3}), sim=({:.1}, {:.1}), button={}, world_radius={:.3}, sim_radius={:.1}",
+            world_x, world_y, x, y, mouse_button, world_radius, sim_radius
+        );
+
         // Apply toroidal wrapping for distance calculation (matching the render shader)
-        let w = self.jfa_width as f32;
-        let h = self.jfa_height as f32;
+        let w = self.resolution[0] as f32;
+        let h = self.resolution[1] as f32;
 
         for v in &mut self.points {
             let mut dx = v.position[0] - x;
@@ -2529,6 +1966,21 @@ impl Simulation for VoronoiCASimulation {
                 }
             }
         }
+        
+        // Count how many points were modified
+        let modified_count = self.points.iter().filter(|p| {
+            let mut dx = p.position[0] - x;
+            let mut dy = p.position[1] - y;
+            if dx > 0.5 * w { dx -= w; }
+            if dx < -0.5 * w { dx += w; }
+            if dy > 0.5 * h { dy -= h; }
+            if dy < -0.5 * h { dy += h; }
+            let d2 = dx * dx + dy * dy;
+            d2 <= radius_sq
+        }).count();
+        
+        tracing::debug!("VCA mouse interaction: modified {} points", modified_count);
+        
         // Push updated states to GPU immediately so painting is visible next frame
         _queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
         Ok(())

@@ -2,7 +2,7 @@
 
 use super::shaders::{
     COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    JFA_SEED_CLEAR_SHADER, JFA_SEED_POPULATE_SHADER, JFA_STEP_SHADER, VORONOI_RENDER_SHADER,
+    VORONOI_RENDER_SHADER,
 };
 
 struct VcaValidator {
@@ -81,26 +81,7 @@ impl VcaValidator {
             });
     }
 
-    fn compile_jfa(&self) {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA JFA Seed Clear Shader"),
-                source: wgpu::ShaderSource::Wgsl(JFA_SEED_CLEAR_SHADER.into()),
-            });
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA JFA Seed Populate Shader"),
-                source: wgpu::ShaderSource::Wgsl(JFA_SEED_POPULATE_SHADER.into()),
-            });
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA JFA Step Shader"),
-                source: wgpu::ShaderSource::Wgsl(JFA_STEP_SHADER.into()),
-            });
-    }
+
 }
 
 #[tokio::test]
@@ -109,5 +90,4 @@ async fn test_vca_shader_compilation() {
     v.compile_render();
     v.compile_compute();
     v.compile_grid();
-    v.compile_jfa();
 }

@@ -3,20 +3,19 @@
 struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
 
 // Matches Rust bind group layout:
-// 0: jfa texture (sampled), 1: VoronoiParams (uniform), 2: vertices (storage), 3: LUT (storage)
-@group(0) @binding(0) var cellTex : texture_2d<f32>;
+// 0: VoronoiParams (uniform), 1: vertices (storage), 2: LUT (storage)
 
 struct VoronoiParams {
-  jfa_width: f32,
-  jfa_height: f32,
   count: f32,
   color_mode: f32,
   neighbor_radius: f32,
   border_enabled: f32,
   border_threshold: f32,
   filter_mode: f32,
+  resolution_x: f32,
+  resolution_y: f32,
 };
-@group(0) @binding(1) var<uniform> params: VoronoiParams;
+@group(0) @binding(0) var<uniform> params: VoronoiParams;
 
 struct Vertex {
   position: vec2<f32>,
@@ -27,10 +26,10 @@ struct Vertex {
   dead_neighbors: u32,
   pad1: u32,
 };
-@group(0) @binding(2) var<storage, read> vertices: array<Vertex>;
+@group(0) @binding(1) var<storage, read> vertices: array<Vertex>;
 
 // LUT buffer in planar format [r0..r255, g0..r255, b0..b255]
-@group(0) @binding(3) var<storage, read> lut_data: array<u32>;
+@group(0) @binding(2) var<storage, read> lut_data: array<u32>;
 
 fn srgb_to_linear(srgb: f32) -> f32 {
   if (srgb <= 0.04045) { return srgb / 12.92; }
@@ -71,8 +70,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VSOut {
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let uv = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(0.999999));
-  let dims = vec2<u32>(textureDimensions(cellTex));
-  let fdim = vec2<f32>(dims);
+  let fdim = vec2<f32>(params.resolution_x, params.resolution_y);
   let xy = vec2<i32>(clamp(vec2<i32>(vec2<f32>(uv * fdim)), vec2<i32>(0), vec2<i32>(i32(fdim.x) - 1, i32(fdim.y) - 1)));
   
   // Brute-force Voronoi: find closest site directly

@@ -6,9 +6,9 @@ struct GridParams {
   grid_height: u32,
   cell_capacity: u32,
   cell_size: f32,
-  jfa_width: f32,
-  jfa_height: f32,
-  _pad: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
 }
 
 // Atomic per-cell counts used for concurrent population

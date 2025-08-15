@@ -34,9 +34,9 @@ struct GridParams {
   grid_height: u32,
   cell_capacity: u32,
   cell_size: f32,
-  jfa_width: f32,
-  jfa_height: f32,
-  _pad: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
 }
 
 @group(0) @binding(0) var<storage, read_write> vertices: Vertices;
@@ -79,8 +79,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
           if (j != i) {
             let u = vertices.data[j];
             // Toroidal distance: wrap across edges
-            let w = grid.jfa_width;
-            let h = grid.jfa_height;
+            let w = uniforms.resolution.x;
+            let h = uniforms.resolution.y;
             var dx = u.position.x - v.position.x;
             var dy = u.position.y - v.position.y;
             if (dx >  0.5 * w) { dx = dx - w; }
@@ -103,8 +103,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
       if (j >= n) { break; }
       if (j != i) {
         let u = vertices.data[j];
-        let w = grid.jfa_width;
-        let h = grid.jfa_height;
+        let w = uniforms.resolution.x;
+        let h = uniforms.resolution.y;
         var dx = u.position.x - v.position.x;
         var dy = u.position.y - v.position.y;
         if (dx >  0.5 * w) { dx = dx - w; }

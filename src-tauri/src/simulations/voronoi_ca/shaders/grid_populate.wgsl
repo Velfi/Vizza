@@ -16,9 +16,9 @@ struct GridParams {
   grid_height: u32,
   cell_capacity: u32,
   cell_size: f32,
-  jfa_width: f32,
-  jfa_height: f32,
-  _pad: f32,
+  _pad1: f32,
+  _pad2: f32,
+  _pad3: f32,
 }
 
 @group(0) @binding(0) var<storage, read> vertices: array<Vertex>;
@@ -37,7 +37,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   if (i >= params.particle_count) { return; }
   let p = vertices[i].position;
-  // Convert JFA pixel coords to grid cell
+  // Convert pixel coords to grid cell
   let gx = clamp(u32(p.x / params.cell_size), 0u, max(1u, params.grid_width) - 1u);
   let gy = clamp(u32(p.y / params.cell_size), 0u, max(1u, params.grid_height) - 1u);
   let cell = grid_flat_index(gx, gy);
