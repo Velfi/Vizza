@@ -23,15 +23,6 @@ struct ColorMode {
 @group(1) @binding(0) var<uniform> species_colors: SpeciesColors;
 @group(1) @binding(1) var<uniform> color_mode: ColorMode;
 
-// Convert linear RGB to sRGB for proper display
-fn linear_to_srgb(linear: f32) -> f32 {
-    if (linear <= 0.0031308) {
-        return linear * 12.92;
-    } else {
-        return 1.055 * pow(linear, 1.0 / 2.4) - 0.055;
-    }
-}
-
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Create circular particles with sharp edges
@@ -63,9 +54,9 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
         // This creates a more dynamic fade that reflects the simulation content
         let dimmed_color = base_color * 0.15;
         let srgb_color = vec3<f32>(
-            linear_to_srgb(dimmed_color.r),
-            linear_to_srgb(dimmed_color.g),
-            linear_to_srgb(dimmed_color.b)
+            dimmed_color.r,
+            dimmed_color.g,
+            dimmed_color.b
         );
         return vec4<f32>(srgb_color, 1.0);
     }
@@ -74,9 +65,9 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Use the grid fade factor to adjust the color intensity
     let faded_color = base_color * input.grid_fade_factor;
     let final_color = vec3<f32>(
-        linear_to_srgb(faded_color.r),
-        linear_to_srgb(faded_color.g),
-        linear_to_srgb(faded_color.b)
+        faded_color.r,
+        faded_color.g,
+        faded_color.b
     );
     
     return vec4<f32>(final_color, 1.0);

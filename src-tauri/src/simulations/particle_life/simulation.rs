@@ -734,19 +734,17 @@ impl ParticleLifeModel {
 
         // Create LUT buffer
         let (lut_colors, current_color_scheme_name) = if color_mode == ColorMode::ColorScheme {
-            // Sample <num_species> + 2 equidistant stops so species use inner stops only
-            // Index 0 is background, indices 1..=num_species are species, last index is unused
+            // Sample <num_species> + 1 equidistant stops
+            // Use first color as background; remaining colors for species
             let raw_colors = lut
-                .get_colors(settings.species_count as usize + 2)
+                .get_colors(settings.species_count as usize + 1)
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
 
-            // Reorder colors: species first (inner stops), background last
-            // This way the GPU can use colors[0..species_count] for species and colors[species_count] for background
             let mut reordered_colors = Vec::with_capacity(settings.species_count as usize + 1);
 
-            // Add inner stops for species (skip first and last)
+            // Species colors are indices 1..=species_count
             for color in raw_colors
                 .iter()
                 .skip(1)
@@ -755,11 +753,11 @@ impl ParticleLifeModel {
                 reordered_colors.push(*color);
             }
 
-            // Add the background color (index 0) at the end
+            // Background color (index 0) is appended last
             reordered_colors.push(raw_colors[0]);
 
             tracing::trace!(
-                "Constructor LUT mode: using inner stops; stored {} colors for {} species (+ background)",
+                "Constructor LUT mode: using first as background; stored {} colors for {} species (+ background)",
                 reordered_colors.len(),
                 settings.species_count
             );
@@ -2811,8 +2809,6 @@ impl ParticleLifeModel {
         });
     }
 
-    // Note: generate_force_matrix method removed - now using settings.randomize_force_matrix()
-
     /// Update the LUT with new settings
     pub fn update_lut(
         &mut self,
@@ -2851,28 +2847,23 @@ impl ParticleLifeModel {
         let mut species_colors = Vec::with_capacity(species_count);
 
         if color_mode == ColorMode::ColorScheme {
-            // Sample species_count + 2 stops; use inner stops for species and keep background last
+            // Sample <species_count> + 1 colors: first is background, remaining are species
             let raw_colors = lut
-                .get_colors(species_count + 2)
+                .get_colors(species_count + 1)
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
 
-            let mut reordered_colors = Vec::with_capacity(species_count + 1);
-
-            // Add inner stops for species (skip first and last)
+            // Species colors from indices 1..=species_count
             for color in raw_colors.iter().skip(1).take(species_count) {
-                reordered_colors.push(*color);
+                species_colors.push(*color);
             }
 
-            // Add background at the end
-            reordered_colors.push(raw_colors[0]);
-
-            // Store reordered colors (species first, background last)
-            species_colors = reordered_colors;
+            // Append background color at the end
+            species_colors.push(raw_colors[0]);
 
             tracing::debug!(
-                "LUT mode: stored {} colors ({} species + background) from LUT",
+                "LUT mode: using first as background; got {} colors for {} species (+ background)",
                 species_colors.len(),
                 species_count
             );

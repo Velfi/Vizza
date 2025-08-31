@@ -1257,8 +1257,9 @@
       );
       state!.color_scheme_reversed = reversed;
 
-      await invoke('update_simulation_state', {
-        stateName: 'lut_reversed',
+      // Update as a setting; backend listens for 'color_scheme_reversed' in update_setting
+      await invoke('update_simulation_setting', {
+        settingName: 'color_scheme_reversed',
         value: reversed,
       });
 
