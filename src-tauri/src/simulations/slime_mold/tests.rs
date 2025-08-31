@@ -22,8 +22,7 @@ impl SlimeMoldValidator {
     async fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            flags: wgpu::InstanceFlags::default(),
-            backend_options: Default::default(),
+            ..Default::default()
         });
 
         let adapter = instance
@@ -40,10 +39,8 @@ impl SlimeMoldValidator {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: Default::default(),
+                    ..Default::default()
                 },
-                None,
             )
             .await
             .expect("Failed to create device");

@@ -860,6 +860,7 @@ impl SlimeMoldModel {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -910,6 +911,7 @@ impl SlimeMoldModel {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -1515,6 +1517,7 @@ impl SlimeMoldModel {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
@@ -1598,6 +1601,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -1965,7 +1969,7 @@ fn create_agent_buffer_with_scaling(
     read_staging_buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-    device.poll(wgpu::Maintain::Wait);
+    device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
     receiver.recv().unwrap().unwrap();
 
     // Read old data and scale positions
@@ -2086,7 +2090,7 @@ fn scale_trail_map_data(
         read_staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
         receiver.recv().unwrap().unwrap();
 
         // Read old data and scale to new dimensions
@@ -2165,7 +2169,7 @@ fn scale_trail_map_data(
         read_staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
         receiver.recv().unwrap().unwrap();
 
         // Read old data and scale to new dimensions

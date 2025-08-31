@@ -51,7 +51,7 @@ impl GpuContext {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or(AppError::Gpu(GpuError::AdapterNotFound))?;
+            .map_err(|_e| AppError::Gpu(GpuError::AdapterNotFound))?;
 
         // Get adapter info
         let adapter_info = adapter.get_info();
@@ -71,8 +71,8 @@ impl GpuContext {
                     required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                     required_limits: limits,
                     memory_hints: wgpu::MemoryHints::Performance,
+                    ..Default::default()
                 },
-                None,
             )
             .await
             .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;

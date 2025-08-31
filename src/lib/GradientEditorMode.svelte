@@ -722,9 +722,6 @@
       const lutData = [...rArr, ...gArr, ...bArr];
       await invoke('save_custom_color_scheme', { name: colorSchemeName, colorSchemeData: lutData });
 
-      // Clear the temporary LUT
-      await invoke('clear_temp_color_scheme');
-
       // Update the gradient simulation with the new LUT
       await invoke('apply_color_scheme_by_name', { colorSchemeName: colorSchemeName });
 
@@ -774,10 +771,6 @@
   }
 
   function goBack() {
-    // Clear the temporary LUT before going back
-    invoke('clear_temp_color_scheme').catch((e) => {
-      console.error('Failed to clear temporary LUT:', e);
-    });
     dispatch('back');
   }
 
@@ -930,9 +923,6 @@
 
   onDestroy(async () => {
     try {
-      // Clear the temporary LUT
-      await invoke('clear_temp_color_scheme');
-
       await invoke('destroy_simulation');
     } catch (error) {
       console.error('Failed to destroy simulation on component destroy:', error);

@@ -2695,7 +2695,7 @@ impl ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Ensure GPU operations complete
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
 
         tracing::info!("Particle reset complete");
         Ok(())
@@ -3118,6 +3118,7 @@ impl ParticleLifeModel {
                         load: wgpu::LoadOp::Clear(background_color),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3135,6 +3136,7 @@ impl ParticleLifeModel {
                         load: wgpu::LoadOp::Clear(background_color),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3270,6 +3272,7 @@ impl ParticleLifeModel {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
@@ -3332,6 +3335,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear to transparent, background shader will fill
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3356,6 +3360,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Load, // Preserve previous trail content
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3381,6 +3386,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Load, // Load existing background
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3401,6 +3407,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Load, // Load existing background
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3466,6 +3473,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3492,6 +3500,7 @@ impl Simulation for ParticleLifeModel {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -3578,6 +3587,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), // Clear to transparent, background shader will fill
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -3651,6 +3661,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Clear(background_color), // Clear with background color
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -3696,6 +3707,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Load, // Preserve background
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -3734,6 +3746,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Load, // Load existing background
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -3758,6 +3771,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -3785,6 +3799,7 @@ impl Simulation for ParticleLifeModel {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -4365,7 +4380,7 @@ impl Simulation for ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Ensure GPU operations complete
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
 
         Ok(())
     }
@@ -4492,7 +4507,7 @@ impl ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Force GPU to finish all commands to ensure buffer updates are complete
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
 
         Ok(())
     }
