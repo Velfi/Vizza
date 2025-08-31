@@ -21,8 +21,8 @@
       <h2>Gradient Editor</h2>
     </div>
     <div class="header-right">
-      <button class="save-button" on:click={saveLUT} disabled={!lutName.trim()}>
-        💾 Save LUT
+      <button class="save-button" on:click={saveColorScheme} disabled={!colorSchemeName.trim()}>
+        💾 Save Color Scheme
       </button>
     </div>
   </div>
@@ -68,35 +68,35 @@
     <div class="control-header">
       <div class="header-grid">
         <div class="name-section">
-          <label for="lut-name-input">Name:</label>
+          <label for="color-scheme-name-input">Name:</label>
           <input
-            id="lut-name-input"
+            id="color-scheme-name-input"
             type="text"
-            bind:value={lutName}
-            placeholder="LUT name"
-            class="lut-name-input"
+            bind:value={colorSchemeName}
+            placeholder="Color Scheme Name"
+            class="color-scheme-name-input"
           />
         </div>
         <div class="preset-section">
           <label for="preset-selector">Preset:</label>
           <Selector
             id="preset-selector"
-            options={['Custom', 'Rainbow', 'Heat', 'Cool', 'Viridis', 'Plasma', 'Inferno']}
+            options={['Custom', 'Rainbow', 'Warm', 'Cool', 'Viridis', 'Plasma', 'Inferno']}
             bind:value={selectedPreset}
             on:change={applyPreset}
           />
         </div>
         <div class="space-section">
-          <label for="color-space-selector">Space:</label>
+          <label for="color-space-selector">Color Space:</label>
           <Selector
             id="color-space-selector"
-            options={['RGB', 'Lab', 'OkLab', 'Jzazbz', 'HSLuv']}
+            options={['rgb', 'lab', 'oklab', 'jab', 'lchuv']}
             bind:value={selectedColorSpace}
             on:change={handleColorSpaceChange}
           />
         </div>
         <div class="display-section">
-          <label for="display-mode-selector">Display:</label>
+          <label for="display-mode-selector">Display Mode:</label>
           <Selector
             id="display-mode-selector"
             options={['Smooth', 'Dithered']}
@@ -216,15 +216,15 @@
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import Selector from './components/inputs/Selector.svelte';
-  import { interpolate, formatHex, rgb } from 'culori';
+  import { interpolate, formatHex } from 'culori';
 
   const dispatch = createEventDispatcher();
   
   export let autoHideDelay: number = 3000;
 
   // State variables
-  let lutName = '';
-  let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'OkLab';
+  let colorSchemeName = '';
+  let selectedColorSpace: 'rgb' | 'lab' | 'oklab' | 'jab' | 'lchuv' = 'oklab';
   let selectedPreset = 'Custom';
   let selectedDisplayMode = 'Smooth';
   let selectedRandomScheme: string = 'Basic';
@@ -255,59 +255,17 @@
 
   // Simplified color interpolation functions using culori
   function interpolateColor(color1: string, color2: string, t: number): string {
-    try {
-      let colorSpace = 'rgb';
+    // Create interpolator using the selected color space directly
+    const interpolator = interpolate([color1, color2], selectedColorSpace);
+    const result = interpolator(t);
 
-      switch (selectedColorSpace) {
-        case 'RGB':
-          colorSpace = 'rgb';
-          break;
-        case 'Lab':
-          colorSpace = 'lab';
-          break;
-        case 'OkLab':
-          colorSpace = 'oklab';
-          break;
-        case 'Jzazbz':
-          // Fallback to lab if jzazbz isn't supported
-          colorSpace = 'lab';
-          break;
-        case 'HSLuv':
-          // Fallback to hsl if hsluv isn't supported
-          colorSpace = 'hsl';
-          break;
-      }
-
-      // Create interpolator with error handling
-      const interpolator = interpolate([color1, color2], colorSpace);
-      const result = interpolator(t);
-
-      // Convert result to hex, with fallback
-      if (result) {
-        const hexResult = formatHex(result);
-        if (hexResult) {
-          return hexResult;
-        }
-      }
-
-      // Fallback: simple RGB interpolation
-      const c1 = rgb(color1);
-      const c2 = rgb(color2);
-      if (c1 && c2) {
-        const rgbInterpolator = interpolate([c1, c2], 'rgb');
-        const rgbResult = rgbInterpolator(t);
-        const hexFallback = formatHex(rgbResult);
-        if (hexFallback) {
-          return hexFallback;
-        }
-      }
-
-      // Final fallback
-      return color1;
-    } catch (error) {
-      console.error('Color interpolation error:', error);
-      return color1;
+    // Convert result to hex
+    const hexResult = formatHex(result);
+    if (!hexResult) {
+      throw new Error(`Failed to format color result for interpolation between ${color1} and ${color2} in ${selectedColorSpace} space`);
     }
+
+    return hexResult;
   }
 
   // Event handlers
@@ -503,8 +461,11 @@
       try {
         const lutData = generateLutData();
 
+        // Convert Uint8Array to regular array for proper serialization
+        const lutDataArray = Array.from(lutData);
+
         // Single optimized call to update gradient preview
-        await invoke('update_gradient_preview', { lutData });
+        await invoke('update_gradient_preview', { colorSchemeData: lutDataArray });
       } catch (e) {
         console.error('Failed to update gradient:', e);
       }
@@ -740,8 +701,8 @@
     updateGradient();
   }
 
-  async function saveLUT() {
-    if (!lutName.trim()) return;
+  async function saveColorScheme() {
+    if (!colorSchemeName.trim()) return;
     try {
       const rArr: number[] = [];
       const gArr: number[] = [];
@@ -759,13 +720,13 @@
       }
 
       const lutData = [...rArr, ...gArr, ...bArr];
-      await invoke('save_custom_color_scheme', { name: lutName, colorSchemeData: lutData });
+      await invoke('save_custom_color_scheme', { name: colorSchemeName, colorSchemeData: lutData });
 
       // Clear the temporary LUT
       await invoke('clear_temp_color_scheme');
 
       // Update the gradient simulation with the new LUT
-      await invoke('apply_color_scheme_by_name', { colorSchemeName: lutName });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: colorSchemeName });
 
       // Clear any existing timeout
       if (saveSuccessTimeout) {
@@ -773,7 +734,7 @@
       }
 
       // Show success message
-      saveSuccessMessage = `LUT "${lutName}" saved successfully!`;
+      saveSuccessMessage = `LUT "${colorSchemeName}" saved successfully!`;
       saveSuccessTimeout = setTimeout(() => {
         saveSuccessMessage = '';
       }, 3000); // Hide after 3 seconds
@@ -807,7 +768,7 @@
     const url = URL.createObjectURL(dataBlob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${lutName || 'custom'}.lut`;
+    link.download = `${colorSchemeName || 'custom'}.lut`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -1131,7 +1092,7 @@
     white-space: nowrap;
   }
 
-  .lut-name-input {
+  .color-scheme-name-input {
     background: #333;
     border: 1px solid #555;
     color: white;
