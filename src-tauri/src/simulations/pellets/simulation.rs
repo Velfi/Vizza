@@ -2524,7 +2524,9 @@ impl PelletsModel {
         );
 
         // Wait for the GPU work to complete
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
 
         // Read the result and update the background color buffer
         if let Some(average_color) = self.average_color_resources.get_average_color() {
@@ -3580,8 +3582,11 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             "currentLut" => {
                 if let Some(lut_name) = value.as_str() {
                     self.state.current_lut_name = lut_name.to_string();
-                    let lut_data = self.lut_manager.get(&self.state.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
-                    
+                    let lut_data = self
+                        .lut_manager
+                        .get(&self.state.current_lut_name)
+                        .unwrap_or_else(|_| self.lut_manager.get_default());
+
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
                     if self.state.lut_reversed {
@@ -3589,15 +3594,18 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
                     }
-                    
+
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
             "lutReversed" => {
                 if let Some(reversed) = value.as_bool() {
                     self.state.lut_reversed = reversed;
-                    let lut_data = self.lut_manager.get(&self.state.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
-                    
+                    let lut_data = self
+                        .lut_manager
+                        .get(&self.state.current_lut_name)
+                        .unwrap_or_else(|_| self.lut_manager.get_default());
+
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
                     if self.state.lut_reversed {
@@ -3605,7 +3613,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
                     }
-                    
+
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }

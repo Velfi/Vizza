@@ -39,13 +39,11 @@ impl ParticleLifeValidator {
             .expect("Failed to find an appropriate adapter");
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                    ..Default::default()
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                ..Default::default()
+            })
             .await
             .expect("Failed to create device");
 

@@ -65,15 +65,13 @@ impl GpuContext {
         };
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("Main GPU Device"),
-                    required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-                    required_limits: limits,
-                    memory_hints: wgpu::MemoryHints::Performance,
-                    ..Default::default()
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("Main GPU Device"),
+                required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                required_limits: limits,
+                memory_hints: wgpu::MemoryHints::Performance,
+                ..Default::default()
+            })
             .await
             .map_err(|e| AppError::Gpu(GpuError::DeviceCreationFailed(e.to_string())))?;
 

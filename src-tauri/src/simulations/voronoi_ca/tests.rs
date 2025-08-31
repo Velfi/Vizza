@@ -2,7 +2,7 @@
 
 use super::shaders::{
     COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    VORONOI_RENDER_JFA_SHADER, JFA_INIT_SHADER, JFA_ITERATION_SHADER,
+    JFA_INIT_SHADER, JFA_ITERATION_SHADER, VORONOI_RENDER_JFA_SHADER,
 };
 
 struct VcaValidator {
@@ -26,13 +26,11 @@ impl VcaValidator {
             .expect("No adapter");
 
         let (device, _queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    ..Default::default()
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                ..Default::default()
+            })
             .await
             .expect("device");
 

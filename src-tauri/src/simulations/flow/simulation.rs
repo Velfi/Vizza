@@ -1701,7 +1701,9 @@ impl FlowModel {
             .calculate_average_color(device, queue, &self.display_texture);
 
         // Wait for the GPU work to complete
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
 
         // Read the result and update the average color uniform buffer for the infinite render shader
         if let Some(average_color) = self.average_color_resources.get_average_color() {

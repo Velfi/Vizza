@@ -39,7 +39,10 @@ pub async fn reset_simulation(
     match sim_manager.reset_simulation(&gpu_ctx.device, &gpu_ctx.queue) {
         Ok(_) => {
             // Wait for GPU operations to complete before returning
-            gpu_ctx.device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+            gpu_ctx
+                .device
+                .poll(wgpu::wgt::PollType::Wait)
+                .expect("Failed to poll device");
 
             tracing::info!("Simulation reset successfully");
             Ok("Simulation reset successfully".to_string())

@@ -842,13 +842,15 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
                 if let Some(lut_name) = value.as_str() {
                     self.current_color_scheme_name = lut_name.to_string();
                     let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
-                    let mut lut_data = lut_manager.get(&self.current_color_scheme_name).unwrap_or_else(|_| lut_manager.get_default());
-                    
+                    let mut lut_data = lut_manager
+                        .get(&self.current_color_scheme_name)
+                        .unwrap_or_else(|_| lut_manager.get_default());
+
                     // Apply reversal if needed
                     if self.color_scheme_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     self.renderer.update_lut(&lut_data, queue);
                 }
             }
@@ -856,13 +858,15 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
                 if let Some(reversed) = value.as_bool() {
                     self.color_scheme_reversed = reversed;
                     let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
-                    let mut lut_data = lut_manager.get(&self.current_color_scheme_name).unwrap_or_else(|_| lut_manager.get_default());
-                    
+                    let mut lut_data = lut_manager
+                        .get(&self.current_color_scheme_name)
+                        .unwrap_or_else(|_| lut_manager.get_default());
+
                     // Apply reversal if needed
                     if self.color_scheme_reversed {
                         lut_data.reverse();
                     }
-                    
+
                     self.renderer.update_lut(&lut_data, queue);
                 }
             }

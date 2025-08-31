@@ -51,13 +51,11 @@ impl PelletsValidator {
             .expect("Failed to find an appropriate adapter");
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    ..Default::default()
-                },
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                ..Default::default()
+            })
             .await
             .expect("Failed to create device");
 

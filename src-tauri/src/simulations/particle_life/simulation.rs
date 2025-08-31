@@ -2693,7 +2693,9 @@ impl ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Ensure GPU operations complete
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
 
         tracing::info!("Particle reset complete");
         Ok(())
@@ -4371,7 +4373,9 @@ impl Simulation for ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Ensure GPU operations complete
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
 
         Ok(())
     }
@@ -4521,7 +4525,9 @@ impl ParticleLifeModel {
         self.initialize_particles_gpu(device, queue)?;
 
         // Force GPU to finish all commands to ensure buffer updates are complete
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
 
         Ok(())
     }

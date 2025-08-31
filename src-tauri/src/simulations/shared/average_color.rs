@@ -155,14 +155,18 @@ impl AverageColorResources {
         // Since we can't safely check mapping status without panicking,
         // we'll poll a fixed number of times with delays
         for _ in 0..10 {
-            device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+            device
+                .poll(wgpu::wgt::PollType::Wait)
+                .expect("Failed to poll device");
 
             // Small delay to allow async operations to complete
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
 
         // Final poll to ensure completion
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
     }
 
     pub fn unmap_staging_buffer(&self) {

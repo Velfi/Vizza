@@ -231,10 +231,7 @@ impl SlimeMoldModel {
         };
 
         // Create simulation-specific buffers
-        let agent_buffer = create_agent_buffer(
-            device,
-            agent_count,
-        );
+        let agent_buffer = create_agent_buffer(device, agent_count);
 
         let trail_map_size = (effective_width * effective_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
@@ -737,10 +734,7 @@ impl SlimeMoldModel {
         })) {
             tracing::error!("Failed to scale agent buffer: {:?}", e);
             // If scaling fails, create a new agent buffer and reset agents
-            self.agent_buffer = create_agent_buffer(
-                device,
-                self.agent_count,
-            );
+            self.agent_buffer = create_agent_buffer(device, self.agent_count);
             // Reset agents to new positions
             if let Err(e) = self.reset_agents(device, queue) {
                 tracing::error!("Failed to reset agents after resize: {}", e);
@@ -1655,8 +1649,11 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "currentLut" => {
                 if let Some(lut_name) = value.as_str() {
                     self.current_lut_name = lut_name.to_string();
-                    let lut_data = self.lut_manager.get(&self.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
-                    
+                    let lut_data = self
+                        .lut_manager
+                        .get(&self.current_lut_name)
+                        .unwrap_or_else(|_| self.lut_manager.get_default());
+
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
                     if self.lut_reversed {
@@ -1664,15 +1661,18 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
                     }
-                    
+
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
             "lutReversed" => {
                 if let Some(reversed) = value.as_bool() {
                     self.lut_reversed = reversed;
-                    let lut_data = self.lut_manager.get(&self.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
-                    
+                    let lut_data = self
+                        .lut_manager
+                        .get(&self.current_lut_name)
+                        .unwrap_or_else(|_| self.lut_manager.get_default());
+
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
                     if self.lut_reversed {
@@ -1680,7 +1680,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
                     }
-                    
+
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
@@ -1878,10 +1878,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 
 // Helper functions (moved from gpu_state.rs)
 
-fn create_agent_buffer(
-    device: &wgpu::Device,
-    agent_count: usize,
-) -> wgpu::Buffer {
+fn create_agent_buffer(device: &wgpu::Device, agent_count: usize) -> wgpu::Buffer {
     // Create buffer without CPU initialization - GPU will initialize via reset shader
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("Agent Buffer"),
@@ -1960,7 +1957,9 @@ fn create_agent_buffer_with_scaling(
     read_staging_buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-    device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+    device
+        .poll(wgpu::wgt::PollType::Wait)
+        .expect("Failed to poll device");
     receiver.recv().unwrap().unwrap();
 
     // Read old data and scale positions
@@ -2081,7 +2080,9 @@ fn scale_trail_map_data(
         read_staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
         receiver.recv().unwrap().unwrap();
 
         // Read old data and scale to new dimensions
@@ -2160,7 +2161,9 @@ fn scale_trail_map_data(
         read_staging_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |v| sender.send(v).unwrap());
-        device.poll(wgpu::wgt::PollType::Wait).expect("Failed to poll device");
+        device
+            .poll(wgpu::wgt::PollType::Wait)
+            .expect("Failed to poll device");
         receiver.recv().unwrap().unwrap();
 
         // Read old data and scale to new dimensions
