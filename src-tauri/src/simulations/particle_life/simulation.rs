@@ -376,7 +376,7 @@ pub struct ParticleLifeModel {
     // Simulation state and settings
     pub settings: Settings,
     pub state: State,
-    pub show_gui: bool,
+    pub gui_visible: bool,
 
     // LUT management
     pub lut_manager: Arc<ColorSchemeManager>, // Store reference to LUT manager
@@ -2497,7 +2497,7 @@ impl ParticleLifeModel {
             display_sampler,
             settings,
             state,
-            show_gui: true,
+            gui_visible: true,
             lut_manager: Arc::new(lut_manager.clone()),
             width,
             height,
@@ -3180,6 +3180,7 @@ impl ParticleLifeModel {
         queue: &Arc<Queue>,
         input_texture_view: &wgpu::TextureView,
         output_texture_view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> crate::error::SimulationResult<()> {
         // Apply blur filter if enabled
         if self.post_processing_state.blur_filter.enabled {
@@ -3250,11 +3251,7 @@ impl ParticleLifeModel {
                 ],
             });
 
-            // Apply blur filter
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Post Processing Blur Encoder"),
-            });
-
+            // Apply blur filter using the provided encoder
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Post Processing Blur Pass"),
@@ -3276,8 +3273,6 @@ impl ParticleLifeModel {
                 render_pass.set_bind_group(0, &blur_bind_group, &[]);
                 render_pass.draw(0..6, 0..1);
             }
-
-            queue.submit(std::iter::once(encoder.finish()));
         }
 
         Ok(())
@@ -3424,14 +3419,11 @@ impl Simulation for ParticleLifeModel {
                 queue,
                 &self.display_view,
                 &self.post_processing_resources.intermediate_view,
+                &mut encoder,
             )?;
 
-            // Copy the blurred result back to the display texture
-            let mut copy_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Post Processing Copy Encoder"),
-            });
-
-            copy_encoder.copy_texture_to_texture(
+            // Copy the blurred result back to the display texture using the main encoder
+            encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.post_processing_resources.intermediate_texture,
                     mip_level: 0,
@@ -3450,8 +3442,6 @@ impl Simulation for ParticleLifeModel {
                     depth_or_array_layers: 1,
                 },
             );
-
-            queue.submit(std::iter::once(copy_encoder.finish()));
         }
 
         // Step 4: Render post effects from display texture to post-effect texture (offscreen)
@@ -4381,12 +4371,12 @@ impl Simulation for ParticleLifeModel {
     }
 
     fn toggle_gui(&mut self) -> bool {
-        self.show_gui = !self.show_gui;
-        self.show_gui
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     fn is_gui_visible(&self) -> bool {
-        self.show_gui
+        self.gui_visible
     }
 
     fn randomize_settings(

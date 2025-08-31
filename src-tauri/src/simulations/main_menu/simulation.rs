@@ -266,26 +266,7 @@ impl Simulation for MainMenuModel {
         Ok(())
     }
 
-    fn pan_camera(&mut self, _delta_x: f32, _delta_y: f32) {
-        // No camera for this simulation
-    }
-
-    fn zoom_camera(&mut self, _delta: f32) {
-        // No camera for this simulation
-    }
-
-    fn zoom_camera_to_cursor(&mut self, _delta: f32, _cursor_x: f32, _cursor_y: f32) {
-        // No camera for this simulation
-    }
-
-    fn reset_camera(&mut self) {
-        // No camera for this simulation
-    }
-
-    fn get_camera_state(&self) -> Value {
-        // No camera for this simulation
-        serde_json::json!({})
-    }
+    // Camera methods use default implementations (no-op)
 
     fn save_preset(&self, _preset_name: &str) -> SimulationResult<()> {
         // No presets for this simulation

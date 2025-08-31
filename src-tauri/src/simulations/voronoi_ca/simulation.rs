@@ -2648,13 +2648,14 @@ impl Simulation for VoronoiCASimulation {
                     v.state = 0.0;
                 }
 
+                // Push updated states to GPU FIRST so the compute shaders see the changes
+                queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
+                
                 // Update neighbor counts on GPU to ensure density coloring works correctly when paused
+                // This now runs after the vertex buffer is updated, so it sees the current state
                 self.update_neighbor_counts_gpu(device, queue)?;
             }
         }
-
-        // Push updated states to GPU immediately so painting is visible next frame
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
         Ok(())
     }
 

@@ -79,7 +79,7 @@ pub struct GrayScottModel {
     compute_pipeline: wgpu::ComputePipeline,
     noise_seed_compute: NoiseSeedCompute,
     last_frame_time: std::time::Instant,
-    show_gui: bool,
+    gui_visible: bool,
 
     // Cursor configuration (runtime state, not saved in presets)
     pub cursor_size: f32,
@@ -339,7 +339,7 @@ impl GrayScottModel {
             compute_pipeline,
             noise_seed_compute,
             last_frame_time: std::time::Instant::now(),
-            show_gui: true,
+            gui_visible: true,
             cursor_size: 40.0,
             cursor_strength: 0.5,
             background_params_buffer,
@@ -764,12 +764,12 @@ impl GrayScottModel {
     }
 
     pub(crate) fn toggle_gui(&mut self) -> bool {
-        self.show_gui = !self.show_gui;
-        self.show_gui
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     pub(crate) fn is_gui_visible(&self) -> bool {
-        self.show_gui
+        self.gui_visible
     }
 }
 
@@ -897,7 +897,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
             "height": self.height,
             "lut_reversed": self.color_scheme_reversed,
             "current_lut_name": self.current_color_scheme_name,
-            "show_gui": self.show_gui,
+            "gui_visible": self.gui_visible,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
             "camera": {

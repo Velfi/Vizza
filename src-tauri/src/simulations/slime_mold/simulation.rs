@@ -143,7 +143,7 @@ pub struct SlimeMoldModel {
     // Dimension tracking for resize scaling
     pub current_width: u32,
     pub current_height: u32,
-    show_gui: bool,
+    gui_visible: bool,
 
     // Camera for viewport control
     pub camera: Camera,
@@ -486,7 +486,7 @@ impl SlimeMoldModel {
             current_agent_buffer_size: agent_buffer_size_bytes,
             current_width: effective_width,
             current_height: effective_height,
-            show_gui: true,
+            gui_visible: true,
             camera,
             last_resize_time: std::time::Instant::now(),
             resize_debounce_threshold: std::time::Duration::from_millis(500),
@@ -1356,12 +1356,12 @@ impl SlimeMoldModel {
     }
 
     pub(crate) fn toggle_gui(&mut self) -> bool {
-        self.show_gui = !self.show_gui;
-        self.show_gui
+        self.gui_visible = !self.gui_visible;
+        self.gui_visible
     }
 
     pub(crate) fn is_gui_visible(&self) -> bool {
-        self.show_gui
+        self.gui_visible
     }
 
     pub fn get_agent_count(&self) -> Option<u32> {
@@ -1712,7 +1712,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "current_height": self.current_height,
             "lut_reversed": self.lut_reversed,
             "current_lut_name": self.current_lut_name,
-            "show_gui": self.show_gui,
+            "gui_visible": self.gui_visible,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
             "position_generator": self.position_generator,

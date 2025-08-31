@@ -289,21 +289,7 @@ impl Simulation for GradientSimulation {
         Ok(())
     }
 
-    fn pan_camera(&mut self, _delta_x: f32, _delta_y: f32) {
-        // No camera for gradient
-    }
-
-    fn zoom_camera(&mut self, _delta: f32) {
-        // No camera for gradient
-    }
-
-    fn zoom_camera_to_cursor(&mut self, _delta: f32, _cursor_x: f32, _cursor_y: f32) {
-        // No camera for gradient
-    }
-
-    fn reset_camera(&mut self) {
-        // No camera for gradient
-    }
+    // Camera methods use default implementations (no-op)
 
     fn get_camera_state(&self) -> Value {
         serde_json::json!({})

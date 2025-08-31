@@ -20,9 +20,38 @@
 
 use crate::error::SimulationResult;
 use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
+use crate::simulations::gray_scott::GrayScottModel;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
+
+/// Helper macro to reduce boilerplate in enum implementations
+macro_rules! delegate_to_simulation {
+    ($self:expr, $method:ident) => {
+        match $self {
+            SimulationType::SlimeMold(simulation) => simulation.$method(),
+            SimulationType::GrayScott(simulation) => simulation.$method(),
+            SimulationType::ParticleLife(simulation) => simulation.$method(),
+            SimulationType::Flow(simulation) => simulation.$method(),
+            SimulationType::Pellets(simulation) => simulation.$method(),
+            SimulationType::MainMenu(simulation) => simulation.$method(),
+            SimulationType::Gradient(simulation) => simulation.$method(),
+            SimulationType::VoronoiCA(simulation) => simulation.$method(),
+        }
+    };
+    ($self:expr, $method:ident, $($arg:expr),+) => {
+        match $self {
+            SimulationType::SlimeMold(simulation) => simulation.$method($($arg),+),
+            SimulationType::GrayScott(simulation) => simulation.$method($($arg),+),
+            SimulationType::ParticleLife(simulation) => simulation.$method($($arg),+),
+            SimulationType::Flow(simulation) => simulation.$method($($arg),+),
+            SimulationType::Pellets(simulation) => simulation.$method($($arg),+),
+            SimulationType::MainMenu(simulation) => simulation.$method($($arg),+),
+            SimulationType::Gradient(simulation) => simulation.$method($($arg),+),
+            SimulationType::VoronoiCA(simulation) => simulation.$method($($arg),+),
+        }
+    };
+}
 
 /// Common interface for all simulation types
 ///
@@ -109,19 +138,30 @@ pub trait Simulation {
     ) -> SimulationResult<()>;
 
     /// Pan the camera by the given delta
-    fn pan_camera(&mut self, delta_x: f32, delta_y: f32);
+    fn pan_camera(&mut self, _delta_x: f32, _delta_y: f32) {
+        // Default implementation: no-op for simulations without cameras
+    }
 
     /// Zoom the camera by the given delta
-    fn zoom_camera(&mut self, delta: f32);
+    fn zoom_camera(&mut self, _delta: f32) {
+        // Default implementation: no-op for simulations without cameras
+    }
 
     /// Zoom the camera to a specific cursor position
-    fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32);
+    fn zoom_camera_to_cursor(&mut self, _delta: f32, _cursor_x: f32, _cursor_y: f32) {
+        // Default implementation: no-op for simulations without cameras
+    }
 
     /// Reset the camera to default position and zoom
-    fn reset_camera(&mut self);
+    fn reset_camera(&mut self) {
+        // Default implementation: no-op for simulations without cameras
+    }
 
     /// Get the current camera state as a serializable value
-    fn get_camera_state(&self) -> Value;
+    fn get_camera_state(&self) -> Value {
+        // Default implementation: empty object for simulations without cameras
+        serde_json::json!({})
+    }
 
     /// Save the current settings as a preset
     ///
@@ -153,10 +193,16 @@ pub trait Simulation {
     ) -> SimulationResult<()>;
 
     /// Toggle GUI visibility
-    fn toggle_gui(&mut self) -> bool;
+    fn toggle_gui(&mut self) -> bool {
+        // Default implementation: no-op, returns false
+        false
+    }
 
     /// Check if GUI is visible
-    fn is_gui_visible(&self) -> bool;
+    fn is_gui_visible(&self) -> bool {
+        // Default implementation: always visible
+        true
+    }
 
     /// Randomize the current settings
     fn randomize_settings(
@@ -301,18 +347,7 @@ impl SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::GrayScott(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::ParticleLife(simulation) => {
-                simulation.reset_runtime_state(device, queue)
-            }
-            SimulationType::Flow(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::Gradient(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::VoronoiCA(simulation) => simulation.reset_runtime_state(device, queue),
-        }
+        delegate_to_simulation!(self, reset_runtime_state, device, queue)
     }
 }
 
@@ -324,30 +359,7 @@ impl Simulation for SimulationType {
         surface_view: &TextureView,
         delta_time: f32,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::Flow(sim) => sim.render_frame(device, queue, surface_view, delta_time),
-            SimulationType::Pellets(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.render_frame(device, queue, surface_view, delta_time)
-            }
-        }
+        delegate_to_simulation!(self, render_frame, device, queue, surface_view, delta_time)
     }
 
     fn render_frame_static(
@@ -356,30 +368,7 @@ impl Simulation for SimulationType {
         queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::Flow(sim) => sim.render_frame_static(device, queue, surface_view),
-            SimulationType::Pellets(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.render_frame_static(device, queue, surface_view)
-            }
-        }
+        delegate_to_simulation!(self, render_frame_static, device, queue, surface_view)
     }
 
     fn resize(
@@ -389,12 +378,13 @@ impl Simulation for SimulationType {
         new_config: &SurfaceConfiguration,
     ) -> SimulationResult<()> {
         match self {
+            SimulationType::GrayScott(simulation) => {
+                // GrayScott has a different public method signature - call it directly
+                GrayScottModel::resize(simulation, new_config)
+            },
             SimulationType::SlimeMold(simulation) => simulation.resize(device, queue, new_config),
-            SimulationType::GrayScott(simulation) => simulation.resize(new_config),
-            SimulationType::ParticleLife(simulation) => {
-                simulation.resize(device, queue, new_config)
-            }
-            SimulationType::Flow(sim) => sim.resize(device, queue, new_config),
+            SimulationType::ParticleLife(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::Flow(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Pellets(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Gradient(simulation) => simulation.resize(device, queue, new_config),
@@ -409,30 +399,7 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::Flow(sim) => sim.update_setting(setting_name, value, device, queue),
-            SimulationType::Pellets(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.update_setting(setting_name, value, device, queue)
-            }
-        }
+        delegate_to_simulation!(self, update_setting, setting_name, value, device, queue)
     }
 
     fn update_state(
@@ -442,56 +409,15 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::Flow(sim) => sim.update_state(state_name, value, device, queue),
-            SimulationType::Pellets(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.update_state(state_name, value, device, queue)
-            }
-        }
+        delegate_to_simulation!(self, update_state, state_name, value, device, queue)
     }
 
     fn get_settings(&self) -> Value {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.get_settings(),
-            SimulationType::GrayScott(simulation) => simulation.get_settings(),
-            SimulationType::ParticleLife(simulation) => simulation.get_settings(),
-            SimulationType::Flow(sim) => sim.get_settings(),
-            SimulationType::Pellets(simulation) => simulation.get_settings(),
-            SimulationType::MainMenu(simulation) => simulation.get_settings(),
-            SimulationType::Gradient(simulation) => simulation.get_settings(),
-            SimulationType::VoronoiCA(simulation) => simulation.get_settings(),
-        }
+        delegate_to_simulation!(self, get_settings)
     }
 
     fn get_state(&self) -> Value {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.get_state(),
-            SimulationType::GrayScott(simulation) => simulation.get_state(),
-            SimulationType::ParticleLife(simulation) => simulation.get_state(),
-            SimulationType::Flow(sim) => sim.get_state(),
-            SimulationType::Pellets(simulation) => simulation.get_state(),
-            SimulationType::MainMenu(simulation) => simulation.get_state(),
-            SimulationType::Gradient(simulation) => simulation.get_state(),
-            SimulationType::VoronoiCA(simulation) => simulation.get_state(),
-        }
+        delegate_to_simulation!(self, get_state)
     }
 
     fn handle_mouse_interaction(
@@ -502,32 +428,7 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::Flow(sim) => {
-                sim.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::Pellets(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.handle_mouse_interaction(world_x, world_y, mouse_button, device, queue)
-            }
-        }
+        delegate_to_simulation!(self, handle_mouse_interaction, world_x, world_y, mouse_button, device, queue)
     }
 
     fn handle_mouse_release(
@@ -535,135 +436,35 @@ impl Simulation for SimulationType {
         mouse_button: u32, // 0 = left, 1 = middle, 2 = right
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::Flow(sim) => sim.handle_mouse_release(mouse_button, queue),
-            SimulationType::Pellets(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.handle_mouse_release(mouse_button, queue)
-            }
-        }
+        delegate_to_simulation!(self, handle_mouse_release, mouse_button, queue)
     }
 
     fn pan_camera(&mut self, delta_x: f32, delta_y: f32) {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::GrayScott(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::ParticleLife(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::Flow(sim) => sim.pan_camera(delta_x, delta_y),
-            SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::MainMenu(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::Gradient(simulation) => simulation.pan_camera(delta_x, delta_y),
-            SimulationType::VoronoiCA(simulation) => simulation.pan_camera(delta_x, delta_y),
-        }
+        delegate_to_simulation!(self, pan_camera, delta_x, delta_y)
     }
 
     fn zoom_camera(&mut self, delta: f32) {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
-            SimulationType::GrayScott(simulation) => simulation.zoom_camera(delta),
-            SimulationType::ParticleLife(simulation) => simulation.zoom_camera(delta),
-            SimulationType::Flow(sim) => sim.zoom_camera(delta),
-            SimulationType::Pellets(simulation) => simulation.zoom_camera(delta),
-            SimulationType::MainMenu(simulation) => simulation.zoom_camera(delta),
-            SimulationType::Gradient(simulation) => simulation.zoom_camera(delta),
-            SimulationType::VoronoiCA(simulation) => simulation.zoom_camera(delta),
-        }
+        delegate_to_simulation!(self, zoom_camera, delta)
     }
 
     fn zoom_camera_to_cursor(&mut self, delta: f32, cursor_x: f32, cursor_y: f32) {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::Flow(sim) => sim.zoom_camera_to_cursor(delta, cursor_x, cursor_y),
-            SimulationType::Pellets(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
-            }
-        }
+        delegate_to_simulation!(self, zoom_camera_to_cursor, delta, cursor_x, cursor_y)
     }
 
     fn reset_camera(&mut self) {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
-            SimulationType::GrayScott(simulation) => simulation.reset_camera(),
-            SimulationType::ParticleLife(simulation) => simulation.reset_camera(),
-            SimulationType::Flow(sim) => sim.reset_camera(),
-            SimulationType::Pellets(simulation) => simulation.reset_camera(),
-            SimulationType::MainMenu(simulation) => simulation.reset_camera(),
-            SimulationType::Gradient(simulation) => simulation.reset_camera(),
-            SimulationType::VoronoiCA(simulation) => simulation.reset_camera(),
-        }
+        delegate_to_simulation!(self, reset_camera)
     }
 
     fn get_camera_state(&self) -> Value {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.get_camera_state(),
-            SimulationType::GrayScott(simulation) => simulation.get_camera_state(),
-            SimulationType::ParticleLife(simulation) => simulation.get_camera_state(),
-            SimulationType::Flow(sim) => sim.get_camera_state(),
-            SimulationType::Pellets(simulation) => simulation.get_camera_state(),
-            SimulationType::MainMenu(simulation) => simulation.get_camera_state(),
-            SimulationType::Gradient(simulation) => simulation.get_camera_state(),
-            SimulationType::VoronoiCA(simulation) => simulation.get_camera_state(),
-        }
+        delegate_to_simulation!(self, get_camera_state)
     }
 
     fn save_preset(&self, preset_name: &str) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.save_preset(preset_name),
-            SimulationType::GrayScott(simulation) => simulation.save_preset(preset_name),
-            SimulationType::ParticleLife(simulation) => simulation.save_preset(preset_name),
-            SimulationType::Flow(sim) => sim.save_preset(preset_name),
-            SimulationType::Pellets(simulation) => simulation.save_preset(preset_name),
-            SimulationType::MainMenu(simulation) => simulation.save_preset(preset_name),
-            SimulationType::Gradient(simulation) => simulation.save_preset(preset_name),
-            SimulationType::VoronoiCA(simulation) => simulation.save_preset(preset_name),
-        }
+        delegate_to_simulation!(self, save_preset, preset_name)
     }
 
     fn load_preset(&mut self, preset_name: &str, queue: &Arc<Queue>) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::GrayScott(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::ParticleLife(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::Flow(sim) => sim.load_preset(preset_name, queue),
-            SimulationType::Pellets(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::MainMenu(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::Gradient(simulation) => simulation.load_preset(preset_name, queue),
-            SimulationType::VoronoiCA(simulation) => simulation.load_preset(preset_name, queue),
-        }
+        delegate_to_simulation!(self, load_preset, preset_name, queue)
     }
 
     fn apply_settings(
@@ -672,30 +473,7 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::Flow(sim) => sim.apply_settings(settings, device, queue),
-            SimulationType::Pellets(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.apply_settings(settings, device, queue)
-            }
-        }
+        delegate_to_simulation!(self, apply_settings, settings, device, queue)
     }
 
     fn reset_runtime_state(
@@ -703,44 +481,15 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::GrayScott(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::ParticleLife(simulation) => {
-                simulation.reset_runtime_state(device, queue)
-            }
-            SimulationType::Flow(sim) => sim.reset_runtime_state(device, queue),
-            SimulationType::Pellets(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::MainMenu(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::Gradient(simulation) => simulation.reset_runtime_state(device, queue),
-            SimulationType::VoronoiCA(simulation) => simulation.reset_runtime_state(device, queue),
-        }
+        delegate_to_simulation!(self, reset_runtime_state, device, queue)
     }
 
     fn toggle_gui(&mut self) -> bool {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.toggle_gui(),
-            SimulationType::GrayScott(simulation) => simulation.toggle_gui(),
-            SimulationType::ParticleLife(simulation) => simulation.toggle_gui(),
-            SimulationType::Flow(sim) => sim.toggle_gui(),
-            SimulationType::Pellets(simulation) => simulation.toggle_gui(),
-            SimulationType::MainMenu(simulation) => simulation.toggle_gui(),
-            SimulationType::Gradient(simulation) => simulation.toggle_gui(),
-            SimulationType::VoronoiCA(simulation) => simulation.toggle_gui(),
-        }
+        delegate_to_simulation!(self, toggle_gui)
     }
 
     fn is_gui_visible(&self) -> bool {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.is_gui_visible(),
-            SimulationType::GrayScott(simulation) => simulation.is_gui_visible(),
-            SimulationType::ParticleLife(simulation) => simulation.is_gui_visible(),
-            SimulationType::Flow(sim) => sim.is_gui_visible(),
-            SimulationType::Pellets(simulation) => simulation.is_gui_visible(),
-            SimulationType::MainMenu(simulation) => simulation.is_gui_visible(),
-            SimulationType::Gradient(simulation) => simulation.is_gui_visible(),
-            SimulationType::VoronoiCA(simulation) => simulation.is_gui_visible(),
-        }
+        delegate_to_simulation!(self, is_gui_visible)
     }
 
     fn randomize_settings(
@@ -748,18 +497,7 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::GrayScott(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::ParticleLife(simulation) => {
-                simulation.randomize_settings(device, queue)
-            }
-            SimulationType::Flow(sim) => sim.randomize_settings(device, queue),
-            SimulationType::Pellets(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::Gradient(simulation) => simulation.randomize_settings(device, queue),
-            SimulationType::VoronoiCA(simulation) => simulation.randomize_settings(device, queue),
-        }
+        delegate_to_simulation!(self, randomize_settings, device, queue)
     }
 
     fn update_color_scheme(
@@ -768,29 +506,6 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        match self {
-            SimulationType::SlimeMold(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::GrayScott(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::ParticleLife(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::Flow(sim) => sim.update_color_scheme(color_scheme, device, queue),
-            SimulationType::Pellets(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::MainMenu(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::Gradient(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-            SimulationType::VoronoiCA(simulation) => {
-                simulation.update_color_scheme(color_scheme, device, queue)
-            }
-        }
+        delegate_to_simulation!(self, update_color_scheme, color_scheme, device, queue)
     }
 }
