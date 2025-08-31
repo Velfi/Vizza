@@ -4420,26 +4420,49 @@ impl Simulation for ParticleLifeModel {
 
     fn update_color_scheme(
         &mut self,
-        _color_scheme: &crate::simulations::shared::ColorScheme,
+        color_scheme: &crate::simulations::shared::ColorScheme,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
-        // For ParticleLife, we need to use the existing update_lut method
-        // which requires a lut_manager and lut_name, so we'll apply the color scheme
-        // using the simulation's update_lut method with the custom data
-        let color_mode = self.state.background_color_mode;
-        let lut_reversed = self.state.color_scheme_reversed;
-        let lut_manager = self.lut_manager.clone();
+        // Apply provided color scheme data directly (used by Gradient Editor preview)
+        // Respect current reversed flag but preserve original name in state
+        let effective_lut = if self.state.color_scheme_reversed {
+            color_scheme.reversed()
+        } else {
+            color_scheme.clone()
+        };
 
-        // Apply the custom color scheme directly to the simulation
-        self.update_lut(
-            device,
-            queue,
-            &lut_manager,
-            color_mode,
-            Some("custom_preview"),
-            lut_reversed,
-        )?;
+        let species_count = self.settings.species_count as usize;
+        let mut species_colors: Vec<[f32; 4]> = Vec::with_capacity(species_count + 1);
+
+        if self.state.background_color_mode == ColorMode::ColorScheme {
+            // Sample background + species; first is background
+            let raw_colors = effective_lut
+                .get_colors(species_count + 1)
+                .into_iter()
+                .map(|v| [v[0], v[1], v[2], v[3]])
+                .collect::<Vec<_>>();
+
+            for color in raw_colors.iter().skip(1).take(species_count) {
+                species_colors.push(*color);
+            }
+            species_colors.push(raw_colors[0]);
+        } else {
+            // Non-LUT display modes still sample species_count colors for species only
+            species_colors = effective_lut
+                .get_colors(species_count)
+                .into_iter()
+                .map(|v| [v[0], v[1], v[2], v[3]])
+                .collect::<Vec<_>>();
+        }
+
+        // Update state (preserve original name regardless of reversal)
+        self.state.species_colors = species_colors;
+        self.state.current_color_scheme_name = color_scheme.name.clone();
+
+        // Upload to GPU and refresh background color
+        self.update_species_colors_gpu(device, queue)?;
+        self.update_background_params(queue);
 
         Ok(())
     }
