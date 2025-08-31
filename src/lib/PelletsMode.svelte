@@ -46,41 +46,32 @@
       <fieldset>
         <legend>Display Settings</legend>
         <div class="control-group">
-          <label for="lutSelector">Color Scheme</label>
-          <LutSelector
-            bind:available_luts
-            current_lut={state?.current_lut_name || 'MATPLOTLIB_viridis'}
+          <label for="colorSchemeSelector">Color Scheme</label>
+          <ColorSchemeSelector
+            bind:available_color_schemes={available_luts}
+            current_color_scheme={state?.current_lut_name || 'MATPLOTLIB_viridis'}
             reversed={state?.lut_reversed || false}
             on:select={({ detail }) => updateLutName(detail.name)}
             on:reverse={() => updateLutReversed()}
           />
         </div>
         <div class="control-group">
-          <label for="backgroundType">Background</label>
+          <label for="backgroundColorMode">Background Color Mode</label>
           <Selector
-            id="backgroundType"
-            options={['Black', 'White']}
-            value={settings?.background_type || 'Black'}
-            on:change={({ detail }) => updateSetting('background_type', detail.value)}
+            id="backgroundColorMode"
+            options={['Black', 'White', 'Gray18', 'ColorScheme']}
+            value={settings?.background_color_mode}
+            on:change={({ detail }) => updateSetting('background_color_mode', detail.value)}
           />
         </div>
         <div class="control-group">
-          <label for="coloringMode">Particle Coloring Mode</label>
+          <label for="foregroundColorMode">Particle Color Mode</label>
           <Selector
-            id="coloringMode"
+            id="foregroundColorMode"
             options={['Density', 'Velocity', 'Random']}
-            value={settings?.coloring_mode || 'Density'}
-            on:change={({ detail }) => updateSetting('coloring_mode', detail.value)}
+            value={settings?.foreground_color_mode}
+            on:change={({ detail }) => updateSetting('foreground_color_mode', detail.value)}
           />
-          <div class="setting-description">
-            <small>
-              <strong>Density:</strong> Particles are colored based on how many other particles are
-              nearby.<br />
-              <strong>Velocity:</strong> Particles are colored based on their speed (faster =
-              brighter).<br />
-              <strong>Random:</strong> Each particle gets a unique random color that stays constant.
-            </small>
-          </div>
         </div>
         <div class="control-group">
           <label for="densityRadius">Density Radius</label>
@@ -300,12 +291,13 @@
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
+  import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
   export let menuPosition: string;
+  export let autoHideDelay: number = 3000;
 
   const dispatch = createEventDispatcher();
 
@@ -316,9 +308,8 @@
     initial_velocity_max: number;
     initial_velocity_min: number;
     random_seed: number;
-    background_type: string;
-    coloring_mode: string;
-    // Legacy fields that may still be present in backend but not used in UI
+    background_color_mode: string;
+    foreground_color_mode: string;
     gravitational_constant?: number;
     energy_damping?: number;
     gravity_softening?: number;
@@ -474,7 +465,7 @@
       if (!showUI) {
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -662,7 +653,7 @@
 
   const loadAvailableLuts = async () => {
     try {
-      const luts = await invoke('get_available_luts');
+      const luts = await invoke('get_available_color_schemes');
       available_luts = luts as string[];
     } catch (error) {
       console.error('Failed to load LUTs:', error);
@@ -671,7 +662,7 @@
 
   const updateLutName = async (value: string) => {
     try {
-      await invoke('apply_lut_by_name', { lutName: value });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: value });
       await loadSettings(); // Sync UI with backend state
     } catch (error) {
       console.error('Failed to update LUT name:', error);
@@ -680,7 +671,7 @@
 
   const updateLutReversed = async () => {
     try {
-      await invoke('toggle_lut_reversed');
+      await invoke('toggle_color_scheme_reversed');
       await loadSettings(); // Sync UI with backend state
     } catch (error) {
       console.error('Failed to update LUT reversed:', error);
@@ -907,21 +898,6 @@
   .respawn-button:active {
     transform: translateY(0);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  }
-
-  .setting-description {
-    margin-top: 4px;
-    color: #888;
-    line-height: 1.4;
-  }
-
-  .setting-description small {
-    font-size: 13px;
-    color: #aaa;
-  }
-
-  .setting-description strong {
-    color: #ccc;
   }
 
   /* Settings grid for key/value pairs */

@@ -20,18 +20,18 @@
 
 pub mod average_color;
 pub mod camera;
+pub mod color_scheme;
 pub mod coordinates;
 pub mod gpu_utils;
-pub mod lut;
 pub mod position_generators;
 pub mod post_processing;
 
 pub use average_color::AverageColorResources;
+pub use color_scheme::{ColorScheme, ColorSchemeManager, SimulationColorSchemeManager};
 pub use gpu_utils::{
     BindGroupBuilder, CommonBindGroupLayouts, ComputePipelineBuilder, RenderPipelineBuilder,
     ShaderManager,
 };
-pub use lut::{LutData, LutManager, SimulationLutManager};
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
 pub use post_processing::{PostProcessingResources, PostProcessingState};
 

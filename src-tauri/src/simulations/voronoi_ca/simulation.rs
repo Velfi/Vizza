@@ -16,7 +16,7 @@ use crate::simulations::traits::Simulation;
 
 use super::shaders::{
     COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_SHADER,
+    JFA_INIT_SHADER, JFA_ITERATION_SHADER, BROWNIAN_SHADER, VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_JFA_SHADER
 };
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 
@@ -29,7 +29,7 @@ struct Vertex {
     age: f32,
     alive_neighbors: u32,
     dead_neighbors: u32,
-    pad1: u32,
+    random_state: u32, // Per-point random state for independent brownian motion
 }
 
 #[repr(C)]
@@ -40,12 +40,13 @@ struct VoronoiParams {
     neighbor_radius: f32,
     // Borders enabled flag (1.0 = on, 0.0 = off)
     border_enabled: f32,
-    // Border threshold for detection (0.0-1.0)
-    border_threshold: f32,
+    // Border width in pixels (0.0-10.0)
+    border_width: f32,
     // Texture filtering mode: 0=Nearest, 1=Linear, 2=Lanczos (TODO treated as Linear here)
     filter_mode: f32,
     resolution_x: f32,
     resolution_y: f32,
+    jump_distance: f32,
 }
 
 #[repr(C)]
@@ -73,16 +74,26 @@ struct GridParams {
     _pad3: f32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct BrownianParams {
+    speed: f32,
+    delta_time: f32,
+}
+
 #[derive(Debug)]
 pub struct VoronoiCASimulation {
-    voronoi_render_pipeline: RenderPipeline,
+    voronoi_render_jfa_pipeline: RenderPipeline,
     // Compute
     compute_pipeline: ComputePipeline, // neighbor counting with grid
     compute_update_pipeline: ComputePipeline, // state update
+    brownian_pipeline: ComputePipeline, // brownian motion
     uniform_buffer: Buffer,
+    brownian_params_buffer: Buffer,
     // Bind groups
     compute_neighbor_bg: BindGroup,
     compute_update_bg: BindGroup,
+    brownian_bg: BindGroup,
     vertex_buffer: Buffer,
     // Spatial grid resources
     grid_indices: Buffer,
@@ -93,7 +104,7 @@ pub struct VoronoiCASimulation {
     grid_clear_bg: BindGroup,
     grid_populate_bg: BindGroup,
     voronoi_params: Buffer,
-    voronoi_render_bg: BindGroup,
+
     num_points: u32,
     time_accum: f32,
     time_scale: f32,
@@ -103,13 +114,8 @@ pub struct VoronoiCASimulation {
     resolution: [f32; 2],
     gui_visible: bool,
     points: Vec<Vertex>,
-    // Run-and-tumble state
-    headings: Vec<f32>,         // radians
-    run_time_left: Vec<f32>,    // seconds
-    tumble_time_left: Vec<f32>, // seconds
-    run_speed: f32,             // pixels per second
-    avg_run_time: f32,          // seconds (mean of exponential)
-    tumble_time: f32,           // seconds (fixed)
+    // Brownian motion parameters
+    brownian_speed: f32,        // pixels per second
     // Cursor config (settings)
     cursor_size: f32,
     cursor_strength: f32,
@@ -122,7 +128,7 @@ pub struct VoronoiCASimulation {
     pub lut_reversed: bool,
     color_mode: u32, // 0=Random, 1=Density, 2=Age
     borders_enabled: bool,
-    pub border_threshold: f32, // Border detection threshold (0.0-1.0)
+    pub border_width: f32, // Border width in pixels
     app_settings: crate::commands::app_settings::AppSettings,
     // Camera
     pub camera: Camera,
@@ -134,9 +140,28 @@ pub struct VoronoiCASimulation {
     texture_render_params_buffer: Buffer,
     render_infinite_pipeline: RenderPipeline,
     render_infinite_bind_group: BindGroup,
+    // JFA resources
+    jfa_view_a: TextureView,
+    jfa_view_b: TextureView,
+
+    jfa_init_pipeline: ComputePipeline,
+    jfa_iteration_pipeline: ComputePipeline,
+    jfa_init_bg: BindGroup,
+    jfa_iteration_bg_a: BindGroup,
+    jfa_iteration_bg_b: BindGroup,
+    jfa_current_texture: bool, // true = A, false = B
 }
 
 impl VoronoiCASimulation {
+    /// Get the current JFA texture view based on the current texture flag
+    fn get_current_jfa_view(&self) -> &TextureView {
+        if self.jfa_current_texture {
+            &self.jfa_view_a
+        } else {
+            &self.jfa_view_b
+        }
+    }
+
     /// Calculate dynamic tile count for infinite rendering based on camera zoom
     fn calculate_tile_count(&self) -> u32 {
         let visible_world_size = 2.0 / self.camera.zoom.max(1e-6);
@@ -200,6 +225,44 @@ impl VoronoiCASimulation {
                     },
                 ],
                 label: Some("voronoi_ca_compute_update_bgl"),
+            });
+
+        // Brownian bind group layout
+        let brownian_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("voronoi_ca_brownian_bgl"),
             });
 
         // Neighbor count BG layout: vertices, uniforms, grid_indices, grid_counts, grid_params
@@ -278,9 +341,14 @@ impl VoronoiCASimulation {
             label: Some("VoronoiCA Compute Update Shader"),
             source: wgpu::ShaderSource::Wgsl(COMPUTE_UPDATE_SHADER.into()),
         });
-        let voronoi_render_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VCA Voronoi Render"),
-            source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_SHADER.into()),
+        let brownian_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA Brownian Shader"),
+            source: wgpu::ShaderSource::Wgsl(BROWNIAN_SHADER.into()),
+        });
+
+        let voronoi_render_jfa_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA Voronoi Render JFA"),
+            source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_JFA_SHADER.into()),
         });
 
         // Pipelines
@@ -319,13 +387,27 @@ impl VoronoiCASimulation {
                 cache: None,
             });
 
-        // Initialize points
+        // Pipeline for brownian motion
+        let brownian_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("VCA Brownian Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("VCA Brownian PL"),
+                        bind_group_layouts: &[&brownian_bgl],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &brownian_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
         let mut rng = rand::rng();
-        let num_points = 300u32; // modest default
+        let num_points = 300u32;
         let mut points: Vec<Vertex> = Vec::with_capacity(num_points as usize);
-        let mut headings: Vec<f32> = Vec::with_capacity(num_points as usize);
-        let mut run_time_left: Vec<f32> = Vec::with_capacity(num_points as usize);
-        let mut tumble_time_left: Vec<f32> = Vec::with_capacity(num_points as usize);
+
         for _ in 0..num_points {
             points.push(Vertex {
                 position: [
@@ -337,14 +419,9 @@ impl VoronoiCASimulation {
                 age: 0.0,
                 alive_neighbors: 0,
                 dead_neighbors: 0,
-                pad1: 0,
+                random_state: rng.random::<u32>(),
             });
-            headings.push(rng.random::<f32>() * std::f32::consts::TAU);
-            // Exponential sample for initial run duration
-            let u: f32 = (1.0 - rng.random::<f32>()).max(1e-6);
-            let run_sample = -1.5 * u.ln(); // avg 1.5s default (will be overwritten below when assigning fields)
-            run_time_left.push(run_sample);
-            tumble_time_left.push(0.0);
+
         }
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -355,9 +432,29 @@ impl VoronoiCASimulation {
                 | wgpu::BufferUsages::COPY_DST,
         });
 
-        // Create spatial grid buffers (fixed cell size and capacity)
-        let cell_capacity: u32 = 64;
-        let cell_size: f32 = (uniforms.neighbor_radius * 1.25).max(8.0); // tie to radius to bound neighbor cells
+
+
+        // Create brownian params buffer
+        let brownian_params = BrownianParams {
+            speed: 10.0,
+            delta_time: 0.016, // Will be updated each frame
+        };
+        let brownian_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("VCA Brownian Params Buffer"),
+            contents: bytemuck::bytes_of(&brownian_params),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create spatial grid buffers with adaptive parameters
+        let total_area = width * height;
+        let density = num_points as f32 / total_area;
+        let cell_capacity: u32 = if density > 0.01 { 256 } else if density > 0.005 { 192 } else { 128 };
+        let base_cell_size = uniforms.neighbor_radius * 1.5;
+        let cell_size: f32 = if density > 0.01 { 
+            base_cell_size.max(8.0) 
+        } else { 
+            base_cell_size.max(12.0) 
+        };
         let grid_width = ((width + cell_size - 1.0) / cell_size).ceil() as u32;
         let grid_height = ((height + cell_size - 1.0) / cell_size).ceil() as u32;
         let num_cells = grid_width * grid_height;
@@ -583,8 +680,69 @@ impl VoronoiCASimulation {
             ],
         });
 
-        let voronoi_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("VCA Voronoi Render BGL"),
+        let brownian_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Brownian BG"),
+            layout: &brownian_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: vertex_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: brownian_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+
+
+        // no separate fill/blit path in the simplified renderer
+        let voronoi_params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("VCA Voronoi Render Params"),
+            size: std::mem::size_of::<VoronoiParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // init params
+        let initial_params = VoronoiParams {
+            count: 0.0,
+            color_mode: 0.0,
+            neighbor_radius: 60.0,
+            border_enabled: 1.0,
+            border_width: 1.0,
+            filter_mode: match app_settings.texture_filtering {
+                crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
+                crate::commands::app_settings::TextureFiltering::Linear => 1.0,
+                crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
+            },
+            resolution_x: width,
+            resolution_y: height,
+            jump_distance: 0.0, // Not used in init
+        };
+        queue.write_buffer(&voronoi_params, 0, bytemuck::bytes_of(&initial_params));
+
+        // Create LUT buffer with default LUT
+        let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
+        let default_lut_name = "MATPLOTLIB_YlGnBu".to_string();
+        let lut_data = lut_manager.get(&default_lut_name).unwrap();
+        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("VCA LUT Buffer"),
+            contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+
+
+
+
+        // Create JFA render pipeline with additional bindings for JFA texture
+        let voronoi_jfa_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("VCA Voronoi JFA Render BGL"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     // params
@@ -619,83 +777,40 @@ impl VoronoiCASimulation {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    // JFA texture
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+
             ],
         });
 
-        // no separate fill/blit path in the simplified renderer
-        let voronoi_params = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("VCA Voronoi Render Params"),
-            size: std::mem::size_of::<VoronoiParams>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        // init params
-        let initial_params = VoronoiParams {
-            count: 0.0,
-            color_mode: 0.0,
-            neighbor_radius: 60.0,
-            border_enabled: 1.0,
-            border_threshold: 0.5,
-            filter_mode: match app_settings.texture_filtering {
-                crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
-                crate::commands::app_settings::TextureFiltering::Linear => 1.0,
-                crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
-            },
-            resolution_x: width,
-            resolution_y: height,
-        };
-        queue.write_buffer(&voronoi_params, 0, bytemuck::bytes_of(&initial_params));
-
-        // Create LUT buffer with default LUT
-        let lut_manager = crate::simulations::shared::LutManager::new();
-        let default_lut_name = "MATPLOTLIB_YlGnBu".to_string();
-        let lut_data = lut_manager.get(&default_lut_name).unwrap();
-        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("VCA LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let voronoi_render_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG"),
-            layout: &voronoi_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: voronoi_params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // (removed)
-
-        // Voronoi fullscreen render pipeline
-        let voronoi_pipeline_layout =
+        let voronoi_jfa_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("VCA Voronoi Render PL"),
-                bind_group_layouts: &[&voronoi_bgl],
+                label: Some("VCA Voronoi JFA Render PL"),
+                bind_group_layouts: &[&voronoi_jfa_bgl],
                 push_constant_ranges: &[],
             });
-        let voronoi_render_pipeline =
+
+        let voronoi_render_jfa_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("VCA Voronoi Render Pipeline"),
-                layout: Some(&voronoi_pipeline_layout),
+                label: Some("VCA Voronoi JFA Render Pipeline"),
+                layout: Some(&voronoi_jfa_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &voronoi_render_shader,
+                    module: &voronoi_render_jfa_shader,
                     entry_point: Some("vs_main"),
                     buffers: &[],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &voronoi_render_shader,
+                    module: &voronoi_render_jfa_shader,
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: surface_config.format,
@@ -878,13 +993,227 @@ impl VoronoiCASimulation {
         // Camera was created above
         let post_processing_state = PostProcessingState::default();
 
+        // Create JFA textures (double-buffered)
+        let jfa_texture_a = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("VCA JFA Texture A"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let jfa_texture_b = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("VCA JFA Texture B"),
+            size: wgpu::Extent3d {
+                width: surface_config.width,
+                height: surface_config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::STORAGE_BINDING
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let jfa_view_a = jfa_texture_a.create_view(&wgpu::TextureViewDescriptor::default());
+        let jfa_view_b = jfa_texture_b.create_view(&wgpu::TextureViewDescriptor::default());
+
+
+        // Create JFA shader modules
+        let jfa_init_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA JFA Init Shader"),
+            source: wgpu::ShaderSource::Wgsl(JFA_INIT_SHADER.into()),
+        });
+        let jfa_iteration_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA JFA Iteration Shader"),
+            source: wgpu::ShaderSource::Wgsl(JFA_ITERATION_SHADER.into()),
+        });
+
+        // Create JFA bind group layouts
+        let jfa_init_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("VCA JFA Init BGL"),
+        });
+
+        let jfa_iteration_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("VCA JFA Iteration BGL"),
+        });
+
+        // Create JFA pipelines
+        let jfa_init_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("VCA JFA Init Pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("VCA JFA Init PL"),
+                    bind_group_layouts: &[&jfa_init_bgl],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            module: &jfa_init_shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        let jfa_iteration_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("VCA JFA Iteration Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("VCA JFA Iteration PL"),
+                        bind_group_layouts: &[&jfa_iteration_bgl],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &jfa_iteration_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        // Create JFA bind groups
+        let jfa_init_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA JFA Init BG"),
+            layout: &jfa_init_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: vertex_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: voronoi_params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&jfa_view_a),
+                },
+            ],
+        });
+
+        let jfa_iteration_bg_a = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA JFA Iteration BG A->B"),
+            layout: &jfa_iteration_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: voronoi_params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&jfa_view_a),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&jfa_view_b),
+                },
+            ],
+        });
+        let jfa_iteration_bg_b = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA JFA Iteration BG B->A"),
+            layout: &jfa_iteration_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: voronoi_params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&jfa_view_b),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&jfa_view_a),
+                },
+            ],
+        });
+
+
+
         Ok(Self {
-            voronoi_render_pipeline,
+            voronoi_render_jfa_pipeline,
             compute_pipeline,
             compute_update_pipeline,
+            brownian_pipeline,
             uniform_buffer,
+            brownian_params_buffer,
             compute_neighbor_bg,
             compute_update_bg,
+            brownian_bg,
             vertex_buffer,
             grid_indices,
             grid_counts,
@@ -894,7 +1223,7 @@ impl VoronoiCASimulation {
             grid_clear_bg,
             grid_populate_bg,
             voronoi_params,
-            voronoi_render_bg,
+
             num_points,
             time_accum: 0.0,
             time_scale: 1.0,
@@ -910,7 +1239,7 @@ impl VoronoiCASimulation {
             lut_reversed: false,
             color_mode: 1,
             borders_enabled: true,
-            border_threshold: 0.96,
+            border_width: 1.0,
             app_settings: app_settings.clone(),
             camera,
             camera_bind_group,
@@ -922,13 +1251,18 @@ impl VoronoiCASimulation {
             render_infinite_bind_group,
             post_processing_state,
             post_processing_resources,
-            // run-and-tumble defaults
-            headings,
-            run_time_left,
-            tumble_time_left,
-            run_speed: 10.0,   // px/sec
-            avg_run_time: 1.5, // seconds
-            tumble_time: 0.2,  // seconds
+            // JFA resources
+            jfa_view_a,
+            jfa_view_b,
+
+            jfa_init_pipeline,
+            jfa_iteration_pipeline,
+            jfa_init_bg,
+            jfa_iteration_bg_a,
+            jfa_iteration_bg_b,
+            jfa_current_texture: true, // Start with texture A
+            // brownian motion defaults
+            brownian_speed: 10.0,   // px/sec
             cursor_size: 0.20,
             cursor_strength: 1.0,
         })
@@ -940,12 +1274,9 @@ impl VoronoiCASimulation {
         queue: &Arc<Queue>,
         new_count: u32,
     ) -> SimulationResult<()> {
-        // Recreate points and motion arrays
+        // Recreate points array
         let mut rng = rand::rng();
         let mut points: Vec<Vertex> = Vec::with_capacity(new_count as usize);
-        let mut headings: Vec<f32> = Vec::with_capacity(new_count as usize);
-        let mut run_time_left: Vec<f32> = Vec::with_capacity(new_count as usize);
-        let mut tumble_time_left: Vec<f32> = Vec::with_capacity(new_count as usize);
         for _ in 0..new_count {
             points.push(Vertex {
                 position: [
@@ -957,14 +1288,9 @@ impl VoronoiCASimulation {
                 age: 0.0,
                 alive_neighbors: 0,
                 dead_neighbors: 0,
-                pad1: 0,
+                random_state: rng.random::<u32>(),
             });
-            headings.push(rng.random::<f32>() * std::f32::consts::TAU);
-            // Exponential sample for initial run duration
-            let u: f32 = (1.0 - rng.random::<f32>()).max(1e-6);
-            let run_sample = -self.avg_run_time.max(0.05) * u.ln();
-            run_time_left.push(run_sample);
-            tumble_time_left.push(0.0);
+
         }
 
         // Recreate GPU vertex buffer
@@ -977,6 +1303,8 @@ impl VoronoiCASimulation {
             mapped_at_creation: false,
         });
         queue.write_buffer(&vertex_buffer, 0, bytemuck::cast_slice(&points));
+
+
 
         // Recreate bind groups that reference vertex buffer
         // Neighbor count BG
@@ -1104,63 +1432,9 @@ impl VoronoiCASimulation {
             label: Some("voronoi_ca_compute_update_bg"),
         });
 
-        let voronoi_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("VCA Voronoi Render BGL Rebind"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    // params
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    // vertices (states)
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    // LUT buffer
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
 
-        self.voronoi_render_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Voronoi Render BG Rebind"),
-            layout: &voronoi_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.voronoi_params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: vertex_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-            ],
-        });
+
+
 
         // Recreate grid populate BG which also depends on vertex buffer
         let grid_populate_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1231,11 +1505,120 @@ impl VoronoiCASimulation {
             ],
         });
 
+        // Recreate JFA bind groups that reference the vertex buffer
+        let jfa_init_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("VCA JFA Init BGL Rebind"),
+        });
+
+        self.jfa_init_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA JFA Init BG Rebind"),
+            layout: &jfa_init_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: vertex_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.voronoi_params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.jfa_view_a),
+                },
+            ],
+        });
+
+        // Recreate brownian bind group
+        let brownian_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("voronoi_ca_brownian_bgl_rebuild"),
+        });
+
+        self.brownian_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Brownian BG Rebuild"),
+            layout: &brownian_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: vertex_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.brownian_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
         // Update fields
         self.points = points;
-        self.headings = headings;
-        self.run_time_left = run_time_left;
-        self.tumble_time_left = tumble_time_left;
         self.vertex_buffer = vertex_buffer;
         self.num_points = new_count;
         Ok(())
@@ -1265,63 +1648,50 @@ impl Simulation for VoronoiCASimulation {
         // Only update time/drift fields; write the full struct for simplicity
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
-        // Run-and-tumble update on CPU and write back to GPU
-        let mut rng = rand::rng();
-        let min_x = 0.0f32;
-        let min_y = 0.0f32;
-        let size_x = self.resolution[0] as f32;
-        let size_y = self.resolution[1] as f32;
-        let speed = self.run_speed.max(0.0) * self.drift.max(0.0); // px/sec
-        for i in 0..(self.num_points as usize) {
-            // Progress timers
-            if self.tumble_time_left[i] > 0.0 {
-                self.tumble_time_left[i] = (self.tumble_time_left[i] - dt).max(0.0);
-                // small random heading jitter while tumbling
-                self.headings[i] += (rng.random::<f32>() - 0.5) * 0.5 * dt; // ~0.5 rad/s jitter
-                if self.tumble_time_left[i] == 0.0 {
-                    // choose a new heading uniformly
-                    self.headings[i] = rng.random::<f32>() * std::f32::consts::TAU;
-                    // sample new run duration from exponential with mean avg_run_time
-                    let u: f32 = (1.0 - rng.random::<f32>()).max(1e-6);
-                    self.run_time_left[i] = -self.avg_run_time.max(0.05) * u.ln();
-                }
-            } else if self.run_time_left[i] > 0.0 {
-                // running: move forward with toroidal wrap
-                self.run_time_left[i] = (self.run_time_left[i] - dt).max(0.0);
-                let dx = self.headings[i].cos() * speed * dt;
-                let dy = self.headings[i].sin() * speed * dt;
-                self.points[i].position[0] =
-                    (self.points[i].position[0] + dx - min_x).rem_euclid(size_x) + min_x;
-                self.points[i].position[1] =
-                    (self.points[i].position[1] + dy - min_y).rem_euclid(size_y) + min_y;
-                if self.run_time_left[i] == 0.0 {
-                    self.tumble_time_left[i] = self.tumble_time.max(0.0);
-                }
-            } else {
-                // initialize state if both zero
-                let u: f32 = (1.0 - rng.random::<f32>()).max(1e-6);
-                self.run_time_left[i] = -self.avg_run_time.max(0.05) * u.ln();
-            }
-        }
-        // Sync updated CPU-side positions to the GPU so compute uses latest data
-        // This writes the entire array for simplicity; can be optimized later
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
+        // Update brownian params for GPU compute shader
+        let brownian_params = BrownianParams {
+            speed: self.brownian_speed,
+            delta_time: dt,
+        };
+        queue.write_buffer(&self.brownian_params_buffer, 0, bytemuck::bytes_of(&brownian_params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("VoronoiCA Encoder"),
         });
 
-        // Update grid params each frame (particle count and possibly cell size)
+        // Brownian motion on GPU
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Brownian"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.brownian_pipeline);
+            cpass.set_bind_group(0, &self.brownian_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+        }
+
+        // Update grid params each frame with adaptive parameters based on point density
+        let total_area = self.resolution[0] * self.resolution[1];
+        let density = self.num_points as f32 / total_area;
+        
+        // Adaptive cell capacity based on density
+        let cell_capacity = if density > 0.01 { 256 } else if density > 0.005 { 192 } else { 128 };
+        
+        // Adaptive cell size - smaller cells for high density to reduce neighbor search overhead
+        let base_cell_size = self.neighbor_radius * 1.5;
+        let cell_size = if density > 0.01 { 
+            base_cell_size.max(8.0) // Smaller cells for high density
+        } else { 
+            base_cell_size.max(12.0) // Standard cells for low density
+        };
+        
         let gp = GridParams {
             particle_count: self.num_points,
-            grid_width: (((self.resolution[0] as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
-                / (self.neighbor_radius * 1.25).max(8.0))
-            .ceil() as u32,
-            grid_height: (((self.resolution[1] as f32) + (self.neighbor_radius * 1.25).max(8.0) - 1.0)
-                / (self.neighbor_radius * 1.25).max(8.0))
-            .ceil() as u32,
-            cell_capacity: 64,
-            cell_size: (self.neighbor_radius * 1.25).max(8.0),
+            grid_width: ((self.resolution[0] + cell_size - 1.0) / cell_size).ceil() as u32,
+            grid_height: ((self.resolution[1] + cell_size - 1.0) / cell_size).ceil() as u32,
+            cell_capacity,
+            cell_size,
             _pad1: 0.0,
             _pad2: 0.0,
             _pad3: 0.0,
@@ -1337,7 +1707,7 @@ impl Simulation for VoronoiCASimulation {
             cpass.set_pipeline(&self.grid_clear_pipeline);
             cpass.set_bind_group(0, &self.grid_clear_bg, &[]);
             let total_cells = gp.grid_width * gp.grid_height;
-            cpass.dispatch_workgroups(total_cells.div_ceil(64), 1, 1);
+            cpass.dispatch_workgroups(total_cells.div_ceil(128), 1, 1);
         }
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1346,7 +1716,7 @@ impl Simulation for VoronoiCASimulation {
             });
             cpass.set_pipeline(&self.grid_populate_pipeline);
             cpass.set_bind_group(0, &self.grid_populate_bg, &[]);
-            cpass.dispatch_workgroups(self.num_points.div_ceil(64), 1, 1);
+            cpass.dispatch_workgroups(self.num_points.div_ceil(128), 1, 1);
         }
 
         // Compute passes: 1) neighbor count, 2) state update
@@ -1357,7 +1727,7 @@ impl Simulation for VoronoiCASimulation {
             });
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &self.compute_neighbor_bg, &[]);
-            let wg_count = self.num_points.div_ceil(64);
+            let wg_count = self.num_points.div_ceil(128);
             cpass.dispatch_workgroups(wg_count, 1, 1);
         }
         {
@@ -1367,7 +1737,7 @@ impl Simulation for VoronoiCASimulation {
             });
             cpass.set_pipeline(&self.compute_update_pipeline);
             cpass.set_bind_group(0, &self.compute_update_bg, &[]);
-            let wg_count = self.num_points.div_ceil(64);
+            let wg_count = self.num_points.div_ceil(128);
             cpass.dispatch_workgroups(wg_count, 1, 1);
         }
 
@@ -1377,7 +1747,7 @@ impl Simulation for VoronoiCASimulation {
             color_mode: self.color_mode as f32,
             neighbor_radius: self.neighbor_radius,
             border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
-            border_threshold: self.border_threshold,
+            border_width: self.border_width,
             filter_mode: match self.app_settings.texture_filtering {
                 crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
                 crate::commands::app_settings::TextureFiltering::Linear => 1.0,
@@ -1385,6 +1755,7 @@ impl Simulation for VoronoiCASimulation {
             },
             resolution_x: self.resolution[0],
             resolution_y: self.resolution[1],
+            jump_distance: 0.0, // Not used in this context
         };
         queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
@@ -1392,8 +1763,100 @@ impl Simulation for VoronoiCASimulation {
         self.camera.update(delta_time);
         self.camera.upload_to_gpu(queue);
 
-        // Fullscreen Voronoi render to offscreen display texture (uses EDT texture)
+        // JFA passes: initialize and iterate to build Voronoi diagram
         {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA JFA Init"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.jfa_init_pipeline);
+            cpass.set_bind_group(0, &self.jfa_init_bg, &[]);
+            let wg_x = (self.resolution[0] as u32).div_ceil(8);
+            let wg_y = (self.resolution[1] as u32).div_ceil(8);
+            cpass.dispatch_workgroups(wg_x, wg_y, 1);
+        }
+
+        // JFA iterations - perform multiple passes with decreasing jump distances
+        let max_jump = (self.resolution[0].max(self.resolution[1]) as u32).next_power_of_two();
+        let mut jump_distance = max_jump;
+        let mut current_texture = true; // Start with texture A (where init wrote)
+        
+        // Use full JFA iterations for consistent visual quality
+        let min_jump = 1;
+        
+        while jump_distance >= min_jump {
+            // Update params with current jump distance
+            let params = VoronoiParams {
+                count: self.num_points as f32,
+                color_mode: self.color_mode as f32,
+                neighbor_radius: self.neighbor_radius,
+                border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
+                border_width: self.border_width,
+                filter_mode: match self.app_settings.texture_filtering {
+                    crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
+                    crate::commands::app_settings::TextureFiltering::Linear => 1.0,
+                    crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
+                },
+                resolution_x: self.resolution[0],
+                resolution_y: self.resolution[1],
+                jump_distance: jump_distance as f32,
+            };
+            queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
+
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA JFA Iteration"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.jfa_iteration_pipeline);
+            
+            // Use the appropriate bind group based on current texture
+            if current_texture {
+                cpass.set_bind_group(0, &self.jfa_iteration_bg_a, &[]);
+            } else {
+                cpass.set_bind_group(0, &self.jfa_iteration_bg_b, &[]);
+            }
+            
+            let wg_x = (self.resolution[0] as u32).div_ceil(8);
+            let wg_y = (self.resolution[1] as u32).div_ceil(8);
+            cpass.dispatch_workgroups(wg_x, wg_y, 1);
+            
+            // Swap textures for next iteration
+            current_texture = !current_texture;
+            jump_distance /= 2;
+        }
+        
+        // Update the current texture flag
+        self.jfa_current_texture = current_texture;
+
+        // Fullscreen Voronoi render to offscreen display texture (uses JFA texture)
+        {
+            // Create render bind group with current JFA texture using the pipeline's layout
+            let current_jfa_view = self.get_current_jfa_view();
+            let voronoi_render_jfa_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Voronoi JFA Render BG Dynamic"),
+                layout: &self
+                    .voronoi_render_jfa_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.voronoi_params.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.vertex_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.lut_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(current_jfa_view),
+                    },
+                ],
+            });
+
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("VoronoiCA Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1408,14 +1871,14 @@ impl Simulation for VoronoiCASimulation {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            rpass.set_pipeline(&self.voronoi_render_pipeline);
+            rpass.set_pipeline(&self.voronoi_render_jfa_pipeline);
             // Update params before draw
             let params = VoronoiParams {
                 count: self.num_points as f32,
                 color_mode: self.color_mode as f32,
                 neighbor_radius: self.neighbor_radius,
                 border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
-                border_threshold: self.border_threshold,
+                border_width: self.border_width,
                 filter_mode: match self.app_settings.texture_filtering {
                     crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
                     crate::commands::app_settings::TextureFiltering::Linear => 1.0,
@@ -1423,10 +1886,11 @@ impl Simulation for VoronoiCASimulation {
                 },
                 resolution_x: self.resolution[0],
                 resolution_y: self.resolution[1],
+                jump_distance: 0.0, // Not used in render
             };
             queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
 
-            rpass.set_bind_group(0, &self.voronoi_render_bg, &[]);
+            rpass.set_bind_group(0, &voronoi_render_jfa_bg, &[]);
             rpass.draw(0..3, 0..1);
         }
 
@@ -1553,30 +2017,191 @@ impl Simulation for VoronoiCASimulation {
         self.camera.update(0.016);
         self.camera.upload_to_gpu(queue);
 
+        // When paused, still rebuild the Voronoi display texture so painting is visible
+        // JFA passes: initialize and iterate to build Voronoi diagram (no movement/state updates)
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("VoronoiCA Static Encoder"),
+            label: Some("VCA Static Encoder"),
         });
+
+        // Initialize JFA with current points into the double-buffered JFA textures
         {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA JFA Init (Static)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.jfa_init_pipeline);
+            // Use the single JFA init bind group
+            cpass.set_bind_group(0, &self.jfa_init_bg, &[]);
+            let wg_x = (self.resolution[0] as u32).div_ceil(8);
+            let wg_y = (self.resolution[1] as u32).div_ceil(8);
+            cpass.dispatch_workgroups(wg_x, wg_y, 1);
+        }
+
+        // JFA iterations - perform multiple passes with decreasing jump distances
+        let mut current_texture = self.jfa_current_texture;
+        let mut jump_distance = self.resolution[0].max(self.resolution[1]);
+        while jump_distance > 1.0 {
+            // Update params buffer with current jump distance
+            let params = VoronoiParams {
+                count: self.num_points as f32,
+                color_mode: self.color_mode as f32,
+                neighbor_radius: self.neighbor_radius,
+                border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
+                border_width: self.border_width,
+                filter_mode: match self.app_settings.texture_filtering {
+                    crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
+                    crate::commands::app_settings::TextureFiltering::Linear => 1.0,
+                    crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
+                },
+                resolution_x: self.resolution[0],
+                resolution_y: self.resolution[1],
+                jump_distance,
+            };
+            queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
+
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA JFA Iteration (Static)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.jfa_iteration_pipeline);
+            if current_texture {
+                cpass.set_bind_group(0, &self.jfa_iteration_bg_a, &[]);
+            } else {
+                cpass.set_bind_group(0, &self.jfa_iteration_bg_b, &[]);
+            }
+            let wg_x = (self.resolution[0] as u32).div_ceil(8);
+            let wg_y = (self.resolution[1] as u32).div_ceil(8);
+            cpass.dispatch_workgroups(wg_x, wg_y, 1);
+
+            current_texture = !current_texture;
+            jump_distance /= 2.0;
+        }
+
+        // Update the current texture flag after iterations
+        self.jfa_current_texture = current_texture;
+
+        // Fullscreen Voronoi render to offscreen display texture (uses JFA texture)
+        {
+            let current_jfa_view = self.get_current_jfa_view();
+            let voronoi_render_jfa_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Voronoi JFA Render BG Dynamic (Static)"),
+                layout: &self
+                    .voronoi_render_jfa_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: self.voronoi_params.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: self.vertex_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 2, resource: self.lut_buffer.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(current_jfa_view) },
+                ],
+            });
+
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("VoronoiCA Render Pass Static"),
+                label: Some("VCA Static Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.display_view,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
                 })],
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            rpass.set_pipeline(&self.voronoi_render_pipeline);
-
+            rpass.set_pipeline(&self.voronoi_render_jfa_pipeline);
+            // Keep params up to date
+            let params = VoronoiParams {
+                count: self.num_points as f32,
+                color_mode: self.color_mode as f32,
+                neighbor_radius: self.neighbor_radius,
+                border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
+                border_width: self.border_width,
+                filter_mode: match self.app_settings.texture_filtering {
+                    crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
+                    crate::commands::app_settings::TextureFiltering::Linear => 1.0,
+                    crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
+                },
+                resolution_x: self.resolution[0],
+                resolution_y: self.resolution[1],
+                jump_distance: 0.0,
+            };
+            queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
+            rpass.set_bind_group(0, &voronoi_render_jfa_bg, &[]);
             rpass.draw(0..3, 0..1);
         }
 
-        // Infinite tiling pass to the surface
+        // Optional blur into display texture while paused
+        if self.post_processing_state.blur_filter.enabled {
+            let radius = self.post_processing_state.blur_filter.radius;
+            let sigma = self.post_processing_state.blur_filter.sigma;
+            self.post_processing_resources.update_blur_params(
+                queue,
+                radius,
+                sigma,
+                self.resolution[0] as u32,
+                self.resolution[1] as u32,
+            );
+
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Blur Bind Group (Static)"),
+                layout: &self
+                    .post_processing_resources
+                    .blur_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&self.display_view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.post_processing_resources.blur_sampler) },
+                    wgpu::BindGroupEntry { binding: 2, resource: self.post_processing_resources.blur_params_buffer.as_entire_binding() },
+                ],
+            });
+
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("VCA PostProcess Pass (Static)"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_processing_resources.intermediate_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                rpass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                rpass.set_bind_group(0, &blur_bind_group, &[]);
+                rpass.draw(0..6, 0..1);
+            }
+
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo { texture: &self.post_processing_resources.intermediate_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                wgpu::TexelCopyTextureInfo { texture: &self.display_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                wgpu::Extent3d { width: self.resolution[0] as u32, height: self.resolution[1] as u32, depth_or_array_layers: 1 },
+            );
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+
+        // Recreate the infinite bind group to use the updated display texture
+        let render_infinite_bind_group_layout = self.render_infinite_pipeline.get_bind_group_layout(0);
+        self.render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Render Infinite BG (Static)"),
+            layout: &render_infinite_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.display_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.texture_render_params_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Infinite tiling pass to the surface (uses updated display texture)
         let tile_count = self.calculate_tile_count();
         let total_instances = tile_count * tile_count;
 
@@ -1589,10 +2214,7 @@ impl Simulation for VoronoiCASimulation {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: surface_view,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
                 })],
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
@@ -1604,8 +2226,6 @@ impl Simulation for VoronoiCASimulation {
             rpass.draw(0..6, 0..total_instances);
         }
         queue.submit(std::iter::once(encoder2.finish()));
-
-        queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
 
@@ -1810,19 +2430,9 @@ impl Simulation for VoronoiCASimulation {
                     self.alive_threshold = v as f32;
                 }
             }
-            "runSpeed" => {
+            "brownianSpeed" => {
                 if let Some(v) = value.as_f64() {
-                    self.run_speed = v as f32;
-                }
-            }
-            "avgRunTime" => {
-                if let Some(v) = value.as_f64() {
-                    self.avg_run_time = v as f32;
-                }
-            }
-            "tumbleTime" => {
-                if let Some(v) = value.as_f64() {
-                    self.tumble_time = v as f32;
+                    self.brownian_speed = v as f32;
                 }
             }
             "timeScale" => {
@@ -1832,7 +2442,7 @@ impl Simulation for VoronoiCASimulation {
             }
             "numPoints" => {
                 if let Some(v) = value.as_u64() {
-                    let new_count = (v as u32).max(1);
+                    let new_count = (v as u32).max(1).min(5000); // Cap at 5k points
                     self.rebuild_points(_device, _queue, new_count)?;
                 }
             }
@@ -1862,12 +2472,32 @@ impl Simulation for VoronoiCASimulation {
                     self.borders_enabled = b;
                 }
             }
-            "borderThreshold" => {
+            "borderWidth" => {
                 if let Some(v) = value.as_f64() {
-                    self.border_threshold = v as f32;
+                    self.border_width = v as f32;
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "numPoints" => {
+                if let Some(v) = value.as_u64().and_then(|v| v.try_into().ok()) {
+                    self.rebuild_points(device, queue, v)?;
+                }
+            }
+            _ => {
+                tracing::error!("Unknown state parameter for VoronoiCA: {}", state_name);
+            }
         }
         Ok(())
     }
@@ -1877,16 +2507,14 @@ impl Simulation for VoronoiCASimulation {
             "drift": self.drift,
             "neighborRadius": self.neighbor_radius,
             "aliveThreshold": self.alive_threshold,
-            "runSpeed": self.run_speed,
-            "avgRunTime": self.avg_run_time,
-            "tumbleTime": self.tumble_time,
+            "brownianSpeed": self.brownian_speed,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
             "currentLutName": self.current_lut_name,
             "lutReversed": self.lut_reversed,
             "coloringMode": match self.color_mode { 0 => "Random", 1 => "Density", 2 => "Age", 3 => "Binary", _ => "Random" },
             "bordersEnabled": self.borders_enabled,
-            "borderThreshold": self.border_threshold
+            "borderWidth": self.border_width
         })
     }
 
@@ -1899,29 +2527,25 @@ impl Simulation for VoronoiCASimulation {
         world_x: f32,
         world_y: f32,
         mouse_button: u32,
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // Convert world coordinates to simulation coordinates
-        // World coords are in [-1,1] range, need to convert to [0, width] x [0, height]
-        // Account for camera position and zoom
-        let camera_x = self.camera.position[0];
-        let camera_y = self.camera.position[1];
-        let zoom = self.camera.zoom;
-
-        // Use cursor size as world space radius, convert to simulation space
+        // Incoming world coords are already in [-1,1] space (camera-adjusted).
+        // Just map to [0, width] x [0, height] without reapplying camera transforms.
+        // Use cursor size as world space radius, convert to simulation pixels
         let world_radius = self.cursor_size;
-        let sim_radius = world_radius * zoom * (self.resolution[0].min(self.resolution[1]) as f32) * 0.5;
+        let sim_radius = world_radius * (self.resolution[0].min(self.resolution[1])) * 0.5;
         let radius_sq = sim_radius * sim_radius;
 
-        // Apply camera transform to get local coordinates in [-1,1] range
-        let local_x = (world_x - camera_x) / zoom;
-        let local_y = (world_y - camera_y) / zoom;
+        // Wrap world coords to the current 2x2 tile in [-1,1] so clicks map to the base texture
+        let wrapped_world_x = (world_x + 1.0).rem_euclid(2.0) - 1.0;
+        let wrapped_world_y = (world_y + 1.0).rem_euclid(2.0) - 1.0;
 
-        // Convert from [-1,1] range to [0, resolution] range
+        // Convert from wrapped [-1,1] world to [0, resolution] pixels
         // Flip Y axis: world Y increases upward, simulation Y increases downward
-        let x = (local_x + 1.0) * 0.5 * self.resolution[0] as f32;
-        let y = (1.0 - local_y) * 0.5 * self.resolution[1] as f32;
+        let x = (wrapped_world_x + 1.0) * 0.5 * self.resolution[0];
+        let y = (1.0 - wrapped_world_y) * 0.5 * self.resolution[1];
 
         // Buttons: 0 = left => set alive, 2 = right => set dead
         let set_alive = mouse_button == 0;
@@ -1930,61 +2554,55 @@ impl Simulation for VoronoiCASimulation {
             return Ok(());
         }
 
-        tracing::debug!(
+        tracing::trace!(
             "VCA mouse interaction: world=({:.3}, {:.3}), sim=({:.1}, {:.1}), button={}, world_radius={:.3}, sim_radius={:.1}",
-            world_x, world_y, x, y, mouse_button, world_radius, sim_radius
+            world_x,
+            world_y,
+            x,
+            y,
+            mouse_button,
+            world_radius,
+            sim_radius
         );
 
-        // Apply toroidal wrapping for distance calculation (matching the render shader)
-        let w = self.resolution[0] as f32;
-        let h = self.resolution[1] as f32;
-
-        for v in &mut self.points {
+        // Affect only the single nearest site under the cursor (more predictable painting)
+        // Use the same toroidal metric as the JFA init/shaders so the edited site matches the clicked cell
+        let w = self.resolution[0];
+        let h = self.resolution[1];
+        let mut nearest_index: Option<usize> = None;
+        let mut nearest_dist2: f32 = f32::MAX;
+        for (i, v) in self.points.iter().enumerate() {
             let mut dx = v.position[0] - x;
             let mut dy = v.position[1] - y;
-
-            // Apply toroidal wrapping (same as in render shader)
-            if dx > 0.5 * w {
-                dx -= w;
-            }
-            if dx < -0.5 * w {
-                dx += w;
-            }
-            if dy > 0.5 * h {
-                dy -= h;
-            }
-            if dy < -0.5 * h {
-                dy += h;
-            }
-
-            let d2 = dx * dx + dy * dy;
-            if d2 <= radius_sq {
-                if set_alive {
-                    v.state = 1.0;
-                } else if set_dead {
-                    v.state = 0.0;
-                }
-            }
-        }
-        
-        // Count how many points were modified
-        let modified_count = self.points.iter().filter(|p| {
-            let mut dx = p.position[0] - x;
-            let mut dy = p.position[1] - y;
             if dx > 0.5 * w { dx -= w; }
             if dx < -0.5 * w { dx += w; }
             if dy > 0.5 * h { dy -= h; }
             if dy < -0.5 * h { dy += h; }
             let d2 = dx * dx + dy * dy;
-            d2 <= radius_sq
-        }).count();
-        
-        tracing::debug!("VCA mouse interaction: modified {} points", modified_count);
-        
+            if d2 < nearest_dist2 {
+                nearest_dist2 = d2;
+                nearest_index = Some(i);
+            }
+        }
+        if let Some(i) = nearest_index {
+            if nearest_dist2 <= radius_sq {
+                let v = &mut self.points[i];
+                if set_alive {
+                    v.state = 1.0;
+                } else if set_dead {
+                    v.state = 0.0;
+                }
+                
+                // Update neighbor counts on GPU to ensure density coloring works correctly when paused
+                self.update_neighbor_counts_gpu(device, queue)?;
+            }
+        }
+
         // Push updated states to GPU immediately so painting is visible next frame
-        _queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
         Ok(())
     }
+
 
     fn handle_mouse_release(
         &mut self,
@@ -2034,8 +2652,24 @@ impl Simulation for VoronoiCASimulation {
     fn reset_runtime_state(
         &mut self,
         _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
+        // Reset time to start brownian motion from beginning
+        self.time_accum = 0.0;
+        
+        // Set all cells to dead (state = 0.0) and reset random state
+        let mut rng = rand::rng();
+        for point in &mut self.points {
+            point.state = 0.0;
+            point.age = 0.0;
+            point.alive_neighbors = 0;
+            point.dead_neighbors = 0;
+            point.random_state = rng.random::<u32>();
+        }
+        
+        // Upload the updated state to the GPU
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
+        
         Ok(())
     }
 
@@ -2053,8 +2687,88 @@ impl Simulation for VoronoiCASimulation {
         _device: &Arc<Device>,
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // Randomize drift a bit as an example
-        self.drift = 0.2 + rand::rng().random::<f32>() * 0.8;
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Direct-write the color scheme data to the VCA buffer for immediate preview
+        let mut data_u32 = color_scheme.to_u32_buffer();
+        if self.lut_reversed {
+            data_u32[0..256].reverse();
+            data_u32[256..512].reverse();
+            data_u32[512..768].reverse();
+        }
+        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
+        Ok(())
+    }
+}
+
+impl VoronoiCASimulation {
+    /// Update neighbor counts using GPU compute shader
+    /// This ensures density coloring works correctly when painting while paused
+    fn update_neighbor_counts_gpu(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
+        // Create a minimal command encoder for neighbor counting
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("VCA Neighbor Count Update"),
+        });
+
+        // Update uniforms buffer with current parameters
+        let uniforms = Uniforms {
+            resolution: [self.resolution[0], self.resolution[1]],
+            time: 0.0, // Not used for neighbor counting
+            drift: self.drift,
+            rule_type: 0,
+            neighbor_radius: self.neighbor_radius,
+            alive_threshold: self.alive_threshold,
+            _pad0: 0,
+        };
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        // Calculate grid parameters (same as in normal update)
+        let cell_size = self.neighbor_radius.max(12.0);
+        let grid_width = ((self.resolution[0] + cell_size - 1.0) / cell_size).ceil() as u32;
+        let grid_height = ((self.resolution[1] + cell_size - 1.0) / cell_size).ceil() as u32;
+        let total_cells = grid_width * grid_height;
+
+        // Clear and populate spatial grid (same as in normal update)
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Grid Clear (Paint)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.grid_clear_pipeline);
+            cpass.set_bind_group(0, &self.grid_clear_bg, &[]);
+            cpass.dispatch_workgroups(total_cells.div_ceil(128), 1, 1);
+        }
+
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Grid Populate (Paint)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.grid_populate_pipeline);
+            cpass.set_bind_group(0, &self.grid_populate_bg, &[]);
+            cpass.dispatch_workgroups(self.num_points.div_ceil(128), 1, 1);
+        }
+
+        // Run neighbor counting compute pass
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Neighbor Count (Paint)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.compute_pipeline);
+            cpass.set_bind_group(0, &self.compute_neighbor_bg, &[]);
+            cpass.dispatch_workgroups(self.num_points.div_ceil(128), 1, 1);
+        }
+
+        // Submit the command buffer
+        queue.submit(std::iter::once(encoder.finish()));
         Ok(())
     }
 }

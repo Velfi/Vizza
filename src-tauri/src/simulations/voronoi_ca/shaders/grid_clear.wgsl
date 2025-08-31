@@ -15,7 +15,7 @@ struct GridParams {
 @group(0) @binding(0) var<storage, read_write> grid_counts: array<atomic<u32>>;
 @group(0) @binding(1) var<uniform> params: GridParams;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let index = gid.x;
   let total_cells = params.grid_width * params.grid_height;

@@ -67,6 +67,18 @@ pub trait Simulation {
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
 
+    /// Update a specific state parameter by name
+    ///
+    /// This method should only modify runtime state that is not saved in presets.
+    /// Examples: LUT selection, color modes, cursor size, etc.
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()>;
+
     /// Get the current settings as a serializable value
     ///
     /// This should return only user-configurable settings that can be saved in presets.
@@ -152,6 +164,14 @@ pub trait Simulation {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()>;
+
+    /// Update the color scheme with new data
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()>;
 }
 
 /// Enum wrapper for all simulation types
@@ -178,7 +198,7 @@ impl SimulationType {
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
-        lut_manager: &crate::simulations::shared::LutManager,
+        lut_manager: &crate::simulations::shared::ColorSchemeManager,
         app_settings: &crate::commands::AppSettings,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         match simulation_type {
@@ -221,7 +241,7 @@ impl SimulationType {
                     settings,
                     app_settings,
                     lut_manager,
-                    crate::simulations::particle_life::simulation::ColorMode::Lut,
+                    crate::simulations::particle_life::simulation::ColorMode::ColorScheme,
                 )?;
                 Ok(SimulationType::ParticleLife(Box::new(simulation)))
             }
@@ -411,6 +431,39 @@ impl Simulation for SimulationType {
             }
             SimulationType::VoronoiCA(simulation) => {
                 simulation.update_setting(setting_name, value, device, queue)
+            }
+        }
+    }
+
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        match self {
+            SimulationType::SlimeMold(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::Flow(sim) => sim.update_state(state_name, value, device, queue),
+            SimulationType::Pellets(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::Gradient(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
+            }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.update_state(state_name, value, device, queue)
             }
         }
     }
@@ -706,6 +759,38 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::Gradient(simulation) => simulation.randomize_settings(device, queue),
             SimulationType::VoronoiCA(simulation) => simulation.randomize_settings(device, queue),
+        }
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        match self {
+            SimulationType::SlimeMold(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::GrayScott(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::ParticleLife(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::Flow(sim) => sim.update_color_scheme(color_scheme, device, queue),
+            SimulationType::Pellets(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::MainMenu(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::Gradient(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
+            SimulationType::VoronoiCA(simulation) => {
+                simulation.update_color_scheme(color_scheme, device, queue)
+            }
         }
     }
 }

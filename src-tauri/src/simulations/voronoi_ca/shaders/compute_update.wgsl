@@ -27,7 +27,7 @@ struct Uniforms {
 @group(0) @binding(0) var<storage, read_write> vertices: Vertices;
 @group(0) @binding(1) var<uniform> uniforms: Uniforms;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   let count = arrayLength(&vertices.data);

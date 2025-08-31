@@ -1,7 +1,7 @@
 use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::shared::{
-    BindGroupBuilder, CommonBindGroupLayouts, LutManager, RenderPipelineBuilder,
+    BindGroupBuilder, ColorSchemeManager, CommonBindGroupLayouts, RenderPipelineBuilder,
 };
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
@@ -26,7 +26,7 @@ impl MainMenuModel {
     pub fn new(
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
-        lut_manager: &LutManager,
+        lut_manager: &ColorSchemeManager,
         _app_settings: &AppSettings,
     ) -> SimulationResult<Self> {
         // Create common layouts
@@ -214,6 +214,23 @@ impl Simulation for MainMenuModel {
         Ok(())
     }
 
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        _value: serde_json::Value,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            // Main Menu doesn't have any dynamic state parameters that need updating
+            // It's a static background animation
+            _ => {
+                tracing::warn!("Unknown state parameter for MainMenu: {}", state_name);
+            }
+        }
+        Ok(())
+    }
+
     fn get_settings(&self) -> Value {
         // No settings for this simulation
         serde_json::json!({})
@@ -312,6 +329,16 @@ impl Simulation for MainMenuModel {
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // No settings to randomize for this simulation
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        _color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Main menu doesn't support custom color schemes
         Ok(())
     }
 }

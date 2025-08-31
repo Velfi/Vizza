@@ -11,7 +11,7 @@ use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::Pipe
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
-use crate::simulations::shared::{LutData, LutManager, camera::Camera};
+use crate::simulations::shared::{ColorScheme, ColorSchemeManager, camera::Camera};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -170,7 +170,7 @@ pub struct SlimeMoldModel {
     pub average_color_staging_buffer: wgpu::Buffer,
     pub average_color_bind_group: wgpu::BindGroup,
     pub average_color_uniform_buffer: wgpu::Buffer,
-    pub lut_manager: Arc<LutManager>,
+    pub lut_manager: Arc<ColorSchemeManager>,
     pub post_processing_state: PostProcessingState,
     pub post_processing_resources: PostProcessingResources,
     pub app_settings: AppSettings,
@@ -199,7 +199,7 @@ impl SlimeMoldModel {
         agent_count: usize,
         settings: Settings,
         app_settings: &AppSettings,
-        lut_manager: &LutManager,
+        lut_manager: &ColorSchemeManager,
     ) -> SimulationResult<Self> {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
@@ -1015,8 +1015,8 @@ impl SlimeMoldModel {
         );
     }
 
-    /// Update the LUT (color lookup table)
-    pub fn update_lut(&mut self, lut_data: &LutData, queue: &Queue) {
+    /// Update the LUT (color lookup table) - deprecated, use update_color_scheme
+    pub fn update_lut(&mut self, lut_data: &ColorScheme, queue: &Queue) {
         let lut_data_u32 = lut_data.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
     }
@@ -1646,6 +1646,63 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         self.update_setting(setting_name, value, device, queue)
     }
 
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "currentLut" => {
+                if let Some(lut_name) = value.as_str() {
+                    self.current_lut_name = lut_name.to_string();
+                    let lut_data = self.lut_manager.get(&self.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    let mut data_u32 = lut_data.to_u32_buffer();
+                    if self.lut_reversed {
+                        data_u32[0..256].reverse();
+                        data_u32[256..512].reverse();
+                        data_u32[512..768].reverse();
+                    }
+                    
+                    queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
+                }
+            }
+            "lutReversed" => {
+                if let Some(reversed) = value.as_bool() {
+                    self.lut_reversed = reversed;
+                    let lut_data = self.lut_manager.get(&self.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    let mut data_u32 = lut_data.to_u32_buffer();
+                    if self.lut_reversed {
+                        data_u32[0..256].reverse();
+                        data_u32[256..512].reverse();
+                        data_u32[512..768].reverse();
+                    }
+                    
+                    queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
+                }
+            }
+            "cursorSize" => {
+                if let Some(size) = value.as_f64() {
+                    self.cursor_size = size as f32;
+                }
+            }
+            "cursorStrength" => {
+                if let Some(strength) = value.as_f64() {
+                    self.cursor_strength = strength as f32;
+                }
+            }
+            _ => {
+                tracing::warn!("Unknown state parameter for SlimeMold: {}", state_name);
+            }
+        }
+        Ok(())
+    }
+
     fn get_settings(&self) -> serde_json::Value {
         serde_json::to_value(&self.settings).unwrap_or_else(|_| serde_json::json!({}))
     }
@@ -1802,6 +1859,21 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                 message: e.to_string(),
             })?;
         self.update_settings(new_settings, queue);
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        let color_scheme_data_u32 = color_scheme.to_u32_buffer();
+        queue.write_buffer(
+            &self.lut_buffer,
+            0,
+            bytemuck::cast_slice(&color_scheme_data_u32),
+        );
         Ok(())
     }
 }

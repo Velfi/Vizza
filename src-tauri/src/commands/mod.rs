@@ -1,10 +1,10 @@
 pub mod app_settings;
 pub mod camera;
+pub mod colors_schemes;
 pub mod flow;
 pub mod gradient;
 pub mod gray_scott;
 pub mod interaction;
-pub mod luts;
 pub mod particle_life;
 pub mod pellets;
 pub mod presets;
@@ -19,11 +19,11 @@ pub mod voronoi_ca;
 // Re-export all command functions for easy access
 pub use app_settings::*;
 pub use camera::*;
+pub use colors_schemes::*;
 pub use flow::*;
 pub use gradient::*;
 pub use gray_scott::*;
 pub use interaction::*;
-pub use luts::*;
 pub use particle_life::*;
 pub use pellets::*;
 pub use presets::*;

@@ -45,7 +45,7 @@ struct GridParams {
 @group(0) @binding(3) var<storage, read> grid_counts: array<u32>;
 @group(0) @binding(4) var<uniform> grid: GridParams;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   let count = arrayLength(&vertices.data);

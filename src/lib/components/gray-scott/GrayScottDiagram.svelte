@@ -95,28 +95,6 @@
       </div>
     </div>
   </div>
-
-  <div class="controls-info">
-    <div class="controls-header">
-      <h4>Interactive Controls:</h4>
-    </div>
-    <ul>
-      <li>
-        <strong>🔴 Feed/Kill Plot:</strong> Drag the red handle to adjust feed rate (X) and kill rate
-        (Y)
-      </li>
-      <li>
-        <strong>🟢 Diffusion Plot:</strong> Drag the green handle to adjust diffusion U (X) and diffusion
-        V (Y)
-      </li>
-      <li><strong>🟣 Timestep Slider:</strong> Use the slider to adjust simulation speed</li>
-    </ul>
-    <div class="equation-note">
-      <small
-        ><strong>Equations:</strong> ∂u/∂t = Du∇²u - uv² + F(1-u) | ∂v/∂t = Dv∇²v + uv² - (K+F)v</small
-      >
-    </div>
-  </div>
 </div>
 
 <script lang="ts">

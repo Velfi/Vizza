@@ -1,12 +1,16 @@
-<div class="lut-selector">
-  <div class="lut-controls">
-    <Selector options={available_luts} bind:value={current_lut} on:change={handleSelect} />
+<div class="color-scheme-selector">
+  <div class="color-scheme-controls">
+    <Selector
+      options={available_color_schemes}
+      bind:value={current_color_scheme}
+      on:change={handleSelect}
+    />
     <button
       type="button"
       class="control-btn reverse-btn"
       class:reversed
       on:click={handleReverse}
-      title="Reverse LUT"
+      title="Reverse Color Scheme"
     >
       Reverse
     </button>
@@ -14,7 +18,7 @@
       type="button"
       class="control-btn gradient-btn"
       on:click={openGradientEditor}
-      title="Create Custom LUT"
+      title="Create Custom Color Scheme"
     >
       🎨
     </button>
@@ -36,15 +40,15 @@
     <div class="dialog-content gradient-editor-content" role="document" on:click|stopPropagation>
       <h3 id="gradient-editor-title">Color Scheme Editor</h3>
 
-      <!-- LUT Name Input (styled like Gradient Editor sim) -->
+      <!-- Color Scheme Name Input (styled like Gradient Editor sim) -->
       <div class="control-group">
         <label for="customLutName">Name</label>
         <input
           type="text"
-          id="customLutName"
-          bind:value={custom_lut_name}
-          placeholder="LUT name"
-          class="lut-name-input"
+          id="customColorSchemeName"
+          bind:value={custom_color_scheme_name}
+          placeholder="Color scheme name"
+          class="color-scheme-name-input"
         />
       </div>
 
@@ -238,10 +242,10 @@
         <button
           type="button"
           class="primary-button"
-          on:click={saveCustomLut}
-          disabled={!custom_lut_name.trim()}
+          on:click={saveCustomColorScheme}
+          disabled={!custom_color_scheme_name.trim()}
         >
-          💾 Save LUT
+          💾 Save Color Scheme
         </button>
         <button type="button" class="secondary-button" on:click={closeGradientEditor}>
           Cancel
@@ -255,7 +259,7 @@
   import { createEventDispatcher, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Selector from '../inputs/Selector.svelte';
-  import { interpolate, formatHex, rgb } from 'culori';
+  import { interpolate, formatHex } from 'culori';
 
   // Portal the dialog to document.body so it is not clipped by parent containers
   function portalToBody(node: HTMLElement) {
@@ -270,8 +274,8 @@
     };
   }
 
-  export let available_luts: string[] = [];
-  export let current_lut: string = '';
+  export let available_color_schemes: string[] = [];
+  export let current_color_scheme: string = '';
   export let reversed: boolean = false;
 
   const dispatch = createEventDispatcher<{
@@ -281,7 +285,7 @@
 
   // Gradient editor state
   let show_gradient_editor = false;
-  let custom_lut_name = '';
+  let custom_color_scheme_name = '';
   let gradientStops = [
     { position: 0, color: '#000000' },
     { position: 1, color: '#ffffff' },
@@ -289,7 +293,7 @@
   let selectedStopIndex = -1;
   let isDragging = false;
   let dragStopIndex = -1;
-  let original_lut_name = ''; // Store the original LUT name to restore on cancel
+  let original_color_scheme_name = ''; // Store the original color scheme name to restore on cancel
   let isAddingStop = false; // Flag to track when a new stop is being added
   let selectedColorSpace: 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv' = 'OkLab'; // Default to OkLab for better perceptual uniformity
   let selectedPreset = 'Custom';
@@ -303,42 +307,42 @@
 
   function handleSelect({ detail }: { detail: { value: string } }) {
     const selectedName = detail.value;
-    console.log(`LutSelector: Selected ${selectedName}, was ${current_lut}`);
-    current_lut = selectedName; // Update local state
+    console.log(`LutSelector: Selected ${selectedName}, was ${current_color_scheme}`);
+    current_color_scheme = selectedName; // Update local state
     dispatch('select', { name: selectedName });
   }
 
   async function handleReverse() {
     reversed = !reversed;
-    console.log(`LutSelector: Reversing to ${reversed}, current LUT: ${current_lut}`);
+    console.log(`LutSelector: Reversing to ${reversed}, current LUT: ${current_color_scheme}`);
     dispatch('reverse', { reversed });
   }
 
   // Function to open gradient editor and apply initial gradient
   async function openGradientEditor() {
-    original_lut_name = current_lut; // Store the original LUT name
+    original_color_scheme_name = current_color_scheme; // Store the original color scheme name
     show_gradient_editor = true;
 
     // Apply the initial gradient preview immediately
     await updateGradientPreview();
   }
 
-  // Function to close gradient editor and restore original LUT
+  // Function to close gradient editor and restore original color scheme
   async function closeGradientEditor() {
     show_gradient_editor = false;
-    custom_lut_name = '';
+    custom_color_scheme_name = '';
 
     try {
-      // Clear the temporary LUT first
-      await invoke('clear_temp_lut');
+      // Clear the temporary color scheme first
+      await invoke('clear_temp_color_scheme');
 
-      // Then restore the original LUT to ensure it's properly applied
-      if (original_lut_name) {
-        await invoke('apply_lut_by_name', { lutName: original_lut_name });
-        console.log(`Restored original LUT: ${original_lut_name}`);
+      // Then restore the original color scheme to ensure it's properly applied
+      if (original_color_scheme_name) {
+        await invoke('apply_color_scheme_by_name', { colorSchemeName: original_color_scheme_name });
+        console.log(`Restored original color scheme: ${original_color_scheme_name}`);
       }
     } catch (e) {
-      console.error('Failed to restore original LUT:', e);
+      console.error('Failed to restore original color scheme:', e);
     }
   }
 
@@ -415,59 +419,43 @@
 
   // Simplified color interpolation using culori
   function interpolateColor(color1: string, color2: string, t: number): string {
-    try {
-      let colorSpace = 'rgb';
+    let colorSpace = 'rgb';
 
-      switch (selectedColorSpace) {
-        case 'RGB':
-          colorSpace = 'rgb';
-          break;
-        case 'Lab':
-          colorSpace = 'lab';
-          break;
-        case 'OkLab':
-          colorSpace = 'oklab';
-          break;
-        case 'Jzazbz':
-          // Fallback to lab if jzazbz isn't supported
-          colorSpace = 'lab';
-          break;
-        case 'HSLuv':
-          // Fallback to hsl if hsluv isn't supported
-          colorSpace = 'hsl';
-          break;
-      }
-
-      // Create interpolator with error handling
-      const interpolator = interpolate([color1, color2], colorSpace);
-      const result = interpolator(t);
-
-      // Convert result to hex, with fallback
-      if (result) {
-        const hexResult = formatHex(result);
-        if (hexResult) {
-          return hexResult;
-        }
-      }
-
-      // Fallback: simple RGB interpolation
-      const c1 = rgb(color1);
-      const c2 = rgb(color2);
-      if (c1 && c2) {
-        const rgbInterpolator = interpolate([c1, c2], 'rgb');
-        const rgbResult = rgbInterpolator(t);
-        const hexFallback = formatHex(rgbResult);
-        if (hexFallback) {
-          return hexFallback;
-        }
-      }
-
-      // Final fallback
-      return color1;
-    } catch (error) {
-      console.error('Color interpolation error:', error);
-      return color1;
+    switch (selectedColorSpace) {
+      case 'RGB':
+        colorSpace = 'rgb';
+        break;
+      case 'Lab':
+        colorSpace = 'lab';
+        break;
+      case 'OkLab':
+        colorSpace = 'oklab';
+        break;
+      case 'Jzazbz':
+        colorSpace = 'jzazbz';
+        break;
+      case 'HSLuv':
+        colorSpace = 'hsluv';
+        break;
+      default:
+        throw new Error(`Unsupported color space: ${selectedColorSpace}`);
     }
+
+    // Create interpolator
+    const interpolator = interpolate([color1, color2], colorSpace);
+    const result = interpolator(t);
+
+    if (!result) {
+      throw new Error(`Failed to interpolate colors in ${colorSpace} color space`);
+    }
+
+    // Convert result to hex
+    const hexResult = formatHex(result);
+    if (!hexResult) {
+      throw new Error(`Failed to convert interpolated color to hex format`);
+    }
+
+    return hexResult;
   }
 
   // Reverse entire gradient
@@ -478,8 +466,8 @@
     updateGradientPreview();
   }
 
-  // Export LUT as .lut text file
-  function exportLUT() {
+  // Export color scheme as .lut text file
+  function exportColorScheme() {
     const lutData: number[] = [];
     for (let i = 0; i < 256; i++) {
       const t = i / 255;
@@ -494,7 +482,7 @@
     const url = URL.createObjectURL(dataBlob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${custom_lut_name || 'custom'}.lut`;
+    link.download = `${custom_color_scheme_name || 'custom'}.lut`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -740,7 +728,7 @@
 
   // Reference functions to satisfy linter when template analysis misses usage
   void reverseGradient;
-  void exportLUT;
+  void exportColorScheme;
 
   function handleStopMouseDown(event: MouseEvent, index: number) {
     event.preventDefault();
@@ -783,7 +771,7 @@
 
   async function updateGradientPreview() {
     try {
-      // Build LUT in [r0..r255, g0..g255, b0..b255] format for preview, as integers 0-255
+      // Build color scheme in [r0..r255, g0..g255, b0..b255] format for preview, as integers 0-255
       const rArr: number[] = [];
       const gArr: number[] = [];
       const bArr: number[] = [];
@@ -826,16 +814,16 @@
       }
       const lutData = [...rArr, ...gArr, ...bArr];
 
-      await invoke('update_gradient_preview', { lutData });
+      await invoke('update_gradient_preview', { colorSchemeData: lutData });
     } catch (e) {
       console.error('Failed to update gradient preview:', e);
     }
   }
 
-  async function saveCustomLut() {
-    if (!custom_lut_name.trim()) return;
+  async function saveCustomColorScheme() {
+    if (!custom_color_scheme_name.trim()) return;
     try {
-      // Build LUT in [r0..r255, g0..g255, b0..b255] format as integers
+      // Build color scheme in [r0..r255, g0..g255, b0..b255] format as integers
       const rArr: number[] = [];
       const gArr: number[] = [];
       const bArr: number[] = [];
@@ -876,28 +864,28 @@
         bArr.push(b);
       }
       const lutData = [...rArr, ...gArr, ...bArr];
-      await invoke('save_custom_lut', {
-        name: custom_lut_name,
-        lutData: lutData,
+      await invoke('save_custom_color_scheme', {
+        name: custom_color_scheme_name,
+        colorSchemeData: lutData,
       });
 
-      // Clear the temporary LUT
-      await invoke('clear_temp_lut');
+      // Clear the temporary color scheme
+      await invoke('clear_temp_color_scheme');
 
-      // Update current LUT to the newly saved one
-      current_lut = custom_lut_name;
+      // Update current color scheme to the newly saved one
+      current_color_scheme = custom_color_scheme_name;
 
-      // Notify parent component about the LUT change
-      dispatch('select', { name: custom_lut_name });
+      // Notify parent component about the color scheme change
+      dispatch('select', { name: custom_color_scheme_name });
 
-      // Close the editor without restoring the original LUT
+      // Close the editor without restoring the original color scheme
       show_gradient_editor = false;
-      custom_lut_name = '';
+      custom_color_scheme_name = '';
 
-      // Refresh available LUTs to include the new one
-      available_luts = await invoke('get_available_luts');
+      // Refresh available color schemes to include the new one
+      available_color_schemes = await invoke('get_available_color_schemes');
     } catch (e) {
-      console.error('Failed to save custom LUT:', e);
+      console.error('Failed to save custom color scheme:', e);
     }
   }
 
@@ -914,13 +902,13 @@
 </script>
 
 <style>
-  .lut-selector {
+  .color-scheme-selector {
     display: flex;
     align-items: center;
     gap: 0.5rem;
   }
 
-  .lut-controls {
+  .color-scheme-controls {
     display: flex;
     gap: 0.5rem;
     align-items: center;
@@ -997,7 +985,7 @@
   /* legacy .text-input styles removed (unused) */
 
   /* Match compact name input styling from Gradient Editor sim */
-  .lut-name-input {
+  .color-scheme-name-input {
     background: #333;
     border: 1px solid #555;
     color: white;
@@ -1007,7 +995,7 @@
     font-size: 0.9rem;
   }
 
-  .lut-name-input:focus {
+  .color-scheme-name-input:focus {
     border-color: #646cff;
     box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.2);
     outline: none;

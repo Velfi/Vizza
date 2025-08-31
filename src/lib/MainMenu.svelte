@@ -105,8 +105,8 @@
     </button>
 
     <button class="simulation-card" on:click={() => selectSimulation('voronoi-ca')}>
-      <h2>Voronoi CA</h2>
-      <p>Voronoi cellular automata</p>
+      <h2>Voronoi Cellular Automata</h2>
+      <p>Cellular automata but with voronoi cells that move and shift.</p>
     </button>
 
     <div class="about-container">

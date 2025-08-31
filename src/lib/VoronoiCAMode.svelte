@@ -45,8 +45,8 @@
       <div class="control-group">
         <label for="vcaLutSelector">Color Scheme</label>
         <LutSelector
-          bind:available_luts
-          current_lut={currentLut}
+          bind:available_color_schemes={available_luts}
+          current_color_scheme={currentLut}
           reversed={lutReversed}
           on:select={({ detail }) => applyLut(detail.name)}
           on:reverse={() => toggleLutReversed()}
@@ -70,17 +70,20 @@
       </div>
       {#if bordersEnabled}
         <div class="control-group">
-          <label for="vcaBorderThreshold">Border Threshold</label>
+          <label for="vcaBorderWidth">Border Width</label>
           <NumberDragBox
-            value={borderThreshold}
+            value={borderWidth}
             min={0.0}
-            max={1.0}
-            step={0.01}
-            precision={2}
+            max={1000.0}
+            step={1}
+            precision={1}
             on:change={({ detail }) => {
-              updateBorderThreshold(detail);
+              updateBorderWidth(detail);
             }}
           />
+          <small style="color: rgba(255, 255, 255, 0.6); font-size: 0.8rem;">
+            Note: Large values use strategic sampling for performance
+          </small>
         </div>
       {/if}
     </fieldset>
@@ -105,7 +108,7 @@
         </div>
         <div class="cursor-settings">
           <div class="cursor-settings-header">
-            <span>🎯 Cursor Settings</span>
+            <span>{!running ? '🎨 Painting Settings' : '🎯 Cursor Settings'}</span>
           </div>
           <CursorConfig
             {cursorSize}
@@ -195,37 +198,41 @@
               on:change={({ detail }) => updateAliveThreshold(detail)}
             />
           </div>
+        </div>
+        
+        <!-- Interactive Threshold Diagram -->
+        <div class="diagram-section">
+          <h4 class="diagram-header">🎯 Interactive Threshold Diagram</h4>
+          <p class="diagram-description">
+            This diagram shows how the alive threshold and neighbor radius determine cell fate. 
+            Drag the yellow threshold line or blue radius handle to adjust parameters. 
+            The radius visualization shows which neighbors are considered in the cellular automata rule.
+          </p>
+          <VCAThresholdDiagram
+            aliveThreshold={aliveThreshold}
+            neighborRadius={neighborRadius}
+            width={580}
+            height={350}
+            on:update={({ detail }) => {
+              if (detail.setting === 'aliveThreshold') {
+                updateAliveThreshold(detail.value);
+              } else if (detail.setting === 'neighborRadius') {
+                updateNeighborRadius(detail.value);
+              }
+            }}
+          />
+        </div>
+        
+        <div class="settings-grid">
           <div class="setting-item">
-            <span class="setting-label">Run Speed (px/s):</span>
+            <span class="setting-label">Brownian Speed (px/s):</span>
             <NumberDragBox
-              value={runSpeed}
+              value={brownianSpeed}
               min={0}
               max={300}
               step={1}
               precision={0}
-              on:change={({ detail }) => updateRunSpeed(detail)}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Avg Run Time (s):</span>
-            <NumberDragBox
-              value={avgRunTime}
-              min={0.05}
-              max={5}
-              step={0.05}
-              precision={2}
-              on:change={({ detail }) => updateAvgRunTime(detail)}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Tumble Time (s):</span>
-            <NumberDragBox
-              value={tumbleTime}
-              min={0}
-              max={2}
-              step={0.01}
-              precision={2}
-              on:change={({ detail }) => updateTumbleTime(detail)}
+              on:change={({ detail }) => updateBrownianSpeed(detail)}
             />
           </div>
           <div class="setting-item">
@@ -269,16 +276,18 @@
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
+  import LutSelector from './components/shared/ColorSchemeSelector.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import Button from './components/shared/Button.svelte';
+  import VCAThresholdDiagram from './components/voronoi-ca/VCAThresholdDiagram.svelte';
 
   const dispatch = createEventDispatcher();
   export let menuPosition: string = 'middle';
+  export let autoHideDelay: number = 3000;
 
   // Control bar / UI state
   let running = false;
@@ -299,12 +308,10 @@
   let drift = 0.5;
   let neighborRadius = 60;
   let aliveThreshold = 0.5;
-  let runSpeed = 60;
-  let avgRunTime = 1.5;
-  let tumbleTime = 0.2;
+  let brownianSpeed = 60;
   let timeScale = 1.0;
   let pointCount = 300;
-  let borderThreshold = 0.5;
+  let borderWidth = 1.0;
 
   // LUT + controls
   let available_luts: string[] = [];
@@ -324,6 +331,10 @@
   let unlistenFps: (() => void) | null = null;
   let isMousePressed = false;
   let currentMouseButton = 0;
+  
+  // Mouse event throttling
+  let mouseEventThrottleTimeout: number | null = null;
+  let pendingMouseEvent: { screenX: number; screenY: number; mouseButton: number } | null = null;
 
   async function start() {
     try {
@@ -344,9 +355,7 @@
             neighborRadius = settings.neighborRadius;
           if (settings && typeof settings.aliveThreshold === 'number')
             aliveThreshold = settings.aliveThreshold;
-          if (settings && typeof settings.runSpeed === 'number') runSpeed = settings.runSpeed;
-          if (settings && typeof settings.avgRunTime === 'number') avgRunTime = settings.avgRunTime;
-          if (settings && typeof settings.tumbleTime === 'number') tumbleTime = settings.tumbleTime;
+          if (settings && typeof settings.brownianSpeed === 'number') brownianSpeed = settings.brownianSpeed;
           if (settings && typeof settings.timeScale === 'number') timeScale = settings.timeScale;
           if (settings && typeof settings.numPoints === 'number') pointCount = settings.numPoints;
           if (settings && typeof settings.currentLutName === 'string')
@@ -361,8 +370,8 @@
             cursorSize = settings.cursor_size;
           if (settings && typeof settings.cursor_strength === 'number')
             cursorStrength = settings.cursor_strength;
-          if (settings && typeof settings.borderThreshold === 'number')
-            borderThreshold = settings.borderThreshold;
+          if (settings && typeof settings.borderWidth === 'number')
+            borderWidth = settings.borderWidth;
         } catch {
           // Ignore error
         }
@@ -384,7 +393,7 @@
 
   async function loadAvailableLuts() {
     try {
-      const luts = await invoke('get_available_luts');
+      const luts = await invoke('get_available_color_schemes');
       available_luts = luts as string[];
     } catch (e) {
       console.error('Failed to load LUTs:', e);
@@ -394,7 +403,7 @@
   async function applyLut(lutName: string) {
     currentLut = lutName;
     try {
-      await invoke('apply_lut_by_name', { lutName });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: lutName });
     } catch (e) {
       console.error('Failed to apply LUT:', e);
     }
@@ -403,7 +412,7 @@
   async function toggleLutReversed() {
     lutReversed = !lutReversed;
     try {
-      await invoke('toggle_lut_reversed');
+      await invoke('toggle_color_scheme_reversed');
     } catch (e) {
       console.error('Failed to reverse LUT:', e);
     }
@@ -427,17 +436,17 @@
     }
   }
 
-  async function updateBorderThreshold(value: number) {
-    borderThreshold = value;
+  async function updateBorderWidth(value: number) {
+    borderWidth = value;
     try {
-      const params = { settingName: 'borderThreshold', value };
+      const params = { settingName: 'borderWidth', value };
       await invoke('update_simulation_setting', params);
     } catch (e) {
-      console.error('Failed to update border threshold:', e);
+      console.error('Failed to update border width:', e);
       console.error('Error details:', {
         message: String(e),
         stack: e instanceof Error ? e.stack : undefined,
-        params: { settingName: 'borderThreshold', value },
+        params: { settingName: 'borderWidth', value },
       });
     }
   }
@@ -501,9 +510,7 @@
         if (typeof settings.drift === 'number') drift = settings.drift;
         if (typeof settings.neighborRadius === 'number') neighborRadius = settings.neighborRadius;
         if (typeof settings.aliveThreshold === 'number') aliveThreshold = settings.aliveThreshold;
-        if (typeof settings.runSpeed === 'number') runSpeed = settings.runSpeed;
-        if (typeof settings.avgRunTime === 'number') avgRunTime = settings.avgRunTime;
-        if (typeof settings.tumbleTime === 'number') tumbleTime = settings.tumbleTime;
+        if (typeof settings.brownianSpeed === 'number') brownianSpeed = settings.brownianSpeed;
         if (typeof settings.timeScale === 'number') timeScale = settings.timeScale;
         if (typeof settings.numPoints === 'number') pointCount = settings.numPoints;
         if (typeof settings.currentLutName === 'string') currentLut = settings.currentLutName;
@@ -512,8 +519,8 @@
         if (typeof settings.bordersEnabled === 'boolean') bordersEnabled = settings.bordersEnabled;
         if (typeof settings.cursor_size === 'number') cursorSize = settings.cursor_size;
         if (typeof settings.cursor_strength === 'number') cursorStrength = settings.cursor_strength;
-        if (typeof settings.borderThreshold === 'number')
-          borderThreshold = settings.borderThreshold;
+        if (typeof settings.borderWidth === 'number')
+          borderWidth = settings.borderWidth;
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -571,6 +578,18 @@
     }
   }
 
+  // Throttled mouse event processing
+  async function processPendingMouseEvent() {
+    if (pendingMouseEvent) {
+      try {
+        await invoke('handle_mouse_interaction_screen', pendingMouseEvent);
+        pendingMouseEvent = null;
+      } catch (err) {
+        console.error('Mouse interaction failed:', err);
+      }
+    }
+  }
+
   async function handleMouseEvent(e: CustomEvent) {
     const event = e.detail as MouseEvent | WheelEvent;
     if (event.type === 'wheel') {
@@ -600,6 +619,11 @@
         if (event.type === 'mousedown') {
           isMousePressed = true;
           currentMouseButton = event.button;
+          // Clear any pending throttled events and process immediately
+          if (mouseEventThrottleTimeout) {
+            clearTimeout(mouseEventThrottleTimeout);
+            mouseEventThrottleTimeout = null;
+          }
           await invoke('handle_mouse_interaction_screen', {
             screenX,
             screenY,
@@ -607,20 +631,46 @@
           });
         } else if (event.type === 'mousemove') {
           if (isMousePressed) {
-            await invoke('handle_mouse_interaction_screen', {
+            // Store the latest mouse position for throttled processing
+            pendingMouseEvent = {
               screenX,
               screenY,
               mouseButton: currentMouseButton,
-            });
+            };
+            
+            // Clear existing timeout and set a new one
+            if (mouseEventThrottleTimeout) {
+              clearTimeout(mouseEventThrottleTimeout);
+            }
+            
+            // Throttle mouse move events to 60fps (16.67ms)
+            mouseEventThrottleTimeout = window.setTimeout(() => {
+              processPendingMouseEvent();
+              mouseEventThrottleTimeout = null;
+            }, 16);
           }
         } else if (event.type === 'mouseup') {
           if (isMousePressed) {
             isMousePressed = false;
+            // Clear any pending throttled events
+            if (mouseEventThrottleTimeout) {
+              clearTimeout(mouseEventThrottleTimeout);
+              mouseEventThrottleTimeout = null;
+            }
+            // Process any pending mouse event immediately
+            if (pendingMouseEvent) {
+              await processPendingMouseEvent();
+            }
             await invoke('handle_mouse_release', { mouseButton: currentMouseButton });
           }
         } else if (event.type === 'contextmenu') {
           isMousePressed = true;
           currentMouseButton = 2;
+          // Clear any pending throttled events and process immediately
+          if (mouseEventThrottleTimeout) {
+            clearTimeout(mouseEventThrottleTimeout);
+            mouseEventThrottleTimeout = null;
+          }
           await invoke('handle_mouse_interaction_screen', { screenX, screenY, mouseButton: 2 });
         }
       } catch (err) {
@@ -656,12 +706,12 @@
     }
   }
 
-  async function updateRunSpeed(value: number) {
-    runSpeed = value;
+  async function updateBrownianSpeed(value: number) {
+    brownianSpeed = value;
     try {
-      await invoke('update_simulation_setting', { settingName: 'runSpeed', value });
+      await invoke('update_simulation_setting', { settingName: 'brownianSpeed', value });
     } catch (e) {
-      console.error('Failed to update run speed:', e);
+      console.error('Failed to update brownian speed:', e);
     }
   }
 
@@ -671,24 +721,6 @@
       await invoke('update_simulation_setting', { settingName: 'numPoints', value: pointCount });
     } catch (e) {
       console.error('Failed to update point count:', e);
-    }
-  }
-
-  async function updateAvgRunTime(value: number) {
-    avgRunTime = value;
-    try {
-      await invoke('update_simulation_setting', { settingName: 'avgRunTime', value });
-    } catch (e) {
-      console.error('Failed to update avg run time:', e);
-    }
-  }
-
-  async function updateTumbleTime(value: number) {
-    tumbleTime = value;
-    try {
-      await invoke('update_simulation_setting', { settingName: 'tumbleTime', value });
-    } catch (e) {
-      console.error('Failed to update tumble time:', e);
     }
   }
 
@@ -710,7 +742,7 @@
       if (!showUI) {
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -745,7 +777,7 @@
       if (!showUI && !controlsVisible) {
         hideCursor();
       }
-    }, 2000);
+    }, autoHideDelay);
   }
 
   function stopCursorHideTimer() {
@@ -798,6 +830,12 @@
     stopAutoHideTimer();
     stopCursorHideTimer();
     showCursor();
+    
+    // Clean up mouse event throttling
+    if (mouseEventThrottleTimeout) {
+      clearTimeout(mouseEventThrottleTimeout);
+      mouseEventThrottleTimeout = null;
+    }
   });
 </script>
 
@@ -836,6 +874,29 @@
     width: 100%;
   }
 
+  /* Diagram section styles */
+  .diagram-section {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: #2a2a2a;
+    border-radius: 6px;
+    border: 1px solid #444444;
+  }
+
+  .diagram-header {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  .diagram-description {
+    margin: 0 0 1rem 0;
+    font-size: 0.9rem;
+    color: #cccccc;
+    line-height: 1.4;
+  }
+
   .setting-item {
     display: contents;
   }
@@ -869,6 +930,69 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   }
 
+  /* Painting instructions styles */
+  .painting-instructions {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(76, 175, 80, 0.1);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    border-radius: 6px;
+  }
+
+  .painting-header {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: rgba(76, 175, 80, 1);
+    margin-bottom: 0.5rem;
+  }
+
+  .painting-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .paint-instruction {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .mouse-button {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: center;
+  }
+
+  .left-click {
+    background: rgba(33, 150, 243, 0.2);
+    border: 1px solid rgba(33, 150, 243, 0.4);
+    color: rgba(33, 150, 243, 1);
+  }
+
+  .right-click {
+    background: rgba(255, 152, 0, 0.2);
+    border: 1px solid rgba(255, 152, 0, 0.4);
+    color: rgba(255, 152, 0, 1);
+  }
+
+  .paint-action {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+  }
+
+  .painting-note {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.7);
+    font-style: italic;
+  }
+
   /* Mobile responsive design */
   @media (max-width: 768px) {
     .interaction-controls-grid {
@@ -886,6 +1010,25 @@
 
     .cursor-settings-header {
       font-size: 0.85rem;
+    }
+
+    .painting-instructions {
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+    }
+
+    .painting-header {
+      font-size: 0.85rem;
+    }
+
+    .paint-instruction {
+      font-size: 0.8rem;
+    }
+
+    .mouse-button {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.3rem;
+      min-width: 60px;
     }
   }
 </style>

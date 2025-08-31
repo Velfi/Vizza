@@ -52,6 +52,34 @@ pub async fn get_current_settings(
 }
 
 #[tauri::command]
+pub async fn update_simulation_state(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<GpuContext>>>,
+    state_name: String,
+    value: serde_json::Value,
+) -> Result<String, String> {
+    tracing::debug!(
+        "update_simulation_state called with stateName: '{}', value: {:?}",
+        state_name,
+        value
+    );
+
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    match sim_manager.update_state(&state_name, value.clone(), &gpu_ctx.device, &gpu_ctx.queue) {
+        Ok(_) => {
+            tracing::debug!("State '{}' updated to {:?}", state_name, value);
+            Ok(format!("State '{}' updated successfully", state_name))
+        }
+        Err(e) => {
+            tracing::error!("Failed to update state '{}': {}", state_name, e);
+            Err(format!("Failed to update state '{}': {}", state_name, e))
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn get_current_state(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<serde_json::Value, String> {

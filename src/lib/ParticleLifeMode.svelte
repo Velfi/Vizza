@@ -1,7 +1,7 @@
 <SimulationLayout
   simulationName="Particle Life"
   running={isSimulationRunning}
-  loading={isLoading || !settings || !state}
+  loading={isLoading || !settings || !state || !isInitialized}
   {showUI}
   currentFps={fps_display}
   {controlsVisible}
@@ -49,21 +49,21 @@
         <legend>Display Settings</legend>
         <div class="display-controls-grid">
           <div class="control-group">
-            <Selector
-              options={['LUT', 'Gray18', 'White', 'Black']}
-              bind:value={state.color_mode}
-              label="Background Mode"
-              on:change={({ detail }) => updateColorMode(detail.value)}
+            <label for="colorSchemeSelector">Color Scheme</label>
+            <LutSelector
+              bind:available_color_schemes
+              bind:current_color_scheme={state.current_color_scheme_name}
+              bind:reversed={state.color_scheme_reversed}
+              on:select={(e) => updateColorScheme(e.detail.name)}
+              on:reverse={(e) => updateColorSchemeReversed(e.detail.reversed)}
             />
           </div>
           <div class="control-group">
-            <label for="lutSelector">Color Scheme</label>
-            <LutSelector
-              bind:available_luts
-              bind:current_lut={state.current_lut_name}
-              bind:reversed={state.lut_reversed}
-              on:select={(e) => updateLut(e.detail.name)}
-              on:reverse={(e) => updateLutReversed(e.detail.reversed)}
+            <Selector
+              options={['Black', 'White', 'Gray18', 'ColorScheme']}
+              bind:value={state.background_color_mode}
+              label="Background Color Mode"
+              on:change={({ detail }) => updateColorMode(detail.value)}
             />
           </div>
           <div class="control-group">
@@ -291,7 +291,7 @@
   import { listen } from '@tauri-apps/api/event';
   import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
+  import LutSelector from './components/shared/ColorSchemeSelector.svelte';
   import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
   import InteractionMatrix from './components/particle-life/InteractionMatrix.svelte';
   import CursorConfig from './components/shared/CursorConfig.svelte';
@@ -307,6 +307,7 @@
   const dispatch = createEventDispatcher();
 
   export let menuPosition: string = 'middle';
+  export let autoHideDelay: number = 3000;
 
   interface Settings {
     species_count: number;
@@ -331,9 +332,9 @@
     position_generator: string;
     type_generator: string;
     matrix_generator: string;
-    current_lut_name: string;
-    lut_reversed: boolean;
-    color_mode: string;
+    current_color_scheme_name: string;
+    color_scheme_reversed: boolean;
+    background_color_mode: string;
   }
 
   // Simulation state
@@ -345,12 +346,13 @@
   // UI state
   let current_preset = '';
   let available_presets: string[] = [];
-  let available_luts: string[] = [];
+  let available_color_schemes: string[] = [];
 
   let show_about_section = false; // Toggle for expandable about section
   let fps_display = 0;
   let isSimulationRunning = false;
   let isLoading = true;
+  let isInitialized = false; // Track if initial state sync is complete
 
   // Enhanced UI state
   let showUI = true;
@@ -371,7 +373,6 @@
     if (!state || !settings) return;
 
     try {
-      console.log('Requesting species colors from backend...');
       const colors = await invoke<[number, number, number, number][]>('get_species_colors');
 
       if (colors && colors.length > 0) {
@@ -384,10 +385,9 @@
           }
         };
 
-        // In LUT mode, the first color is the background color, so we skip it
-        // In non-LUT mode, all colors are species colors
-        const isLutMode = state.color_mode === 'LUT';
-        const endIndex = isLutMode ? settings.species_count : colors.length;
+        // Colors are species-first in all modes; in color scheme mode, background is appended at the end.
+        // Always take the first N species colors for UI.
+        const endIndex = Math.min(settings.species_count, colors.length);
         const colorsToProcess = colors.slice(0, endIndex);
 
         speciesColors = colorsToProcess.map(([r, g, b, a]) => {
@@ -396,10 +396,6 @@
           const b_srgb = Math.round(linearToSrgb(b) * 255);
           return `rgba(${r_srgb}, ${g_srgb}, ${b_srgb}, ${a})`;
         });
-        console.log(
-          `Updated species colors from backend (${isLutMode ? 'LUT mode' : 'non-LUT mode'}):`,
-          speciesColors
-        );
       } else {
         console.warn('Received empty species colors, using fallback colors');
         useFallbackColors();
@@ -465,7 +461,8 @@
 
   // Two-way binding handlers
   async function updateSpeciesCount(value: number) {
-    if (!settings) return;
+    if (settings == undefined) return;
+    if (state == undefined) return;
 
     const newCount = Math.max(2, Math.min(8, Math.round(value)));
     if (newCount === settings.species_count) return;
@@ -474,7 +471,7 @@
     if (!settings.force_matrix || !Array.isArray(settings.force_matrix)) {
       settings.force_matrix = Array(settings.species_count || 4)
         .fill(null)
-        .map(() => Array(settings.species_count || 4).fill(0.0));
+        .map(() => Array(settings?.species_count || 4).fill(0.0));
     }
 
     // Resize force matrix to match new species count
@@ -521,8 +518,8 @@
       // Update species colors after species count change
       await updateSpeciesColors();
 
-      // Wait a bit for the backend to process the changes and respawn particles
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Reset simulation to respawn particles with new species count
+      await invoke('reset_simulation');
 
       // Sync state from backend
       await syncSettingsFromBackend();
@@ -601,7 +598,7 @@
 
   // Mouse interaction controls
   async function updateCursorSize(value: number) {
-    state.cursor_size = value;
+    state!.cursor_size = value;
     try {
       await invoke('update_simulation_setting', { settingName: 'cursor_size', value });
     } catch (e) {
@@ -610,7 +607,7 @@
   }
 
   async function updateCursorStrength(value: number) {
-    state.cursor_strength = value;
+    state!.cursor_strength = value;
     try {
       await invoke('update_simulation_setting', { settingName: 'cursor_strength', value });
     } catch (e) {
@@ -620,7 +617,7 @@
 
   // Rendering controls
   async function updateTracesEnabled(value: boolean) {
-    state.traces_enabled = value;
+    state!.traces_enabled = value;
     try {
       await invoke('update_simulation_setting', { settingName: 'traces_enabled', value });
     } catch (e) {
@@ -629,7 +626,7 @@
   }
 
   async function updateTraceFade(value: number) {
-    state.trace_fade = value;
+    state!.trace_fade = value;
     try {
       await invoke('update_simulation_setting', {
         settingName: 'trace_fade',
@@ -643,6 +640,7 @@
   async function updateMatrixGenerator(value: string) {
     try {
       await invoke('update_simulation_setting', { settingName: 'matrix_generator', value });
+      state!.matrix_generator = value;
       console.log(`Updated matrix generator: ${value}`);
     } catch (e) {
       console.error('Failed to update matrix generator:', e);
@@ -698,12 +696,12 @@
     }
   }
 
-  async function loadLuts() {
+  async function loadColorSchemes() {
     try {
-      available_luts = await invoke('get_available_luts');
+      available_color_schemes = await invoke('get_available_color_schemes');
     } catch (e) {
-      console.error('Failed to load LUTs:', e);
-      available_luts = [];
+      console.error('Failed to load color schemes:', e);
+      available_color_schemes = [];
     }
   }
 
@@ -720,6 +718,15 @@
       if (backendState) {
         // Use backend state directly
         state = backendState as State;
+        
+        // Debug: Log the generator values to see what we're getting
+        console.log('Backend state received:', {
+          matrix_generator: state.matrix_generator,
+          position_generator: state.position_generator,
+          type_generator: state.type_generator,
+          background_color_mode: state.background_color_mode,
+          current_color_scheme_name: state.current_color_scheme_name
+        });
       }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
@@ -791,16 +798,16 @@
       // Apply current generator settings before reset
       await invoke('update_simulation_setting', {
         settingName: 'position_generator',
-        value: state.position_generator,
+        value: state!.position_generator,
       });
       await invoke('update_simulation_setting', {
         settingName: 'type_generator',
-        value: state.type_generator,
+        value: state!.type_generator,
       });
 
       await invoke('update_simulation_setting', {
         settingName: 'matrix_generator',
-        value: state.matrix_generator,
+        value: state!.matrix_generator,
       });
 
       await invoke('reset_simulation');
@@ -825,7 +832,7 @@
       // First update the matrix generator setting
       await invoke('update_simulation_setting', {
         settingName: 'matrix_generator',
-        value: state.matrix_generator,
+        value: state!.matrix_generator,
       });
 
       // Then randomize the matrix using the current generator
@@ -835,7 +842,7 @@
       // Update species colors after matrix randomization
       await updateSpeciesColors();
 
-      console.log(`Matrix randomized using ${state.matrix_generator} generator`);
+      console.log(`Matrix randomized using ${state!.matrix_generator} generator`);
     } catch (e) {
       console.error('Failed to randomize matrix:', e);
     }
@@ -846,19 +853,16 @@
       // Update the position generator setting and regenerate particles
       await invoke('update_simulation_setting', {
         settingName: 'position_generator',
-        value: state.position_generator,
+        value: state!.position_generator,
       });
 
       // Reset simulation to regenerate particles with new position generator
       await invoke('reset_simulation');
 
-      // Wait a bit for the backend to process the changes
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       // Sync state from backend
       await syncSettingsFromBackend();
 
-      console.log(`Particles regenerated with ${state.position_generator} position generator`);
+      console.log(`Particles regenerated with ${state!.position_generator} position generator`);
     } catch (e) {
       console.error('Failed to regenerate particles:', e);
     }
@@ -869,7 +873,7 @@
       // Update the type generator setting and regenerate particles
       await invoke('update_simulation_setting', {
         settingName: 'type_generator',
-        value: state.type_generator,
+        value: state!.type_generator,
       });
 
       // Reset simulation to regenerate particles with new type generator
@@ -881,7 +885,7 @@
       // Sync state from backend
       await syncSettingsFromBackend();
 
-      console.log(`Types regenerated with ${state.type_generator} type generator`);
+      console.log(`Types regenerated with ${state!.type_generator} type generator`);
     } catch (e) {
       console.error('Failed to regenerate types:', e);
     }
@@ -1012,7 +1016,7 @@
     try {
       await invoke('update_simulation_setting', {
         settingName: 'force_matrix',
-        value: settings.force_matrix,
+        value: settings!.force_matrix,
       });
     } catch (error) {
       console.error('Failed to update force matrix:', error);
@@ -1034,12 +1038,12 @@
 
   // Generator update functions (local state only)
   function updatePositionGenerator(value: string) {
-    state.position_generator = value;
+    state!.position_generator = value;
     console.log(`Position generator set to: ${value} (will apply on next reset)`);
   }
 
   function updateTypeGenerator(value: string) {
-    state.type_generator = value;
+    state!.type_generator = value;
     console.log(`Type generator set to: ${value} (will apply on next reset)`);
   }
 
@@ -1077,7 +1081,7 @@
         // Also hide cursor when controls are hidden
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -1156,6 +1160,7 @@
           await syncSettingsFromBackend();
           await updateSpeciesColors();
           isSimulationRunning = true;
+          isInitialized = true; // Mark initialization as complete
         });
         console.log('Registered simulation-initialized event listener.');
       } catch (e) {
@@ -1182,14 +1187,14 @@
       await startSimulation();
 
       // Load initial data
-      await Promise.all([loadPresets(), loadLuts()]);
+      await Promise.all([loadPresets(), loadColorSchemes()]);
 
       // Set the default preset if available and not already set
       if (available_presets.includes('Default') && !current_preset) {
         current_preset = 'Default';
       }
 
-      // Sync settings after LUTs are loaded
+      // Sync settings after color schemes are loaded
       await syncSettingsFromBackend();
 
       // Only update species colors after simulation is running
@@ -1232,45 +1237,44 @@
     showCursor();
   });
 
-  async function updateLut(lutName: string) {
+  async function updateColorScheme(colorSchemeName: string) {
     try {
-      console.log(`Updating LUT to: ${lutName}`);
-      state.current_lut_name = lutName;
-      await invoke('update_simulation_setting', {
-        settingName: 'lut_name',
-        value: lutName,
-      });
+      console.log(`Updating color scheme to: ${colorSchemeName}`);
+      state!.current_color_scheme_name = colorSchemeName;
+      await invoke('apply_color_scheme_by_name', { colorSchemeName });
 
-      // Immediately update species colors after LUT change
+      // Immediately update species colors after color scheme change
       await updateSpeciesColors();
     } catch (e) {
-      console.error('Failed to update LUT:', e);
+      console.error('Failed to update color scheme:', e);
     }
   }
 
-  async function updateLutReversed(reversed: boolean) {
+  async function updateColorSchemeReversed(reversed: boolean) {
     try {
-      console.log(`Updating LUT reversed to: ${reversed}, current LUT: ${state.current_lut_name}`);
-      state.lut_reversed = reversed;
+      console.log(
+        `Updating color scheme reversed to: ${reversed}, current color scheme: ${state!.current_color_scheme_name}`
+      );
+      state!.color_scheme_reversed = reversed;
 
-      await invoke('update_simulation_setting', {
-        settingName: 'lut_reversed',
+      await invoke('update_simulation_state', {
+        stateName: 'lut_reversed',
         value: reversed,
       });
 
-      // Immediately update species colors after LUT change
+      // Immediately update species colors after color scheme change
       await updateSpeciesColors();
     } catch (e) {
-      console.error('Failed to update LUT reversed:', e);
+      console.error('Failed to update color scheme reversed:', e);
     }
   }
 
   async function updateColorMode(value: string) {
     try {
-      console.log(`Updating color mode to: ${value}`);
-      state.color_mode = value;
+      console.log(`Updating background color mode to: ${value}`);
+      state!.background_color_mode = value;
       await invoke('update_simulation_setting', {
-        settingName: 'color_mode',
+        settingName: 'background_color_mode',
         value: value,
       });
 

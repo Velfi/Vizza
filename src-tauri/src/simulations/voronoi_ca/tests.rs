@@ -2,7 +2,7 @@
 
 use super::shaders::{
     COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    VORONOI_RENDER_SHADER,
+    VORONOI_RENDER_JFA_SHADER, JFA_INIT_SHADER, JFA_ITERATION_SHADER,
 };
 
 struct VcaValidator {
@@ -46,8 +46,8 @@ impl VcaValidator {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA Render Shader"),
-                source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_SHADER.into()),
+                label: Some("VCA JFA Render Shader"),
+                source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_JFA_SHADER.into()),
             });
     }
 
@@ -81,7 +81,29 @@ impl VcaValidator {
             });
     }
 
+    fn compile_jfa(&self) {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("VCA JFA Init Shader"),
+                source: wgpu::ShaderSource::Wgsl(JFA_INIT_SHADER.into()),
+            });
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("VCA JFA Iteration Shader"),
+                source: wgpu::ShaderSource::Wgsl(JFA_ITERATION_SHADER.into()),
+            });
+    }
 
+    fn compile_jfa_render(&self) {
+        let _ = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("VCA JFA Render Shader"),
+                source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_JFA_SHADER.into()),
+            });
+    }
 }
 
 #[tokio::test]
@@ -90,4 +112,21 @@ async fn test_vca_shader_compilation() {
     v.compile_render();
     v.compile_compute();
     v.compile_grid();
+}
+
+#[tokio::test]
+async fn test_vca_jfa_shader_compilation() {
+    let v = VcaValidator::new().await;
+    v.compile_jfa();
+    v.compile_jfa_render();
+}
+
+#[tokio::test]
+async fn test_all_vca_shaders_compilation() {
+    let v = VcaValidator::new().await;
+    v.compile_render();
+    v.compile_compute();
+    v.compile_grid();
+    v.compile_jfa();
+    v.compile_jfa_render();
 }

@@ -13,7 +13,7 @@
   on:userInteraction={handleUserInteraction}
   on:mouseEvent={handleMouseEvent}
 >
-  {#if settings}
+  {#if settings && state}
     <form on:submit|preventDefault>
       <!-- About this simulation -->
       <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
@@ -46,40 +46,36 @@
       <!-- Display Settings -->
       <fieldset>
         <legend>Display Settings</legend>
+
         <div class="control-group">
-          <label for="background-select">Background</label>
-          <Selector
-            options={['Black', 'White', 'LUT']}
-            bind:value={backgroundValue}
-            on:change={(e) => updateBackground(e.detail.value)}
+          <label for="colorSchemeSelector">Color Scheme</label>
+          <ColorSchemeSelector
+            available_color_schemes={available_luts}
+            bind:current_color_scheme={state.currentLut}
+            bind:reversed={state.lutReversed}
+            on:select={({ detail }) => updateLut(detail.name)}
+            on:reverse={(e) => updateLutReversed(e.detail.reversed)}
           />
         </div>
 
         <div class="control-group">
-          <label for="display-mode-select">Display Mode</label>
+          <label for="display-mode-select">Particle Color Mode</label>
           <Selector
             options={['Age', 'Random', 'Direction']}
-            bind:value={settings.display_mode}
-            on:change={(e) => updateDisplayMode(e.detail.value)}
+            value={state?.foregroundColorMode}
+            on:change={({ detail }) => updateForegroundColorMode(detail.value)}
           />
-          <div class="setting-description">
-            <small>
-              <strong>Age:</strong> Particles are colored based on their age (younger = brighter).<br
-              />
-              <strong>Random:</strong> Particles have a random color chosen at creation that doesn't
-              change.<br />
-              <strong>Direction:</strong> Particles are colored based on their velocity direction.
-            </small>
-          </div>
         </div>
 
-        <LutSelector
-          {available_luts}
-          bind:current_lut={currentLutValue}
-          bind:reversed={lutReversedValue}
-          on:select={({ detail }) => updateLut(detail.name)}
-          on:reverse={() => updateLutReversed()}
-        />
+        <div class="control-group">
+          <label for="backgroundColorMode">Background Color Mode</label>
+          <Selector
+            id="backgroundColorMode"
+            options={['Black', 'White', 'Gray18', 'ColorScheme']}
+            value={state?.backgroundColorMode}
+            on:change={({ detail }) => updateBackgroundColorMode(detail.value)}
+          />
+        </div>
       </fieldset>
 
       <!-- Post Processing -->
@@ -109,7 +105,7 @@
               <span>🎯 Cursor Settings</span>
             </div>
             <CursorConfig
-              {cursorSize}
+              cursorSize={state.cursorSize}
               sizeMin={0.01}
               sizeMax={1.0}
               sizeStep={0.01}
@@ -178,7 +174,7 @@
                   'Cylinders',
                   'Checkerboard',
                 ]}
-                bind:value={settings.noise_type}
+                value={settings.noise_type}
                 on:change={(e) => updateNoiseType(e.detail.value)}
               />
             </div>
@@ -263,7 +259,7 @@
                 on:change={({ detail }) => updateParticleSpeed(detail)}
                 min={0.001}
                 max={100.0}
-                step={0.001}
+                step={1.0}
                 precision={3}
               />
             </div>
@@ -281,7 +277,7 @@
               <span class="setting-label">Particle Shape:</span>
               <Selector
                 options={['Circle', 'Square', 'Triangle', 'Flower', 'Diamond']}
-                bind:value={settings.particle_shape}
+                value={settings.particle_shape}
                 on:change={(e) => updateParticleShape(e.detail.value)}
               />
             </div>
@@ -299,7 +295,7 @@
               <span class="setting-label">
                 <input
                   type="checkbox"
-                  checked={settings.show_particles}
+                  checked={state?.showParticles}
                   on:change={(e) => updateShowParticles((e.target as HTMLInputElement).checked)}
                 />
                 Show Particles
@@ -389,7 +385,6 @@
   import { listen } from '@tauri-apps/api/event';
   import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
@@ -398,10 +393,12 @@
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import './shared-theme.css';
+  import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
   const dispatch = createEventDispatcher();
 
   export let menuPosition: string = 'middle';
+  export let autoHideDelay: number = 3000;
 
   // Simulation state
   type Settings = {
@@ -415,7 +412,7 @@
     vector_magnitude: number;
 
     // Particle parameters
-    particle_limit: number;
+    total_pool_size: number;
     particle_lifetime: number;
     particle_speed: number;
     particle_size: number;
@@ -424,25 +421,27 @@
     autospawn_rate: number;
     brush_spawn_rate: number;
 
+    // Display parameters
+    foreground_color_mode: string;
+
     // Trail parameters
     trail_decay_rate: number;
     trail_deposition_rate: number;
     trail_diffusion_rate: number;
     trail_wash_out_rate: number;
+  };
 
-    // Visual parameters
-    current_lut: string;
-    lut_reversed: boolean;
-    show_particles: boolean;
-    display_mode: string;
+  type State = {
+    cursorSize: number;
+    currentLut: string;
+    lutReversed: boolean;
+    backgroundColorMode: string;
+    foregroundColorMode: string;
+    showParticles: boolean;
   };
 
   let settings: Settings | undefined = undefined;
-
-  // Local variables for binding
-  let backgroundValue = 'LUT';
-  let currentLutValue = 'MATPLOTLIB_terrain';
-  let lutReversedValue = false;
+  let state: State | undefined = undefined;
 
   // Preset and LUT state
   let current_preset = '';
@@ -451,9 +450,6 @@
 
   // UI state
   let show_about_section = false;
-
-  // Cursor state
-  let cursorSize = 0.5;
 
   // Simulation control state
   let running = false;
@@ -472,6 +468,84 @@
   // Event listeners
   let unlistenFps: (() => void) | null = null;
   let unlistenSimulationInitialized: (() => void) | null = null;
+
+  async function updateBackgroundColorMode(value: string) {
+    try {
+      // Optimistically update local state like other sims
+      if (state) state.backgroundColorMode = value;
+
+      await invoke('update_simulation_state', {
+        stateName: 'backgroundColorMode',
+        value,
+      });
+      await syncStateFromBackend();
+    } catch (e) {
+      console.error('Failed to update background color mode:', e);
+    }
+  }
+
+  async function updateForegroundColorMode(value: string) {
+    try {
+      // Optimistically update local state like other sims
+      if (state) state.foregroundColorMode = value;
+
+      await invoke('update_simulation_state', {
+        stateName: 'foregroundColorMode',
+        value,
+      });
+      await syncStateFromBackend();
+    } catch (e) {
+      console.error('Failed to update foreground color mode:', e);
+    }
+  }
+
+  async function updateNoiseType(value: string) {
+    settings!.noise_type = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'noiseType',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update noise type:', e);
+    }
+  }
+
+  async function updateParticleShape(value: string) {
+    settings!.particle_shape = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'particleShape',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update particle shape:', e);
+    }
+  }
+
+  async function updateParticleAutospawn(value: boolean) {
+    settings!.particle_autospawn = value;
+    try {
+      await invoke('update_simulation_setting', {
+        settingName: 'particleAutospawn',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update particle autospawn:', e);
+    }
+  }
+
+  async function updateShowParticles(value: boolean) {
+    state!.showParticles = value;
+    try {
+      await invoke('update_simulation_state', {
+        stateName: 'showParticles',
+        value,
+      });
+    } catch (e) {
+      console.error('Failed to update show particles:', e);
+    }
+  }
 
   async function returnToMenu() {
     try {
@@ -539,7 +613,7 @@
       if (!showUI) {
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -818,18 +892,6 @@
     }
   }
 
-  async function updateNoiseType(value: string) {
-    settings!.noise_type = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'noiseType',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update noise type:', e);
-    }
-  }
-
   async function updateVectorMagnitude(value: number) {
     if (typeof value !== 'number' || isNaN(value)) {
       console.error('Invalid vector magnitude value:', value);
@@ -898,42 +960,6 @@
       });
     } catch (e) {
       console.error('Failed to update particle size:', e);
-    }
-  }
-
-  async function updateParticleShape(value: string) {
-    settings!.particle_shape = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'particleShape',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update particle shape:', e);
-    }
-  }
-
-  async function updateParticleAutospawn(value: boolean) {
-    settings!.particle_autospawn = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'particleAutospawn',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update particle autospawn:', e);
-    }
-  }
-
-  async function updateShowParticles(value: boolean) {
-    settings!.show_particles = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'showParticles',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update show particles:', e);
     }
   }
 
@@ -1048,63 +1074,42 @@
     }
   }
 
-  async function updateBackground(value: string) {
-    backgroundValue = value;
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'background',
-        value,
-      });
-    } catch (e) {
-      console.error('Failed to update background:', e);
-    }
-  }
-
   async function updateLut(lutName: string) {
-    settings!.current_lut = lutName;
+    state!.currentLut = lutName;
     try {
-      await invoke('update_simulation_setting', {
-        settingName: 'currentLut',
+      await invoke('update_simulation_state', {
+        stateName: 'currentLut',
         value: lutName,
       });
+      await syncStateFromBackend();
     } catch (e) {
       console.error('Failed to update LUT:', e);
     }
   }
 
-  async function updateLutReversed() {
-    settings!.lut_reversed = !settings!.lut_reversed;
+  async function updateLutReversed(reversed: boolean) {
     try {
-      await invoke('update_simulation_setting', {
-        settingName: 'lutReversed',
-        value: settings!.lut_reversed,
+      state!.lutReversed = reversed;
+      await invoke('update_simulation_state', {
+        stateName: 'lutReversed',
+        value: reversed,
       });
+      await syncStateFromBackend();
     } catch (e) {
       console.error('Failed to update LUT reversed:', e);
     }
   }
 
   async function updateCursorSize(value: number) {
-    cursorSize = value;
+    state!.cursorSize = value;
     try {
-      await invoke('update_simulation_setting', {
-        settingName: 'cursor_size',
+      await invoke('update_simulation_state', {
+        stateName: 'cursorSize',
         value,
       });
+      await syncStateFromBackend();
     } catch (e) {
       console.error('Failed to update cursor size:', e);
-    }
-  }
-
-  async function updateDisplayMode(value: string) {
-    try {
-      await invoke('update_simulation_setting', {
-        settingName: 'displayMode',
-        value,
-      });
-      await syncSettingsFromBackend();
-    } catch (e) {
-      console.error('Failed to update display mode:', e);
     }
   }
 
@@ -1145,7 +1150,7 @@
 
   async function loadAvailableLuts() {
     try {
-      available_luts = await invoke('get_available_luts');
+      available_luts = await invoke('get_available_color_schemes');
     } catch (e) {
       console.error('Failed to load available LUTs:', e);
     }
@@ -1154,46 +1159,24 @@
   async function syncSettingsFromBackend() {
     try {
       const backendSettings = await invoke('get_current_settings');
-      const backendState = await invoke('get_current_state');
 
       if (backendSettings) {
         // Use backend settings directly
         settings = backendSettings as Settings;
       }
-
-      if (backendState) {
-        // Update visual parameters from backend state (not settings)
-        const state = backendState as {
-          cursorSize?: number;
-          background?: string;
-          currentLut?: string;
-          lutReversed?: boolean;
-          displayMode?: string;
-        };
-
-        if (state.cursorSize !== undefined) {
-          cursorSize = state.cursorSize;
-        }
-        if (state.background !== undefined) {
-          backgroundValue = state.background;
-        }
-        if (state.currentLut !== undefined) {
-          currentLutValue = state.currentLut;
-        }
-        if (state.lutReversed !== undefined) {
-          lutReversedValue = state.lutReversed;
-        }
-        // display_mode is now part of settings, not state
-
-        console.log('Flow settings and state synced:', {
-          background: backgroundValue,
-          currentLut: currentLutValue,
-          lutReversed: lutReversedValue,
-          displayMode: settings?.display_mode,
-        });
-      }
     } catch (e) {
       console.error('Failed to sync settings from backend:', e);
+    }
+  }
+
+  async function syncStateFromBackend() {
+    try {
+      const backendState = await invoke('get_current_state');
+      if (backendState) {
+        state = backendState as State;
+      }
+    } catch (e) {
+      console.error('Failed to sync state from backend:', e);
     }
   }
 
@@ -1211,6 +1194,7 @@
 
       // Now that simulation is initialized, sync settings and load data
       await syncSettingsFromBackend();
+      await syncStateFromBackend();
       await loadAvailablePresets();
       await loadAvailableLuts();
     });

@@ -32,7 +32,7 @@ fn grid_flat_index(cell_x: u32, cell_y: u32) -> u32 {
   return cell_y * params.grid_width + cell_x;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(128)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = gid.x;
   if (i >= params.particle_count) { return; }

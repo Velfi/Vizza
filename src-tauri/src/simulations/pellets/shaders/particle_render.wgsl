@@ -14,16 +14,16 @@ struct RenderParams {
     particle_size: f32,
     screen_width: f32,
     screen_height: f32,
-    coloring_mode: u32, // 0 = density, 1 = velocity, 2 = random
+    foreground_color_mode: u32, // 0 = density, 1 = velocity, 2 = random
 }
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) color: vec3<f32>,
-    @location(1) mass: f32,
-    @location(2) density: f32,
+    @location(0) @interpolate(flat) color: vec3<f32>,
+    @location(1) @interpolate(flat) mass: f32,
+    @location(2) @interpolate(flat) density: f32,
     @location(3) uv: vec2<f32>,
-    @location(4) coloring_mode: f32,
+    @location(4) @interpolate(flat) foreground_color_mode: u32,
 }
 
 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
@@ -101,19 +101,7 @@ fn vs_main(
     let vertex_id = vertex_index; // 0-5 within the quad
     
     let particle = particles[particle_index];
-    
-    // Skip rendering if particle has no mass
-    if (particle.mass <= 0.0) {
-        return VertexOutput(
-            vec4<f32>(0.0),
-            vec3<f32>(0.0),
-            0.0,
-            0.0,
-            vec2<f32>(0.0),
-            0.0
-        );
-    }
-    
+
     // Create a quad for each particle
     let positions = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
@@ -148,67 +136,73 @@ fn vs_main(
         particle.mass,
         particle.density,
         uv,
-        f32(params.coloring_mode)
+        params.foreground_color_mode
     );
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(
+    @location(0) @interpolate(flat) color: vec3<f32>,
+    @location(1) @interpolate(flat) mass: f32,
+    @location(2) @interpolate(flat) density: f32,
+    @location(3) uv: vec2<f32>,
+    @location(4) @interpolate(flat) foreground_color_mode: u32,
+) -> @location(0) vec4<f32> {
     // Create circular particles with aspect ratio correction
     let center = vec2<f32>(0.5, 0.5);
     let aspect_ratio = params.screen_width / params.screen_height;
-    
+
     // Correct UV coordinates for aspect ratio to ensure circular particles
-    var corrected_uv = in.uv - center;
+    var corrected_uv = uv - center;
     corrected_uv.x *= aspect_ratio;
     let dist = length(corrected_uv);
-    
+
     // Standard particle rendering with hard edges
     let particle_radius = 0.45;
-    
+
     if (dist > particle_radius) {
         discard;
     }
-    
+
     var final_color: vec3<f32>;
-    
-    if (in.coloring_mode > 1.5) {
-        // Random mode (coloring_mode == 2)
-        let color_factor = clamp(in.density / 255.0, 0.0, 1.0);
+
+    if (foreground_color_mode == 2u) {
+        // Random mode
+        let color_factor = clamp(density / 255.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);
         
         // Add mass-based glow effect for larger particles
-        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let mass_factor = clamp(mass / 20.0, 0.0, 1.0);
         let glow_intensity = mass_factor * 0.3;
         let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
-        
+
         final_color = color + glow_color;
-    } else if (in.coloring_mode > 0.5) {
-        // Velocity mode (coloring_mode == 1) 
-        let color_factor = clamp(in.density / 4.0, 0.0, 1.0);
+    } else if (foreground_color_mode == 1u) {
+        // Velocity mode
+        let color_factor = clamp(density / 4.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);
-        
+
         // Add mass-based glow effect for larger particles
-        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let mass_factor = clamp(mass / 20.0, 0.0, 1.0);
         let glow_intensity = mass_factor * 0.3;
         let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
-        
+
         final_color = color + glow_color;
     } else {
-        // Density mode (coloring_mode == 0)
-        let color_factor = clamp(in.density / 16.0, 0.0, 1.0);
+        // Density mode
+        let color_factor = clamp(density / 16.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);
-        
+
         // Add mass-based glow effect for larger particles
-        let mass_factor = clamp(in.mass / 20.0, 0.0, 1.0);
+        let mass_factor = clamp(mass / 20.0, 0.0, 1.0);
         let glow_intensity = mass_factor * 0.3;
         let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
-        
+
         final_color = color + glow_color;
     }
-    
+
     return vec4<f32>(final_color, 1.0);
-} 
+}

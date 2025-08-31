@@ -1,16 +1,16 @@
 struct FragmentInput {
-    @location(0) color: vec3<f32>,
-    @location(1) mass: f32,
-    @location(2) density: f32,
+    @location(0) @interpolate(flat) color: vec3<f32>,
+    @location(1) @interpolate(flat) mass: f32,
+    @location(2) @interpolate(flat) density: f32,
     @location(3) uv: vec2<f32>,
-    @location(4) coloring_mode: f32,
+    @location(4) @interpolate(flat) foreground_color_mode: u32,
 }
 
 struct RenderParams {
     particle_size: f32,
     screen_width: f32,
     screen_height: f32,
-    coloring_mode: u32, // 0 = density, 1 = velocity, 2 = random
+    foreground_color_mode: u32, // 0 = density, 1 = velocity, 2 = random
 }
 
 @group(0) @binding(1) var<uniform> params: RenderParams;
@@ -56,8 +56,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
     
     var final_color: vec3<f32>;
     
-    if (in.coloring_mode > 1.5) {
-        // Random mode (coloring_mode == 2)
+    if (in.foreground_color_mode == 2u) {
+        // Random mode
         let color_factor = clamp(in.density / 255.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);
@@ -68,8 +68,8 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
         let glow_color = vec3<f32>(1.0, 0.9, 0.7) * glow_intensity;
         
         final_color = color + glow_color;
-    } else if (in.coloring_mode > 0.5) {
-        // Velocity mode (coloring_mode == 1) 
+    } else if (in.foreground_color_mode == 1u) {
+        // Velocity mode
         let color_factor = clamp(in.density / 4.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);
@@ -81,7 +81,7 @@ fn fs_main(in: FragmentInput) -> @location(0) vec4<f32> {
         
         final_color = color + glow_color;
     } else {
-        // Density mode (coloring_mode == 0)
+        // Density mode
         let color_factor = clamp(in.density / 16.0, 0.0, 1.0);
         let lut_index = u32(color_factor * 255.0);
         let color = get_lut_color(lut_index);

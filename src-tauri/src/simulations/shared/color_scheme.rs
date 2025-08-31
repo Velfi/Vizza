@@ -1,19 +1,19 @@
 use crate::commands::get_settings_dir;
-use crate::error::{LutError, LutResult};
+use crate::error::{ColorSchemeError, LutResult};
 use include_dir::{Dir, include_dir};
 use rand::Rng;
 use std::collections::HashMap;
 use std::io;
 
 #[derive(Debug, Clone)]
-pub struct LutData {
+pub struct ColorScheme {
     pub name: String,
     pub red: [u8; 256],
     pub green: [u8; 256],
     pub blue: [u8; 256],
 }
 
-impl LutData {
+impl ColorScheme {
     pub fn reversed(&self) -> Self {
         let mut red = self.red;
         let mut green = self.green;
@@ -113,7 +113,7 @@ impl LutData {
 static LUT_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/simulations/shared/LUTs");
 
 lazy_static::lazy_static! {
-    static ref EMBEDDED_LUTS: HashMap<&'static str, &'static [u8]> = {
+    static ref EMBEDDED_COLOR_SCHEMES: HashMap<&'static str, &'static [u8]> = {
         let mut map = HashMap::new();
         for file in LUT_DIR.files() {
             if let Some(name) = file.path().file_stem().and_then(|s| s.to_str()) {
@@ -127,17 +127,18 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug, Clone)]
-pub struct LutManager {
-    temp_lut: Option<LutData>,
-}
+pub struct ColorSchemeManager {}
 
-impl LutManager {
+impl ColorSchemeManager {
     pub fn new() -> Self {
-        Self { temp_lut: None }
+        Self {}
     }
 
-    pub fn all_luts(&self) -> Vec<String> {
-        let mut luts: Vec<String> = EMBEDDED_LUTS.keys().map(|&name| name.to_string()).collect();
+    pub fn all_color_schemes(&self) -> Vec<String> {
+        let mut luts: Vec<String> = EMBEDDED_COLOR_SCHEMES
+            .keys()
+            .map(|&name| name.to_string())
+            .collect();
 
         // Add custom LUTs
         if let Ok(custom_luts) = self.all_custom_luts() {
@@ -148,46 +149,24 @@ impl LutManager {
         luts
     }
 
-    pub fn get(&self, name: &str) -> LutResult<LutData> {
-        // Check for temporary LUT first
-        if name == "temp_lut" {
-            if let Some(temp_lut) = &self.temp_lut {
-                return Ok(temp_lut.clone());
-            }
-            return Err(LutError::DataError(
-                "No temporary LUT available".to_string(),
-            ));
-        }
-
+    pub fn get(&self, name: &str) -> LutResult<ColorScheme> {
         // Try to load from embedded LUTs first
-        if let Some(&buffer) = EMBEDDED_LUTS.get(name) {
+        if let Some(&buffer) = EMBEDDED_COLOR_SCHEMES.get(name) {
             // Each color component should be 256 bytes
             if buffer.len() != 768 {
                 // 256 * 3 (RGB)
-                return Err(LutError::DataError(format!(
+                return Err(ColorSchemeError::DataError(format!(
                     "Invalid LUT file size for {}",
                     name
                 )));
             }
 
-            return LutData::from_bytes(name.to_string(), buffer)
-                .map_err(|e| LutError::DataError(e.to_string()));
+            return ColorScheme::from_bytes(name.to_string(), buffer)
+                .map_err(|e| ColorSchemeError::DataError(e.to_string()));
         }
 
         // If not found in embedded LUTs, try to load as a custom LUT
         self.get_custom(name)
-    }
-
-    pub fn set_temp_lut(&mut self, lut_data: LutData) {
-        self.temp_lut = Some(lut_data);
-    }
-
-    pub fn clear_temp_lut(&mut self) {
-        self.temp_lut = None;
-    }
-
-    pub fn has_temp_lut(&self) -> bool {
-        self.temp_lut.is_some()
     }
 
     fn lut_dir() -> LutResult<std::path::PathBuf> {
@@ -195,17 +174,18 @@ impl LutManager {
         Ok(lut_dir)
     }
 
-    pub fn save_custom(&self, name: &str, lut_data: &LutData) -> LutResult<()> {
+    pub fn save_custom(&self, name: &str, lut_data: &ColorScheme) -> LutResult<()> {
         // Create LUTs directory if it doesn't exist
         let lut_dir = Self::lut_dir()?;
         if !lut_dir.exists() {
-            std::fs::create_dir_all(&lut_dir).map_err(|e| LutError::DataError(e.to_string()))?;
+            std::fs::create_dir_all(&lut_dir)
+                .map_err(|e| ColorSchemeError::DataError(e.to_string()))?;
         }
 
         // Save the LUT file
         let file_path = lut_dir.join(format!("{}.lut", name));
         std::fs::write(file_path, lut_data.clone().into_bytes())
-            .map_err(|e| LutError::DataError(e.to_string()))?;
+            .map_err(|e| ColorSchemeError::DataError(e.to_string()))?;
 
         Ok(())
     }
@@ -217,8 +197,10 @@ impl LutManager {
         }
 
         let mut custom_luts = Vec::new();
-        for entry in std::fs::read_dir(lut_dir).map_err(|e| LutError::DataError(e.to_string()))? {
-            let entry = entry.map_err(|e| LutError::DataError(e.to_string()))?;
+        for entry in
+            std::fs::read_dir(lut_dir).map_err(|e| ColorSchemeError::DataError(e.to_string()))?
+        {
+            let entry = entry.map_err(|e| ColorSchemeError::DataError(e.to_string()))?;
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("lut") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
@@ -230,46 +212,51 @@ impl LutManager {
         Ok(custom_luts)
     }
 
-    pub fn get_custom(&self, name: &str) -> LutResult<LutData> {
+    pub fn get_custom(&self, name: &str) -> LutResult<ColorScheme> {
         let file_path = Self::lut_dir()?.join(format!("{}.lut", name));
-        let data = std::fs::read(file_path).map_err(|e| LutError::DataError(e.to_string()))?;
-        LutData::from_bytes(name.to_string(), &data).map_err(|e| LutError::DataError(e.to_string()))
+        let data =
+            std::fs::read(file_path).map_err(|e| ColorSchemeError::DataError(e.to_string()))?;
+        ColorScheme::from_bytes(name.to_string(), &data)
+            .map_err(|e| ColorSchemeError::DataError(e.to_string()))
     }
 
-    pub fn get_default(&self) -> LutData {
+    pub fn get_default(&self) -> ColorScheme {
         let mut lut_data = self.get("MATPLOTLIB_bone").unwrap();
         lut_data.reverse();
         lut_data
     }
 
-    pub(crate) fn get_random_lut(&self) -> LutResult<LutData> {
-        let lut_names: Vec<&str> = EMBEDDED_LUTS.keys().copied().collect();
+    pub(crate) fn get_random_lut(&self) -> LutResult<ColorScheme> {
+        let lut_names: Vec<&str> = EMBEDDED_COLOR_SCHEMES.keys().copied().collect();
         let random_index = rand::rng().random_range(0..lut_names.len());
         let lut_name = lut_names[random_index];
         self.get(lut_name)
     }
 }
 
-impl Default for LutManager {
+impl Default for ColorSchemeManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Unified LUT manager for simulation operations
-pub struct SimulationLutManager;
+pub struct SimulationColorSchemeManager;
 
-impl SimulationLutManager {
+impl SimulationColorSchemeManager {
     pub fn new() -> Self {
         Self
     }
 
-    pub fn get_available_luts(&self, lut_manager: &LutManager) -> Vec<String> {
-        lut_manager.all_luts()
+    pub fn get_available_color_schemes(
+        &self,
+        color_scheme_manager: &ColorSchemeManager,
+    ) -> Vec<String> {
+        color_scheme_manager.all_color_schemes()
     }
 }
 
-impl Default for SimulationLutManager {
+impl Default for SimulationColorSchemeManager {
     fn default() -> Self {
         Self::new()
     }
@@ -281,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_lut_buffer_sizes() {
-        let lut_data = LutData {
+        let lut_data = ColorScheme {
             name: "test".to_string(),
             red: [0; 256],
             green: [0; 256],
@@ -299,8 +286,8 @@ mod tests {
 
     #[test]
     fn test_automatic_lut_loading() {
-        let manager = LutManager::new();
-        let luts = manager.all_luts();
+        let manager = ColorSchemeManager::new();
+        let luts = manager.all_color_schemes();
 
         // Verify that some known LUTs are included
         assert!(luts.contains(&"MATPLOTLIB_viridis".to_string()));

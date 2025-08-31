@@ -147,10 +147,10 @@ impl Default for Settings {
             max_force: 0.5,
             friction: 0.5,
             wrap_edges: true,
-            force_beta: 0.3,
+            force_beta: 0.5,
             repulsion_strength: 1.0,
             min_distance: 0.001,
-            max_distance: 0.01,
+            max_distance: 0.05,
             brownian_motion: 0.5,
         }
     }
@@ -201,18 +201,21 @@ impl Settings {
                 let base_strength = rng.random_range(0.3..0.8);
                 let variation = rng.random_range(0.1..0.4);
 
+                // Generate symmetric matrix by only filling upper triangle, then copying
                 for i in 0..self.species_count as usize {
                     for j in i..self.species_count as usize {
                         let value: f32 = if i == j {
                             rng.random_range(-0.3..-0.05) // Self-repulsion varies
                         } else {
                             let sign = if rng.random_bool(0.5) { 1.0 } else { -1.0 };
-                            sign * rng.random_range(0.2..base_strength)
-                                + rng.random_range(-variation..variation)
+                            let strength = rng.random_range(0.2..base_strength);
+                            let variation_amount = rng.random_range(-variation..variation);
+                            sign * strength + variation_amount
                         };
-                        self.force_matrix[i][j] = value.clamp(-1.0, 1.0);
+                        let final_value = value.clamp(-1.0, 1.0);
+                        self.force_matrix[i][j] = final_value;
                         if i != j {
-                            self.force_matrix[j][i] = value; // Copy to lower triangle
+                            self.force_matrix[j][i] = final_value; // Copy to lower triangle
                         }
                     }
                 }
@@ -268,7 +271,7 @@ impl Settings {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
                             let distance = (i as i32 - j as i32).abs() as f32;
-                            let strength: f32 = base_strength * decay_rate.powf(distance - 1.0);
+                            let strength: f32 = base_strength * decay_rate.powf(distance);
                             let variation = rng.random_range(-0.1..0.1);
                             self.force_matrix[i][j] = (strength + variation).clamp(-0.8, 0.8);
                         }
@@ -323,23 +326,25 @@ impl Settings {
                 }
             }
             MatrixGenerator::Symbiosis => {
-                // Symbiosis: pairs of species have mutual attraction with random variations
-                let symbiosis_strength = rng.random_range(0.3..0.7);
+                // Symbiosis: species form mutualistic pairs with strong attraction, weak interaction with others
+                let symbiosis_strength = rng.random_range(0.4..0.8);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let background_strength = rng.random_range(-0.1..0.1);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
-                        } else if i % 2 == 0 && j == i + 1 && j < self.species_count as usize {
-                            // Even-odd pairs have mutual attraction with variation
-                            let strength = symbiosis_strength + rng.random_range(-0.1..0.1);
-                            self.force_matrix[i][j] = strength;
-                            self.force_matrix[j][i] = strength;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
+                        } else if (i % 2 == 0 && j == i + 1) || (j % 2 == 0 && i == j + 1) {
+                            // Even-odd pairs form symbiotic relationships
+                            symbiosis_strength + rng.random_range(-0.1..0.1)
                         } else {
-                            self.force_matrix[i][j] =
-                                background_strength + rng.random_range(-0.05..0.05);
+                            // All other interactions are weak
+                            background_strength + rng.random_range(-0.05..0.05)
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
@@ -368,17 +373,19 @@ impl Settings {
                 let self_repulsion = rng.random_range(-0.3..-0.05);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
                         } else if (i % 2 == 0) == (j % 2 == 0) {
                             // Same "charge" (both even or both odd) - attraction with variation
-                            self.force_matrix[i][j] =
-                                attraction_strength + rng.random_range(-0.1..0.1);
+                            attraction_strength + rng.random_range(-0.1..0.1)
                         } else {
                             // Different "charge" - repulsion with variation
-                            self.force_matrix[i][j] =
-                                repulsion_strength + rng.random_range(-0.1..0.1);
+                            repulsion_strength + rng.random_range(-0.1..0.1)
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
@@ -391,19 +398,22 @@ impl Settings {
                 let lattice_variation = rng.random_range(0.05..0.2);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
                         } else if (i as i32 - j as i32).abs() == 1
                             || (i == 0 && j == (self.species_count as usize) - 1)
                             || (j == 0 && i == (self.species_count as usize) - 1)
                         {
                             // Neighbors in crystal lattice - strong attraction with variation
-                            self.force_matrix[i][j] = lattice_strength
-                                + rng.random_range(-lattice_variation..lattice_variation);
+                            lattice_strength
+                                + rng.random_range(-lattice_variation..lattice_variation)
                         } else {
-                            self.force_matrix[i][j] =
-                                background_strength + rng.random_range(-0.1..0.1);
+                            background_strength + rng.random_range(-0.1..0.1)
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
@@ -416,14 +426,18 @@ impl Settings {
                 let self_repulsion = rng.random_range(-0.3..-0.05);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
                         } else {
                             let distance = (i as f32 - j as f32).abs();
                             let wave = (distance * frequency + phase).sin();
                             let variation = rng.random_range(-0.1..0.1);
-                            self.force_matrix[i][j] = wave * amplitude + variation;
+                            wave * amplitude + variation
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
@@ -454,7 +468,8 @@ impl Settings {
             }
             MatrixGenerator::Clique => {
                 // Clique: small groups have strong internal attraction, weak repulsion between groups
-                let group_size = rng.random_range(2..=4).min(self.species_count as usize / 2);
+                let max_group_size = (self.species_count as usize / 2).max(2);
+                let group_size = rng.random_range(2..=max_group_size);
                 let clique_strength = rng.random_range(0.3..0.7);
                 let between_clique_strength = rng.random_range(-0.4..-0.1);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
@@ -476,7 +491,8 @@ impl Settings {
             }
             MatrixGenerator::AntiClique => {
                 // Anti-Clique: strong repulsion within groups, attraction between groups
-                let group_size = rng.random_range(2..=4).min(self.species_count as usize / 2);
+                let max_group_size = (self.species_count as usize / 2).max(2);
+                let group_size = rng.random_range(2..=max_group_size);
                 let within_clique_strength = rng.random_range(-0.7..-0.3);
                 let between_clique_strength = rng.random_range(0.2..0.5);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
@@ -514,7 +530,12 @@ impl Settings {
                         if i == j {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
-                            let fib_value = fib[i.min(j)];
+                            let distance = (i as i32 - j as i32).abs() as usize;
+                            let fib_value = if distance < fib.len() {
+                                fib[distance]
+                            } else {
+                                1
+                            };
                             let max_fib = *fib.iter().max().unwrap_or(&1) as f32;
                             let base_force =
                                 (fib_value as f32 / max_fib) * scale_factor + base_offset;
@@ -566,7 +587,7 @@ impl Settings {
             MatrixGenerator::Fractal => {
                 // Fractal: recursive force patterns with random parameters
                 let scale_factor = rng.random_range(0.3..0.7);
-                let frequency = rng.random_range(1.0..3.0);
+                let frequency = rng.random_range(2.0..4.0);
                 let self_repulsion = rng.random_range(-0.3..-0.05);
                 let base_offset = rng.random_range(-0.1..0.1);
 
@@ -576,8 +597,8 @@ impl Settings {
                             self.force_matrix[i][j] = self_repulsion;
                         } else {
                             let distance = (i as f32 - j as f32).abs();
-                            let normalized_distance = distance / (self.species_count as f32);
-                            let scale = (normalized_distance * frequency).log2().max(0.0);
+                            let normalized_distance = distance / (self.species_count as f32 - 1.0);
+                            let scale = (normalized_distance * frequency + 1.0).log2();
                             let force =
                                 (scale * std::f32::consts::PI).sin() * scale_factor + base_offset;
                             let variation = rng.random_range(-0.1..0.1);
@@ -613,12 +634,15 @@ impl Settings {
                 let self_repulsion = rng.random_range(-0.3..-0.05);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
                         } else {
-                            self.force_matrix[i][j] =
-                                cooperation_strength + rng.random_range(-0.1..0.1);
+                            cooperation_strength + rng.random_range(-0.1..0.1)
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
@@ -629,21 +653,20 @@ impl Settings {
                 let self_repulsion = rng.random_range(-0.3..-0.05);
 
                 for i in 0..self.species_count as usize {
-                    for j in 0..self.species_count as usize {
-                        if i == j {
-                            self.force_matrix[i][j] = self_repulsion;
+                    for j in i..self.species_count as usize {
+                        let value: f32 = if i == j {
+                            self_repulsion
                         } else {
-                            self.force_matrix[i][j] =
-                                competition_strength + rng.random_range(-0.1..0.1);
+                            competition_strength + rng.random_range(-0.1..0.1)
+                        };
+                        self.force_matrix[i][j] = value;
+                        if i != j {
+                            self.force_matrix[j][i] = value; // Maintain symmetry
                         }
                     }
                 }
             }
         }
-    }
-
-    pub fn randomize(&mut self) {
-        self.randomize_force_matrix(&MatrixGenerator::Random);
     }
 
     /// Get the force between two species

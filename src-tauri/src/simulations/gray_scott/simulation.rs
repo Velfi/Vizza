@@ -70,7 +70,8 @@ pub struct GrayScottModel {
     pub settings: Settings,
     pub width: u32,
     pub height: u32,
-    pub lut_reversed: bool,
+    pub color_scheme_reversed: bool,
+    pub current_color_scheme_name: String,
     uvs_buffers: [wgpu::Buffer; 2], // Double buffering
     current_buffer: usize,
     params_buffer: wgpu::Buffer,
@@ -79,7 +80,6 @@ pub struct GrayScottModel {
     noise_seed_compute: NoiseSeedCompute,
     last_frame_time: std::time::Instant,
     show_gui: bool,
-    pub current_lut_name: String,
 
     // Cursor configuration (runtime state, not saved in presets)
     pub cursor_size: f32,
@@ -101,7 +101,7 @@ impl GrayScottModel {
         width: u32,
         height: u32,
         settings: Settings,
-        lut_manager: &crate::simulations::shared::LutManager,
+        color_scheme_manager: &crate::simulations::shared::ColorSchemeManager,
         app_settings: &crate::commands::app_settings::AppSettings,
     ) -> SimulationResult<Self> {
         let vec_capacity = (width * height) as usize;
@@ -291,7 +291,7 @@ impl GrayScottModel {
             surface_config,
             width,
             height,
-            lut_manager,
+            color_scheme_manager,
             app_settings,
         )?;
         let noise_seed_compute = NoiseSeedCompute::new(device);
@@ -330,8 +330,8 @@ impl GrayScottModel {
             settings,
             width,
             height,
-            current_lut_name: "MATPLOTLIB_prism".to_string(),
-            lut_reversed: false,
+            current_color_scheme_name: "MATPLOTLIB_prism".to_string(),
+            color_scheme_reversed: false,
             uvs_buffers,
             current_buffer: 0,
             params_buffer,
@@ -354,8 +354,8 @@ impl GrayScottModel {
         };
 
         // Apply initial LUT
-        if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
-            if simulation.lut_reversed {
+        if let Ok(mut lut_data) = color_scheme_manager.get(&simulation.current_color_scheme_name) {
+            if simulation.color_scheme_reversed {
                 lut_data.reverse();
             }
             simulation.renderer.update_lut(&lut_data, queue);
@@ -830,6 +830,59 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         self.update_setting(setting_name, value, device, queue)
     }
 
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "currentLut" => {
+                if let Some(lut_name) = value.as_str() {
+                    self.current_color_scheme_name = lut_name.to_string();
+                    let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
+                    let mut lut_data = lut_manager.get(&self.current_color_scheme_name).unwrap_or_else(|_| lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    if self.color_scheme_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    self.renderer.update_lut(&lut_data, queue);
+                }
+            }
+            "lutReversed" => {
+                if let Some(reversed) = value.as_bool() {
+                    self.color_scheme_reversed = reversed;
+                    let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
+                    let mut lut_data = lut_manager.get(&self.current_color_scheme_name).unwrap_or_else(|_| lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    if self.color_scheme_reversed {
+                        lut_data.reverse();
+                    }
+                    
+                    self.renderer.update_lut(&lut_data, queue);
+                }
+            }
+            "cursorSize" => {
+                if let Some(size) = value.as_f64() {
+                    self.cursor_size = size as f32;
+                }
+            }
+            "cursorStrength" => {
+                if let Some(strength) = value.as_f64() {
+                    self.cursor_strength = strength as f32;
+                }
+            }
+            _ => {
+                tracing::warn!("Unknown state parameter for GrayScott: {}", state_name);
+            }
+        }
+        Ok(())
+    }
+
     fn get_settings(&self) -> serde_json::Value {
         serde_json::to_value(&self.settings).unwrap_or_else(|_| serde_json::json!({}))
     }
@@ -838,8 +891,8 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         serde_json::json!({
             "width": self.width,
             "height": self.height,
-            "lut_reversed": self.lut_reversed,
-            "current_lut_name": self.current_lut_name,
+            "lut_reversed": self.color_scheme_reversed,
+            "current_lut_name": self.current_color_scheme_name,
             "show_gui": self.show_gui,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
@@ -950,6 +1003,16 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
     ) -> SimulationResult<()> {
         self.settings.randomize();
         self.update_settings(self.settings.clone(), queue);
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        self.renderer.update_lut(color_scheme, queue);
         Ok(())
     }
 }

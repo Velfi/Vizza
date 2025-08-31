@@ -16,8 +16,8 @@ pub enum AppError {
     #[error("Preset error: {0}")]
     Preset(#[from] PresetError),
 
-    #[error("LUT error: {0}")]
-    Lut(#[from] LutError),
+    #[error("Color scheme error: {0}")]
+    ColorScheme(#[from] ColorSchemeError),
 
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
@@ -75,7 +75,7 @@ pub enum SimulationError {
     StateResetFailed(String),
 
     #[error("{0}")]
-    LutError(#[from] LutError),
+    LutError(#[from] ColorSchemeError),
 
     #[error("Window error: {0}")]
     Window(String),
@@ -205,7 +205,7 @@ pub enum PresetError {
 
 /// LUT-related errors
 #[derive(Debug, thiserror::Error)]
-pub enum LutError {
+pub enum ColorSchemeError {
     #[error("LUT not found: {0}")]
     NotFound(String),
 
@@ -247,7 +247,7 @@ pub enum LutError {
 pub type AppResult<T> = Result<T, AppError>;
 pub type SimulationResult<T> = Result<T, SimulationError>;
 pub type PresetResult<T> = Result<T, PresetError>;
-pub type LutResult<T> = Result<T, LutError>;
+pub type LutResult<T> = Result<T, ColorSchemeError>;
 
 // Conversion traits for easy error conversion
 impl From<String> for AppError {
@@ -298,15 +298,15 @@ impl From<&str> for PresetError {
     }
 }
 
-impl From<String> for LutError {
+impl From<String> for ColorSchemeError {
     fn from(s: String) -> Self {
-        LutError::LoadingFailed(s)
+        ColorSchemeError::LoadingFailed(s)
     }
 }
 
-impl From<&str> for LutError {
+impl From<&str> for ColorSchemeError {
     fn from(s: &str) -> Self {
-        LutError::LoadingFailed(s.to_string())
+        ColorSchemeError::LoadingFailed(s.to_string())
     }
 }
 
@@ -333,8 +333,8 @@ impl AppError {
     }
 
     /// Create a LUT error with context
-    pub fn lut_error<T: Into<LutError>>(error: T) -> Self {
-        AppError::Lut(error.into())
+    pub fn lut_error<T: Into<ColorSchemeError>>(error: T) -> Self {
+        AppError::ColorScheme(error.into())
     }
 }
 
@@ -363,10 +363,10 @@ impl PresetError {
     }
 }
 
-impl LutError {
+impl ColorSchemeError {
     /// Create a file error with path and error message
     pub fn file_error(path: PathBuf, error: &str) -> Self {
-        LutError::FileError {
+        ColorSchemeError::FileError {
             path,
             error: error.to_string(),
         }
@@ -374,6 +374,6 @@ impl LutError {
 
     /// Create a size error
     pub fn size_error(expected: usize, actual: usize) -> Self {
-        LutError::SizeError { expected, actual }
+        ColorSchemeError::SizeError { expected, actual }
     }
 }

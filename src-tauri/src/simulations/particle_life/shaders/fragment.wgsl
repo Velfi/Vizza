@@ -14,7 +14,7 @@ struct SpeciesColors {
 }
 
 struct ColorMode {
-    mode: u32, // 0=Gray18, 1=White, 2=Black, 3=LUT
+    mode: u32, // 0=Gray18, 1=White, 2=Black, 3=ColorScheme
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
@@ -22,6 +22,15 @@ struct ColorMode {
 
 @group(1) @binding(0) var<uniform> species_colors: SpeciesColors;
 @group(1) @binding(1) var<uniform> color_mode: ColorMode;
+
+// Convert linear RGB to sRGB for proper display
+fn linear_to_srgb(linear: f32) -> f32 {
+    if (linear <= 0.0031308) {
+        return linear * 12.92;
+    } else {
+        return 1.055 * pow(linear, 1.0 / 2.4) - 0.055;
+    }
+}
 
 @fragment
 fn main(input: VertexOutput) -> @location(0) vec4<f32> {
@@ -41,9 +50,9 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Get the color for this particle's species directly from the uniform buffer
     let species_index = input.species;
     
-    // In LUT mode, species colors start at index 1 (index 0 is background)
-    // In non-LUT mode, species colors start at index 0
-    let color_index = select(species_index, species_index + 1u, color_mode.mode == 3u);
+    // Species colors are stored first in the buffer for all modes.
+    // When using a LUT, the background color is appended at the end by the backend.
+    let color_index = species_index;
     
     let base_color = species_colors.colors[color_index].rgb;
     
@@ -52,12 +61,23 @@ fn main(input: VertexOutput) -> @location(0) vec4<f32> {
     if (input.grid_fade_factor <= 0.0) {
         // Use a dimmed version of the species color to represent the average
         // This creates a more dynamic fade that reflects the simulation content
-        return vec4<f32>(base_color * 0.15, 1.0);
+        let dimmed_color = base_color * 0.15;
+        let srgb_color = vec3<f32>(
+            linear_to_srgb(dimmed_color.r),
+            linear_to_srgb(dimmed_color.g),
+            linear_to_srgb(dimmed_color.b)
+        );
+        return vec4<f32>(srgb_color, 1.0);
     }
     
     // Apply grid fade factor for infinite rendering
     // Use the grid fade factor to adjust the color intensity
-    let final_color = vec4<f32>(base_color * input.grid_fade_factor, 1.0);
+    let faded_color = base_color * input.grid_fade_factor;
+    let final_color = vec3<f32>(
+        linear_to_srgb(faded_color.r),
+        linear_to_srgb(faded_color.g),
+        linear_to_srgb(faded_color.b)
+    );
     
-    return final_color;
+    return vec4<f32>(final_color, 1.0);
 }

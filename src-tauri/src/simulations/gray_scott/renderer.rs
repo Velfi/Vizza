@@ -50,7 +50,7 @@ impl Renderer {
         surface_config: &SurfaceConfiguration,
         width: u32,
         height: u32,
-        lut_manager: &crate::simulations::shared::LutManager,
+        lut_manager: &crate::simulations::shared::ColorSchemeManager,
         app_settings: &crate::commands::app_settings::AppSettings,
     ) -> SimulationResult<Self> {
         let settings = Settings::default();
@@ -247,7 +247,11 @@ impl Renderer {
         // LUT management is now handled by the simulation manager
     }
 
-    pub fn update_lut(&mut self, lut_data: &crate::simulations::shared::LutData, queue: &Queue) {
+    pub fn update_lut(
+        &mut self,
+        lut_data: &crate::simulations::shared::ColorScheme,
+        queue: &Queue,
+    ) {
         let lut_data_u32 = lut_data.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
     }

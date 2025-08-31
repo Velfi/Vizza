@@ -3,7 +3,7 @@
 
 use crate::commands::AppSettings;
 use crate::error::{AppError, AppResult, GpuError};
-use crate::simulations::shared::LutManager;
+use crate::simulations::shared::ColorSchemeManager;
 use crate::simulations::traits::SimulationType;
 use std::sync::Arc;
 use tauri::{Manager, WebviewWindow};
@@ -110,7 +110,7 @@ impl GpuContext {
         let queue_arc = Arc::new(queue);
 
         // Create LUT manager
-        let lut_manager = LutManager::new();
+        let lut_manager = ColorSchemeManager::new();
 
         // Create main menu background simulation
         let main_menu = SimulationType::new(
@@ -237,7 +237,7 @@ fn main() {
             commands::update_pellets_trails_state,  // Pellets trails
             commands::update_voronoi_ca_post_processing_state, // Voronoi CA
             commands::get_voronoi_ca_post_processing_state, // Voronoi CA
-            commands::update_voronoi_ca_border_threshold, // Voronoi CA
+            commands::update_voronoi_ca_border_width, // Voronoi CA
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
@@ -249,15 +249,14 @@ fn main() {
             commands::save_preset,
             commands::delete_preset,
             // LUT commands
-            commands::apply_lut_by_name,
-            commands::apply_lut,
-            commands::toggle_lut_reversed,
-            commands::save_custom_lut,
+            commands::apply_color_scheme_by_name,
+            commands::apply_color_scheme,
+            commands::toggle_color_scheme_reversed,
+            commands::save_custom_color_scheme,
             commands::update_gradient_preview,
-            commands::get_available_luts,
-            commands::get_current_lut_colors,
+            commands::get_available_color_schemes,
+            commands::get_current_color_scheme_colors,
             commands::get_species_colors,
-            commands::clear_temp_lut,
             // Camera commands
             commands::pan_camera,
             commands::zoom_camera,
@@ -268,6 +267,7 @@ fn main() {
             commands::set_camera_sensitivity,
             // Settings commands
             commands::update_simulation_setting,
+            commands::update_simulation_state,
             commands::get_current_settings,
             commands::get_current_state,
             commands::randomize_settings,

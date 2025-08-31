@@ -140,6 +140,14 @@
 
   // Handle mouse events and forward to parent, but only if not on UI elements
   function handleMouseEvent(event: MouseEvent | WheelEvent) {
+    // Allow continuous drag interactions even when cursor passes over UI children
+    if (event.type === 'mousemove' && isMousePressed) {
+      event.preventDefault();
+
+      dispatch('mouseEvent', event);
+      return;
+    }
+
     if (isDirectTarget(event)) {
       event.preventDefault();
 

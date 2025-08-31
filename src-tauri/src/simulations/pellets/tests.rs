@@ -22,7 +22,7 @@
 
 use super::shaders::{
     BACKGROUND_RENDER_SHADER, DENSITY_COMPUTE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
-    PARTICLE_FRAGMENT_RENDER_SHADER, PARTICLE_RENDER_SHADER, PHYSICS_COMPUTE_SHADER,
+    PARTICLE_RENDER_SHADER, PHYSICS_COMPUTE_SHADER,
 };
 use super::simulation::{BackgroundParams, DensityParams, Particle, PhysicsParams, RenderParams};
 use std::mem;
@@ -136,17 +136,6 @@ impl PelletsValidator {
         Ok(())
     }
 
-    /// Validates that the Pellets particle fragment render shader compiles without errors
-    fn validate_particle_fragment_render_shader_compilation(&self) -> Result<(), String> {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Pellets Particle Fragment Render Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
-            });
-        Ok(())
-    }
-
     /// Validates that the particle vertex shader can bind to the Rust structs
     /// This will catch buffer size mismatches between Rust and WGSL
     fn validate_particle_shader_binding(&self) -> Result<(), String> {
@@ -169,12 +158,11 @@ impl PelletsValidator {
             particle_size: 0.015,
             screen_width: 1920.0,
             screen_height: 1080.0,
-            coloring_mode: 0,
+            foreground_color_mode: 0,
         };
 
         let dummy_background_params = BackgroundParams {
-            background_type: 0,
-            density_texture_resolution: 512,
+            background_color_mode: 0,
         };
 
         // Create buffers
@@ -232,7 +220,7 @@ impl PelletsValidator {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Pellets Fragment Shader"),
-                source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
+                source: wgpu::ShaderSource::Wgsl(PARTICLE_RENDER_SHADER.into()),
             });
 
         // Create bind group layout
@@ -406,8 +394,7 @@ impl PelletsValidator {
     /// Validates that the background render shader can bind to the Rust structs
     fn validate_background_shader_binding(&self) -> Result<(), String> {
         let dummy_background_params = BackgroundParams {
-            background_type: 0,
-            density_texture_resolution: 512,
+            background_color_mode: 0,
         };
 
         let background_params_buffer =
@@ -415,6 +402,15 @@ impl PelletsValidator {
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Pellets Background Params Buffer"),
                     contents: bytemuck::cast_slice(&[dummy_background_params]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        // Create background color buffer (vec4<f32>)
+        let background_color_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Pellets Background Color Buffer"),
+                    contents: bytemuck::cast_slice(&[1.0f32, 1.0, 1.0, 1.0]), // white color
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -426,25 +422,7 @@ impl PelletsValidator {
                 source: wgpu::ShaderSource::Wgsl(BACKGROUND_RENDER_SHADER.into()),
             });
 
-        // Create dummy texture for density visualization
-        let dummy_texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Pellets Dummy Density Texture"),
-            size: wgpu::Extent3d {
-                width: 512,
-                height: 512,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let texture_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // Create bind group layout
+        // Create bind group layout with both bindings
         let bind_group_layout =
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -463,10 +441,10 @@ impl PelletsValidator {
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
                             visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
                             },
                             count: None,
                         },
@@ -534,7 +512,7 @@ impl PelletsValidator {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: background_color_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -708,9 +686,6 @@ async fn test_pellets_shader_compilation() {
     validator
         .validate_particle_render_shader_compilation()
         .expect("Particle render shader compilation failed");
-    validator
-        .validate_particle_fragment_render_shader_compilation()
-        .expect("Particle fragment render shader compilation failed");
 
     // Print struct sizes for debugging
     validator.print_struct_sizes();

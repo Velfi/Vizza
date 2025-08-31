@@ -1,7 +1,7 @@
 use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
-use crate::simulations::shared::{BindGroupBuilder, RenderPipelineBuilder, lut::LutData};
+use crate::simulations::shared::{BindGroupBuilder, ColorScheme, RenderPipelineBuilder};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ pub struct GradientSimulation {
     num_indices: u32,
     lut_buffer: Buffer,
     lut_bind_group: BindGroup,
-    current_lut: Option<LutData>,
+    current_lut: Option<ColorScheme>,
     // State
     pub display_mode: u32, // 0 = smooth, 1 = dithered
     params_buffer: Buffer,
@@ -178,11 +178,11 @@ impl GradientSimulation {
         }
     }
 
-    pub fn update_lut(&mut self, _device: &Device, queue: &Queue, lut_data: &LutData) {
+    pub fn update_lut(&mut self, _device: &Device, queue: &Queue, color_scheme: &ColorScheme) {
         // Update LUT buffer with new data using standard format
-        let lut_data_u32 = lut_data.to_u32_buffer();
+        let lut_data_u32 = color_scheme.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
-        self.current_lut = Some(lut_data.clone());
+        self.current_lut = Some(color_scheme.clone());
     }
 
     pub fn set_display_mode(&mut self, mode: u32, queue: &Queue) {
@@ -237,6 +237,26 @@ impl Simulation for GradientSimulation {
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
         self.render_frame(device, queue, surface_view, 0.0)
+    }
+
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "displayMode" => {
+                if let Some(mode) = value.as_u64() {
+                    self.set_display_mode(mode as u32, queue);
+                }
+            }
+            _ => {
+                tracing::warn!("Unknown state parameter for Gradient: {}", state_name);
+            }
+        }
+        Ok(())
     }
 
     fn get_settings(&self) -> Value {
@@ -357,6 +377,23 @@ impl Simulation for GradientSimulation {
         _queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         // No settings to randomize for gradient simulation
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        // Update color scheme buffer with new data using standard format
+        let color_scheme_data_u32 = color_scheme.to_u32_buffer();
+        queue.write_buffer(
+            &self.lut_buffer,
+            0,
+            bytemuck::cast_slice(&color_scheme_data_u32),
+        );
+        self.current_lut = Some(color_scheme.clone());
         Ok(())
     }
 }

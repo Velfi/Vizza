@@ -52,16 +52,16 @@ pub async fn get_voronoi_ca_post_processing_state(
 }
 
 #[tauri::command]
-pub async fn update_voronoi_ca_border_threshold(
+pub async fn update_voronoi_ca_border_width(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    border_threshold: f32,
+    border_width: f32,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     if let Some(crate::simulations::traits::SimulationType::VoronoiCA(simulation)) =
         &mut sim_manager.current_simulation
     {
-        simulation.border_threshold = border_threshold.clamp(0.0, 1.0);
-        Ok("Border threshold updated".to_string())
+        simulation.border_width = border_width.clamp(0.0, 1000.0);
+        Ok("Border width updated".to_string())
     } else {
         Err("This command is only available for Voronoi CA simulation".to_string())
     }

@@ -219,6 +219,8 @@
   import { interpolate, formatHex, rgb } from 'culori';
 
   const dispatch = createEventDispatcher();
+  
+  export let autoHideDelay: number = 3000;
 
   // State variables
   let lutName = '';
@@ -757,13 +759,13 @@
       }
 
       const lutData = [...rArr, ...gArr, ...bArr];
-      await invoke('save_custom_lut', { name: lutName, lutData });
+      await invoke('save_custom_color_scheme', { name: lutName, colorSchemeData: lutData });
 
       // Clear the temporary LUT
-      await invoke('clear_temp_lut');
+      await invoke('clear_temp_color_scheme');
 
       // Update the gradient simulation with the new LUT
-      await invoke('apply_lut_by_name', { lutName });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: lutName });
 
       // Clear any existing timeout
       if (saveSuccessTimeout) {
@@ -812,7 +814,7 @@
 
   function goBack() {
     // Clear the temporary LUT before going back
-    invoke('clear_temp_lut').catch((e) => {
+    invoke('clear_temp_color_scheme').catch((e) => {
       console.error('Failed to clear temporary LUT:', e);
     });
     dispatch('back');
@@ -882,7 +884,7 @@
       if (!showUI) {
         controlsVisible = false;
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -968,7 +970,7 @@
   onDestroy(async () => {
     try {
       // Clear the temporary LUT
-      await invoke('clear_temp_lut');
+      await invoke('clear_temp_color_scheme');
 
       await invoke('destroy_simulation');
     } catch (error) {

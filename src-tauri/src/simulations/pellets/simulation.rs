@@ -20,8 +20,9 @@
 
 use crate::commands::app_settings::{AppSettings, TextureFiltering};
 use crate::error::{SimulationError, SimulationResult};
+use crate::simulations::pellets::settings::{BackgroundColorMode, ForegroundColorMode};
 use crate::simulations::shared::{
-    AverageColorResources, BindGroupBuilder, ComputePipelineBuilder, LutManager,
+    AverageColorResources, BindGroupBuilder, ColorSchemeManager, ComputePipelineBuilder,
     RenderPipelineBuilder, camera::Camera,
 };
 use bytemuck::{Pod, Zeroable};
@@ -89,14 +90,13 @@ pub struct RenderParams {
     pub particle_size: f32,
     pub screen_width: f32,
     pub screen_height: f32,
-    pub coloring_mode: u32,
+    pub foreground_color_mode: u32,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 pub struct BackgroundParams {
-    pub background_type: u32,
-    pub density_texture_resolution: u32,
+    pub background_color_mode: u32,
 }
 
 #[repr(C)]
@@ -215,7 +215,7 @@ pub struct PelletsModel {
     pub settings: Settings,
     pub state: State,
     pub camera: Camera,
-    pub lut_manager: Arc<LutManager>,
+    pub lut_manager: Arc<ColorSchemeManager>,
     pub app_settings: AppSettings,
 
     // Surface configuration
@@ -241,7 +241,7 @@ impl PelletsModel {
         surface_config: &SurfaceConfiguration,
         settings: Settings,
         app_settings: &AppSettings,
-        lut_manager: &LutManager,
+        lut_manager: &ColorSchemeManager,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize particles
         let particles = Self::initialize_particles(settings.particle_count, &settings);
@@ -297,11 +297,7 @@ impl PelletsModel {
             particle_size: settings.particle_size,
             screen_width: (surface_config.width * 2) as f32,
             screen_height: (surface_config.height * 2) as f32,
-            coloring_mode: match settings.coloring_mode.as_str() {
-                "velocity" => 1,
-                "random" => 2,
-                _ => 0, // Default to density
-            },
+            foreground_color_mode: (&settings.foreground_color_mode).into(),
         };
 
         let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -311,12 +307,7 @@ impl PelletsModel {
         });
 
         let background_params = BackgroundParams {
-            background_type: if settings.background_type == "White" {
-                1
-            } else {
-                0
-            },
-            density_texture_resolution: 512, // Default texture resolution
+            background_color_mode: (&settings.background_color_mode).into(),
         };
 
         let background_params_buffer =
@@ -373,11 +364,7 @@ impl PelletsModel {
         let density_params = DensityParams {
             particle_count: settings.particle_count,
             density_radius: settings.density_radius,
-            coloring_mode: match settings.coloring_mode.to_lowercase().as_str() {
-                "velocity" => 1,
-                "random" => 2,
-                _ => 0, // Default to density
-            },
+            coloring_mode: (&settings.foreground_color_mode).into(),
             _padding: 0,
         };
 
@@ -389,7 +376,7 @@ impl PelletsModel {
 
         // Create render shaders using GPU utilities
         let render_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("pellets_render"),
+            label: Some("Pellets Particle Render Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::PARTICLE_RENDER_SHADER.into()),
         }));
 
@@ -452,12 +439,12 @@ impl PelletsModel {
 
         // Create compute shaders using GPU utilities
         let physics_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("pellets_physics_compute"),
+            label: Some("Pellets Physics Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::PHYSICS_COMPUTE_SHADER.into()),
         }));
 
         let density_shader = Arc::new(device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("pellets_density_compute"),
+            label: Some("Pellets Density Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(super::shaders::DENSITY_COMPUTE_SHADER.into()),
         }));
 
@@ -579,24 +566,6 @@ impl PelletsModel {
             source: wgpu::ShaderSource::Wgsl(super::shaders::BACKGROUND_RENDER_SHADER.into()),
         });
 
-        // Create dummy texture for density visualization
-        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Pellets Dummy Density Texture"),
-            size: wgpu::Extent3d {
-                width: 512,
-                height: 512,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-
-        let texture_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
         let background_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Background Bind Group Layout"),
@@ -614,10 +583,10 @@ impl PelletsModel {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
                         count: None,
                     },
@@ -667,7 +636,7 @@ impl PelletsModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: background_color_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1043,12 +1012,10 @@ impl PelletsModel {
                                     wgpu::BindGroupLayoutEntry {
                                         binding: 1,
                                         visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Texture {
-                                            sample_type: wgpu::TextureSampleType::Float {
-                                                filterable: false,
-                                            },
-                                            view_dimension: wgpu::TextureViewDimension::D2,
-                                            multisampled: false,
+                                        ty: wgpu::BindingType::Buffer {
+                                            ty: wgpu::BufferBindingType::Uniform,
+                                            has_dynamic_offset: false,
+                                            min_binding_size: None,
                                         },
                                         count: None,
                                     },
@@ -1097,7 +1064,7 @@ impl PelletsModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&density_view),
+                    resource: background_color_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -1165,7 +1132,7 @@ impl PelletsModel {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                        label: Some("Pellets Particle Render Fragment Shader"),
+                        label: Some("Pellets Particle Fragment Render Shader"),
                         source: wgpu::ShaderSource::Wgsl(PARTICLE_FRAGMENT_RENDER_SHADER.into()),
                     }),
                     entry_point: Some("fs_main"),
@@ -1858,6 +1825,9 @@ impl PelletsModel {
             queue.submit(std::iter::once(encoder.finish()));
         }
 
+        // Initialize the background color from the LUT
+        result.update_background_color(queue);
+
         Ok(result)
     }
 
@@ -2121,11 +2091,7 @@ impl PelletsModel {
         let density_params = DensityParams {
             particle_count: self.settings.particle_count,
             density_radius: self.settings.density_radius,
-            coloring_mode: match self.settings.coloring_mode.to_lowercase().as_str() {
-                "velocity" => 1,
-                "random" => 2,
-                _ => 0, // Default to density
-            },
+            coloring_mode: (&self.settings.foreground_color_mode).into(),
             _padding: 0,
         };
 
@@ -2488,11 +2454,7 @@ impl PelletsModel {
             particle_size: self.settings.particle_size,
             screen_width: (self.surface_config.width * 2) as f32,
             screen_height: (self.surface_config.height * 2) as f32,
-            coloring_mode: match self.settings.coloring_mode.to_lowercase().as_str() {
-                "velocity" => 1,
-                "random" => 2,
-                _ => 0, // Default to density
-            },
+            foreground_color_mode: (&self.settings.foreground_color_mode).into(),
         };
 
         queue.write_buffer(
@@ -2504,12 +2466,7 @@ impl PelletsModel {
 
     fn update_background_params(&self, queue: &Arc<Queue>) {
         let background_params = BackgroundParams {
-            background_type: if self.settings.background_type == "White" {
-                1
-            } else {
-                0
-            },
-            density_texture_resolution: 512, // Default texture resolution
+            background_color_mode: (&self.settings.background_color_mode).into(),
         };
 
         queue.write_buffer(
@@ -2535,14 +2492,19 @@ impl PelletsModel {
     }
 
     fn update_background_color(&self, queue: &Arc<Queue>) {
-        // Get the background color from the LUT (first color in the LUT)
-        let lut = self
+        // Get the background color from the LUT
+        let mut lut = self
             .lut_manager
             .get(&self.state.current_lut_name)
             .unwrap_or_else(|_| self.lut_manager.get_default());
 
-        let colors = lut.get_colors(1); // Get just the first color
-        if let Some(color) = colors.first() {
+        // Apply reversal if needed
+        if self.state.lut_reversed {
+            lut = lut.reversed();
+        }
+
+        // Use the first color from the LUT for background
+        if let Some(color) = lut.get_first_color() {
             let background_color = [color[0], color[1], color[2], color[3]];
             queue.write_buffer(
                 &self.background_color_buffer,
@@ -2619,6 +2581,9 @@ impl PelletsModel {
 
         self.state.current_lut_name = lut_name.to_string();
         self.state.lut_reversed = lut_reversed;
+
+        // Update the background color to match the new LUT
+        self.update_background_color(queue);
 
         Ok(())
     }
@@ -3406,7 +3371,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             ],
         });
 
-        // 3) Background render bind group uses density_view
+        // 3) Background render bind group uses background color buffer
         self.background_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Background Render Bind Group"),
             layout: &self.background_render_pipeline.get_bind_group_layout(0),
@@ -3417,7 +3382,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.density_view),
+                    resource: self.background_color_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -3505,9 +3470,10 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     self.settings.density_radius = radius as f32;
                 }
             }
-            "coloring_mode" => {
+            "foreground_color_mode" => {
                 if let Some(mode) = value.as_str() {
-                    self.settings.coloring_mode = mode.to_string();
+                    self.settings.foreground_color_mode =
+                        ForegroundColorMode::from_str(mode).unwrap();
                     // Update GPU params immediately so the change is visible without waiting
                     self.update_render_params(queue);
                     self.update_density_params(queue);
@@ -3545,14 +3511,19 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     self.settings.random_seed = seed as u32;
                 }
             }
-            "background_type" => {
+            "background_color_mode" => {
                 if let Some(bg_type) = value.as_str() {
-                    self.settings.background_type = bg_type.to_string();
+                    self.settings.background_color_mode =
+                        BackgroundColorMode::from_str(bg_type).unwrap();
                     // Update GPU buffer immediately
                     self.update_background_params(queue);
+                    // Also update the background color if using LUT mode
+                    if self.settings.background_color_mode == BackgroundColorMode::ColorScheme {
+                        self.update_background_color(queue);
+                    }
                 }
             }
-            "currentLut" => {
+            "current_lut" => {
                 if let Some(lut_name) = value.as_str() {
                     self.update_lut(device, queue, lut_name, self.state.lut_reversed)?;
                 }
@@ -3578,6 +3549,73 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     setting_name: setting_name.to_string(),
                     message: "Unknown setting".to_string(),
                 });
+            }
+        }
+        Ok(())
+    }
+
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "currentLut" => {
+                if let Some(lut_name) = value.as_str() {
+                    self.state.current_lut_name = lut_name.to_string();
+                    let lut_data = self.lut_manager.get(&self.state.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    let mut data_u32 = lut_data.to_u32_buffer();
+                    if self.state.lut_reversed {
+                        data_u32[0..256].reverse();
+                        data_u32[256..512].reverse();
+                        data_u32[512..768].reverse();
+                    }
+                    
+                    queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
+                }
+            }
+            "lutReversed" => {
+                if let Some(reversed) = value.as_bool() {
+                    self.state.lut_reversed = reversed;
+                    let lut_data = self.lut_manager.get(&self.state.current_lut_name).unwrap_or_else(|_| self.lut_manager.get_default());
+                    
+                    // Apply reversal if needed
+                    let mut data_u32 = lut_data.to_u32_buffer();
+                    if self.state.lut_reversed {
+                        data_u32[0..256].reverse();
+                        data_u32[256..512].reverse();
+                        data_u32[512..768].reverse();
+                    }
+                    
+                    queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
+                }
+            }
+            "cursorSize" => {
+                if let Some(size) = value.as_f64() {
+                    self.state.cursor_size = size as f32;
+                }
+            }
+            "cursorStrength" => {
+                if let Some(strength) = value.as_f64() {
+                    self.state.cursor_strength = strength as f32;
+                }
+            }
+            "trailsEnabled" => {
+                if let Some(enabled) = value.as_bool() {
+                    self.state.trails_enabled = enabled;
+                }
+            }
+            "trailFade" => {
+                if let Some(fade) = value.as_f64() {
+                    self.state.trail_fade = fade as f32;
+                }
+            }
+            _ => {
+                tracing::warn!("Unknown state parameter for Pellets: {}", state_name);
             }
         }
         Ok(())
@@ -3777,6 +3815,18 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         self.settings.randomize();
+        Ok(())
+    }
+
+    fn update_color_scheme(
+        &mut self,
+        color_scheme: &crate::simulations::shared::ColorScheme,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Direct-write the color scheme data to the Pellets buffer for immediate preview
+        let data_u32 = color_scheme.to_u32_buffer();
+        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
         Ok(())
     }
 }

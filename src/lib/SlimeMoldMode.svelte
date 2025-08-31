@@ -47,10 +47,10 @@
       <fieldset>
         <legend>Display Settings</legend>
         <div class="control-group">
-          <label for="lutSelector">Color Scheme</label>
-          <LutSelector
-            bind:available_luts
-            current_lut={lut_name}
+          <label for="colorSchemeSelector">Color Scheme</label>
+          <ColorSchemeSelector
+            bind:available_color_schemes={available_luts}
+            current_color_scheme={lut_name}
             reversed={lut_reversed}
             on:select={({ detail }) => updateLutName(detail.name)}
             on:reverse={() => updateLutReversed()}
@@ -508,7 +508,6 @@
   import { listen } from '@tauri-apps/api/event';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
@@ -519,10 +518,12 @@
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import Selector from './components/inputs/Selector.svelte';
   import './shared-theme.css';
+  import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
   const dispatch = createEventDispatcher();
 
   export let menuPosition: string = 'middle';
+  export let autoHideDelay: number = 3000;
 
   // Simulation state
   let settings: Record<string, unknown> | undefined = undefined;
@@ -640,7 +641,7 @@
       if (!showUI) {
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -755,7 +756,7 @@
 
   async function updateLutReversed() {
     try {
-      await invoke('toggle_lut_reversed');
+      await invoke('toggle_color_scheme_reversed');
       await syncSettingsFromBackend(); // Sync UI with backend
     } catch (e) {
       console.error('Failed to toggle LUT reversed:', e);
@@ -845,7 +846,7 @@
   // Load available LUTs from backend
   async function loadAvailableLuts() {
     try {
-      available_luts = await invoke('get_available_luts');
+      available_luts = await invoke('get_available_color_schemes');
       console.log('Available LUTs loaded:', available_luts.length);
     } catch (e) {
       console.error('Failed to load available LUTs:', e);
@@ -984,7 +985,7 @@
 
   async function updateLutName(value: string) {
     try {
-      await invoke('apply_lut_by_name', { lutName: value });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: value });
       await syncSettingsFromBackend(); // Sync UI with backend state
     } catch (e) {
       console.error('Failed to update LUT name:', e);

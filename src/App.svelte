@@ -4,41 +4,51 @@
   {:else if currentMode === 'slime-mold'}
     <SlimeMoldMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'gray-scott'}
     <GrayScottMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'particle-life'}
     <ParticleLifeMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'flow'}
     <FlowMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'pellets'}
     <PelletsMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'voronoi-ca'}
     <VoronoiCAMode
       menuPosition={appSettings.menu_position}
+      autoHideDelay={appSettings.auto_hide_delay}
       on:back={goBack}
       on:navigate={(e) => navigateToMode(e.detail)}
     />
   {:else if currentMode === 'gradient-editor'}
-    <GradientEditorMode on:back={goBack} on:navigate={(e) => navigateToMode(e.detail)} />
+    <GradientEditorMode
+      autoHideDelay={appSettings.auto_hide_delay}
+      on:back={goBack}
+      on:navigate={(e) => navigateToMode(e.detail)}
+    />
   {:else if currentMode === 'how-to-play'}
     <HowToPlay on:back={goBack} />
   {:else if currentMode === 'settings'}

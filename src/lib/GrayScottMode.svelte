@@ -49,8 +49,8 @@
         <legend>Display Settings</legend>
         <div class="control-group">
           <LutSelector
-            bind:available_luts
-            current_lut={lut_name}
+            bind:available_color_schemes={available_luts}
+            current_color_scheme={lut_name}
             reversed={lut_reversed}
             on:select={({ detail }) => updateLut(detail.name)}
             on:reverse={() => updateLutReversed()}
@@ -235,7 +235,7 @@
   import { listen } from '@tauri-apps/api/event';
   import CursorConfig from './components/shared/CursorConfig.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
-  import LutSelector from './components/shared/LutSelector.svelte';
+  import LutSelector from './components/shared/ColorSchemeSelector.svelte';
   import GrayScottDiagram from './components/gray-scott/GrayScottDiagram.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
@@ -248,6 +248,7 @@
   const dispatch = createEventDispatcher();
 
   export let menuPosition: string = 'middle';
+  export let autoHideDelay: number = 3000;
 
   interface Settings {
     feed_rate: number;
@@ -327,7 +328,7 @@
 
   async function updateLutReversed() {
     try {
-      await invoke('toggle_lut_reversed');
+      await invoke('toggle_color_scheme_reversed');
       await syncSettingsFromBackend(); // Sync UI with backend state
     } catch (e) {
       console.error('Failed to toggle LUT reversed:', e);
@@ -466,7 +467,7 @@
   // Load available LUTs from backend
   async function loadAvailableLuts() {
     try {
-      available_luts = await invoke('get_available_luts');
+      available_luts = await invoke('get_available_color_schemes');
     } catch (e) {
       console.error('Failed to load available LUTs:', e);
     }
@@ -706,7 +707,7 @@
       if (!showUI) {
         hideCursor();
       }
-    }, 3000);
+    }, autoHideDelay);
   }
 
   function stopAutoHideTimer() {
@@ -765,7 +766,7 @@
 
   async function updateLut(name: string) {
     try {
-      await invoke('apply_lut_by_name', { lutName: name });
+      await invoke('apply_color_scheme_by_name', { colorSchemeName: name });
       await syncSettingsFromBackend(); // Sync UI with backend state
     } catch (e) {
       console.error('Failed to update LUT:', e);

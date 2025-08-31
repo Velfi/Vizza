@@ -74,46 +74,57 @@ struct VertexOutput {
 
 // Calculate LOD factor based on camera zoom
 fn calculate_lod_factor(camera_zoom: f32) -> f32 {
-    // At high zoom (close up), render full detail
-    // At low zoom (far away), reduce detail
-    let lod_threshold = 0.1;
-    if camera_zoom >= lod_threshold {
-        return 1.0;
-    } else {
-        return camera_zoom / lod_threshold;
-    }
-}
-
-// Check if a particle is visible in the current tile
-fn is_particle_visible_in_tile(particle_pos: vec2<f32>, world_bounds: vec4<f32>) -> bool {
-    return particle_pos.x >= world_bounds.x && 
-           particle_pos.x <= world_bounds.z && 
-           particle_pos.y >= world_bounds.y && 
-           particle_pos.y <= world_bounds.w;
-}
-
-// Calculate tile fade factor based on distance from camera center
-fn calculate_tile_fade_factor(tile_center: vec2<f32>, camera_pos: vec2<f32>, zoom: f32) -> f32 {
-    let distance = distance(tile_center, camera_pos);
-    let fade_distance = 3.0 / zoom; // Fade tiles far from camera
-    let fade_start = fade_distance * 0.7;
+    // Base LOD factor - higher zoom = higher detail
+    let base_lod = 1.0;
     
-    if distance <= fade_start {
-        return 1.0;
-    } else if distance >= fade_distance {
-        return 0.0;
-    } else {
-        let t = (distance - fade_start) / (fade_distance - fade_start);
-        return 1.0 - t * t; // Smooth fade
-    }
+    // Adjust LOD based on zoom level
+    // At high zoom (close), we want full detail
+    // At low zoom (far), we want reduced detail
+    let zoom_factor = clamp(camera_zoom / 2.0, 0.5, 2.0);
+    
+    return base_lod * zoom_factor;
+}
+
+// Calculate tile fade factor based on distance from camera
+fn calculate_tile_fade_factor(tile_center: vec2<f32>, camera_pos: vec2<f32>, camera_zoom: f32) -> f32 {
+    // Calculate distance from camera to tile center
+    let distance = distance(tile_center, camera_pos);
+    
+    // Base fade distance - tiles beyond this start to fade
+    let base_fade_distance = 2.0;
+    
+    // Adjust fade distance based on zoom level
+    let fade_distance = base_fade_distance / camera_zoom;
+    
+    // Calculate fade factor (1.0 = fully visible, 0.0 = fully faded)
+    let fade_factor = 1.0 - clamp(distance / fade_distance, 0.0, 1.0);
+    
+    // Apply smooth falloff
+    return smoothstep(0.0, 1.0, fade_factor);
+}
+
+// Check if particle is visible within tile bounds
+fn is_particle_visible_in_tile(particle_pos: vec2<f32>, world_bounds: vec4<f32>) -> bool {
+    let left = world_bounds.x;
+    let bottom = world_bounds.y;
+    let right = world_bounds.z;
+    let top = world_bounds.w;
+    
+    // Add some margin to ensure particles at edges are rendered
+    let margin = 0.1;
+    
+    return particle_pos.x >= left - margin &&
+           particle_pos.x <= right + margin &&
+           particle_pos.y >= bottom - margin &&
+           particle_pos.y <= top + margin;
 }
 
 @vertex
 fn vs_main(
     @builtin(vertex_index) vertex_index: u32,
-    @builtin(instance_index) instance_index: u32,
+    @builtin(instance_index) instance_index: u32
 ) -> VertexOutput {
-    // Create a quad for each particle (6 vertices = 2 triangles)
+    // Full-screen quad positions for instanced rendering
     let quad_positions = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>( 1.0, -1.0),
@@ -194,6 +205,15 @@ fn vs_main(
     return output;
 }
 
+// Convert linear RGB to sRGB for proper display
+fn linear_to_srgb(linear: f32) -> f32 {
+    if (linear <= 0.0031308) {
+        return linear * 12.92;
+    } else {
+        return 1.055 * pow(linear, 1.0 / 2.4) - 0.055;
+    }
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Create circular particles with sharp edges
@@ -218,7 +238,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     // Apply tile fade factor for smooth transitions
-    let final_color = vec4<f32>(base_color * input.tile_fade_factor, input.tile_fade_factor);
+    let faded_color = base_color * input.tile_fade_factor;
+    let final_color = vec3<f32>(
+        linear_to_srgb(faded_color.r),
+        linear_to_srgb(faded_color.g),
+        linear_to_srgb(faded_color.b)
+    );
     
-    return final_color;
+    return vec4<f32>(final_color, input.tile_fade_factor);
 } 

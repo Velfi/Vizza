@@ -110,7 +110,7 @@
     event.preventDefault();
 
     const deltaX = event.clientX - dragStartX;
-    const deltaValue = (deltaX / 100) * step;
+    const deltaValue = (deltaX / 20.0) * step;
     const rawValue = dragStartValue + deltaValue;
 
     // Snap to step increments
@@ -245,8 +245,6 @@
 
   .number-drag-box.editing {
     cursor: text;
-    background: rgba(255, 255, 255, 0.9);
-    color: #333;
   }
 
   .drag-box-input {

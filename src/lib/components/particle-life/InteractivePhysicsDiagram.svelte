@@ -93,23 +93,6 @@
   />
 </div>
 
-<div class="controls-info">
-  <div class="controls-header">
-    <h4>Interactive Controls:</h4>
-  </div>
-  <ul>
-    <li><strong>🟢 Max Force:</strong> Drag vertically to adjust force strength</li>
-    <li><strong>🔵 Max Distance:</strong> Drag horizontally to adjust interaction range</li>
-    <li><strong>🟡 Beta:</strong> Drag horizontally to adjust transition point</li>
-  </ul>
-  <div class="units-note">
-    <small
-      ><strong>Note:</strong> Use the toggle button to switch between wide (0.01-1.0) and narrow (0.01-0.1)
-      distance ranges for better control over small values.</small
-    >
-  </div>
-</div>
-
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
 

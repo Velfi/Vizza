@@ -45,13 +45,14 @@ impl Default for NoiseType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum Background {
+pub enum BackgroundColorMode {
     Black,
     White,
-    Lut,
+    Gray18,
+    ColorScheme,
 }
 
-impl Display for Background {
+impl Display for BackgroundColorMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -59,15 +60,27 @@ impl Display for Background {
             match self {
                 Self::Black => "Black",
                 Self::White => "White",
-                Self::Lut => "LUT",
+                Self::Gray18 => "Gray18",
+                Self::ColorScheme => "ColorScheme",
             }
         )
     }
 }
 
-impl Default for Background {
+impl From<&BackgroundColorMode> for u32 {
+    fn from(mode: &BackgroundColorMode) -> Self {
+        match mode {
+            BackgroundColorMode::Black => 0,
+            BackgroundColorMode::White => 1,
+            BackgroundColorMode::Gray18 => 2,
+            BackgroundColorMode::ColorScheme => 3,
+        }
+    }
+}
+
+impl Default for BackgroundColorMode {
     fn default() -> Self {
-        Self::Lut
+        Self::ColorScheme
     }
 }
 
@@ -103,13 +116,23 @@ impl Default for ParticleShape {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum DisplayMode {
+pub enum ForegroundColorMode {
     Age,
     Random,
     Direction,
 }
 
-impl Display for DisplayMode {
+impl From<&ForegroundColorMode> for u32 {
+    fn from(mode: &ForegroundColorMode) -> Self {
+        match mode {
+            ForegroundColorMode::Age => 0,
+            ForegroundColorMode::Random => 1,
+            ForegroundColorMode::Direction => 2,
+        }
+    }
+}
+
+impl Display for ForegroundColorMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -123,7 +146,7 @@ impl Display for DisplayMode {
     }
 }
 
-impl Default for DisplayMode {
+impl Default for ForegroundColorMode {
     fn default() -> Self {
         Self::Age
     }
@@ -176,7 +199,7 @@ pub struct Settings {
     pub brush_spawn_rate: u32, // Particles per second when cursor is active
 
     // Display parameters
-    pub display_mode: DisplayMode,
+    pub foreground_color_mode: ForegroundColorMode,
 
     // Trail parameters
     pub trail_decay_rate: f32,
@@ -208,7 +231,7 @@ impl Default for Settings {
             brush_spawn_rate: 1000,
 
             // Display parameters
-            display_mode: DisplayMode::Age,
+            foreground_color_mode: ForegroundColorMode::Age,
 
             // Trail parameters
             trail_decay_rate: 0.0,

@@ -11,8 +11,10 @@ use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayS
 use crate::simulations::particle_life::{
     ParticleLifeModel, settings::Settings as ParticleLifeSettings, simulation::ColorMode,
 };
-use crate::simulations::shared::LutData;
-use crate::simulations::shared::{LutManager, SimulationLutManager, coordinates::ScreenCoords};
+use crate::simulations::shared::ColorScheme;
+use crate::simulations::shared::{
+    ColorSchemeManager, SimulationColorSchemeManager, coordinates::ScreenCoords,
+};
 use crate::simulations::slime_mold::{SlimeMoldModel, settings::Settings as SlimeMoldSettings};
 use crate::simulations::traits::{Simulation, SimulationType};
 use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
@@ -20,8 +22,8 @@ use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
     pub preset_manager: SimulationPresetManager,
-    pub lut_manager: LutManager,
-    pub simulation_lut_manager: SimulationLutManager,
+    pub lut_manager: ColorSchemeManager,
+    pub simulation_lut_manager: SimulationColorSchemeManager,
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
@@ -39,8 +41,8 @@ impl SimulationManager {
         Self {
             current_simulation: None,
             preset_manager: SimulationPresetManager::new(),
-            lut_manager: LutManager::new(),
-            simulation_lut_manager: SimulationLutManager::new(),
+            lut_manager: ColorSchemeManager::new(),
+            simulation_lut_manager: SimulationColorSchemeManager::new(),
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
@@ -119,7 +121,7 @@ impl SimulationManager {
                     settings,
                     &self.app_settings,
                     &self.lut_manager,
-                    ColorMode::Lut,
+                    ColorMode::ColorScheme,
                 )?;
 
                 self.current_simulation = Some(SimulationType::ParticleLife(Box::new(simulation)));
@@ -444,6 +446,29 @@ impl SimulationManager {
         Ok(())
     }
 
+    pub fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> AppResult<()> {
+        tracing::debug!(
+            "SimulationManager::update_state called with state_name: '{}', value: {:?}",
+            state_name,
+            value
+        );
+
+        if let Some(simulation) = &mut self.current_simulation {
+            tracing::debug!("Calling simulation.update_state for current simulation");
+            simulation.update_state(state_name, value.clone(), device, queue)?;
+            tracing::debug!("Simulation update_state completed successfully");
+        } else {
+            tracing::warn!("No simulation running, cannot update state");
+        }
+        Ok(())
+    }
+
     // Preset management methods
     pub fn get_available_presets(&self) -> Vec<String> {
         if let Some(simulation) = &self.current_simulation {
@@ -530,112 +555,152 @@ impl SimulationManager {
         }
     }
 
-    // LUT management methods
-    pub fn get_available_luts(&self) -> Vec<String> {
+    // Color scheme management methods
+    pub fn get_available_color_schemes(&self) -> Vec<String> {
         self.simulation_lut_manager
-            .get_available_luts(&self.lut_manager)
+            .get_available_color_schemes(&self.lut_manager)
     }
 
-    pub fn apply_lut(
+    pub fn apply_color_scheme(
         &mut self,
-        lut_name: &str,
+        color_scheme_name: &str,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
-                    // For slime mold, load the LUT data and apply it directly
-                    let mut lut_data = self.lut_manager.get(lut_name).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
-                        )
-                    })?;
+                    // For slime mold, load the color scheme data and apply it directly
+                    let mut color_scheme_data =
+                        self.lut_manager.get(color_scheme_name).map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
 
                     if simulation.lut_reversed {
-                        lut_data.reverse();
+                        color_scheme_data.reverse();
                     }
 
-                    simulation.update_lut(&lut_data, queue);
-                    simulation.current_lut_name = lut_name.to_string();
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
+                    simulation.current_lut_name = color_scheme_name.to_string();
 
-                    tracing::info!("LUT '{}' applied to slime mold simulation", lut_name);
+                    tracing::info!(
+                        "Color scheme '{}' applied to slime mold simulation",
+                        color_scheme_name
+                    );
                 }
                 SimulationType::GrayScott(simulation) => {
-                    // For Gray-Scott, load the LUT data and apply it to the renderer
-                    let mut lut_data = self.lut_manager.get(lut_name).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
-                        )
-                    })?;
+                    // For Gray-Scott, load the color scheme data and apply it to the renderer
+                    let mut color_scheme_data =
+                        self.lut_manager.get(color_scheme_name).map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
 
-                    if simulation.lut_reversed {
-                        lut_data.reverse();
+                    if simulation.color_scheme_reversed {
+                        color_scheme_data.reverse();
                     }
 
-                    simulation.renderer.update_lut(&lut_data, queue);
-                    simulation.current_lut_name = lut_name.to_string();
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
+                    simulation.current_color_scheme_name = color_scheme_name.to_string();
 
-                    tracing::info!("LUT '{}' applied to Gray-Scott simulation", lut_name);
+                    tracing::info!(
+                        "Color scheme '{}' applied to Gray-Scott simulation",
+                        color_scheme_name
+                    );
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    // For particle life, use the existing update_setting method
-                    simulation.update_setting("lut", serde_json::json!(lut_name), device, queue)?;
+                    // For particle life, use the existing update_state method
+                    simulation.update_state(
+                        "color_scheme",
+                        serde_json::json!(color_scheme_name),
+                        device,
+                        queue,
+                    )?;
                 }
                 SimulationType::Flow(simulation) => {
-                    // For Flow, use the existing update_setting method
-                    simulation.update_setting(
+                    // For Flow, use the existing update_state method
+                    simulation.update_state(
                         "currentLut",
-                        serde_json::json!(lut_name),
+                        serde_json::json!(color_scheme_name),
                         device,
                         queue,
                     )?;
-                    tracing::info!("LUT '{}' applied to Flow simulation", lut_name);
+                    tracing::info!(
+                        "Color scheme '{}' applied to Flow simulation",
+                        color_scheme_name
+                    );
                 }
                 SimulationType::Pellets(simulation) => {
-                    // For Pellets, use the existing update_setting method
-                    simulation.update_setting(
+                    // For Pellets, use the existing update_state method
+                    simulation.update_state(
                         "currentLut",
-                        serde_json::json!(lut_name),
+                        serde_json::json!(color_scheme_name),
                         device,
                         queue,
                     )?;
-                    tracing::info!("LUT '{}' applied to Pellets simulation", lut_name);
+                    tracing::info!(
+                        "Color scheme '{}' applied to Pellets simulation",
+                        color_scheme_name
+                    );
                 }
                 SimulationType::MainMenu(_) => {
-                    // Main menu doesn't support LUT changes
-                    tracing::warn!("LUT changes not supported for main menu simulation");
+                    // Main menu doesn't support color scheme changes
+                    tracing::warn!("Color scheme changes not supported for main menu simulation");
                 }
                 SimulationType::Gradient(simulation) => {
-                    // For gradient simulation, load the LUT data and apply it directly
-                    let lut_data = self.lut_manager.get(lut_name).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
-                        )
-                    })?;
+                    // For gradient simulation, load the color scheme data and apply it directly
+                    let color_scheme_data =
+                        self.lut_manager.get(color_scheme_name).map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
 
-                    simulation.update_lut(device, queue, &lut_data);
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
 
-                    tracing::info!("LUT '{}' applied to gradient simulation", lut_name);
+                    tracing::info!(
+                        "Color scheme '{}' applied to gradient simulation",
+                        color_scheme_name
+                    );
                 }
                 SimulationType::VoronoiCA(simulation) => {
-                    // Load LUT data and write directly into the VCA LUT buffer
-                    let mut lut_data = self.lut_manager.get(lut_name).map_err(|e| {
-                        AppError::Simulation(
-                            format!("Failed to load LUT '{}': {}", lut_name, e).into(),
-                        )
-                    })?;
+                    // Load color scheme data and write directly into the VCA LUT buffer
+                    let mut color_scheme_data =
+                        self.lut_manager.get(color_scheme_name).map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
 
                     if simulation.lut_reversed {
-                        lut_data.reverse();
+                        color_scheme_data.reverse();
                     }
 
-                    let data_u32 = lut_data.to_u32_buffer();
+                    let data_u32 = color_scheme_data.to_u32_buffer();
                     queue.write_buffer(&simulation.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
-                    simulation.current_lut_name = lut_name.to_string();
+                    simulation.current_lut_name = color_scheme_name.to_string();
                     tracing::info!(
-                        "LUT '{}' applied to Voronoi CA simulation (direct write)",
-                        lut_name
+                        "Color scheme '{}' applied to Voronoi CA simulation (direct write)",
+                        color_scheme_name
                     );
                 }
             }
@@ -643,7 +708,7 @@ impl SimulationManager {
         Ok(())
     }
 
-    pub fn reverse_current_lut(
+    pub fn reverse_current_color_scheme(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -651,65 +716,75 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
-                    // Toggle the reversed flag and reload the LUT
+                    // Toggle the reversed flag and reload the color scheme
                     simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data =
-                        self.lut_manager
-                            .get(&simulation.current_lut_name)
-                            .map_err(|e| {
-                                AppError::Simulation(
-                                    format!(
-                                        "Failed to load LUT '{}': {}",
-                                        simulation.current_lut_name, e
-                                    )
-                                    .into(),
+                    let mut color_scheme_data = self
+                        .lut_manager
+                        .get(&simulation.current_lut_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    simulation.current_lut_name, e
                                 )
-                            })?;
+                                .into(),
+                            )
+                        })?;
 
                     if simulation.lut_reversed {
-                        lut_data.reverse();
+                        color_scheme_data.reverse();
                     }
 
-                    simulation.update_lut(&lut_data, queue);
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                     tracing::info!("LUT reversed for slime mold simulation");
                 }
                 SimulationType::GrayScott(simulation) => {
                     // Toggle the reversed flag and reload the LUT
-                    simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut lut_data =
-                        self.lut_manager
-                            .get(&simulation.current_lut_name)
-                            .map_err(|e| {
-                                AppError::Simulation(
-                                    format!(
-                                        "Failed to load LUT '{}': {}",
-                                        simulation.current_lut_name, e
-                                    )
-                                    .into(),
+                    simulation.color_scheme_reversed = !simulation.color_scheme_reversed;
+                    let mut color_scheme_data = self
+                        .lut_manager
+                        .get(&simulation.current_color_scheme_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    simulation.current_color_scheme_name, e
                                 )
-                            })?;
+                                .into(),
+                            )
+                        })?;
 
-                    if simulation.lut_reversed {
-                        lut_data.reverse();
+                    if simulation.color_scheme_reversed {
+                        color_scheme_data.reverse();
                     }
 
-                    simulation.renderer.update_lut(&lut_data, queue);
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                     tracing::info!("LUT reversed for Gray-Scott simulation");
                 }
                 SimulationType::ParticleLife(simulation) => {
                     // For particle life, we need to update the LUT with reversed flag
-                    let current_reversed = simulation.state.lut_reversed;
-                    let color_mode = simulation.state.color_mode;
-                    let current_lut_name = simulation.state.current_lut_name.clone();
-                    let lut_manager = &self.lut_manager;
-                    simulation.update_lut(
-                        device,
-                        queue,
-                        lut_manager,
-                        color_mode,
-                        Some(&current_lut_name),
-                        !current_reversed,
-                    )?;
+                    let current_reversed = simulation.state.color_scheme_reversed;
+                    simulation.state.color_scheme_reversed = !current_reversed;
+
+                    // Get the current color scheme and apply it with the new reversal state
+                    let mut color_scheme_data = self
+                        .lut_manager
+                        .get(&simulation.state.current_color_scheme_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    simulation.state.current_color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
+
+                    if simulation.state.color_scheme_reversed {
+                        color_scheme_data.reverse();
+                    }
+
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                 }
                 SimulationType::Flow(simulation) => {
                     // For Flow, use the built-in LUT reversal mechanism
@@ -761,113 +836,16 @@ impl SimulationManager {
         Ok(())
     }
 
-    /// Apply a custom LUT to any running simulation
-    pub fn apply_custom_lut(
+    /// Apply a custom color scheme to any running simulation
+    pub fn apply_custom_color_scheme(
         &mut self,
-        lut_data: &LutData,
+        color_scheme: &ColorScheme,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> AppResult<()> {
-        // Store the custom LUT in temporary storage
-        self.lut_manager.set_temp_lut(lut_data.clone());
-
         if let Some(simulation) = &mut self.current_simulation {
-            match simulation {
-                SimulationType::SlimeMold(simulation) => {
-                    simulation.update_lut(lut_data, queue);
-                    tracing::info!("Custom LUT applied to slime mold simulation");
-                }
-                SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.update_lut(lut_data, queue);
-                    tracing::info!("Custom LUT applied to Gray-Scott simulation");
-                }
-                SimulationType::ParticleLife(simulation) => {
-                    let color_mode = simulation.state.color_mode;
-                    let lut_reversed = simulation.state.lut_reversed;
-
-                    simulation.update_lut(
-                        device,
-                        queue,
-                        &self.lut_manager,
-                        color_mode,
-                        Some("temp_lut"),
-                        lut_reversed,
-                    )?;
-                    tracing::info!("Custom LUT applied to particle life simulation");
-                }
-                SimulationType::Flow(simulation) => {
-                    // Direct-write the temporary LUT to the GPU buffer for immediate preview
-                    if let Ok(lut) = self.lut_manager.get("temp_lut") {
-                        let data_u32 = lut.to_u32_buffer();
-                        queue.write_buffer(
-                            &simulation.lut_buffer,
-                            0,
-                            bytemuck::cast_slice(&data_u32),
-                        );
-                        tracing::info!("Custom LUT directly written to Flow LUT buffer");
-                    } else {
-                        // Fallback to settings path if temp LUT missing
-                        simulation.update_setting(
-                            "currentLut",
-                            serde_json::json!("temp_lut"),
-                            device,
-                            queue,
-                        )?;
-                    }
-                }
-                SimulationType::Pellets(simulation) => {
-                    // Direct-write to the Pellets LUT buffer to avoid relying on the sim's internal LUT manager clone
-                    if let Ok(lut) = self.lut_manager.get("temp_lut") {
-                        let data_u32 = lut.to_u32_buffer();
-                        queue.write_buffer(
-                            &simulation.lut_buffer,
-                            0,
-                            bytemuck::cast_slice(&data_u32),
-                        );
-                        tracing::info!("Custom LUT directly written to Pellets LUT buffer");
-                    } else {
-                        // Fallback to sim path
-                        simulation.update_setting(
-                            "currentLut",
-                            serde_json::json!("temp_lut"),
-                            device,
-                            queue,
-                        )?;
-                    }
-                }
-                SimulationType::MainMenu(_) => {
-                    // Main menu doesn't support custom LUTs
-                    tracing::warn!("Custom LUT not supported for main menu simulation");
-                }
-                SimulationType::Gradient(simulation) => {
-                    simulation.update_lut(device, queue, lut_data);
-                    tracing::info!("Custom LUT applied to gradient simulation");
-                }
-                SimulationType::VoronoiCA(simulation) => {
-                    // Direct-write the temporary LUT to the GPU buffer for immediate preview
-                    if let Ok(lut) = self.lut_manager.get("temp_lut") {
-                        let mut data_u32 = lut.to_u32_buffer();
-                        if simulation.lut_reversed {
-                            data_u32[0..256].reverse();
-                            data_u32[256..512].reverse();
-                            data_u32[512..768].reverse();
-                        }
-                        queue.write_buffer(
-                            &simulation.lut_buffer,
-                            0,
-                            bytemuck::cast_slice(&data_u32),
-                        );
-                        tracing::info!("Custom LUT directly written to VCA LUT buffer");
-                    } else {
-                        simulation.update_setting(
-                            "currentLut",
-                            serde_json::json!("temp_lut"),
-                            device,
-                            queue,
-                        )?;
-                    }
-                }
-            }
+            simulation.update_color_scheme(color_scheme, device, queue)?;
+            tracing::info!("Custom color scheme applied to simulation");
         }
         Ok(())
     }

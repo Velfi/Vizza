@@ -19,6 +19,71 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BackgroundColorMode {
+    Black,
+    White,
+    Gray18,
+    ColorScheme,
+}
+
+impl BackgroundColorMode {
+    pub(crate) fn from_str(bg_type: &str) -> Option<Self> {
+        match bg_type {
+            "Black" => Some(BackgroundColorMode::Black),
+            "White" => Some(BackgroundColorMode::White),
+            "Gray18" => Some(BackgroundColorMode::Gray18),
+            "ColorScheme" => Some(BackgroundColorMode::ColorScheme),
+            _ => {
+                tracing::warn!("Invalid background color mode: {}", bg_type);
+                None
+            }
+        }
+    }
+}
+
+impl From<&BackgroundColorMode> for u32 {
+    fn from(mode: &BackgroundColorMode) -> Self {
+        match mode {
+            BackgroundColorMode::Black => 0,
+            BackgroundColorMode::White => 1,
+            BackgroundColorMode::Gray18 => 2,
+            BackgroundColorMode::ColorScheme => 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ForegroundColorMode {
+    Density,
+    Velocity,
+    Random,
+}
+
+impl ForegroundColorMode {
+    pub(crate) fn from_str(mode: &str) -> Option<Self> {
+        match mode {
+            "Density" => Some(ForegroundColorMode::Density),
+            "Velocity" => Some(ForegroundColorMode::Velocity),
+            "Random" => Some(ForegroundColorMode::Random),
+            _ => {
+                tracing::warn!("Invalid foreground color mode: {}", mode);
+                None
+            }
+        }
+    }
+}
+
+impl From<&ForegroundColorMode> for u32 {
+    fn from(mode: &ForegroundColorMode) -> Self {
+        match mode {
+            ForegroundColorMode::Density => 0,
+            ForegroundColorMode::Velocity => 1,
+            ForegroundColorMode::Random => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     /// Number of particles in the simulation
@@ -40,8 +105,8 @@ pub struct Settings {
     /// Random seed for reproducible simulations
     pub random_seed: u32,
 
-    /// Background type: "Black" or "White"
-    pub background_type: String,
+    /// Background type: "Black", "White", "Gray18", or "ColorScheme"
+    pub background_color_mode: BackgroundColorMode,
 
     // Physics parameters
     /// Gravitational constant for physics calculations
@@ -57,7 +122,7 @@ pub struct Settings {
     pub density_radius: f32,
 
     /// Coloring mode: "Density" or "Velocity"
-    pub coloring_mode: String,
+    pub foreground_color_mode: ForegroundColorMode,
 
     /// Whether to apply density-based velocity damping
     pub density_damping_enabled: bool,
@@ -76,12 +141,12 @@ impl Default for Settings {
             initial_velocity_max: 0.1,
             initial_velocity_min: 0.1,
             random_seed: 0,
-            background_type: "White".to_string(),
+            background_color_mode: BackgroundColorMode::ColorScheme,
             gravitational_constant: 1e-7,
             energy_damping: 1.0,
             gravity_softening: 0.003,
-            density_radius: 0.045,
-            coloring_mode: "Density".to_string(),
+            density_radius: 0.038,
+            foreground_color_mode: ForegroundColorMode::Density,
             density_damping_enabled: false,
             overlap_resolution_strength: 0.02,
         }

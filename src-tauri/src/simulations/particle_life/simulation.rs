@@ -1,6 +1,6 @@
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::{
-    BindGroupBuilder, ComputePipelineBuilder, LutManager, PositionGenerator,
+    BindGroupBuilder, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
     camera::Camera,
     post_processing::{PostProcessingResources, PostProcessingState},
 };
@@ -183,10 +183,10 @@ pub struct State {
     pub position_generator: PositionGenerator,
     pub type_generator: TypeGenerator,
     pub matrix_generator: MatrixGenerator,
-    // LUT management (moved from main struct)
-    pub current_lut_name: String,
-    pub lut_reversed: bool,
-    pub color_mode: ColorMode,
+    // Color scheme management (moved from main struct)
+    pub current_color_scheme_name: String,
+    pub color_scheme_reversed: bool,
+    pub background_color_mode: ColorMode,
     /// Pre-computed exact RGBA colors for each species, used for both UI display and GPU rendering
     /// In LUT mode: contains species_count + 1 colors (background + species)
     /// In non-LUT mode: contains exactly species_count colors, one for each species
@@ -239,9 +239,9 @@ impl State {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_lut_name: "MATPLOTLIB_ocean".to_string(), // Use a proper default
-            lut_reversed: true,
-            color_mode: ColorMode::Lut, // Use LUT mode as default to match main constructor
+            current_color_scheme_name: "MATPLOTLIB_ocean".to_string(), // Use a proper default
+            color_scheme_reversed: true,
+            background_color_mode: ColorMode::ColorScheme, // Use color scheme mode as default to match main constructor
             // Placeholder values - will be properly initialized when LUT is loaded in main constructor
             species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
             particle_size: 0.1,
@@ -256,8 +256,7 @@ pub enum ColorMode {
     Gray18,
     White,
     Black,
-    #[serde(rename = "LUT")]
-    Lut,
+    ColorScheme,
 }
 
 /// Particle Life simulation model
@@ -380,7 +379,7 @@ pub struct ParticleLifeModel {
     pub show_gui: bool,
 
     // LUT management
-    pub lut_manager: Arc<LutManager>, // Store reference to LUT manager
+    pub lut_manager: Arc<ColorSchemeManager>, // Store reference to LUT manager
 
     // Dimensions
     pub width: u32,
@@ -716,7 +715,7 @@ impl ParticleLifeModel {
         particle_count: usize,
         settings: Settings,
         app_settings: &crate::commands::app_settings::AppSettings,
-        lut_manager: &LutManager,
+        lut_manager: &ColorSchemeManager,
         color_mode: ColorMode, // Add color mode param
     ) -> SimulationResult<Self> {
         let width = surface_config.width;
@@ -734,28 +733,33 @@ impl ParticleLifeModel {
         })?;
 
         // Create LUT buffer
-        let (lut_colors, current_lut_name) = if color_mode == ColorMode::Lut {
-            // <num_species> + 1 equidistant stops for LUT mode (first for background, rest for species)
-            let colors = lut
-                .get_colors(settings.species_count as usize + 1)
+        let (lut_colors, current_color_scheme_name) = if color_mode == ColorMode::ColorScheme {
+            // Sample <num_species> + 2 equidistant stops so species use inner stops only
+            // Index 0 is background, indices 1..=num_species are species, last index is unused
+            let raw_colors = lut
+                .get_colors(settings.species_count as usize + 2)
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
 
-            // Reorder colors: put background color at the end, species colors at the beginning
+            // Reorder colors: species first (inner stops), background last
             // This way the GPU can use colors[0..species_count] for species and colors[species_count] for background
             let mut reordered_colors = Vec::with_capacity(settings.species_count as usize + 1);
 
-            // First, add all species colors (skip the first color which is background)
-            for color in colors.iter().skip(1) {
+            // Add inner stops for species (skip first and last)
+            for color in raw_colors
+                .iter()
+                .skip(1)
+                .take(settings.species_count as usize)
+            {
                 reordered_colors.push(*color);
             }
 
-            // Then add the background color at the end
-            reordered_colors.push(colors[0]);
+            // Add the background color (index 0) at the end
+            reordered_colors.push(raw_colors[0]);
 
             tracing::trace!(
-                "Constructor LUT mode: got {} equidistant colors for {} species (reordered)",
+                "Constructor LUT mode: using inner stops; stored {} colors for {} species (+ background)",
                 reordered_colors.len(),
                 settings.species_count
             );
@@ -788,9 +792,9 @@ impl ParticleLifeModel {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_lut_name,
-            lut_reversed: true,
-            color_mode,
+            current_color_scheme_name,
+            color_scheme_reversed: true,
+            background_color_mode: color_mode,
             species_colors: lut_colors.clone(),
             particle_size: 4.0,
             trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
@@ -1511,7 +1515,7 @@ impl ParticleLifeModel {
             ColorMode::Gray18 => 0u32,
             ColorMode::White => 1u32,
             ColorMode::Black => 2u32,
-            ColorMode::Lut => 3u32,
+            ColorMode::ColorScheme => 3u32,
         };
         let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
         let color_mode_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2545,8 +2549,12 @@ impl ParticleLifeModel {
             },
             ColorMode::White => wgpu::Color::WHITE,
             ColorMode::Black => wgpu::Color::BLACK,
-            ColorMode::Lut => {
-                if let Some(&[r, g, b, a]) = result.state.species_colors.first() {
+            ColorMode::ColorScheme => {
+                if !result.state.species_colors.is_empty() {
+                    // Background is appended at the end (index = species_count)
+                    let bg_index = (result.settings.species_count as usize)
+                        .min(result.state.species_colors.len() - 1);
+                    let [r, g, b, a] = result.state.species_colors[bg_index];
                     wgpu::Color {
                         r: r.into(),
                         g: g.into(),
@@ -2810,16 +2818,16 @@ impl ParticleLifeModel {
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-        lut_manager: &LutManager,
+        lut_manager: &ColorSchemeManager,
         color_mode: ColorMode,
         lut_name: Option<&str>,
         lut_reversed: bool,
     ) -> SimulationResult<()> {
         // Update color mode
-        self.state.color_mode = color_mode;
+        self.state.background_color_mode = color_mode;
 
         // Get LUT name and validate
-        let lut_name = lut_name.unwrap_or(&self.state.current_lut_name);
+        let lut_name = lut_name.unwrap_or(&self.state.current_color_scheme_name);
         if lut_name.is_empty() {
             return Err(SimulationError::InvalidSetting {
                 setting_name: "lut_name".to_string(),
@@ -2842,25 +2850,23 @@ impl ParticleLifeModel {
         let species_count = self.settings.species_count as usize;
         let mut species_colors = Vec::with_capacity(species_count);
 
-        if color_mode == ColorMode::Lut {
-            // Get species_count + 1 equidistant stops for LUT mode (first for background, rest for species)
-            let lut_colors = lut
-                .get_colors(species_count + 1)
+        if color_mode == ColorMode::ColorScheme {
+            // Sample species_count + 2 stops; use inner stops for species and keep background last
+            let raw_colors = lut
+                .get_colors(species_count + 2)
                 .into_iter()
                 .map(|v| [v[0], v[1], v[2], v[3]])
                 .collect::<Vec<_>>();
 
-            // Reorder colors: put background color at the end, species colors at the beginning
-            // This way the GPU can use colors[0..species_count] for species and colors[species_count] for background
             let mut reordered_colors = Vec::with_capacity(species_count + 1);
 
-            // First, add all species colors (skip the first color which is background)
-            for color in lut_colors.iter().skip(1) {
+            // Add inner stops for species (skip first and last)
+            for color in raw_colors.iter().skip(1).take(species_count) {
                 reordered_colors.push(*color);
             }
 
-            // Then add the background color at the end
-            reordered_colors.push(lut_colors[0]);
+            // Add background at the end
+            reordered_colors.push(raw_colors[0]);
 
             // Store reordered colors (species first, background last)
             species_colors = reordered_colors;
@@ -2897,13 +2903,13 @@ impl ParticleLifeModel {
         // Update stored colors and LUT info
         self.state.species_colors = species_colors;
         // Store the original LUT name, not the reversed LUT name
-        self.state.current_lut_name = lut_name.to_string();
-        self.state.lut_reversed = lut_reversed;
+        self.state.current_color_scheme_name = lut_name.to_string();
+        self.state.color_scheme_reversed = lut_reversed;
 
         tracing::debug!(
             "Updated LUT: name={}, reversed={}, species_colors.len={}",
-            self.state.current_lut_name,
-            self.state.lut_reversed,
+            self.state.current_color_scheme_name,
+            self.state.color_scheme_reversed,
             self.state.species_colors.len()
         );
 
@@ -2934,11 +2940,11 @@ impl ParticleLifeModel {
         queue.write_buffer(&self.species_colors_buffer, 0, species_colors_bytes);
 
         // Update color mode buffer (16 bytes to match shader struct)
-        let color_mode_value = match self.state.color_mode {
+        let color_mode_value = match self.state.background_color_mode {
             ColorMode::Gray18 => 0u32,
             ColorMode::White => 1u32,
             ColorMode::Black => 2u32,
-            ColorMode::Lut => 3u32,
+            ColorMode::ColorScheme => 3u32,
         };
         let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
         queue.write_buffer(
@@ -2966,7 +2972,7 @@ impl ParticleLifeModel {
         tracing::debug!(
             "Updated GPU colors: total_colors={}, color_mode={:?}",
             total_colors,
-            self.state.color_mode
+            self.state.background_color_mode
         );
 
         Ok(())
@@ -3064,14 +3070,17 @@ impl ParticleLifeModel {
     /// Update background color based on color mode
     pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
         // Get background color based on color mode
-        let background_color = match self.state.color_mode {
+        let background_color = match self.state.background_color_mode {
             ColorMode::Black => [0.0, 0.0, 0.0, 1.0],     // Black
             ColorMode::White => [1.0, 1.0, 1.0, 1.0],     // White
             ColorMode::Gray18 => [0.18, 0.18, 0.18, 1.0], // Gray18
-            ColorMode::Lut => {
-                // Use first color from species_colors (which includes background color)
+            ColorMode::ColorScheme => {
+                // Background color is appended at the end of species_colors in LUT mode
                 if !self.state.species_colors.is_empty() {
-                    self.state.species_colors[0]
+                    // Prefer the species_count index when present, otherwise fallback to last
+                    let bg_index = (self.settings.species_count as usize)
+                        .min(self.state.species_colors.len() - 1);
+                    self.state.species_colors[bg_index]
                 } else {
                     [0.0, 0.0, 0.0, 1.0] // Fallback to black
                 }
@@ -3590,7 +3599,7 @@ impl Simulation for ParticleLifeModel {
             let write_texture_view = self.get_write_trail_texture_view();
 
             // Get background color for clearing
-            let background_color = match self.state.color_mode {
+            let background_color = match self.state.background_color_mode {
                 ColorMode::Black => wgpu::Color {
                     r: 0.0,
                     g: 0.0,
@@ -3609,9 +3618,12 @@ impl Simulation for ParticleLifeModel {
                     b: 0.18,
                     a: 1.0,
                 },
-                ColorMode::Lut => {
+                ColorMode::ColorScheme => {
                     if !self.state.species_colors.is_empty() {
-                        let bg = self.state.species_colors[0];
+                        // Background is appended at the end (index = species_count)
+                        let bg_index = (self.settings.species_count as usize)
+                            .min(self.state.species_colors.len() - 1);
+                        let bg = self.state.species_colors[bg_index];
                         wgpu::Color {
                             r: bg[0] as f64,
                             g: bg[1] as f64,
@@ -3846,14 +3858,14 @@ impl Simulation for ParticleLifeModel {
                     self.recreate_bind_groups_with_force_matrix(device);
 
                     // Update LUT colors for new species count
-                    let current_lut_name = self.state.current_lut_name.clone();
-                    let lut_reversed = self.state.lut_reversed;
+                    let current_lut_name = self.state.current_color_scheme_name.clone();
+                    let lut_reversed = self.state.color_scheme_reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
                         queue,
                         &lut_manager,
-                        self.state.color_mode,
+                        self.state.background_color_mode,
                         Some(&current_lut_name),
                         lut_reversed,
                     )?;
@@ -4044,22 +4056,22 @@ impl Simulation for ParticleLifeModel {
                     self.update_sim_params(device, queue);
                 }
             }
-            "color_mode" => {
+            "background_color_mode" => {
                 if let Some(mode_str) = value.as_str() {
                     let color_mode = match mode_str {
                         "Gray18" => ColorMode::Gray18,
                         "White" => ColorMode::White,
                         "Black" => ColorMode::Black,
-                        "LUT" => ColorMode::Lut,
-                        _ => ColorMode::Lut,
+                        "ColorScheme" => ColorMode::ColorScheme,
+                        _ => ColorMode::ColorScheme,
                     };
 
                     // Update the state color mode
-                    self.state.color_mode = color_mode;
+                    self.state.background_color_mode = color_mode;
 
                     // Update LUT with new color mode
-                    let current_lut_name = self.state.current_lut_name.clone();
-                    let lut_reversed = self.state.lut_reversed;
+                    let current_lut_name = self.state.current_color_scheme_name.clone();
+                    let lut_reversed = self.state.color_scheme_reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -4076,8 +4088,8 @@ impl Simulation for ParticleLifeModel {
             }
             "lut_name" => {
                 if let Some(lut_name) = value.as_str() {
-                    let color_mode = self.state.color_mode;
-                    let lut_reversed = self.state.lut_reversed;
+                    let color_mode = self.state.background_color_mode;
+                    let lut_reversed = self.state.color_scheme_reversed;
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -4089,10 +4101,10 @@ impl Simulation for ParticleLifeModel {
                     )?;
                 }
             }
-            "lut_reversed" => {
+            "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    let color_mode = self.state.color_mode;
-                    let current_lut_name = self.state.current_lut_name.clone();
+                    let color_mode = self.state.background_color_mode;
+                    let current_lut_name = self.state.current_color_scheme_name.clone();
                     let lut_manager = self.lut_manager.clone();
                     self.update_lut(
                         device,
@@ -4110,6 +4122,36 @@ impl Simulation for ParticleLifeModel {
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    fn update_state(
+        &mut self,
+        state_name: &str,
+        value: serde_json::Value,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        match state_name {
+            "color_scheme" => {
+                if let Some(color_scheme_name) = value.as_str() {
+                    let color_mode = self.state.background_color_mode;
+                    let lut_reversed = self.state.color_scheme_reversed;
+                    let lut_manager = self.lut_manager.clone();
+                    self.update_lut(
+                        device,
+                        queue,
+                        &lut_manager,
+                        color_mode,
+                        Some(color_scheme_name),
+                        lut_reversed,
+                    )?;
+                }
+            }
+            _ => {
+                tracing::warn!("Unknown state parameter for ParticleLife: {}", state_name);
+            }
         }
         Ok(())
     }
@@ -4132,9 +4174,9 @@ impl Simulation for ParticleLifeModel {
             "position_generator": self.state.position_generator,
             "type_generator": self.state.type_generator,
             "matrix_generator": self.state.matrix_generator,
-            "current_lut_name": self.state.current_lut_name,
-            "lut_reversed": self.state.lut_reversed,
-            "color_mode": self.state.color_mode,
+            "current_color_scheme_name": self.state.current_color_scheme_name,
+            "color_scheme_reversed": self.state.color_scheme_reversed,
+            "background_color_mode": self.state.background_color_mode,
             "particle_size": self.state.particle_size,
             "trail_map_filtering": self.state.trail_map_filtering,
         })
@@ -4369,6 +4411,32 @@ impl Simulation for ParticleLifeModel {
 
         Ok(())
     }
+
+    fn update_color_scheme(
+        &mut self,
+        _color_scheme: &crate::simulations::shared::ColorScheme,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        // For ParticleLife, we need to use the existing update_lut method
+        // which requires a lut_manager and lut_name, so we'll apply the color scheme
+        // using the simulation's update_lut method with the custom data
+        let color_mode = self.state.background_color_mode;
+        let lut_reversed = self.state.color_scheme_reversed;
+        let lut_manager = self.lut_manager.clone();
+
+        // Apply the custom color scheme directly to the simulation
+        self.update_lut(
+            device,
+            queue,
+            &lut_manager,
+            color_mode,
+            Some("custom_preview"),
+            lut_reversed,
+        )?;
+
+        Ok(())
+    }
 }
 
 impl ParticleLifeModel {
@@ -4491,10 +4559,16 @@ impl ParticleLifeModel {
         self.lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Species Colors Bind Group"),
             layout: &self.render_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.species_colors_buffer.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.species_colors_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: self.color_mode_buffer.as_entire_binding(),
+                },
+            ],
         });
         Ok(())
     }
