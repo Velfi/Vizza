@@ -234,9 +234,6 @@ impl SlimeMoldModel {
         let agent_buffer = create_agent_buffer(
             device,
             agent_count,
-            effective_width,
-            effective_height,
-            &settings,
         );
 
         let trail_map_size = (effective_width * effective_height) as usize;
@@ -743,9 +740,6 @@ impl SlimeMoldModel {
             self.agent_buffer = create_agent_buffer(
                 device,
                 self.agent_count,
-                effective_width,
-                effective_height,
-                &self.settings,
             );
             // Reset agents to new positions
             if let Err(e) = self.reset_agents(device, queue) {
@@ -1887,9 +1881,6 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
 fn create_agent_buffer(
     device: &wgpu::Device,
     agent_count: usize,
-    _physical_width: u32,
-    _physical_height: u32,
-    _settings: &Settings,
 ) -> wgpu::Buffer {
     // Create buffer without CPU initialization - GPU will initialize via reset shader
     device.create_buffer(&wgpu::BufferDescriptor {
