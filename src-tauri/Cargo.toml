@@ -1,6 +1,6 @@
 [package]
 name = "Vizza"
-version = "0.9.3"
+version = "0.9.4"
 description = "A desktop application featuring interactive simulations built with Tauri, Svelte, and WebGPU."
 authors = ["Zelda Hessler <zelda.hessler@pm.me>"]
 license = "MIT"
