@@ -309,7 +309,7 @@
             <div class="setting-item">
               <span class="setting-label">Turn Rate:</span>
               <NumberDragBox
-                bind:value={settings.agent_turn_rate}
+                value={(settings.agent_turn_rate * 180) / Math.PI}
                 min={0}
                 max={360}
                 step={1}
@@ -352,7 +352,7 @@
             <div class="setting-item">
               <span class="setting-label">Sensor Angle:</span>
               <NumberDragBox
-                bind:value={settings.agent_sensor_angle}
+                value={(settings.agent_sensor_angle * 180) / Math.PI}
                 min={0}
                 max={180}
                 step={1}
