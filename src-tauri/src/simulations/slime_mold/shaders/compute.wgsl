@@ -426,6 +426,36 @@ fn generate_spiral_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
     return vec2<f32>(center_x + radius * cos(angle), center_y + radius * sin(angle));
 }
 
+fn generate_image_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
+    // Use rejection sampling to generate positions based on gradient image intensity
+    // Higher intensity areas are more likely to be selected
+    
+    let max_attempts = 100u; // Prevent infinite loops
+    var attempts = 0u;
+    
+    while (attempts < max_attempts) {
+        // Generate random position
+        let x = random_range(seed * 2u + attempts, 0.0, width);
+        let y = random_range(seed * 3u + attempts, 0.0, height);
+        
+        // Sample gradient map at this position
+        let intensity = sample_gradient_map(vec2<f32>(x, y));
+        
+        // Generate random threshold
+        let threshold = random_range(seed * 4u + attempts, 0.0, 1.0);
+        
+        // Accept position if intensity is above threshold
+        if (intensity >= threshold) {
+            return vec2<f32>(x, y);
+        }
+        
+        attempts++;
+    }
+    
+    // Fallback to random position if rejection sampling fails
+    return generate_random_position(seed, width, height);
+}
+
 @compute @workgroup_size(64, 1, 1)
 fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // With 2D dispatch and workgroup_size(64, 1, 1):
@@ -467,6 +497,9 @@ fn reset_agents(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
         case 6u: { // Spiral
             position = generate_spiral_position(base_seed, f32(sim_size.width), f32(sim_size.height));
+        }
+        case 7u: { // Image
+            position = generate_image_position(base_seed, f32(sim_size.width), f32(sim_size.height));
         }
         default: {
             position = generate_random_position(base_seed, f32(sim_size.width), f32(sim_size.height));

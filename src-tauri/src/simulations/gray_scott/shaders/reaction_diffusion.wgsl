@@ -33,6 +33,8 @@ struct CellState {
 @group(0) @binding(1) var<storage, read_write> uvs_out: array<UVPair>;
 @group(0) @binding(2) var<uniform> params: SimulationParams;
 @group(0) @binding(3) var<storage, read_write> cell_states: array<CellState>;
+// Optional image-driven nutrient pattern (bound only when used)
+@group(0) @binding(4) var<storage, read> gradient_map: array<f32>;
 
 fn get_index(x: i32, y: i32) -> u32 {
     let width = i32(params.width);
@@ -169,6 +171,12 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
             
             // Normalize to [0.5, 1.0] with smoother transition
             result = 0.5 + (tanh(raw) * 0.5);
+        }
+        case 9u: { // Image-driven gradient map
+            let idx = get_index(x, y);
+            // Map [0,1] image to [0.5,1.0] nutrient factor
+            let img = clamp(gradient_map[idx], 0.0, 1.0);
+            result = 0.5 + img * 0.5;
         }
         default: {
             result = 1.0;

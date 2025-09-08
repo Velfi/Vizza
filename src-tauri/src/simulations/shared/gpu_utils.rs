@@ -346,3 +346,227 @@ impl CommonBindGroupLayouts {
         })
     }
 }
+
+/// Helper functions for creating common WGPU resources
+pub mod resource_helpers {
+    use super::*;
+    use wgpu::util::DeviceExt;
+    use wgpu::{
+        AddressMode, BufferUsages, Extent3d, FilterMode, Sampler, SamplerDescriptor, Texture,
+        TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    };
+
+    /// Create a storage buffer with initial data
+    pub fn create_storage_buffer_with_data<T: bytemuck::Pod>(
+        device: &Device,
+        label: &str,
+        data: &[T],
+    ) -> Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(data),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        })
+    }
+
+    /// Create an empty storage buffer
+    pub fn create_storage_buffer(
+        device: &Device,
+        label: &str,
+        size: u64,
+        mapped_at_creation: bool,
+    ) -> Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            mapped_at_creation,
+        })
+    }
+
+    /// Create a uniform buffer with initial data
+    pub fn create_uniform_buffer_with_data<T: bytemuck::Pod>(
+        device: &Device,
+        label: &str,
+        data: &[T],
+    ) -> Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(data),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        })
+    }
+
+    /// Create a 2D storage texture
+    pub fn create_storage_texture(
+        device: &Device,
+        label: &str,
+        width: u32,
+        height: u32,
+        format: TextureFormat,
+    ) -> Texture {
+        device.create_texture(&TextureDescriptor {
+            label: Some(label),
+            size: Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format,
+            usage: TextureUsages::STORAGE_BINDING
+                | TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    /// Create a linear sampler with filtering
+    pub fn create_linear_sampler(device: &Device, label: &str, filter_mode: FilterMode) -> Sampler {
+        device.create_sampler(&SamplerDescriptor {
+            label: Some(label),
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            mag_filter: filter_mode,
+            min_filter: filter_mode,
+            mipmap_filter: filter_mode,
+            ..Default::default()
+        })
+    }
+
+    /// Create a bind group with buffer entries
+    pub fn create_buffer_bind_group(
+        device: &Device,
+        layout: &BindGroupLayout,
+        label: &str,
+        buffers: &[&Buffer],
+    ) -> BindGroup {
+        let entries: Vec<BindGroupEntry> = buffers
+            .iter()
+            .enumerate()
+            .map(|(i, buffer)| BindGroupEntry {
+                binding: i as u32,
+                resource: buffer.as_entire_binding(),
+            })
+            .collect();
+
+        device.create_bind_group(&BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &entries,
+        })
+    }
+
+    /// Create a storage buffer layout entry
+    pub fn storage_buffer_entry(
+        binding: u32,
+        visibility: ShaderStages,
+        read_only: bool,
+    ) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    }
+
+    /// Create a uniform buffer layout entry
+    pub fn uniform_buffer_entry(binding: u32, visibility: ShaderStages) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }
+    }
+
+    /// Create a storage texture layout entry
+    pub fn storage_texture_entry(
+        binding: u32,
+        visibility: ShaderStages,
+        access: wgpu::StorageTextureAccess,
+        format: TextureFormat,
+    ) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::StorageTexture {
+                access,
+                format,
+                view_dimension: wgpu::TextureViewDimension::D2,
+            },
+            count: None,
+        }
+    }
+
+    /// Create a texture layout entry
+    pub fn texture_entry(
+        binding: u32,
+        visibility: ShaderStages,
+        sample_type: wgpu::TextureSampleType,
+        view_dimension: wgpu::TextureViewDimension,
+    ) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Texture {
+                sample_type,
+                view_dimension,
+                multisampled: false,
+            },
+            count: None,
+        }
+    }
+
+    /// Create a sampler layout entry
+    pub fn sampler_entry(
+        binding: u32,
+        visibility: ShaderStages,
+        binding_type: wgpu::SamplerBindingType,
+    ) -> BindGroupLayoutEntry {
+        BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: BindingType::Sampler(binding_type),
+            count: None,
+        }
+    }
+
+    /// Create a buffer bind group entry
+    pub fn buffer_entry(binding: u32, buffer: &Buffer) -> BindGroupEntry {
+        BindGroupEntry {
+            binding,
+            resource: buffer.as_entire_binding(),
+        }
+    }
+
+    /// Create a texture view bind group entry
+    pub fn texture_view_entry(binding: u32, view: &TextureView) -> BindGroupEntry {
+        BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        }
+    }
+
+    /// Create a sampler bind group entry
+    pub fn sampler_bind_entry(binding: u32, sampler: &Sampler) -> BindGroupEntry {
+        BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::Sampler(sampler),
+        }
+    }
+}

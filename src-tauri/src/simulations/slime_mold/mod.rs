@@ -4,6 +4,7 @@ pub mod render;
 pub mod settings;
 pub mod shaders;
 pub mod simulation;
+pub mod webcam;
 pub mod workgroup_optimizer;
 
 #[cfg(test)]

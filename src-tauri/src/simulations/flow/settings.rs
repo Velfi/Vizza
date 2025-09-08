@@ -2,6 +2,31 @@ use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum VectorFieldType {
+    Noise,
+    Image,
+}
+
+impl Display for VectorFieldType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Noise => "Noise",
+                Self::Image => "Image",
+            }
+        )
+    }
+}
+
+impl Default for VectorFieldType {
+    fn default() -> Self {
+        Self::Noise
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum NoiseType {
     OpenSimplex,
     Worley,
@@ -177,9 +202,39 @@ impl Default for TrailMapFiltering {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GradientImageFitMode {
+    Stretch,
+    Center,
+    FitH,
+    FitV,
+}
+
+impl Display for GradientImageFitMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                Self::Stretch => "Stretch",
+                Self::Center => "Center",
+                Self::FitH => "Fit H",
+                Self::FitV => "Fit V",
+            }
+        )
+    }
+}
+
+impl Default for GradientImageFitMode {
+    fn default() -> Self {
+        Self::Stretch
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     // Flow field parameters
+    pub vector_field_type: VectorFieldType,
     pub noise_type: NoiseType,
     pub noise_seed: u32,
     pub noise_scale: f64,
@@ -187,6 +242,11 @@ pub struct Settings {
     pub noise_y: f64,
     pub noise_dt_multiplier: f32, // Multiplier for time when calculating noise position
     pub vector_magnitude: f32,
+
+    // Image-based vector field parameters
+    pub image_fit_mode: GradientImageFitMode,
+    pub image_mirror_horizontal: bool,
+    pub image_invert_tone: bool,
 
     // Particle parameters
     pub total_pool_size: u32, // Total number of particles (autospawn + brush)
@@ -212,6 +272,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             // Flow field parameters
+            vector_field_type: VectorFieldType::Noise,
             noise_type: NoiseType::OpenSimplex,
             noise_seed: 0,
             noise_scale: 1.0,
@@ -219,6 +280,11 @@ impl Default for Settings {
             noise_y: 1.0,
             noise_dt_multiplier: 0.0,
             vector_magnitude: 0.1,
+
+            // Image-based vector field parameters
+            image_fit_mode: GradientImageFitMode::Stretch,
+            image_mirror_horizontal: false,
+            image_invert_tone: false,
 
             // Particle parameters
             total_pool_size: 100000,

@@ -10,6 +10,7 @@ use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
 use super::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 use crate::simulations::shared::{ColorScheme, ColorSchemeManager, camera::Camera};
 
@@ -71,6 +72,7 @@ impl SimSizeUniform {
                 super::settings::GradientType::Ellipse => 3,
                 super::settings::GradientType::Spiral => 4,
                 super::settings::GradientType::Checkerboard => 5,
+                super::settings::GradientType::Image => 6,
             },
             gradient_strength: settings.gradient_strength,
             gradient_center_x: settings.gradient_center_x,
@@ -174,6 +176,22 @@ pub struct SlimeMoldModel {
     pub post_processing_state: PostProcessingState,
     pub post_processing_resources: PostProcessingResources,
     pub app_settings: AppSettings,
+    // Raw grayscale (0..1) image for image-based gradient, sized to current sim dims
+    pub gradient_image_raw: Option<Vec<f32>>,
+    // Original grayscale values (0..1) before strength is applied, for reprocessing
+    pub gradient_image_base: Option<Vec<f32>>,
+    // Original image data for reprocessing with different fit modes
+    pub gradient_image_original: Option<image::DynamicImage>,
+    // Flag to indicate gradient image needs to be re-uploaded to GPU
+    pub gradient_image_needs_upload: bool,
+    // Original image data for position generation
+    pub position_image_original: Option<image::DynamicImage>,
+    // Raw grayscale (0..1) image for position generation, sized to current sim dims
+    pub position_image_raw: Option<Vec<f32>>,
+    // Flag to indicate position image needs to be re-uploaded to GPU
+    pub position_image_needs_upload: bool,
+    // Webcam capture for real-time gradient input
+    pub webcam_capture: super::webcam::WebcamCapture,
 }
 
 impl SlimeMoldModel {
@@ -294,34 +312,27 @@ impl SlimeMoldModel {
             &settings,
             &crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         );
-        let sim_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sim Size Uniform Buffer"),
-            contents: bytemuck::cast_slice(&[sim_size_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let sim_size_buffer = resource_helpers::create_uniform_buffer_with_data(
+            device,
+            "Sim Size Uniform Buffer",
+            &[sim_size_uniform],
+        );
         let sim_size_buffer = Arc::new(sim_size_buffer);
 
         // Create LUT buffer
         let lut_data = lut_manager.get("MATPLOTLIB_cubehelix")?;
         let lut_data_u32 = lut_data.to_u32_buffer();
 
-        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data_u32),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let lut_buffer =
+            resource_helpers::create_storage_buffer_with_data(device, "LUT Buffer", &lut_data_u32);
         let lut_buffer = Arc::new(lut_buffer);
 
         // Create display sampler
-        let display_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: app_settings.texture_filtering.into(),
-            min_filter: app_settings.texture_filtering.into(),
-            mipmap_filter: app_settings.texture_filtering.into(),
-            ..Default::default()
-        });
+        let display_sampler = resource_helpers::create_linear_sampler(
+            device,
+            "Display Sampler",
+            app_settings.texture_filtering.into(),
+        );
 
         // Create workgroup config
         let workgroup_config = WorkgroupConfig::new(device, adapter_info);
@@ -364,6 +375,7 @@ impl SlimeMoldModel {
                 super::settings::GradientType::Ellipse => 3,
                 super::settings::GradientType::Spiral => 4,
                 super::settings::GradientType::Checkerboard => 5,
+                super::settings::GradientType::Image => 6,
             },
             gradient_strength: settings.gradient_strength,
             gradient_center_x: settings.gradient_center_x,
@@ -436,10 +448,7 @@ impl SlimeMoldModel {
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background Bind Group"),
             layout: &pipeline_manager.background_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: background_params_buffer.as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &background_params_buffer)],
         });
 
         // Create average color bind group
@@ -447,14 +456,8 @@ impl SlimeMoldModel {
             label: Some("Average Color Bind Group"),
             layout: &pipeline_manager.average_color_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: average_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &display_view),
+                resource_helpers::buffer_entry(1, &average_color_buffer),
             ],
         });
 
@@ -509,6 +512,14 @@ impl SlimeMoldModel {
             post_processing_state,
             post_processing_resources,
             app_settings: app_settings.clone(),
+            gradient_image_raw: None,
+            gradient_image_base: None,
+            gradient_image_original: None,
+            gradient_image_needs_upload: false,
+            position_image_original: None,
+            position_image_raw: None,
+            position_image_needs_upload: false,
+            webcam_capture: super::webcam::WebcamCapture::new(),
         };
 
         if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
@@ -825,6 +836,43 @@ impl SlimeMoldModel {
         self.update_background_params(queue);
         self.update_background_color(queue);
 
+        // Upload gradient image if it needs to be re-uploaded
+        if self.gradient_image_needs_upload {
+            if let Some(buffer) = &self.gradient_image_raw {
+                queue.write_buffer(
+                    &self.gradient_buffer,
+                    0,
+                    bytemuck::cast_slice::<f32, u8>(buffer),
+                );
+                self.gradient_image_needs_upload = false;
+            }
+        }
+
+        // Update gradient from webcam if active
+        if self.webcam_capture.is_active {
+            // Update webcam frame first
+            if let Err(e) = self.webcam_capture.update_frame() {
+                tracing::warn!("Failed to update webcam frame: {}", e);
+            }
+
+            // Then update gradient buffer
+            if let Err(e) = self.update_gradient_from_webcam(queue) {
+                tracing::warn!("Failed to update gradient from webcam: {}", e);
+            }
+        }
+
+        // Upload position image if it needs to be re-uploaded
+        if self.position_image_needs_upload {
+            if let Some(buffer) = &self.position_image_raw {
+                queue.write_buffer(
+                    &self.gradient_buffer,
+                    0,
+                    bytemuck::cast_slice::<f32, u8>(buffer),
+                );
+                self.position_image_needs_upload = false;
+            }
+        }
+
         // Run compute passes for simulation (agent updates, trail decay, etc.)
         let mut compute_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Slime Mold Compute Encoder"),
@@ -929,7 +977,9 @@ impl SlimeMoldModel {
     /// Run the compute passes for the simulation
     fn run_compute_passes(&self, encoder: &mut wgpu::CommandEncoder) {
         // Gradient pass (if enabled)
-        if self.settings.gradient_type != super::settings::GradientType::Disabled {
+        if self.settings.gradient_type != super::settings::GradientType::Disabled
+            && self.settings.gradient_type != super::settings::GradientType::Image
+        {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Slime Mold Gradient Pass"),
                 timestamp_writes: None,
@@ -1180,13 +1230,66 @@ impl SlimeMoldModel {
                         "ellipse" => GradientType::Ellipse,
                         "spiral" => GradientType::Spiral,
                         "checkerboard" => GradientType::Checkerboard,
+                        "image" => GradientType::Image,
                         _ => GradientType::Disabled,
                     };
+                }
+            }
+            "gradient_image_fit_mode" => {
+                if let Some(v) = value.as_str() {
+                    self.settings.gradient_image_fit_mode = match v {
+                        "Stretch" | "stretch" => super::settings::GradientImageFitMode::Stretch,
+                        "Center" | "center" => super::settings::GradientImageFitMode::Center,
+                        "Fit H" | "fit h" => super::settings::GradientImageFitMode::FitH,
+                        "Fit V" | "fit v" => super::settings::GradientImageFitMode::FitV,
+                        _ => unreachable!(),
+                    };
+
+                    // If we have a loaded image, reprocess it with the new fit mode
+                    if self.settings.gradient_type == super::settings::GradientType::Image
+                        && self.gradient_image_raw.is_some()
+                    {
+                        // Reprocess the stored raw image data with new fit mode
+                        self.reprocess_gradient_image_with_current_fit_mode();
+                    }
+                }
+            }
+            "gradient_image_mirror_horizontal" => {
+                if let Some(v) = value.as_bool() {
+                    self.settings.gradient_image_mirror_horizontal = v;
+
+                    // If we have a loaded image, reprocess it with the new mirror setting
+                    if self.settings.gradient_type == super::settings::GradientType::Image
+                        && self.gradient_image_raw.is_some()
+                    {
+                        // Reprocess the stored raw image data with new mirror setting
+                        self.reprocess_gradient_image_with_current_fit_mode();
+                    }
+                }
+            }
+            "gradient_image_invert_tone" => {
+                if let Some(v) = value.as_bool() {
+                    self.settings.gradient_image_invert_tone = v;
+
+                    // If we have a loaded image, reprocess it with the new invert setting
+                    if self.settings.gradient_type == super::settings::GradientType::Image
+                        && self.gradient_image_raw.is_some()
+                    {
+                        // Reprocess the stored raw image data with new invert setting
+                        self.reprocess_gradient_image_with_current_fit_mode();
+                    }
                 }
             }
             "gradient_strength" => {
                 if let Some(v) = value.as_f64() {
                     self.settings.gradient_strength = v as f32;
+
+                    // If we have a loaded image, reprocess it with the new strength
+                    if self.settings.gradient_type == super::settings::GradientType::Image
+                        && self.gradient_image_raw.is_some()
+                    {
+                        self.reprocess_gradient_image_with_current_strength();
+                    }
                 }
             }
             "gradient_center_x" => {
@@ -1223,6 +1326,26 @@ impl SlimeMoldModel {
                     return Ok(()); // Return early to avoid updating GPU uniforms unnecessarily
                 }
             }
+            "position_image_fit_mode" => {
+                if let Some(v) = value.as_str() {
+                    self.settings.position_image_fit_mode = match v {
+                        "Stretch" | "stretch" => super::settings::GradientImageFitMode::Stretch,
+                        "Center" | "center" => super::settings::GradientImageFitMode::Center,
+                        "Fit H" | "fit h" => super::settings::GradientImageFitMode::FitH,
+                        "Fit V" | "fit v" => super::settings::GradientImageFitMode::FitV,
+                        _ => unreachable!(),
+                    };
+
+                    // If we have a loaded position image, reprocess it with the new fit mode
+                    if self.position_generator
+                        == crate::simulations::shared::SlimeMoldPositionGenerator::Image
+                        && self.position_image_original.is_some()
+                    {
+                        // Reprocess the stored position image with new fit mode
+                        self.reprocess_position_image_with_current_fit_mode();
+                    }
+                }
+            }
             "random_seed" => {
                 if let Some(v) = value.as_u64() {
                     self.settings.random_seed = v as u32;
@@ -1242,6 +1365,7 @@ impl SlimeMoldModel {
                         "Ring" => crate::simulations::shared::SlimeMoldPositionGenerator::Ring,
                         "Line" => crate::simulations::shared::SlimeMoldPositionGenerator::Line,
                         "Spiral" => crate::simulations::shared::SlimeMoldPositionGenerator::Spiral,
+                        "Image" => crate::simulations::shared::SlimeMoldPositionGenerator::Image,
                         _ => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
                     };
                     self.position_generator = generator;
@@ -1399,6 +1523,643 @@ impl SlimeMoldModel {
         queue.write_buffer(&self.cursor_buffer, 0, bytemuck::bytes_of(&params));
     }
 
+    /// Load an external image, convert to grayscale, fit to current sim size, and upload to gradient buffer
+    pub fn load_gradient_image_from_path(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        image_path: &str,
+    ) -> SimulationResult<()> {
+        let img = image::open(image_path).map_err(|e| {
+            SimulationError::InvalidParameter(format!("Failed to open image: {}", e))
+        })?;
+
+        // Store original image for reprocessing
+        self.gradient_image_original = Some(img.clone());
+
+        let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
+
+        // Convert to Luma8 (grayscale)
+        let gray = img.to_luma8();
+
+        let fit_mode = self.settings.gradient_image_fit_mode;
+
+        // Prepare buffer of size target_w * target_h
+        let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
+
+        match fit_mode {
+            super::settings::GradientImageFitMode::Stretch => {
+                // Resize exactly to target size
+                let resized = image::imageops::resize(
+                    &gray,
+                    target_w,
+                    target_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let p = resized.get_pixel(x, y)[0] as f32 / 255.0;
+                        buffer[(y * target_w + x) as usize] = p;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::Center => {
+                // Paste without scaling, centered, cropping if larger, padding if smaller
+                let src_w = gray.width();
+                let src_h = gray.height();
+                let offset_x = if target_w > src_w {
+                    ((target_w - src_w) / 2) as i64
+                } else {
+                    -(((src_w - target_w) / 2) as i64)
+                };
+                let offset_y = if target_h > src_h {
+                    ((target_h - src_h) / 2) as i64
+                } else {
+                    -(((src_h - target_h) / 2) as i64)
+                };
+
+                for ty in 0..target_h as i64 {
+                    for tx in 0..target_w as i64 {
+                        let sx = tx - offset_x;
+                        let sy = ty - offset_y;
+                        let v = if sx >= 0 && sy >= 0 && (sx as u32) < src_w && (sy as u32) < src_h
+                        {
+                            gray.get_pixel(sx as u32, sy as u32)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(ty as u32 * target_w + tx as u32) as usize] = v;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::FitH => {
+                // Fit horizontally, maintain aspect ratio, center vertically
+                let src_w = gray.width() as f32;
+                let src_h = gray.height() as f32;
+                let target_w_f = target_w as f32;
+
+                // Calculate scale to fit width
+                let scale = target_w_f / src_w;
+                let scaled_h = (src_h * scale) as u32;
+
+                // Resize to fit width
+                let resized = image::imageops::resize(
+                    &gray,
+                    target_w,
+                    scaled_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+
+                // Center vertically
+                let offset_y = if scaled_h < target_h {
+                    ((target_h - scaled_h) / 2) as i64
+                } else {
+                    0
+                };
+
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let src_y = (y as i64 - offset_y) as u32;
+                        let v = if src_y < scaled_h {
+                            resized.get_pixel(x, src_y)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(y * target_w + x) as usize] = v;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::FitV => {
+                // Fit vertically, maintain aspect ratio, center horizontally
+                let src_w = gray.width() as f32;
+                let src_h = gray.height() as f32;
+                let target_h_f = target_h as f32;
+
+                // Calculate scale to fit height
+                let scale = target_h_f / src_h;
+                let scaled_w = (src_w * scale) as u32;
+
+                // Resize to fit height
+                let resized = image::imageops::resize(
+                    &gray,
+                    scaled_w,
+                    target_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+
+                // Center horizontally
+                let offset_x = if scaled_w < target_w {
+                    ((target_w - scaled_w) / 2) as i64
+                } else {
+                    0
+                };
+
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let src_x = (x as i64 - offset_x) as u32;
+                        let v = if src_x < scaled_w {
+                            resized.get_pixel(src_x, y)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(y * target_w + x) as usize] = v;
+                    }
+                }
+            }
+        }
+
+        // Store base grayscale values (before strength is applied)
+        self.gradient_image_base = Some(buffer.clone());
+
+        // Apply strength now so display shader can add directly
+        let strength = self.settings.gradient_strength;
+        for v in buffer.iter_mut() {
+            *v = (*v * strength).clamp(0.0, 1.0);
+        }
+
+        // Store final processed values
+        self.gradient_image_raw = Some(buffer.clone());
+
+        // Upload to GPU buffer
+        queue.write_buffer(
+            &self.gradient_buffer,
+            0,
+            bytemuck::cast_slice::<f32, u8>(&buffer),
+        );
+
+        // Mark that image is uploaded and doesn't need re-upload
+        self.gradient_image_needs_upload = false;
+
+        Ok(())
+    }
+
+    /// Load an external image for position generation, convert to grayscale, fit to current sim size
+    pub fn load_position_image_from_path(
+        &mut self,
+        _device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        image_path: &str,
+    ) -> SimulationResult<()> {
+        let img = image::open(image_path).map_err(|e| {
+            SimulationError::InvalidParameter(format!("Failed to open image: {}", e))
+        })?;
+
+        // Store original image for reprocessing
+        self.position_image_original = Some(img.clone());
+
+        let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
+
+        // Convert to Luma8 (grayscale)
+        let gray = img.to_luma8();
+
+        let fit_mode = self.settings.position_image_fit_mode;
+
+        // Prepare buffer of size target_w * target_h
+        let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
+
+        match fit_mode {
+            super::settings::GradientImageFitMode::Stretch => {
+                // Resize exactly to target size
+                let resized = image::imageops::resize(
+                    &gray,
+                    target_w,
+                    target_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let p = resized.get_pixel(x, y)[0] as f32 / 255.0;
+                        buffer[(y * target_w + x) as usize] = p;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::Center => {
+                // Paste without scaling, centered, cropping if larger, padding if smaller
+                let src_w = gray.width();
+                let src_h = gray.height();
+                let offset_x = if target_w > src_w {
+                    ((target_w - src_w) / 2) as i64
+                } else {
+                    -(((src_w - target_w) / 2) as i64)
+                };
+                let offset_y = if target_h > src_h {
+                    ((target_h - src_h) / 2) as i64
+                } else {
+                    -(((src_h - target_h) / 2) as i64)
+                };
+
+                for ty in 0..target_h as i64 {
+                    for tx in 0..target_w as i64 {
+                        let sx = tx - offset_x;
+                        let sy = ty - offset_y;
+                        let v = if sx >= 0 && sy >= 0 && (sx as u32) < src_w && (sy as u32) < src_h
+                        {
+                            gray.get_pixel(sx as u32, sy as u32)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(ty as u32 * target_w + tx as u32) as usize] = v;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::FitH => {
+                // Fit horizontally, maintain aspect ratio, center vertically
+                let src_w = gray.width() as f32;
+                let src_h = gray.height() as f32;
+                let target_w_f = target_w as f32;
+
+                // Calculate scale to fit width
+                let scale = target_w_f / src_w;
+                let scaled_h = (src_h * scale) as u32;
+
+                // Resize to fit width
+                let resized = image::imageops::resize(
+                    &gray,
+                    target_w,
+                    scaled_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+
+                // Center vertically
+                let offset_y = if scaled_h < target_h {
+                    ((target_h - scaled_h) / 2) as i64
+                } else {
+                    0
+                };
+
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let src_y = (y as i64 - offset_y) as u32;
+                        let v = if src_y < scaled_h {
+                            resized.get_pixel(x, src_y)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(y * target_w + x) as usize] = v;
+                    }
+                }
+            }
+            super::settings::GradientImageFitMode::FitV => {
+                // Fit vertically, maintain aspect ratio, center horizontally
+                let src_w = gray.width() as f32;
+                let src_h = gray.height() as f32;
+                let target_h_f = target_h as f32;
+
+                // Calculate scale to fit height
+                let scale = target_h_f / src_h;
+                let scaled_w = (src_w * scale) as u32;
+
+                // Resize to fit height
+                let resized = image::imageops::resize(
+                    &gray,
+                    scaled_w,
+                    target_h,
+                    image::imageops::FilterType::Lanczos3,
+                );
+
+                // Center horizontally
+                let offset_x = if scaled_w < target_w {
+                    ((target_w - scaled_w) / 2) as i64
+                } else {
+                    0
+                };
+
+                for y in 0..target_h {
+                    for x in 0..target_w {
+                        let src_x = (x as i64 - offset_x) as u32;
+                        let v = if src_x < scaled_w {
+                            resized.get_pixel(src_x, y)[0] as f32 / 255.0
+                        } else {
+                            0.0
+                        };
+                        buffer[(y * target_w + x) as usize] = v;
+                    }
+                }
+            }
+        }
+
+        // Store the processed image data
+        self.position_image_raw = Some(buffer.clone());
+
+        // Upload to GPU buffer (reuse gradient buffer for now, since position generation uses gradient_map)
+        queue.write_buffer(
+            &self.gradient_buffer,
+            0,
+            bytemuck::cast_slice::<f32, u8>(&buffer),
+        );
+
+        // Mark that image is uploaded and doesn't need re-upload
+        self.position_image_needs_upload = false;
+
+        Ok(())
+    }
+
+    /// Reprocess the stored original image with the current fit mode
+    fn reprocess_gradient_image_with_current_fit_mode(&mut self) {
+        if let Some(original_img) = &self.gradient_image_original {
+            let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
+
+            // Convert to Luma8 (grayscale)
+            let gray = original_img.to_luma8();
+            let fit_mode = self.settings.gradient_image_fit_mode;
+
+            // Prepare buffer of size target_w * target_h
+            let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
+
+            // Apply the same processing logic as in load_gradient_image_from_path
+            match fit_mode {
+                super::settings::GradientImageFitMode::Stretch => {
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let p = resized.get_pixel(x, y)[0] as f32 / 255.0;
+                            buffer[(y * target_w + x) as usize] = p;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::Center => {
+                    let src_w = gray.width();
+                    let src_h = gray.height();
+                    let offset_x = if target_w > src_w {
+                        ((target_w - src_w) / 2) as i64
+                    } else {
+                        -(((src_w - target_w) / 2) as i64)
+                    };
+                    let offset_y = if target_h > src_h {
+                        ((target_h - src_h) / 2) as i64
+                    } else {
+                        -(((src_h - target_h) / 2) as i64)
+                    };
+
+                    for ty in 0..target_h as i64 {
+                        for tx in 0..target_w as i64 {
+                            let sx = tx - offset_x;
+                            let sy = ty - offset_y;
+                            let v =
+                                if sx >= 0 && sy >= 0 && (sx as u32) < src_w && (sy as u32) < src_h
+                                {
+                                    gray.get_pixel(sx as u32, sy as u32)[0] as f32 / 255.0
+                                } else {
+                                    0.0
+                                };
+                            buffer[(ty as u32 * target_w + tx as u32) as usize] = v;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::FitH => {
+                    let src_w = gray.width() as f32;
+                    let src_h = gray.height() as f32;
+                    let target_w_f = target_w as f32;
+
+                    let scale = target_w_f / src_w;
+                    let scaled_h = (src_h * scale) as u32;
+
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        scaled_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let offset_y = if scaled_h < target_h {
+                        ((target_h - scaled_h) / 2) as i64
+                    } else {
+                        0
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let src_y = (y as i64 - offset_y) as u32;
+                            let v = if src_y < scaled_h {
+                                resized.get_pixel(x, src_y)[0] as f32 / 255.0
+                            } else {
+                                0.0
+                            };
+                            buffer[(y * target_w + x) as usize] = v;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::FitV => {
+                    let src_w = gray.width() as f32;
+                    let src_h = gray.height() as f32;
+                    let target_h_f = target_h as f32;
+
+                    let scale = target_h_f / src_h;
+                    let scaled_w = (src_w * scale) as u32;
+
+                    let resized = image::imageops::resize(
+                        &gray,
+                        scaled_w,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let offset_x = if scaled_w < target_w {
+                        ((target_w - scaled_w) / 2) as i64
+                    } else {
+                        0
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let src_x = (x as i64 - offset_x) as u32;
+                            let v = if src_x < scaled_w {
+                                resized.get_pixel(src_x, y)[0] as f32 / 255.0
+                            } else {
+                                0.0
+                            };
+                            buffer[(y * target_w + x) as usize] = v;
+                        }
+                    }
+                }
+            }
+
+            // Mirror / invert controls for static image
+            if self.settings.gradient_image_mirror_horizontal {
+                let w = target_w as usize;
+                let h = target_h as usize;
+                for y in 0..h {
+                    let row = &mut buffer[y * w..(y + 1) * w];
+                    row.reverse();
+                }
+            }
+            if self.settings.gradient_image_invert_tone {
+                for v in buffer.iter_mut() {
+                    *v = 1.0 - *v;
+                }
+            }
+
+            // Store base grayscale values (before strength is applied)
+            self.gradient_image_base = Some(buffer.clone());
+
+            // Apply strength
+            let strength = self.settings.gradient_strength;
+            for v in buffer.iter_mut() {
+                *v = (*v * strength).clamp(0.0, 1.0);
+            }
+
+            // Store final processed values
+            self.gradient_image_raw = Some(buffer.clone());
+
+            // Mark that the image needs to be re-uploaded to GPU
+            self.gradient_image_needs_upload = true;
+        }
+    }
+
+    /// Reprocess the stored position image with the current fit mode
+    pub fn reprocess_position_image_with_current_fit_mode(&mut self) {
+        if let Some(original_img) = &self.position_image_original {
+            let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
+
+            // Convert to Luma8 (grayscale)
+            let gray = original_img.to_luma8();
+            let fit_mode = self.settings.position_image_fit_mode;
+
+            // Prepare buffer of size target_w * target_h
+            let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
+
+            // Apply the same processing logic as in load_position_image_from_path
+            match fit_mode {
+                super::settings::GradientImageFitMode::Stretch => {
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let p = resized.get_pixel(x, y)[0] as f32 / 255.0;
+                            buffer[(y * target_w + x) as usize] = p;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::Center => {
+                    let src_w = gray.width();
+                    let src_h = gray.height();
+                    let offset_x = if target_w > src_w {
+                        ((target_w - src_w) / 2) as i64
+                    } else {
+                        -(((src_w - target_w) / 2) as i64)
+                    };
+                    let offset_y = if target_h > src_h {
+                        ((target_h - src_h) / 2) as i64
+                    } else {
+                        -(((src_h - target_h) / 2) as i64)
+                    };
+
+                    for ty in 0..target_h as i64 {
+                        for tx in 0..target_w as i64 {
+                            let sx = tx - offset_x;
+                            let sy = ty - offset_y;
+                            let v =
+                                if sx >= 0 && sy >= 0 && (sx as u32) < src_w && (sy as u32) < src_h
+                                {
+                                    gray.get_pixel(sx as u32, sy as u32)[0] as f32 / 255.0
+                                } else {
+                                    0.0
+                                };
+                            buffer[(ty as u32 * target_w + tx as u32) as usize] = v;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::FitH => {
+                    let src_w = gray.width() as f32;
+                    let src_h = gray.height() as f32;
+                    let target_w_f = target_w as f32;
+
+                    let scale = target_w_f / src_w;
+                    let scaled_h = (src_h * scale) as u32;
+
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        scaled_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let offset_y = if scaled_h < target_h {
+                        ((target_h - scaled_h) / 2) as i64
+                    } else {
+                        0
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let src_y = (y as i64 - offset_y) as u32;
+                            let v = if src_y < scaled_h {
+                                resized.get_pixel(x, src_y)[0] as f32 / 255.0
+                            } else {
+                                0.0
+                            };
+                            buffer[(y * target_w + x) as usize] = v;
+                        }
+                    }
+                }
+                super::settings::GradientImageFitMode::FitV => {
+                    let src_w = gray.width() as f32;
+                    let src_h = gray.height() as f32;
+                    let target_h_f = target_h as f32;
+
+                    let scale = target_h_f / src_h;
+                    let scaled_w = (src_w * scale) as u32;
+
+                    let resized = image::imageops::resize(
+                        &gray,
+                        scaled_w,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let offset_x = if scaled_w < target_w {
+                        ((target_w - scaled_w) / 2) as i64
+                    } else {
+                        0
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let src_x = (x as i64 - offset_x) as u32;
+                            let v = if src_x < scaled_w {
+                                resized.get_pixel(src_x, y)[0] as f32 / 255.0
+                            } else {
+                                0.0
+                            };
+                            buffer[(y * target_w + x) as usize] = v;
+                        }
+                    }
+                }
+            }
+
+            // Store the reprocessed image data
+            self.position_image_raw = Some(buffer);
+
+            // Mark that the image needs to be re-uploaded to GPU
+            self.position_image_needs_upload = true;
+        }
+    }
+
+    /// Reprocess the stored image with the current strength setting
+    fn reprocess_gradient_image_with_current_strength(&mut self) {
+        if let (Some(base_buffer), Some(processed_buffer)) =
+            (&self.gradient_image_base, &mut self.gradient_image_raw)
+        {
+            // Apply the current strength to the base values
+            let strength = self.settings.gradient_strength;
+            for (i, base_value) in base_buffer.iter().enumerate() {
+                processed_buffer[i] = (base_value * strength).clamp(0.0, 1.0);
+            }
+
+            // Mark that the image needs to be re-uploaded to GPU
+            self.gradient_image_needs_upload = true;
+        }
+    }
+
     /// Update the background parameters and upload to GPU
     pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
         let background_params = BackgroundParams {
@@ -1417,6 +2178,7 @@ impl SlimeMoldModel {
                 super::settings::GradientType::Ellipse => 3,
                 super::settings::GradientType::Spiral => 4,
                 super::settings::GradientType::Checkerboard => 5,
+                super::settings::GradientType::Image => 6,
             },
             gradient_strength: self.settings.gradient_strength,
             gradient_center_x: self.settings.gradient_center_x,
@@ -1473,23 +2235,15 @@ impl SlimeMoldModel {
                     .blur_pipeline
                     .get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            &self.post_processing_resources.blur_sampler,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self
-                            .post_processing_resources
-                            .blur_params_buffer
-                            .as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, input_texture_view),
+                    resource_helpers::sampler_bind_entry(
+                        1,
+                        &self.post_processing_resources.blur_sampler,
+                    ),
+                    resource_helpers::buffer_entry(
+                        2,
+                        &self.post_processing_resources.blur_params_buffer,
+                    ),
                 ],
             });
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1529,7 +2283,7 @@ impl Drop for SlimeMoldModel {
 }
 
 impl crate::simulations::traits::Simulation for SlimeMoldModel {
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -2226,5 +2980,78 @@ impl SlimeMoldModel {
             mipmap_filter: self.app_settings.texture_filtering.into(),
             ..Default::default()
         });
+    }
+
+    /// Start webcam capture for gradient input
+    pub fn start_webcam_capture(&mut self, device_index: i32) -> SimulationResult<()> {
+        self.webcam_capture
+            .set_target_dimensions(self.current_width, self.current_height);
+        let result = self.webcam_capture.start_capture(device_index);
+        if let Err(e) = &result {
+            tracing::error!("webcam_capture.start_capture failed: {}", e);
+        }
+        result
+    }
+
+    /// Stop webcam capture
+    pub fn stop_webcam_capture(&mut self) {
+        self.webcam_capture.stop_capture();
+    }
+
+    /// Update gradient buffer with latest webcam frame
+    pub fn update_gradient_from_webcam(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        if let Some(frame_data) = self.webcam_capture.get_latest_frame_data() {
+            let mut buffer = self.webcam_capture.frame_data_to_gradient_buffer(
+                &frame_data,
+                self.current_width,
+                self.current_height,
+            )?;
+
+            // Apply mirror/invert controls
+            if self.settings.gradient_image_mirror_horizontal {
+                let w = self.current_width as usize;
+                let h = self.current_height as usize;
+                for y in 0..h {
+                    let row = &mut buffer[y * w..(y + 1) * w];
+                    row.reverse();
+                }
+            }
+            if self.settings.gradient_image_invert_tone {
+                for v in buffer.iter_mut() {
+                    *v = 1.0 - *v;
+                }
+            }
+
+            // Apply strength
+            let strength = self.settings.gradient_strength;
+            let processed_buffer = buffer
+                .iter()
+                .map(|&v| (v * strength).clamp(0.0, 1.0))
+                .collect::<Vec<f32>>();
+
+            // Upload to GPU buffer
+            queue.write_buffer(
+                &self.gradient_buffer,
+                0,
+                bytemuck::cast_slice::<f32, u8>(&processed_buffer),
+            );
+
+            // Store for reprocessing if needed
+            self.gradient_image_raw = Some(processed_buffer);
+            self.gradient_image_needs_upload = false;
+        } else {
+            // No new data this tick: keep the last uploaded gradient intact
+        }
+        Ok(())
+    }
+
+    /// Check if webcam is available
+    pub fn is_webcam_available(&self, device_index: i32) -> bool {
+        super::webcam::WebcamCapture::is_webcam_available(device_index)
+    }
+
+    /// Get list of available webcam devices
+    pub fn get_available_webcam_devices(&self) -> Vec<i32> {
+        super::webcam::WebcamCapture::get_available_devices()
     }
 }

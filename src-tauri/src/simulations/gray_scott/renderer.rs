@@ -1,4 +1,5 @@
 use crate::error::SimulationResult;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
     BindGroupBuilder, CommonBindGroupLayouts, RenderPipelineBuilder, ShaderManager,
 };
@@ -48,8 +49,8 @@ impl Renderer {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
-        width: u32,
-        height: u32,
+        sim_width: u32,
+        sim_height: u32,
         lut_manager: &crate::simulations::shared::ColorSchemeManager,
         app_settings: &crate::commands::app_settings::AppSettings,
     ) -> SimulationResult<Self> {
@@ -89,61 +90,11 @@ impl Renderer {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Render Bind Group Layout"),
             entries: &[
-                // Binding 2: Background color uniform
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 3: Simulation data (UVPair array)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 4: LUT data
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 5: Simulation parameters
-                wgpu::BindGroupLayoutEntry {
-                    binding: 5,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Binding 6: Render parameters
-                wgpu::BindGroupLayoutEntry {
-                    binding: 6,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::FRAGMENT, true),
+                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::FRAGMENT, true),
+                resource_helpers::uniform_buffer_entry(5, wgpu::ShaderStages::FRAGMENT),
+                resource_helpers::uniform_buffer_entry(6, wgpu::ShaderStages::FRAGMENT),
             ],
         });
 
@@ -160,7 +111,11 @@ impl Renderer {
         // Initialize camera with appropriate settings for Gray Scott simulation
         // Gray Scott operates in [0,1] UV space, so we want to view that area
         // Use physical pixels for camera viewport (surface configuration dimensions)
-        let camera = Camera::new(device, width as f32, height as f32)?;
+        let camera = Camera::new(
+            device,
+            surface_config.width as f32,
+            surface_config.height as f32,
+        )?;
 
         // Load shaders using shader manager
         let shader_infinite = shader_manager.load_shader(
@@ -227,8 +182,8 @@ impl Renderer {
             device: Arc::clone(device),
             queue: Arc::clone(queue),
             surface_config: surface_config.clone(),
-            width,
-            height,
+            width: sim_width,
+            height: sim_height,
             settings,
             lut_buffer,
             background_color_buffer,
@@ -343,6 +298,10 @@ impl Renderer {
             .resize(new_config.width as f32, new_config.height as f32);
 
         Ok(())
+    }
+
+    pub fn get_surface_config(&self) -> &SurfaceConfiguration {
+        &self.surface_config
     }
 
     pub fn device(&self) -> Arc<Device> {

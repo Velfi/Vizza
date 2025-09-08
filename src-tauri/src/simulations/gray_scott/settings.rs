@@ -11,6 +11,21 @@ pub enum NutrientPattern {
     EnhancedNoise,
     WaveFunction,
     CosineGrid,
+    ImageGradient,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GradientImageFitMode {
+    Stretch,
+    Center,
+    FitH,
+    FitV,
+}
+
+impl Default for GradientImageFitMode {
+    fn default() -> Self {
+        Self::Stretch
+    }
 }
 
 impl Serialize for NutrientPattern {
@@ -28,6 +43,7 @@ impl Serialize for NutrientPattern {
             NutrientPattern::EnhancedNoise => "Enhanced Noise",
             NutrientPattern::WaveFunction => "Wave Function",
             NutrientPattern::CosineGrid => "Cosine Grid",
+            NutrientPattern::ImageGradient => "Image Gradient",
         };
         serializer.serialize_str(s)
     }
@@ -50,6 +66,7 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "Enhanced Noise" => Ok(NutrientPattern::EnhancedNoise),
             "Wave Function" => Ok(NutrientPattern::WaveFunction),
             "Cosine Grid" => Ok(NutrientPattern::CosineGrid),
+            "Image Gradient" => Ok(NutrientPattern::ImageGradient),
             // Handle internal names for backward compatibility
             "uniform" => Ok(NutrientPattern::Uniform),
             "checkerboard" => Ok(NutrientPattern::Checkerboard),
@@ -60,6 +77,7 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "enhanced_noise" => Ok(NutrientPattern::EnhancedNoise),
             "wave_function" => Ok(NutrientPattern::WaveFunction),
             "cosine_grid" => Ok(NutrientPattern::CosineGrid),
+            "image_gradient" => Ok(NutrientPattern::ImageGradient),
             // Handle enum variant names
             "DiagonalGradient" => Ok(NutrientPattern::DiagonalGradient),
             "RadialGradient" => Ok(NutrientPattern::RadialGradient),
@@ -68,6 +86,7 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "EnhancedNoise" => Ok(NutrientPattern::EnhancedNoise),
             "WaveFunction" => Ok(NutrientPattern::WaveFunction),
             "CosineGrid" => Ok(NutrientPattern::CosineGrid),
+            "ImageGradient" => Ok(NutrientPattern::ImageGradient),
             _ => Ok(NutrientPattern::Uniform), // Default fallback
         }
     }
@@ -91,6 +110,7 @@ impl From<NutrientPattern> for u32 {
             NutrientPattern::EnhancedNoise => 6,
             NutrientPattern::WaveFunction => 7,
             NutrientPattern::CosineGrid => 8,
+            NutrientPattern::ImageGradient => 9,
         }
     }
 }
@@ -104,12 +124,17 @@ pub struct Settings {
     pub timestep: f32,
     pub nutrient_pattern: NutrientPattern,
     pub nutrient_pattern_reversed: bool,
+    pub gradient_image_fit_mode: GradientImageFitMode,
+    pub gradient_image_mirror_horizontal: bool,
+    pub gradient_image_invert_tone: bool,
     // New optimization settings
     pub max_timestep: f32,
     pub stability_factor: f32,
     pub enable_adaptive_timestep: bool,
     pub change_threshold: f32,
     pub enable_selective_updates: bool,
+    // Simulation resolution settings
+    pub simulation_resolution_scale: f32,
 }
 
 impl Default for Settings {
@@ -122,12 +147,17 @@ impl Default for Settings {
             timestep: 1.0,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
+            gradient_image_fit_mode: GradientImageFitMode::Stretch,
+            gradient_image_mirror_horizontal: false,
+            gradient_image_invert_tone: false,
             // Optimization defaults
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: false,
             change_threshold: 0.001,
             enable_selective_updates: false,
+            // Simulation resolution scale (0.5 = half resolution for better performance)
+            simulation_resolution_scale: 0.5,
         }
     }
 }
@@ -155,6 +185,7 @@ impl Settings {
             NutrientPattern::EnhancedNoise,
             NutrientPattern::WaveFunction,
             NutrientPattern::CosineGrid,
+            NutrientPattern::ImageGradient,
         ];
         self.nutrient_pattern = patterns[rng.random_range(0..patterns.len())];
 

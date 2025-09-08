@@ -32,6 +32,8 @@ toml = "0.9"
 tracing = "0.1.41"
 tracing-subscriber = "0.3"
 wgpu = "26"
+image = "0.25"
+nokhwa = { version = "0.10", features = ["input-native", "output-wgpu"] }
 
 
 [features]

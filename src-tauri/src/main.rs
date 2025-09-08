@@ -165,6 +165,7 @@ fn main() {
     let app_settings_clone = app_settings.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(tokio::sync::Mutex::new(SimulationManager::new(
             app_settings,
         ))))
@@ -221,21 +222,33 @@ fn main() {
             commands::flip_force_matrix_sign,
             commands::clear_trail_texture,
             commands::kill_all_particles,
-            commands::draw_antialiased_shape,       // Flow
-            commands::update_post_processing_state, // Flow
-            commands::get_post_processing_state,    // Flow
+            commands::draw_antialiased_shape,            // Flow
+            commands::update_post_processing_state,      // Flow
+            commands::get_post_processing_state,         // Flow
+            commands::set_flow_vector_field_type,        // Flow
+            commands::set_flow_image_fit_mode,           // Flow
+            commands::set_flow_image_mirror_horizontal,  // Flow
+            commands::set_flow_image_invert_tone,        // Flow
+            commands::load_flow_vector_field_image,      // Flow
+            commands::start_flow_webcam_capture,         // Flow webcam
+            commands::stop_flow_webcam_capture,          // Flow webcam
+            commands::get_available_flow_webcam_devices, // Flow webcam
             commands::update_particle_life_post_processing_state, // Particle Life
             commands::get_particle_life_post_processing_state, // Particle Life
             commands::update_gray_scott_post_processing_state, // Gray Scott
             commands::get_gray_scott_post_processing_state, // Gray Scott
+            commands::load_gray_scott_nutrient_image,    // Gray Scott
+            commands::start_gray_scott_webcam_capture,   // Gray Scott webcam
+            commands::stop_gray_scott_webcam_capture,    // Gray Scott webcam
+            commands::get_available_gray_scott_webcam_devices, // Gray Scott webcam
             commands::update_slime_mold_post_processing_state, // Slime Mold
             commands::get_slime_mold_post_processing_state, // Slime Mold
             commands::update_pellets_post_processing_state, // Pellets
             commands::get_pellets_post_processing_state, // Pellets
-            commands::update_pellets_trails_state,  // Pellets trails
+            commands::update_pellets_trails_state,       // Pellets trails
             commands::update_voronoi_ca_post_processing_state, // Voronoi CA
             commands::get_voronoi_ca_post_processing_state, // Voronoi CA
-            commands::update_voronoi_ca_border_width, // Voronoi CA
+            commands::update_voronoi_ca_border_width,    // Voronoi CA
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
@@ -272,6 +285,13 @@ fn main() {
             // Slime mold specific commands
             commands::update_agent_count,
             commands::get_current_agent_count,
+            commands::load_slime_mold_gradient_image,
+            commands::set_slime_mold_gradient_image_fit_mode,
+            commands::load_slime_mold_position_image,
+            commands::set_slime_mold_position_image_fit_mode,
+            commands::start_slime_mold_webcam_capture,
+            commands::stop_slime_mold_webcam_capture,
+            commands::get_available_webcam_devices,
             // Interaction commands
             commands::handle_mouse_interaction,
             commands::handle_mouse_interaction_screen,
@@ -289,6 +309,13 @@ fn main() {
             commands::set_fps_limit,
             commands::toggle_fullscreen,
             commands::get_app_version,
+            // Flow image commands
+            commands::load_flow_vector_field_image,
+            commands::load_flow_vector_field_image_bytes,
+            commands::set_flow_vector_field_type,
+            commands::set_flow_image_fit_mode,
+            commands::set_flow_image_mirror_horizontal,
+            commands::set_flow_image_invert_tone,
             // Reset commands
             commands::reset_trails,
             commands::reset_agents,

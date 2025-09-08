@@ -137,7 +137,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
 
-  import logo from '../assets/Logo.png';
+  import logo from '../assets/NewLogo.png';
 
   const dispatch = createEventDispatcher();
   let renderLoopId: number | null = null;
@@ -213,8 +213,8 @@
   }
 
   .logo {
-    width: 400px;
-    height: 400px;
+    margin-top: 5rem;
+    width: 300px;
   }
 
   h1 {

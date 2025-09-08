@@ -7,6 +7,12 @@ var<storage, read_write> flow_vectors: array<FlowVector>;
 @group(0) @binding(1)
 var<uniform> params: FlowVectorParams;
 
+@group(0) @binding(2)
+var vector_field_image: texture_2d<f32>;
+
+@group(0) @binding(3)
+var vector_field_sampler: sampler;
+
 struct FlowVector {
     position: vec2<f32>,
     direction: vec2<f32>,
@@ -14,6 +20,7 @@ struct FlowVector {
 
 struct FlowVectorParams {
     grid_size: u32,
+    vector_field_type: u32, // 0=Noise, 1=Image
     noise_type: u32,
     noise_scale: f32,
     noise_x: f32,
@@ -408,12 +415,38 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         normalized_y * params.noise_scale + params.noise_y
     );
     
-    // Generate noise value
-    let noise_value = generate_noise(sample_pos, params.noise_type, params.noise_seed, params.time * params.noise_dt_multiplier);
+    // Generate flow direction based on vector field type
+    var direction: vec2<f32>;
     
-    // Create flow direction from noise value
-    let angle = noise_value * 6.28318530718; // 2 * PI
-    let direction = vec2<f32>(cos(angle), sin(angle)) * params.vector_magnitude;
+    // Always reference texture and sampler to prevent optimization (even if unused in noise mode)
+    let texture_size = textureDimensions(vector_field_image);
+    // Reference sampler to prevent optimization - this is a no-op but ensures binding is kept
+    let _sampler_ref = vector_field_sampler;
+    
+    if (params.vector_field_type == 0u) {
+        // Noise-based vector field
+        let noise_value = generate_noise(sample_pos, params.noise_type, params.noise_seed, params.time * params.noise_dt_multiplier);
+        let angle = noise_value * 6.28318530718; // 2 * PI
+        direction = vec2<f32>(cos(angle), sin(angle)) * params.vector_magnitude;
+    } else {
+        // Image-based vector field
+        // Convert world coordinates to texture coordinates
+        let tex_coords = vec2<f32>(
+            (world_x + 1.0) * 0.5, // Convert from [-1,1] to [0,1]
+            1.0 - (world_y + 1.0) * 0.5 // Flip Y coordinate (texture origin is top-left, world origin is bottom-left)
+        );
+        
+        // Sample the image texture using textureLoad (required for compute shaders)
+        let texel_coords = vec2<u32>(
+            u32(tex_coords.x * f32(texture_size.x)),
+            u32(tex_coords.y * f32(texture_size.y))
+        );
+        let image_value = textureLoad(vector_field_image, texel_coords, 0).r;
+        
+        // Convert grayscale value to angle (0-1 maps to 0-2π)
+        let angle = image_value * 6.28318530718; // 2 * PI
+        direction = vec2<f32>(cos(angle), sin(angle)) * params.vector_magnitude;
+    }
     
     // Store flow vector
     flow_vectors[index] = FlowVector(

@@ -102,8 +102,7 @@
             </Button>
           </div>
           <div class="control-group">
-            <span>Camera controls not working? Click the control bar at the top of the screen.</span
-            >
+            <span class="camera-help-text">Camera controls not working? Click the control bar at the top of the screen.</span>
           </div>
         </div>
         <div class="cursor-settings">
@@ -165,6 +164,19 @@
       <div class="settings-section">
         <h3 class="section-header">Voronoi Parameters</h3>
         <div class="settings-grid">
+          <div class="setting-item">
+            <span class="setting-label">Rule String:</span>
+            <input
+              type="text"
+              bind:value={rulestring}
+              placeholder="B3/S23"
+              class="rulestring-input"
+              on:blur={() => updateRulestring(rulestring)}
+            />
+            <small class="rulestring-help">
+              Conway's Game of Life: B3/S23, High Life: B36/S23, Seeds: B2/S
+            </small>
+          </div>
           <div class="setting-item">
             <span class="setting-label">Point Count:</span>
             <NumberDragBox
@@ -305,6 +317,7 @@
   let cursorHideTimeout: number | null = null;
 
   // Simple settings
+  let rulestring = 'B3/S23';
   let drift = 0.5;
   let neighborRadius = 60;
   let aliveThreshold = 0.5;
@@ -319,7 +332,7 @@
   let lutReversed = true;
   let coloringMode = 'Density';
   let bordersEnabled = true;
-  let cursorSize = 0.2;
+  let cursorSize = 0.15; // Larger cursor to actually reach cells
   let cursorStrength = 1.0;
 
   // Presets + UI
@@ -350,6 +363,7 @@
         // pull initial settings
         try {
           const settings = (await invoke('get_current_settings')) as Record<string, unknown>;
+          if (settings && typeof settings.rulestring === 'string') rulestring = settings.rulestring;
           if (settings && typeof settings.drift === 'number') drift = settings.drift;
           if (settings && typeof settings.neighborRadius === 'number')
             neighborRadius = settings.neighborRadius;
@@ -382,9 +396,9 @@
         currentFps = e.payload;
       });
       await invoke('start_simulation', { simulationType: 'voronoi_ca' });
-      // Ensure the compute step runs (backend starts paused by design)
-      await invoke('resume_simulation');
-      running = true;
+      // Backend starts paused by design - keep it paused so painting works
+      // User can manually resume when ready
+      running = false;
       await loadAvailableLuts();
     } catch (e) {
       console.error('Failed to start Voronoi CA:', e);
@@ -688,6 +702,15 @@
     }
   }
 
+  async function updateRulestring(value: string) {
+    rulestring = value;
+    try {
+      await invoke('update_simulation_setting', { settingName: 'rulestring', value });
+    } catch (e) {
+      console.error('Failed to update rulestring:', e);
+    }
+  }
+
   async function updateNeighborRadius(value: number) {
     neighborRadius = value;
     try {
@@ -864,6 +887,16 @@
     font-weight: 500;
     color: rgba(255, 255, 255, 0.8);
     padding: 0.15rem 0;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+
+  .camera-help-text {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    line-height: 1.4;
   }
 
   /* Settings grid for key/value pairs */
@@ -910,6 +943,32 @@
 
   .setting-item:last-child .setting-label {
     border-bottom: none;
+  }
+
+  .rulestring-input {
+    background: #3a3a3a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: #ffffff;
+    padding: 0.5rem;
+    font-family: monospace;
+    font-size: 0.9rem;
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+
+  .rulestring-input:focus {
+    outline: none;
+    border-color: #007acc;
+    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+  }
+
+  .rulestring-help {
+    display: block;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    font-style: italic;
   }
 
   /* Settings section styling */

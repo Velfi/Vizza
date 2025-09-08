@@ -25,6 +25,7 @@ use super::shaders::{
     PARTICLE_RENDER_SHADER, PHYSICS_COMPUTE_SHADER,
 };
 use super::simulation::{BackgroundParams, DensityParams, Particle, PhysicsParams, RenderParams};
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
 use wgpu::util::DeviceExt;
 
@@ -224,36 +225,16 @@ impl PelletsValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Pellets Render Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::VERTEX, true),
+                        resource_helpers::uniform_buffer_entry(
+                            1,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            true,
+                        ),
                     ],
                 });
 
@@ -262,18 +243,9 @@ impl PelletsValidator {
             label: Some("Pellets Render Bind Group"),
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: render_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &render_params_buffer),
+                resource_helpers::buffer_entry(2, &lut_buffer),
             ],
         });
 
@@ -361,26 +333,18 @@ impl PelletsValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Pellets Particle Vertex Bind Group Layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
+                    entries: &[resource_helpers::storage_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX,
+                        true,
+                    )],
                 });
 
         // Create bind group (this will validate the exact buffer binding)
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Particle Vertex Bind Group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: particle_buffer.as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &particle_buffer)],
         });
 
         Ok(())
@@ -423,26 +387,8 @@ impl PelletsValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Pellets Background Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                        resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::FRAGMENT),
                     ],
                 });
 
@@ -501,14 +447,8 @@ impl PelletsValidator {
             label: Some("Pellets Background Bind Group"),
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: background_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &background_params_buffer),
+                resource_helpers::buffer_entry(1, &background_color_buffer),
             ],
         });
 
@@ -560,57 +500,24 @@ impl PelletsValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Pellets Compute Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            0,
+                            wgpu::ShaderStages::COMPUTE,
+                            false,
+                        ),
+                        resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
+                        resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::COMPUTE),
                         // Physics compute now uses an additional storage buffer for atomic grid counts (binding 4)
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            4,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
                     ],
                 });
 

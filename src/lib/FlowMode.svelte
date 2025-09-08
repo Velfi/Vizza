@@ -19,16 +19,18 @@
       <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
         <p>
           Flow Field creates beautiful patterns by moving particles through a vector field generated
-          from noise functions. Particles follow the direction of nearby flow vectors, creating
+          from noise functions or images. Particles follow the direction of nearby flow vectors, creating
           organic, flowing animations.
         </p>
         <p>
-          The simulation uses various noise algorithms to generate the underlying vector field,
-          including Perlin noise, FBM, Billow, and others. Each noise type produces different flow
-          patterns and behaviors.
+          The simulation supports two vector field generation modes:
         </p>
+        <ul>
+          <li><strong>Noise Mode:</strong> Uses various noise algorithms including Perlin noise, FBM, Billow, and others. Each noise type produces different flow patterns and behaviors.</li>
+          <li><strong>Image Mode:</strong> Generates flow vectors from grayscale images, where pixel brightness determines flow direction. Perfect for creating custom flow patterns from photographs or artwork.</li>
+        </ul>
         <p>
-          Experiment with different noise types, adjust particle parameters, and watch as simple
+          Experiment with different vector field types, adjust particle parameters, and watch as simple
           vector fields create complex, mesmerizing particle flows reminiscent of natural phenomena
           like wind, water currents, and magnetic fields.
         </p>
@@ -129,6 +131,8 @@
               on:click={async () => {
                 try {
                   await invoke('reset_simulation');
+                  await syncSettingsFromBackend();
+                  await syncStateFromBackend();
                   console.log('Simulation reset successfully');
                 } catch (e) {
                   console.error('Failed to reset simulation:', e);
@@ -159,72 +163,104 @@
           <h3 class="section-header">Flow Field</h3>
           <div class="settings-grid">
             <div class="setting-item">
-              <span class="setting-label">Noise Type:</span>
+              <span class="setting-label">Vector Field Type:</span>
               <Selector
-                options={[
-                  'OpenSimplex',
-                  'Worley',
-                  'Value',
-                  'FBM',
-                  'FBMBillow',
-                  'FBMClouds',
-                  'FBMRidged',
-                  'Billow',
-                  'RidgedMulti',
-                  'Cylinders',
-                  'Checkerboard',
-                ]}
-                value={settings.noise_type}
-                on:change={(e) => updateNoiseType(e.detail.value)}
+                options={['Noise', 'Image']}
+                value={settings.vector_field_type}
+                on:change={(e) => updateVectorFieldType(e.detail.value)}
               />
             </div>
-            <div class="setting-item">
-              <span class="setting-label">Noise Seed:</span>
-              <NumberDragBox
-                value={settings.noise_seed}
-                on:change={({ detail }) => updateNoiseSeed(detail)}
-                min={0}
-                step={1}
+            
+            {#if settings.vector_field_type === 'Noise'}
+              <div class="setting-item">
+                <span class="setting-label">Noise Type:</span>
+                <Selector
+                  options={[
+                    'OpenSimplex',
+                    'Worley',
+                    'Value',
+                    'FBM',
+                    'FBMBillow',
+                    'FBMClouds',
+                    'FBMRidged',
+                    'Billow',
+                    'RidgedMulti',
+                    'Cylinders',
+                    'Checkerboard',
+                  ]}
+                  value={settings.noise_type}
+                  on:change={(e) => updateNoiseType(e.detail.value)}
+                />
+              </div>
+            {/if}
+            
+            {#if settings.vector_field_type === 'Image'}
+              <ImageSelector
+                fitMode={settings.image_fit_mode}
+                mirrorHorizontal={settings.image_mirror_horizontal}
+                invertTone={settings.image_invert_tone}
+                loadCommand="load_flow_vector_field_image"
+                onFitModeChange={(value) => updateImageFitMode(value)}
+                onMirrorHorizontalChange={(value) => updateImageMirrorHorizontal(value)}
+                onInvertToneChange={(value) => updateImageInvertTone(value)}
               />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Noise Scale:</span>
-              <NumberDragBox
-                value={settings.noise_scale}
-                on:change={({ detail }) => updateNoiseScale(detail)}
-                min={0.001}
-                max={10.0}
-                step={0.01}
-                precision={3}
+              <WebcamControls
+                webcamDevices={webcamDevices}
+                webcamActive={webcamActive}
+                onStartWebcam={startWebcam}
+                onStopWebcam={stopWebcam}
               />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Noise X:</span>
-              <NumberDragBox
-                value={settings.noise_x}
-                on:change={({ detail }) => updateNoiseX(detail)}
-                step={1.0}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Noise Y:</span>
-              <NumberDragBox
-                value={settings.noise_y}
-                on:change={({ detail }) => updateNoiseY(detail)}
-                step={1.0}
-              />
-            </div>
-            <div class="setting-item">
-              <span class="setting-label">Noise DT Multiplier:</span>
-              <NumberDragBox
-                value={settings.noise_dt_multiplier}
-                on:change={({ detail }) => updateNoiseDtMultiplier(detail)}
-                min={0.0}
-                max={10.0}
-                step={0.1}
-                precision={1}
-              />
-            </div>
+            {/if}
+            
+            {#if settings.vector_field_type === 'Noise'}
+              <div class="setting-item">
+                <span class="setting-label">Noise Seed:</span>
+                <NumberDragBox
+                  value={settings.noise_seed}
+                  on:change={({ detail }) => updateNoiseSeed(detail)}
+                  min={0}
+                  step={1}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Noise Scale:</span>
+                <NumberDragBox
+                  value={settings.noise_scale}
+                  on:change={({ detail }) => updateNoiseScale(detail)}
+                  min={0.001}
+                  max={10.0}
+                  step={0.01}
+                  precision={3}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Noise X:</span>
+                <NumberDragBox
+                  value={settings.noise_x}
+                  on:change={({ detail }) => updateNoiseX(detail)}
+                  step={1.0}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Noise Y:</span>
+                <NumberDragBox
+                  value={settings.noise_y}
+                  on:change={({ detail }) => updateNoiseY(detail)}
+                  step={1.0}
+                />
+              </div>
+              <div class="setting-item">
+                <span class="setting-label">Noise DT Multiplier:</span>
+                <NumberDragBox
+                  value={settings.noise_dt_multiplier}
+                  on:change={({ detail }) => updateNoiseDtMultiplier(detail)}
+                  min={0.0}
+                  max={10.0}
+                  step={0.1}
+                  precision={1}
+                />
+              </div>
+            {/if}
             <div class="setting-item">
               <span class="setting-label">Vector Magnitude:</span>
               <NumberDragBox
@@ -386,6 +422,8 @@
   import Button from './components/shared/Button.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import ImageSelector from './components/shared/ImageSelector.svelte';
+  import WebcamControls from './components/shared/WebcamControls.svelte';
   import SimulationLayout from './components/shared/SimulationLayout.svelte';
   import CameraControls from './components/shared/CameraControls.svelte';
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
@@ -394,6 +432,35 @@
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import './shared-theme.css';
   import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
+  // Webcam state (mirrors SlimeMold approach)
+  let webcamDevices: number[] = [];
+  let webcamActive = false;
+
+  async function loadWebcamDevices() {
+    try {
+      webcamDevices = await invoke('get_available_flow_webcam_devices');
+    } catch (e) {
+      console.error('Failed to load flow webcam devices:', e);
+    }
+  }
+
+  async function startWebcam() {
+    try {
+      await invoke('start_flow_webcam_capture');
+      webcamActive = true;
+    } catch (e) {
+      console.error('Failed to start flow webcam:', e);
+    }
+  }
+
+  async function stopWebcam() {
+    try {
+      await invoke('stop_flow_webcam_capture');
+      webcamActive = false;
+    } catch (e) {
+      console.error('Failed to stop flow webcam:', e);
+    }
+  }
 
   const dispatch = createEventDispatcher();
 
@@ -403,6 +470,7 @@
   // Simulation state
   type Settings = {
     // Flow field parameters
+    vector_field_type: string;
     noise_type: string;
     noise_seed: number;
     noise_scale: number;
@@ -410,6 +478,11 @@
     noise_y: number;
     noise_dt_multiplier: number;
     vector_magnitude: number;
+    
+    // Image-based vector field parameters
+    image_fit_mode: string;
+    image_mirror_horizontal: boolean;
+    image_invert_tone: boolean;
 
     // Particle parameters
     total_pool_size: number;
@@ -1205,6 +1278,7 @@
     unlistenFps = await listen('fps-update', (event: { payload: number }) => {
       currentFps = event.payload;
     });
+    await loadWebcamDevices();
   });
 
   onDestroy(async () => {
@@ -1232,6 +1306,53 @@
     stopCursorHideTimer();
     showCursor();
   });
+
+  // Vector field type functions
+  async function updateVectorFieldType(value: string) {
+    settings!.vector_field_type = value;
+    try {
+      await invoke('set_flow_vector_field_type', {
+        vectorFieldType: value,
+      });
+    } catch (e) {
+      console.error('Failed to update vector field type:', e);
+    }
+  }
+
+  // Image-related functions
+  async function updateImageFitMode(value: string) {
+    settings!.image_fit_mode = value;
+    try {
+      await invoke('set_flow_image_fit_mode', {
+        fitMode: value,
+      });
+    } catch (e) {
+      console.error('Failed to update image fit mode:', e);
+    }
+  }
+
+  async function updateImageMirrorHorizontal(mirror: boolean) {
+    settings!.image_mirror_horizontal = mirror;
+    try {
+      await invoke('set_flow_image_mirror_horizontal', {
+        mirror,
+      });
+    } catch (e) {
+      console.error('Failed to update image mirror horizontal:', e);
+    }
+  }
+
+  async function updateImageInvertTone(invert: boolean) {
+    settings!.image_invert_tone = invert;
+    try {
+      await invoke('set_flow_image_invert_tone', {
+        invert,
+      });
+    } catch (e) {
+      console.error('Failed to update image invert tone:', e);
+    }
+  }
+
 </script>
 
 <style>

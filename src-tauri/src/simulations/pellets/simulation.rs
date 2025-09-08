@@ -21,6 +21,7 @@
 use crate::commands::app_settings::{AppSettings, TextureFiltering};
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::pellets::settings::{BackgroundColorMode, ForegroundColorMode};
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
     AverageColorResources, BindGroupBuilder, ColorSchemeManager, ComputePipelineBuilder,
     RenderPipelineBuilder, camera::Camera,
@@ -384,36 +385,16 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::VERTEX, true),
+                    resource_helpers::uniform_buffer_entry(
+                        1,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::storage_buffer_entry(
+                        2,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        true,
+                    ),
                 ],
             });
 
@@ -453,56 +434,11 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Physics Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
                 ],
             });
 
@@ -518,26 +454,8 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Density Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -570,26 +488,8 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Background Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -626,20 +526,12 @@ impl PelletsModel {
             multiview: None,
         });
 
-        let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Pellets Background Bind Group"),
-            layout: &background_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: background_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let background_bind_group = resource_helpers::create_buffer_bind_group(
+            &device,
+            &background_bind_group_layout,
+            "Pellets Background Bind Group",
+            &[&background_params_buffer, &background_color_buffer],
+        );
 
         // Initialize spatial partitioning grid
         // Derive cell size from particle size to bound neighbor counts
@@ -706,36 +598,9 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Grid Clear Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 
@@ -743,91 +608,32 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Grid Populate Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 
         // Create grid bind groups
-        let grid_clear_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Pellets Grid Clear Bind Group"),
-            layout: &grid_clear_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: grid_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: grid_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: grid_counts_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let grid_clear_bind_group = resource_helpers::create_buffer_bind_group(
+            &device,
+            &grid_clear_bind_group_layout,
+            "Pellets Grid Clear Bind Group",
+            &[&grid_buffer, &grid_params_buffer, &grid_counts_buffer],
+        );
 
-        let grid_populate_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Pellets Grid Populate Bind Group"),
-            layout: &grid_populate_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: grid_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: grid_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: grid_counts_buffer.as_entire_binding(),
-                },
+        let grid_populate_bind_group = resource_helpers::create_buffer_bind_group(
+            &device,
+            &grid_populate_bind_group_layout,
+            "Pellets Grid Populate Bind Group",
+            &[
+                &particle_buffer,
+                &grid_buffer,
+                &grid_params_buffer,
+                &grid_counts_buffer,
             ],
-        });
+        );
 
         // Create grid compute pipelines
         let grid_clear_pipeline =
@@ -867,26 +673,11 @@ impl PelletsModel {
             label: Some("Pellets Physics Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: physics_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: grid_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: grid_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: grid_counts_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &physics_params_buffer),
+                resource_helpers::buffer_entry(2, &grid_buffer),
+                resource_helpers::buffer_entry(3, &grid_params_buffer),
+                resource_helpers::buffer_entry(4, &grid_counts_buffer),
             ],
         });
 
@@ -967,25 +758,16 @@ impl PelletsModel {
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                )],
             });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Camera Bind Group"),
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera.buffer().as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, camera.buffer())],
         });
 
         // Create offscreen render pipelines
@@ -999,26 +781,14 @@ impl PelletsModel {
                             &wgpu::BindGroupLayoutDescriptor {
                                 label: Some("Pellets Background Render Bind Group Layout"),
                                 entries: &[
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 0,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Uniform,
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 1,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Uniform,
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
+                                    resource_helpers::uniform_buffer_entry(
+                                        0,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                    ),
+                                    resource_helpers::uniform_buffer_entry(
+                                        1,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                    ),
                                 ],
                             },
                         )],
@@ -1058,14 +828,8 @@ impl PelletsModel {
             label: Some("Pellets Background Render Bind Group"),
             layout: &background_render_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: background_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &background_params_buffer),
+                resource_helpers::buffer_entry(1, &background_color_buffer),
             ],
         });
 
@@ -1079,42 +843,20 @@ impl PelletsModel {
                             &wgpu::BindGroupLayoutDescriptor {
                                 label: Some("Pellets Particle Render Bind Group Layout"),
                                 entries: &[
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 0,
-                                        visibility: wgpu::ShaderStages::VERTEX,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Storage {
-                                                read_only: true,
-                                            },
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 1,
-                                        visibility: wgpu::ShaderStages::VERTEX
-                                            | wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Uniform,
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 2,
-                                        visibility: wgpu::ShaderStages::VERTEX
-                                            | wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Storage {
-                                                read_only: true,
-                                            },
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
+                                    resource_helpers::storage_buffer_entry(
+                                        0,
+                                        wgpu::ShaderStages::VERTEX,
+                                        true,
+                                    ),
+                                    resource_helpers::uniform_buffer_entry(
+                                        1,
+                                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                                    ),
+                                    resource_helpers::storage_buffer_entry(
+                                        2,
+                                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                                        true,
+                                    ),
                                 ],
                             },
                         )],
@@ -1154,18 +896,9 @@ impl PelletsModel {
             label: Some("Pellets Particle Render Bind Group"),
             layout: &particle_render_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: render_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &render_params_buffer),
+                resource_helpers::buffer_entry(2, &lut_buffer),
             ],
         });
 
@@ -1178,36 +911,21 @@ impl PelletsModel {
                         &wgpu::BindGroupLayoutDescriptor {
                             label: Some("Pellets Post Effect Bind Group Layout"),
                             entries: &[
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 0,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Buffer {
-                                        ty: wgpu::BufferBindingType::Uniform,
-                                        has_dynamic_offset: false,
-                                        min_binding_size: None,
-                                    },
-                                    count: None,
-                                },
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 1,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Texture {
-                                        sample_type: wgpu::TextureSampleType::Float {
-                                            filterable: true,
-                                        },
-                                        view_dimension: wgpu::TextureViewDimension::D2,
-                                        multisampled: false,
-                                    },
-                                    count: None,
-                                },
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 2,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Sampler(
-                                        wgpu::SamplerBindingType::Filtering,
-                                    ),
-                                    count: None,
-                                },
+                                resource_helpers::uniform_buffer_entry(
+                                    0,
+                                    wgpu::ShaderStages::FRAGMENT,
+                                ),
+                                resource_helpers::texture_entry(
+                                    1,
+                                    wgpu::ShaderStages::FRAGMENT,
+                                    wgpu::TextureSampleType::Float { filterable: true },
+                                    wgpu::TextureViewDimension::D2,
+                                ),
+                                resource_helpers::sampler_entry(
+                                    2,
+                                    wgpu::ShaderStages::FRAGMENT,
+                                    wgpu::SamplerBindingType::Filtering,
+                                ),
                             ],
                         },
                     )],
@@ -1251,18 +969,9 @@ impl PelletsModel {
             label: Some("Pellets Post Effect Bind Group"),
             layout: &post_effect_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: post_effect_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&display_sampler),
-                },
+                resource_helpers::buffer_entry(0, &post_effect_params_buffer),
+                resource_helpers::texture_view_entry(1, &display_view),
+                resource_helpers::sampler_bind_entry(2, &display_sampler),
             ],
         });
 
@@ -1276,46 +985,25 @@ impl PelletsModel {
                             &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                                 label: Some("Pellets Render Infinite Bind Group Layout"),
                                 entries: &[
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 0,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Texture {
-                                            sample_type: wgpu::TextureSampleType::Float {
-                                                filterable: true,
-                                            },
-                                            view_dimension: wgpu::TextureViewDimension::D2,
-                                            multisampled: false,
-                                        },
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 1,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Sampler(
-                                            wgpu::SamplerBindingType::Filtering,
-                                        ),
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 2,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Uniform,
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
-                                    wgpu::BindGroupLayoutEntry {
-                                        binding: 3,
-                                        visibility: wgpu::ShaderStages::FRAGMENT,
-                                        ty: wgpu::BindingType::Buffer {
-                                            ty: wgpu::BufferBindingType::Uniform,
-                                            has_dynamic_offset: false,
-                                            min_binding_size: None,
-                                        },
-                                        count: None,
-                                    },
+                                    resource_helpers::texture_entry(
+                                        0,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                        wgpu::TextureSampleType::Float { filterable: true },
+                                        wgpu::TextureViewDimension::D2,
+                                    ),
+                                    resource_helpers::sampler_entry(
+                                        1,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                        wgpu::SamplerBindingType::Filtering,
+                                    ),
+                                    resource_helpers::uniform_buffer_entry(
+                                        2,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                    ),
+                                    resource_helpers::uniform_buffer_entry(
+                                        3,
+                                        wgpu::ShaderStages::FRAGMENT,
+                                    ),
                                 ],
                             }),
                             &camera_bind_group_layout,
@@ -1423,32 +1111,18 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Trail Fade BGL"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::texture_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        2,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                 ],
             });
         let trail_fade_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1503,26 +1177,17 @@ impl PelletsModel {
                         &wgpu::BindGroupLayoutDescriptor {
                             label: Some("Pellets Trail Blit BGL"),
                             entries: &[
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 0,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Texture {
-                                        sample_type: wgpu::TextureSampleType::Float {
-                                            filterable: true,
-                                        },
-                                        view_dimension: wgpu::TextureViewDimension::D2,
-                                        multisampled: false,
-                                    },
-                                    count: None,
-                                },
-                                wgpu::BindGroupLayoutEntry {
-                                    binding: 1,
-                                    visibility: wgpu::ShaderStages::FRAGMENT,
-                                    ty: wgpu::BindingType::Sampler(
-                                        wgpu::SamplerBindingType::Filtering,
-                                    ),
-                                    count: None,
-                                },
+                                resource_helpers::texture_entry(
+                                    0,
+                                    wgpu::ShaderStages::FRAGMENT,
+                                    wgpu::TextureSampleType::Float { filterable: true },
+                                    wgpu::TextureViewDimension::D2,
+                                ),
+                                resource_helpers::sampler_entry(
+                                    1,
+                                    wgpu::ShaderStages::FRAGMENT,
+                                    wgpu::SamplerBindingType::Filtering,
+                                ),
                             ],
                         },
                     )],
@@ -1568,26 +1233,10 @@ impl PelletsModel {
             label: Some("Pellets Render Infinite Bind Group"),
             layout: &render_infinite_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&post_effect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &background_color_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: average_color_uniform_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &post_effect_view),
+                resource_helpers::sampler_bind_entry(1, &display_sampler),
+                resource_helpers::buffer_entry(2, &background_color_buffer),
+                resource_helpers::buffer_entry(3, &average_color_uniform_buffer),
             ],
         });
 
@@ -1603,32 +1252,17 @@ impl PelletsModel {
             label: Some("Pellets Trail Fade Bind Group"),
             layout: &trail_fade_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: trail_fade_uniforms_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view_b),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&trail_sampler),
-                },
+                resource_helpers::buffer_entry(0, &trail_fade_uniforms_buffer),
+                resource_helpers::texture_view_entry(1, &trail_texture_view_b),
+                resource_helpers::sampler_bind_entry(2, &trail_sampler),
             ],
         });
         let _initial_trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Trail Blit Bind Group"),
             layout: &trail_blit_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view_a),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&trail_sampler),
-                },
+                resource_helpers::texture_view_entry(0, &trail_texture_view_a),
+                resource_helpers::sampler_bind_entry(1, &trail_sampler),
             ],
         });
 
@@ -1638,18 +1272,9 @@ impl PelletsModel {
                 label: Some("Pellets Trail Fade Bind Group (placeholder)"),
                 layout: &trail_fade_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: trail_fade_uniforms_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&display_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&display_sampler),
-                    },
+                    resource_helpers::buffer_entry(0, &trail_fade_uniforms_buffer),
+                    resource_helpers::texture_view_entry(1, &display_view),
+                    resource_helpers::sampler_bind_entry(2, &display_sampler),
                 ],
             });
         let placeholder_trail_blit_bind_group =
@@ -1657,14 +1282,8 @@ impl PelletsModel {
                 label: Some("Pellets Trail Blit Bind Group (placeholder)"),
                 layout: &trail_blit_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&display_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&display_sampler),
-                    },
+                    resource_helpers::texture_view_entry(0, &display_view),
+                    resource_helpers::sampler_bind_entry(1, &display_sampler),
                 ],
             });
 
@@ -1746,32 +1365,17 @@ impl PelletsModel {
             label: Some("Pellets Trail Fade Bind Group"),
             layout: &result.trail_fade_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: result.trail_fade_uniforms_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&result.trail_texture_view_b),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&result.trail_sampler),
-                },
+                resource_helpers::buffer_entry(0, &result.trail_fade_uniforms_buffer),
+                resource_helpers::texture_view_entry(1, &result.trail_texture_view_b),
+                resource_helpers::sampler_bind_entry(2, &result.trail_sampler),
             ],
         });
         result.trail_blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Pellets Trail Blit Bind Group"),
             layout: &result.trail_blit_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&result.trail_texture_view_a),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&result.trail_sampler),
-                },
+                resource_helpers::texture_view_entry(0, &result.trail_texture_view_a),
+                resource_helpers::sampler_bind_entry(1, &result.trail_sampler),
             ],
         });
 
@@ -2158,56 +1762,11 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Physics Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
                 ],
             });
 
@@ -2216,26 +1775,8 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Density Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -2244,46 +1785,10 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Grid Populate Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 
@@ -2292,26 +1797,11 @@ impl PelletsModel {
             label: Some("Pellets Physics Bind Group"),
             layout: &physics_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.physics_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.grid_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.grid_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.grid_counts_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.physics_params_buffer),
+                resource_helpers::buffer_entry(2, &self.grid_buffer),
+                resource_helpers::buffer_entry(3, &self.grid_params_buffer),
+                resource_helpers::buffer_entry(4, &self.grid_counts_buffer),
             ],
         });
 
@@ -2320,14 +1810,8 @@ impl PelletsModel {
             label: Some("Pellets Density Bind Group"),
             layout: &density_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.density_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.density_params_buffer),
             ],
         });
 
@@ -2336,22 +1820,10 @@ impl PelletsModel {
             label: Some("Pellets Grid Populate Bind Group"),
             layout: &grid_populate_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.grid_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.grid_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.grid_counts_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.grid_buffer),
+                resource_helpers::buffer_entry(2, &self.grid_params_buffer),
+                resource_helpers::buffer_entry(3, &self.grid_counts_buffer),
             ],
         });
 
@@ -2360,36 +1832,16 @@ impl PelletsModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Pellets Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::VERTEX, true),
+                    resource_helpers::uniform_buffer_entry(
+                        1,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::storage_buffer_entry(
+                        2,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        true,
+                    ),
                 ],
             });
 
@@ -2397,18 +1849,9 @@ impl PelletsModel {
             label: Some("Pellets Render Bind Group"),
             layout: &render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.render_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.render_params_buffer),
+                resource_helpers::buffer_entry(2, &self.lut_buffer),
             ],
         });
 
@@ -2417,18 +1860,9 @@ impl PelletsModel {
             label: Some("Pellets Particle Render Bind Group"),
             layout: &self.particle_render_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.render_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.render_params_buffer),
+                resource_helpers::buffer_entry(2, &self.lut_buffer),
             ],
         });
 
@@ -2616,23 +2050,15 @@ impl PelletsModel {
                     .blur_pipeline
                     .get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            &self.post_processing_resources.blur_sampler,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self
-                            .post_processing_resources
-                            .blur_params_buffer
-                            .as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, input_texture_view),
+                    resource_helpers::sampler_bind_entry(
+                        1,
+                        &self.post_processing_resources.blur_sampler,
+                    ),
+                    resource_helpers::buffer_entry(
+                        2,
+                        &self.post_processing_resources.blur_params_buffer,
+                    ),
                 ],
             });
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2747,18 +2173,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 label: Some("Pellets Trail Fade Bind Group (frame)"),
                 layout: &self.trail_fade_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.trail_fade_uniforms_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(read_trail_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.trail_sampler),
-                    },
+                    resource_helpers::buffer_entry(0, &self.trail_fade_uniforms_buffer),
+                    resource_helpers::texture_view_entry(1, read_trail_view),
+                    resource_helpers::sampler_bind_entry(2, &self.trail_sampler),
                 ],
             });
 
@@ -2807,14 +2224,8 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 label: Some("Pellets Trail Blit Bind Group (frame)"),
                 layout: &self.trail_blit_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(read_for_blit),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.trail_sampler),
-                    },
+                    resource_helpers::texture_view_entry(0, read_for_blit),
+                    resource_helpers::sampler_bind_entry(1, &self.trail_sampler),
                 ],
             });
 
@@ -2951,7 +2362,7 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         Ok(())
     }
 
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -3015,18 +2426,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 label: Some("Pellets Trail Fade Bind Group (static)"),
                 layout: &self.trail_fade_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.trail_fade_uniforms_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(read_trail_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.trail_sampler),
-                    },
+                    resource_helpers::buffer_entry(0, &self.trail_fade_uniforms_buffer),
+                    resource_helpers::texture_view_entry(1, read_trail_view),
+                    resource_helpers::sampler_bind_entry(2, &self.trail_sampler),
                 ],
             });
 
@@ -3069,14 +2471,8 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                 label: Some("Pellets Static Trail Blit Bind Group"),
                 layout: &self.trail_blit_pipeline.get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(read_for_blit),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.trail_sampler),
-                    },
+                    resource_helpers::texture_view_entry(0, read_for_blit),
+                    resource_helpers::sampler_bind_entry(1, &self.trail_sampler),
                 ],
             });
             let mut blit_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -3345,18 +2741,9 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             label: Some("Pellets Post Effect Bind Group"),
             layout: &self.post_effect_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.post_effect_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
+                resource_helpers::buffer_entry(0, &self.post_effect_params_buffer),
+                resource_helpers::texture_view_entry(1, &self.display_view),
+                resource_helpers::sampler_bind_entry(2, &self.display_sampler),
             ],
         });
 
@@ -3365,26 +2752,10 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             label: Some("Pellets Render Infinite Bind Group"),
             layout: &self.render_infinite_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.post_effect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.background_color_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.average_color_uniform_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &self.post_effect_view),
+                resource_helpers::sampler_bind_entry(1, &self.display_sampler),
+                resource_helpers::buffer_entry(2, &self.background_color_buffer),
+                resource_helpers::buffer_entry(3, &self.average_color_uniform_buffer),
             ],
         });
 
@@ -3393,14 +2764,8 @@ impl crate::simulations::traits::Simulation for PelletsModel {
             label: Some("Pellets Background Render Bind Group"),
             layout: &self.background_render_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.background_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.background_params_buffer),
+                resource_helpers::buffer_entry(1, &self.background_color_buffer),
             ],
         });
 

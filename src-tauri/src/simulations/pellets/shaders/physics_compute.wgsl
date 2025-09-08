@@ -351,15 +351,46 @@ fn compute_collision_forces_grid(particle: Particle, particle_index: u32) -> vec
     return collision_impulse;
 }
 
+// Hash function for deterministic pseudo-random generation
+fn hash(seed: u32) -> u32 {
+    var x = seed;
+    x = ((x >> 16u) ^ x) * 0x45d9f3bu;
+    x = ((x >> 16u) ^ x) * 0x45d9f3bu;
+    x = (x >> 16u) ^ x;
+    return x;
+}
+
 fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
-    // Use the pre-calculated particle size that matches the rendering size exactly
+    // Pre-computed constants for equal-sized particles
     let particle_radius = params.particle_size;
+    let combined_radius = 2.0 * particle_radius; // Always 2x for equal particles
+    let collision_distance_sq = combined_radius * combined_radius; // Pre-computed squared distance
+    let collision_distance = combined_radius; // Pre-computed distance
     
     // Run 3 iterations of overlap resolution for better separation
     for (var iteration = 0u; iteration < 3u; iteration++) {
-        var nearby_count = 0u;
+        // Stochastic iteration participation: only process a subset of particles per iteration
+        let participation_seed = hash(particle_index ^ (params.frame_index * 1664525u) ^ (iteration * 1013904223u));
+        
+        // Higher participation rate for better overlap resolution accuracy
+        let base_participation = 0.6; // 60% of particles participate per iteration
+        let strength_factor = 1.0 + (params.overlap_resolution_strength * 0.3); // Increase with strength
+        
+        // Boost participation for fast-moving particles to prevent tunneling
+        let velocity_magnitude = length((*particle).velocity);
+        let velocity_boost = min(velocity_magnitude * 0.3, 0.2); // Up to 20% boost for fast particles
+        let participation_rate = min(base_participation * strength_factor + velocity_boost, 0.9); // Cap at 90%
+        let participation_threshold = u32(f32(0xffffffffu) * participation_rate);
+        
+        // Skip this iteration if particle doesn't participate (stochastic gating)
+        if (participation_seed > participation_threshold) {
+            continue;
+        }
+        
+        var overlap_count = 0u;
         var total_overlap = 0.0;
-        var overlap_direction = vec2<f32>(0.0, 0.0);
+        var weighted_separation = vec2<f32>(0.0, 0.0);
+        var velocity_aware_direction = vec2<f32>(0.0, 0.0);
         
         // Use only neighbors from the 3x3 cells
         let center_cell = world_to_grid((*particle).position);
@@ -378,18 +409,31 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
                     if (abs(delta.y) > 1.0) { delta.y = delta.y - sign(delta.y) * 2.0; }
                     let aspect_corrected_delta = vec2<f32>(delta.x * params.aspect_ratio, delta.y);
                     let distance_sq = dot(aspect_corrected_delta, aspect_corrected_delta);
-                    let combined_radius = particle_radius + particle_radius;
-                    let distance = sqrt(distance_sq);
-                    if (distance < combined_radius && distance > 1e-6) {
-                        let overlap = combined_radius - distance;
+                    
+                    // Use pre-computed collision distance (no sqrt needed for detection)
+                    if (distance_sq < collision_distance_sq && distance_sq > 1e-12) {
+                        let distance = sqrt(distance_sq);
+                        let overlap = collision_distance - distance;
                         if (overlap > 0.0) {
+                            overlap_count += 1u;
                             total_overlap += overlap;
+                            
+                            // Symmetric separation direction (equal mass/radius)
                             let separation_direction = normalize(aspect_corrected_delta);
                             let world_separation_direction = vec2<f32>(
                                 separation_direction.x / params.aspect_ratio,
                                 separation_direction.y
                             );
-                            overlap_direction += world_separation_direction * overlap;
+                            
+                            // Weight by overlap amount for better distribution
+                            weighted_separation += world_separation_direction * overlap;
+                            
+                            // Velocity-aware direction to prevent future collisions
+                            let relative_velocity = (*particle).velocity - other.velocity;
+                            let velocity_component = dot(relative_velocity, world_separation_direction);
+                            if (velocity_component > 0.0) {
+                                velocity_aware_direction += world_separation_direction * velocity_component * 0.1;
+                            }
                         }
                     }
                 }
@@ -400,23 +444,53 @@ fn resolve_collisions(particle: ptr<function, Particle>, particle_index: u32) {
         if (total_overlap > 0.0) {
             let resolution_strength = params.overlap_resolution_strength;
             
-            // Clamp the resolution strength to prevent excessive movement
-            let clamped_strength = min(resolution_strength, 0.5);
+            // Increase resolution strength for fast-moving particles to prevent tunneling
+            let velocity_factor = min(1.0 + velocity_magnitude * 1.5, 2.5); // Up to 2.5x strength for fast particles
+            let enhanced_strength = resolution_strength * velocity_factor;
             
-            // Limit the maximum separation distance to prevent particles from jumping too far
-            let max_separation_distance = particle_radius * 0.5;
-            let separation_magnitude = min(total_overlap * clamped_strength, max_separation_distance);
+            // Batch processing: particles with more overlaps get stronger resolution
+            let overlap_factor = min(1.0 + f32(overlap_count) * 0.15, 2.5); // Up to 2.5x for many overlaps
+            let final_strength = enhanced_strength * overlap_factor;
             
-            var separation_dir = normalize(overlap_direction);
-            // Deterministic, zero-mean tangent jitter to break symmetry
-            let h = fract(sin(f32(particle_index) * 12.9898 + f32(params.frame_index) * 78.233) * 43758.5453);
-            let jitter_sign = select(-1.0, 1.0, h > 0.5);
+            // Higher base strength for better accuracy, with higher cap
+            let base_strength_multiplier = 1.5; // 50% stronger base resolution
+            let clamped_strength = min(final_strength * base_strength_multiplier, 1.2);
+            
+            // Symmetric separation: each particle moves half the overlap distance
+            let half_overlap = total_overlap * 0.5;
+            let base_separation_distance = particle_radius * 0.8; // Increased from 0.5 to 0.8
+            let velocity_separation_boost = velocity_magnitude * particle_radius * 0.4; // Increased from 0.3 to 0.4
+            let max_separation_distance = base_separation_distance + velocity_separation_boost;
+            let separation_magnitude = min(half_overlap * clamped_strength, max_separation_distance);
+            
+            // Combine weighted separation with velocity-aware direction
+            var separation_dir = normalize(weighted_separation + velocity_aware_direction);
+            
+            // Add significant random angle variation to break up wave patterns
+            let angle_seed = hash(particle_index ^ (iteration * 1664525u) ^ 1013904223u);
+            let angle_random = f32(angle_seed) / f32(0xffffffffu);
+            let angle_variation = (angle_random - 0.5) * 1.6; // ±0.8 radians (±46 degrees)
+            
+            // Rotate the separation direction by the random angle
+            let cos_angle = cos(angle_variation);
+            let sin_angle = sin(angle_variation);
+            let rotated_dir = vec2<f32>(
+                separation_dir.x * cos_angle - separation_dir.y * sin_angle,
+                separation_dir.x * sin_angle + separation_dir.y * cos_angle
+            );
+            separation_dir = rotated_dir;
+            
+            // Additional per-particle, per-iteration jitter to break symmetry
+            let jitter_seed = hash(particle_index ^ (iteration * 1664525u) ^ 0x12345678u);
+            let jitter_value = f32(jitter_seed) / f32(0xffffffffu);
+            let jitter_sign = select(-1.0, 1.0, jitter_value > 0.5);
             let tangent = vec2<f32>(-separation_dir.y, separation_dir.x);
+            
             // Add a small deadband to avoid micro-oscillation when nearly touching
             if (total_overlap < particle_radius * 0.003) {
                 return;
             }
-            let jitter_amp = min(0.25 * total_overlap, particle_radius * 0.01);
+            let jitter_amp = min(0.15 * total_overlap, particle_radius * 0.008);
             let jitter = tangent * jitter_amp * jitter_sign;
 
             let separation = separation_dir * separation_magnitude + jitter;

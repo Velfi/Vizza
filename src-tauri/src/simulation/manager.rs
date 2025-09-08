@@ -89,14 +89,33 @@ impl SimulationManager {
             }
             "gray_scott" => {
                 // Initialize Gray-Scott simulation
-                let settings = GrayScottSettings::default();
+                // Try to preserve current settings if a Gray-Scott simulation is already running
+                let settings = if let Some(SimulationType::GrayScott(current_sim)) =
+                    &self.current_simulation
+                {
+                    // Extract current settings from the running simulation
+                    current_sim.settings.clone()
+                } else {
+                    // Use default settings for new simulation
+                    GrayScottSettings::default()
+                };
+
+                // Calculate simulation resolution based on scale factor
+                let sim_width =
+                    (surface_config.width as f32 * settings.simulation_resolution_scale) as u32;
+                let sim_height =
+                    (surface_config.height as f32 * settings.simulation_resolution_scale) as u32;
+
+                // Ensure minimum resolution
+                let sim_width = sim_width.max(256);
+                let sim_height = sim_height.max(256);
 
                 let simulation = GrayScottModel::new(
                     device,
                     queue,
                     surface_config,
-                    surface_config.width,
-                    surface_config.height,
+                    sim_width,
+                    sim_height,
                     settings,
                     &self.lut_manager,
                     &self.app_settings,
@@ -228,7 +247,7 @@ impl SimulationManager {
     ) -> AppResult<()> {
         if let Some(simulation) = &mut self.current_simulation {
             // Render the current frame without updating simulation state
-            simulation.render_frame_static(device, queue, surface_view)?;
+            simulation.render_frame_paused(device, queue, surface_view)?;
         }
         Ok(())
     }

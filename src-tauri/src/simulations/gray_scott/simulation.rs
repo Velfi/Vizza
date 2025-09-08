@@ -6,10 +6,11 @@ use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::renderer::Renderer;
-use super::settings::{NutrientPattern, Settings};
+use super::settings::{GradientImageFitMode, NutrientPattern, Settings};
 use super::shaders::REACTION_DIFFUSION_SHADER;
 use super::shaders::noise_seed::NoiseSeedCompute;
 use crate::simulations::shared::coordinates::TextureCoords;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -52,6 +53,14 @@ struct UVPair {
     v: f32,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct CellState {
+    uv: UVPair,
+    change_magnitude: f32,
+    last_update: u32,
+}
+
 #[derive(Debug)]
 pub struct PostProcessingState {
     pub blur_filter: BlurFilterState,
@@ -91,6 +100,18 @@ pub struct GrayScottModel {
 
     // Post processing state
     pub post_processing_state: PostProcessingState,
+    // Gradient image buffer and state
+    pub gradient_buffer: Option<wgpu::Buffer>,
+    pub gradient_image_original: Option<image::DynamicImage>,
+    pub gradient_image_base: Option<Vec<f32>>, // before strength mapping
+    pub gradient_image_raw: Option<Vec<f32>>,  // uploaded values
+    pub gradient_image_needs_upload: bool,
+
+    // Cell states buffer (required by shader)
+    pub cell_states_buffer: wgpu::Buffer,
+
+    // Webcam capture for live gradient
+    pub webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture,
 }
 
 impl GrayScottModel {
@@ -192,36 +213,11 @@ impl GrayScottModel {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Bind Group Layout"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
+                resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true), // Optional gradient map buffer
             ],
         });
 
@@ -245,42 +241,50 @@ impl GrayScottModel {
             cache: None,
         });
 
+        // Create cell states buffer (required by shader)
+        let cell_states_size =
+            (width as usize * height as usize * std::mem::size_of::<CellState>()) as u64;
+        let cell_states_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GrayScott Cell States Buffer"),
+            size: cell_states_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create gradient buffer (matches simulation size)
+        let gradient_buffer_size =
+            (width as usize * height as usize * std::mem::size_of::<f32>()) as u64;
+        let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GrayScott Gradient Buffer"),
+            size: gradient_buffer_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
         // Create bind groups for both buffers (input/output swapped)
         let bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Bind Group 0"),
                 layout: &bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uvs_buffers[0].as_entire_binding(), // input
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: uvs_buffers[1].as_entire_binding(), // output
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: params_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::buffer_entry(0, &uvs_buffers[0]), // input
+                    resource_helpers::buffer_entry(1, &uvs_buffers[1]), // output
+                    resource_helpers::buffer_entry(2, &params_buffer),
+                    resource_helpers::buffer_entry(3, &cell_states_buffer),
+                    resource_helpers::buffer_entry(4, &gradient_buffer),
                 ],
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Bind Group 1"),
                 layout: &bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uvs_buffers[1].as_entire_binding(), // input
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: uvs_buffers[0].as_entire_binding(), // output
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: params_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::buffer_entry(0, &uvs_buffers[1]), // input
+                    resource_helpers::buffer_entry(1, &uvs_buffers[0]), // output
+                    resource_helpers::buffer_entry(2, &params_buffer),
+                    resource_helpers::buffer_entry(3, &cell_states_buffer),
+                    resource_helpers::buffer_entry(4, &gradient_buffer),
                 ],
             }),
         ];
@@ -318,10 +322,7 @@ impl GrayScottModel {
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background Bind Group"),
             layout: renderer.background_bind_group_layout(),
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: background_params_buffer.as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &background_params_buffer)],
         });
 
         // Initialize LUT
@@ -351,6 +352,13 @@ impl GrayScottModel {
                     sigma: 1.0,
                 },
             },
+            gradient_buffer: Some(gradient_buffer),
+            gradient_image_original: None,
+            gradient_image_base: None,
+            gradient_image_raw: None,
+            gradient_image_needs_upload: false,
+            cell_states_buffer,
+            webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture::new(),
         };
 
         // Apply initial LUT
@@ -391,8 +399,187 @@ impl GrayScottModel {
         self.renderer.update_settings(&self.settings, queue);
     }
 
-    pub fn resize(&mut self, new_config: &SurfaceConfiguration) -> SimulationResult<()> {
+    pub fn resize(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        new_config: &SurfaceConfiguration,
+    ) -> SimulationResult<()> {
+        // Update renderer first
         self.renderer.resize(new_config)?;
+
+        // Calculate new simulation dimensions based on resolution scale
+        let new_sim_width =
+            (new_config.width as f32 * self.settings.simulation_resolution_scale) as u32;
+        let new_sim_height =
+            (new_config.height as f32 * self.settings.simulation_resolution_scale) as u32;
+
+        // Ensure minimum resolution
+        let new_sim_width = new_sim_width.max(256);
+        let new_sim_height = new_sim_height.max(256);
+
+        // Only recreate buffers if dimensions actually changed
+        if new_sim_width != self.width || new_sim_height != self.height {
+            tracing::info!(
+                "Gray-Scott simulation resolution changed from {}x{} to {}x{}",
+                self.width,
+                self.height,
+                new_sim_width,
+                new_sim_height
+            );
+
+            // Update dimensions
+            self.width = new_sim_width;
+            self.height = new_sim_height;
+
+            // Recreate simulation buffers with new dimensions
+            Self::recreate_simulation_buffers(self, device, queue)?;
+        }
+
+        Ok(())
+    }
+
+    /// Recreate simulation buffers with new dimensions
+    pub fn recreate_simulation_buffers(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        let vec_capacity = (self.width * self.height) as usize;
+
+        // Create new UV buffers with new dimensions
+        let new_uvs_buffers = [
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("UVs Buffer 0 (Resized)"),
+                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: true,
+            }),
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("UVs Buffer 1 (Resized)"),
+                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: true,
+            }),
+        ];
+
+        // Initialize with default UV values
+        let uvs: Vec<UVPair> =
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+
+        // Write initial data to both buffers
+        for buffer in &new_uvs_buffers {
+            let slice = buffer.slice(..);
+            slice
+                .get_mapped_range_mut()
+                .copy_from_slice(bytemuck::cast_slice(&uvs));
+            buffer.unmap();
+        }
+
+        // Create new cell states buffer
+        let cell_states_size =
+            (self.width as usize * self.height as usize * std::mem::size_of::<CellState>()) as u64;
+        let new_cell_states_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GrayScott Cell States Buffer (Resized)"),
+            size: cell_states_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Create new gradient buffer
+        let gradient_buffer_size =
+            (self.width as usize * self.height as usize * std::mem::size_of::<f32>()) as u64;
+        let new_gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GrayScott Gradient Buffer (Resized)"),
+            size: gradient_buffer_size,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+
+        // Update params buffer with new dimensions
+        let params = SimulationParams {
+            feed_rate: self.settings.feed_rate,
+            kill_rate: self.settings.kill_rate,
+            delta_u: self.settings.diffusion_rate_u,
+            delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
+            width: self.width,
+            height: self.height,
+            nutrient_pattern: self.settings.nutrient_pattern as u32,
+            is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
+            // Adaptive timestep parameters
+            max_timestep: 1.0,
+            stability_factor: 0.5,
+            enable_adaptive_timestep: 1,
+            // Dependency tracking parameters
+            change_threshold: 0.001,
+            enable_selective_updates: 0,
+        };
+
+        queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
+
+        // Create new bind groups with new buffers
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bind Group Layout (Resized)"),
+            entries: &[
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
+                resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
+            ],
+        });
+
+        let new_bind_groups = [
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Bind Group 0 (Resized)"),
+                layout: &bind_group_layout,
+                entries: &[
+                    resource_helpers::buffer_entry(0, &new_uvs_buffers[0]), // input
+                    resource_helpers::buffer_entry(1, &new_uvs_buffers[1]), // output
+                    resource_helpers::buffer_entry(2, &self.params_buffer),
+                    resource_helpers::buffer_entry(3, &new_cell_states_buffer),
+                    resource_helpers::buffer_entry(4, &new_gradient_buffer),
+                ],
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Bind Group 1 (Resized)"),
+                layout: &bind_group_layout,
+                entries: &[
+                    resource_helpers::buffer_entry(0, &new_uvs_buffers[1]), // input
+                    resource_helpers::buffer_entry(1, &new_uvs_buffers[0]), // output
+                    resource_helpers::buffer_entry(2, &self.params_buffer),
+                    resource_helpers::buffer_entry(3, &new_cell_states_buffer),
+                    resource_helpers::buffer_entry(4, &new_gradient_buffer),
+                ],
+            }),
+        ];
+
+        // Replace old buffers with new ones
+        self.uvs_buffers = new_uvs_buffers;
+        self.cell_states_buffer = new_cell_states_buffer;
+        self.gradient_buffer = Some(new_gradient_buffer);
+        self.bind_groups = new_bind_groups;
+        self.current_buffer = 0; // Reset to buffer 0
+
+        // If we have a gradient image, reprocess it for the new resolution
+        if self.gradient_image_original.is_some() {
+            if let Err(e) = self.reprocess_nutrient_image_with_current_fit_mode(queue) {
+                tracing::warn!("Failed to reprocess gradient image after resize: {}", e);
+            }
+        }
+
+        tracing::info!(
+            "Gray-Scott simulation buffers recreated successfully for {}x{}",
+            self.width,
+            self.height
+        );
         Ok(())
     }
 
@@ -432,11 +619,206 @@ impl GrayScottModel {
         Ok(())
     }
 
+    /// Load an external image, convert to grayscale in [0,1], fit to sim size, and upload
+    pub fn load_nutrient_image(
+        &mut self,
+        queue: &Arc<Queue>,
+        image_path: &str,
+    ) -> SimulationResult<()> {
+        tracing::info!("Loading Gray-Scott nutrient image from: {}", image_path);
+
+        let img = image::open(image_path).map_err(|e| {
+            SimulationError::InvalidParameter(format!("Failed to open image: {}", e))
+        })?;
+
+        let target_w = self.width as u32;
+        let target_h = self.height as u32;
+
+        tracing::info!("Resizing image to {}x{}", target_w, target_h);
+
+        // Store the original image and reprocess with current fit mode
+        self.gradient_image_original = Some(img);
+        self.reprocess_nutrient_image_with_current_fit_mode(queue)?;
+
+        tracing::info!("Gray-Scott nutrient image loaded successfully");
+        Ok(())
+    }
+
+    /// Reprocess the loaded image with the current fit mode and strength settings
+    pub fn reprocess_nutrient_image_with_current_fit_mode(
+        &mut self,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        if let Some(original_img) = &self.gradient_image_original {
+            let target_w = self.width as u32;
+            let target_h = self.height as u32;
+
+            tracing::info!(
+                "Reprocessing Gray-Scott nutrient image with fit mode: {:?}",
+                self.settings.gradient_image_fit_mode
+            );
+
+            // Convert to grayscale
+            let gray = original_img.to_luma8();
+
+            // Apply fit mode
+            let resized = match self.settings.gradient_image_fit_mode {
+                GradientImageFitMode::Stretch => image::imageops::resize(
+                    &gray,
+                    target_w,
+                    target_h,
+                    image::imageops::FilterType::Lanczos3,
+                ),
+                GradientImageFitMode::Center => {
+                    // Center the image without stretching
+                    let mut buffer = image::ImageBuffer::new(target_w, target_h);
+                    let img_w = gray.width();
+                    let img_h = gray.height();
+
+                    let start_x = if img_w > target_w {
+                        0
+                    } else {
+                        (target_w - img_w) / 2
+                    };
+                    let start_y = if img_h > target_h {
+                        0
+                    } else {
+                        (target_h - img_h) / 2
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            let src_x = if img_w > target_w {
+                                x * img_w / target_w
+                            } else {
+                                x.saturating_sub(start_x)
+                            };
+                            let src_y = if img_h > target_h {
+                                y * img_h / target_h
+                            } else {
+                                y.saturating_sub(start_y)
+                            };
+
+                            if src_x < img_w && src_y < img_h {
+                                buffer.put_pixel(x, y, *gray.get_pixel(src_x, src_y));
+                            } else {
+                                buffer.put_pixel(x, y, image::Luma([0]));
+                            }
+                        }
+                    }
+                    buffer
+                }
+                GradientImageFitMode::FitH => {
+                    // Fit horizontally, maintain aspect ratio
+                    let aspect_ratio = gray.height() as f32 / gray.width() as f32;
+                    let new_height = (target_w as f32 * aspect_ratio) as u32;
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        new_height,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    // Center vertically
+                    let mut buffer = image::ImageBuffer::new(target_w, target_h);
+                    let start_y = if new_height > target_h {
+                        0
+                    } else {
+                        (target_h - new_height) / 2
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            if y >= start_y && y < start_y + new_height {
+                                buffer.put_pixel(x, y, *resized.get_pixel(x, y - start_y));
+                            } else {
+                                buffer.put_pixel(x, y, image::Luma([0]));
+                            }
+                        }
+                    }
+                    buffer
+                }
+                GradientImageFitMode::FitV => {
+                    // Fit vertically, maintain aspect ratio
+                    let aspect_ratio = gray.width() as f32 / gray.height() as f32;
+                    let new_width = (target_h as f32 * aspect_ratio) as u32;
+                    let resized = image::imageops::resize(
+                        &gray,
+                        new_width,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    // Center horizontally
+                    let mut buffer = image::ImageBuffer::new(target_w, target_h);
+                    let start_x = if new_width > target_w {
+                        0
+                    } else {
+                        (target_w - new_width) / 2
+                    };
+
+                    for y in 0..target_h {
+                        for x in 0..target_w {
+                            if x >= start_x && x < start_x + new_width {
+                                buffer.put_pixel(x, y, *resized.get_pixel(x - start_x, y));
+                            } else {
+                                buffer.put_pixel(x, y, image::Luma([0]));
+                            }
+                        }
+                    }
+                    buffer
+                }
+            };
+
+            // Convert to f32 buffer
+            let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
+            for y in 0..target_h {
+                for x in 0..target_w {
+                    let p = resized.get_pixel(x, y)[0] as f32 / 255.0;
+                    buffer[(y * target_w + x) as usize] = p;
+                }
+            }
+
+            // Apply mirror/invert controls
+            if self.settings.gradient_image_mirror_horizontal {
+                let w = target_w as usize;
+                let h = target_h as usize;
+                for y in 0..h {
+                    let row = &mut buffer[y * w..(y + 1) * w];
+                    row.reverse();
+                }
+            }
+            if self.settings.gradient_image_invert_tone {
+                for v in buffer.iter_mut() {
+                    *v = 1.0 - *v;
+                }
+            }
+
+            self.gradient_image_base = Some(buffer.clone());
+            self.gradient_image_raw = Some(buffer.clone());
+
+            // Upload to GPU
+            if let Some(grad_buf) = &self.gradient_buffer {
+                queue.write_buffer(grad_buf, 0, bytemuck::cast_slice::<f32, u8>(&buffer));
+                tracing::info!("Reprocessed gradient image uploaded to GPU buffer");
+            } else {
+                tracing::error!("No gradient buffer available for reprocessing!");
+                return Err(SimulationError::InvalidParameter(
+                    "No gradient buffer available".to_string(),
+                ));
+            }
+
+            self.gradient_image_needs_upload = false;
+            tracing::info!("Gray-Scott nutrient image reprocessed successfully");
+        }
+        Ok(())
+    }
+
     pub(crate) fn update_setting(
         &mut self,
         setting_name: &str,
         value: Value,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match setting_name {
@@ -478,6 +860,7 @@ impl GrayScottModel {
                         "enhanced_noise" => NutrientPattern::EnhancedNoise,
                         "wave_function" => NutrientPattern::WaveFunction,
                         "cosine_grid" => NutrientPattern::CosineGrid,
+                        "image_gradient" => NutrientPattern::ImageGradient,
                         // Handle capitalized display names from frontend
                         "Uniform" => NutrientPattern::Uniform,
                         "Checkerboard" => NutrientPattern::Checkerboard,
@@ -488,6 +871,7 @@ impl GrayScottModel {
                         "Enhanced Noise" => NutrientPattern::EnhancedNoise,
                         "Wave Function" => NutrientPattern::WaveFunction,
                         "Cosine Grid" => NutrientPattern::CosineGrid,
+                        "Image Gradient" => NutrientPattern::ImageGradient,
                         _ => NutrientPattern::Uniform,
                     };
                 } else if let Some(v) = value.as_u64() {
@@ -502,6 +886,7 @@ impl GrayScottModel {
                         6 => NutrientPattern::EnhancedNoise,
                         7 => NutrientPattern::WaveFunction,
                         8 => NutrientPattern::CosineGrid,
+                        9 => NutrientPattern::ImageGradient,
                         _ => NutrientPattern::Uniform,
                     };
                 }
@@ -509,6 +894,43 @@ impl GrayScottModel {
             "nutrient_pattern_reversed" => {
                 if let Some(v) = value.as_bool() {
                     self.settings.nutrient_pattern_reversed = v;
+                }
+            }
+            "gradient_image_fit_mode" => {
+                if let Some(v) = value.as_str() {
+                    self.settings.gradient_image_fit_mode = match v {
+                        "Stretch" => GradientImageFitMode::Stretch,
+                        "Center" => GradientImageFitMode::Center,
+                        "Fit H" => GradientImageFitMode::FitH,
+                        "Fit V" => GradientImageFitMode::FitV,
+                        _ => GradientImageFitMode::Stretch,
+                    };
+                    // Reprocess the image if one is loaded
+                    if self.gradient_image_original.is_some() {
+                        if let Err(e) = self.reprocess_nutrient_image_with_current_fit_mode(queue) {
+                            tracing::error!("Failed to reprocess gradient image: {}", e);
+                        }
+                    }
+                }
+            }
+            "gradient_image_mirror_horizontal" => {
+                if let Some(v) = value.as_bool() {
+                    self.settings.gradient_image_mirror_horizontal = v;
+                    if self.gradient_image_original.is_some() {
+                        if let Err(e) = self.reprocess_nutrient_image_with_current_fit_mode(queue) {
+                            tracing::error!("Failed to reprocess gradient image: {}", e);
+                        }
+                    }
+                }
+            }
+            "gradient_image_invert_tone" => {
+                if let Some(v) = value.as_bool() {
+                    self.settings.gradient_image_invert_tone = v;
+                    if self.gradient_image_original.is_some() {
+                        if let Err(e) = self.reprocess_nutrient_image_with_current_fit_mode(queue) {
+                            tracing::error!("Failed to reprocess gradient image: {}", e);
+                        }
+                    }
                 }
             }
             "cursor_size" => {
@@ -519,6 +941,28 @@ impl GrayScottModel {
             "cursor_strength" => {
                 if let Some(v) = value.as_f64() {
                     self.cursor_strength = v as f32;
+                }
+            }
+            "simulation_resolution_scale" => {
+                if let Some(v) = value.as_f64() {
+                    let old_scale = self.settings.simulation_resolution_scale;
+                    self.settings.simulation_resolution_scale = v as f32;
+                    tracing::debug!(
+                        "Simulation resolution scale updated from {:.2} to {:.2}",
+                        old_scale,
+                        v
+                    );
+
+                    // Trigger immediate resize to apply the new resolution scale
+                    // We need to get the current surface config from the renderer
+                    let current_config = self.renderer.get_surface_config().clone();
+                    if let Err(e) = GrayScottModel::resize(self, device, queue, &current_config) {
+                        tracing::error!(
+                            "Failed to resize simulation after resolution scale change: {}",
+                            e
+                        );
+                        return Err(e);
+                    }
                 }
             }
             _ => {}
@@ -557,6 +1001,11 @@ impl GrayScottModel {
         surface_view: &TextureView,
         _delta_time: f32,
     ) -> SimulationResult<()> {
+        if self.webcam_capture.is_active {
+            if let Err(e) = self.update_gradient_from_webcam(queue) {
+                tracing::warn!("Gray-Scott webcam gradient update failed: {}", e);
+            }
+        }
         // Calculate delta time
         let now = std::time::Instant::now();
         let delta_time = now.duration_since(self.last_frame_time).as_secs_f32();
@@ -596,6 +1045,51 @@ impl GrayScottModel {
                 &self.background_bind_group,
             )
             .map_err(|e| SimulationError::Gpu(Box::new(e)))
+    }
+
+    pub fn start_webcam_capture(&mut self, device_index: i32) -> SimulationResult<()> {
+        if self.gradient_buffer.is_none() {
+            return Err(SimulationError::InvalidParameter(
+                "Gray-Scott has no gradient buffer".to_string(),
+            ));
+        }
+        self.webcam_capture
+            .set_target_dimensions(self.width, self.height);
+        self.webcam_capture.start_capture(device_index)
+    }
+
+    pub fn stop_webcam_capture(&mut self) {
+        self.webcam_capture.stop_capture();
+    }
+
+    pub fn update_gradient_from_webcam(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+        if let Some(frame_data) = self.webcam_capture.get_latest_frame_data() {
+            let mut buffer = self.webcam_capture.frame_data_to_gradient_buffer(
+                &frame_data,
+                self.width,
+                self.height,
+            )?;
+            if self.settings.gradient_image_mirror_horizontal {
+                let w = self.width as usize;
+                let h = self.height as usize;
+                for y in 0..h {
+                    let row = &mut buffer[y * w..(y + 1) * w];
+                    row.reverse();
+                }
+            }
+            if self.settings.gradient_image_invert_tone {
+                for v in buffer.iter_mut() {
+                    *v = 1.0 - *v;
+                }
+            }
+            let processed = buffer;
+            if let Some(grad_buf) = &self.gradient_buffer {
+                queue.write_buffer(grad_buf, 0, bytemuck::cast_slice::<f32, u8>(&processed));
+            }
+            self.gradient_image_raw = Some(processed);
+            self.gradient_image_needs_upload = false;
+        }
+        Ok(())
     }
 
     pub fn update_cursor_position(
@@ -647,7 +1141,7 @@ impl GrayScottModel {
         let texture_coords = TextureCoords::new(texture_x, texture_y);
 
         // Debug output
-        tracing::debug!(
+        tracing::trace!(
             "Gray-Scott handle_mouse_interaction: texture=({:.3}, {:.3}), button={}, valid={}",
             texture_x,
             texture_y,
@@ -657,7 +1151,7 @@ impl GrayScottModel {
 
         // Check if coordinates are within valid texture bounds
         if !texture_coords.is_valid() {
-            tracing::debug!("Mouse interaction outside simulation bounds, ignoring");
+            tracing::trace!("Mouse interaction outside simulation bounds, ignoring");
             return Ok(()); // Outside simulation bounds
         }
 
@@ -741,7 +1235,7 @@ impl GrayScottModel {
         // For Gray-Scott, mouse release doesn't need special handling
         // The cursor position is already updated in handle_mouse_interaction
         // and the interaction is immediate (no continuous effect)
-        tracing::debug!("Gray-Scott mouse release: no special handling needed");
+        tracing::trace!("Gray-Scott mouse release: no special handling needed");
         Ok(())
     }
 
@@ -774,7 +1268,7 @@ impl GrayScottModel {
 }
 
 impl crate::simulations::traits::Simulation for GrayScottModel {
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         _device: &Arc<Device>,
         _queue: &Arc<Queue>,
@@ -813,11 +1307,11 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
 
     fn resize(
         &mut self,
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
         new_config: &SurfaceConfiguration,
     ) -> SimulationResult<()> {
-        self.resize(new_config)
+        GrayScottModel::resize(self, device, queue, new_config)
     }
 
     fn update_setting(

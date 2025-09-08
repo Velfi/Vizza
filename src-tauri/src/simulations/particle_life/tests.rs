@@ -13,6 +13,7 @@ use super::simulation::{
     BackgroundParams, FadeUniforms, ForceRandomizeParams, ForceUpdateParams, InitParams, Particle,
     SimParams,
 };
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
 use wgpu::util::DeviceExt;
 
@@ -377,36 +378,20 @@ impl ParticleLifeValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Particle Life Render Bind Group Layout 0"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            0,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            true,
+                        ),
+                        resource_helpers::uniform_buffer_entry(
+                            1,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            true,
+                        ),
                     ],
                 });
 
@@ -415,26 +400,8 @@ impl ParticleLifeValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Particle Life Render Bind Group Layout 1"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                        resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::FRAGMENT),
                     ],
                 });
 
@@ -443,26 +410,8 @@ impl ParticleLifeValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Particle Life Render Bind Group Layout 2"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::VERTEX),
+                        resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::VERTEX),
                     ],
                 });
 
@@ -525,18 +474,9 @@ impl ParticleLifeValidator {
             label: Some("Particle Life Render Bind Group 0"),
             layout: &bind_group_layout_0,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &sim_params_buffer),
+                resource_helpers::buffer_entry(2, &lut_buffer),
             ],
         });
 
@@ -544,14 +484,8 @@ impl ParticleLifeValidator {
             label: Some("Particle Life Render Bind Group 1"),
             layout: &bind_group_layout_1,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: species_colors_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: color_mode_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &species_colors_buffer),
+                resource_helpers::buffer_entry(1, &color_mode_buffer),
             ],
         });
 
@@ -559,14 +493,8 @@ impl ParticleLifeValidator {
             label: Some("Particle Life Render Bind Group 2"),
             layout: &bind_group_layout_2,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: viewport_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &camera_buffer),
+                resource_helpers::buffer_entry(1, &viewport_params_buffer),
             ],
         });
 

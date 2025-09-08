@@ -28,6 +28,7 @@ pub enum SlimeMoldPositionGenerator {
     Ring,
     Line,
     Spiral,
+    Image,
 }
 
 impl PositionGenerator {
@@ -112,6 +113,7 @@ impl SlimeMoldPositionGenerator {
             SlimeMoldPositionGenerator::Ring => 4,
             SlimeMoldPositionGenerator::Line => 5,
             SlimeMoldPositionGenerator::Spiral => 6,
+            SlimeMoldPositionGenerator::Image => 7,
         }
     }
 
@@ -125,6 +127,7 @@ impl SlimeMoldPositionGenerator {
             4 => SlimeMoldPositionGenerator::Ring,
             5 => SlimeMoldPositionGenerator::Line,
             6 => SlimeMoldPositionGenerator::Spiral,
+            7 => SlimeMoldPositionGenerator::Image,
             _ => SlimeMoldPositionGenerator::Random,
         }
     }
@@ -139,6 +142,7 @@ impl SlimeMoldPositionGenerator {
             SlimeMoldPositionGenerator::Ring => "Ring",
             SlimeMoldPositionGenerator::Line => "Line",
             SlimeMoldPositionGenerator::Spiral => "Spiral",
+            SlimeMoldPositionGenerator::Image => "Image",
         }
     }
 
@@ -152,6 +156,7 @@ impl SlimeMoldPositionGenerator {
             SlimeMoldPositionGenerator::Ring,
             SlimeMoldPositionGenerator::Line,
             SlimeMoldPositionGenerator::Spiral,
+            SlimeMoldPositionGenerator::Image,
         ]
     }
 }

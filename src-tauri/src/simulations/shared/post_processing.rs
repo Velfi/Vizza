@@ -4,6 +4,8 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
+use super::gpu_utils::resource_helpers;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlurFilter {
     pub enabled: bool,
@@ -114,35 +116,18 @@ impl PostProcessingResources {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Blur Bind Group Layout"),
                 entries: &[
-                    // Input texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // Sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    // Parameters
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -208,18 +193,9 @@ impl PostProcessingResources {
             label: Some("Blur Bind Group"),
             layout: &blur_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: blur_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &intermediate_view),
+                resource_helpers::sampler_bind_entry(1, &blur_sampler),
+                resource_helpers::buffer_entry(2, &blur_params_buffer),
             ],
         });
 

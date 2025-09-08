@@ -19,5 +19,5 @@ body {
 
 @font-face {
   font-family: 'Zelda Sans';
-  src: url('/assets/ZeldaSans-Regular-v1.otf');
+  src: url('/src/assets/ZeldaSans-Regular-v1.otf');
 }

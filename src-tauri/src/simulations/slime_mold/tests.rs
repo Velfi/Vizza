@@ -9,6 +9,7 @@ use super::shaders::{
     BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER, QUAD_SHADER,
 };
 use super::simulation::{BackgroundParams, SimSizeUniform};
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
 use wgpu::util::DeviceExt;
 
@@ -264,56 +265,28 @@ impl SlimeMoldValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Slime Mold Display Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::WriteOnly,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            0,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
+                        resource_helpers::storage_texture_entry(
+                            1,
+                            wgpu::ShaderStages::COMPUTE,
+                            wgpu::StorageTextureAccess::WriteOnly,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        ),
+                        resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                        resource_helpers::storage_buffer_entry(
+                            3,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            4,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
                     ],
                 });
 
@@ -343,26 +316,11 @@ impl SlimeMoldValidator {
             label: Some("Slime Mold Display Bind Group"),
             layout: &bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: trail_map_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: gradient_map_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &trail_map_buffer),
+                resource_helpers::texture_view_entry(1, &display_view),
+                resource_helpers::buffer_entry(2, &sim_params_buffer),
+                resource_helpers::buffer_entry(3, &lut_buffer),
+                resource_helpers::buffer_entry(4, &gradient_map_buffer),
             ],
         });
 

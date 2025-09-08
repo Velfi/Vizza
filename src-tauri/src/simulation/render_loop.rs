@@ -110,8 +110,6 @@ impl RenderLoopManager {
 
             tracing::info!("Render loop stopped");
         });
-        });
-    }
     }
 
     pub fn stop_render_loop(&self) {

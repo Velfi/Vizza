@@ -1,3 +1,4 @@
+use super::gpu_utils::resource_helpers;
 use std::sync::Arc;
 use wgpu::{BindGroup, Buffer, ComputePipeline, Device, Queue};
 
@@ -52,18 +53,8 @@ impl AverageColorResources {
             label: Some(&format!("{} Average Color Bind Group", label)),
             layout: &average_color_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &average_color_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
+                resource_helpers::texture_view_entry(0, display_view),
+                resource_helpers::buffer_entry(1, &average_color_buffer),
             ],
         });
 

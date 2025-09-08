@@ -66,9 +66,9 @@ struct SpawnControl {
 }
 @group(0) @binding(5) var<storage, read_write> spawn_control: SpawnControl;
 
-// O(1) bilinear sample of flow direction from a uniform grid (assumed sqrt(res) x sqrt(res))
+// O(1) bilinear sample of flow direction from a uniform grid
 fn sample_flow_vector(pos: vec2<f32>) -> vec2<f32> {
-    let grid = f32(sqrt(f32(sim_params.flow_field_resolution)));
+    let grid = f32(sim_params.flow_field_resolution);
     let tx = clamp((pos.x + 1.0) * 0.5 * (grid - 1.0), 0.0, grid - 1.0);
     let ty = clamp((pos.y + 1.0) * 0.5 * (grid - 1.0), 0.0, grid - 1.0);
     let x0 = u32(floor(tx));

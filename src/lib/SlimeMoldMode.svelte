@@ -147,6 +147,7 @@
                 { value: 'Ring', label: 'Ring', buttonAction: 'randomize' },
                 { value: 'Line', label: 'Line', buttonAction: 'randomize' },
                 { value: 'Spiral', label: 'Spiral', buttonAction: 'randomize' },
+                { value: 'Image', label: 'Image', buttonAction: 'randomize' },
               ]}
               buttonText="Reset Agents"
               placeholder="Select position generator..."
@@ -172,6 +173,28 @@
               }}
             />
           </div>
+          
+          <!-- Image Position Generator Controls -->
+          {#if position_generator === 'Image'}
+            <div class="control-group">
+              <ImageSelector
+                fitMode={settings.position_image_fit_mode}
+                loadCommand="load_slime_mold_position_image"
+                showMirrorHorizontal={false}
+                showInvertTone={false}
+                onFitModeChange={async (value) => {
+                  try {
+                    await invoke('update_simulation_setting', {
+                      settingName: 'position_image_fit_mode',
+                      value: value,
+                    });
+                  } catch (err) {
+                    console.error('Failed to update position image fit mode:', err);
+                  }
+                }}
+              />
+            </div>
+          {/if}
         </div>
 
         <!-- Pheromone Settings -->
@@ -402,7 +425,7 @@
             <div class="setting-item">
               <span class="setting-label">Gradient Type:</span>
               <Selector
-                options={['disabled', 'radial', 'linear', 'ellipse', 'spiral', 'checkerboard']}
+                options={['disabled', 'radial', 'linear', 'ellipse', 'spiral', 'checkerboard', 'image']}
                 bind:value={settings.gradient_type}
                 on:change={handleGradientType}
               />
@@ -428,69 +451,116 @@
                   }}
                 />
               </div>
-              <div class="setting-item">
-                <span class="setting-label">Center X:</span>
-                <NumberDragBox
-                  value={gradient_center_x_percent}
-                  min={0}
-                  max={100}
-                  step={1}
-                  precision={0}
-                  on:change={(e) => updateGradientCenterX(e.detail)}
-                />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Center Y:</span>
-                <NumberDragBox
-                  value={gradient_center_y_percent}
-                  min={0}
-                  max={100}
-                  step={1}
-                  precision={0}
-                  on:change={(e) => updateGradientCenterY(e.detail)}
-                />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Size:</span>
-                <NumberDragBox
-                  bind:value={settings.gradient_size}
-                  min={0.1}
-                  max={2}
-                  step={0.01}
-                  precision={2}
-                  on:change={async (e) => {
+              {#if settings.gradient_type !== 'image'}
+                <div class="setting-item">
+                  <span class="setting-label">Center X:</span>
+                  <NumberDragBox
+                    value={gradient_center_x_percent}
+                    min={0}
+                    max={100}
+                    step={1}
+                    precision={0}
+                    on:change={(e) => updateGradientCenterX(e.detail)}
+                  />
+                </div>
+                <div class="setting-item">
+                  <span class="setting-label">Center Y:</span>
+                  <NumberDragBox
+                    value={gradient_center_y_percent}
+                    min={0}
+                    max={100}
+                    step={1}
+                    precision={0}
+                    on:change={(e) => updateGradientCenterY(e.detail)}
+                  />
+                </div>
+                <div class="setting-item">
+                  <span class="setting-label">Size:</span>
+                  <NumberDragBox
+                    bind:value={settings.gradient_size}
+                    min={0.1}
+                    max={2}
+                    step={0.01}
+                    precision={2}
+                    on:change={async (e) => {
+                      try {
+                        await invoke('update_simulation_setting', {
+                          settingName: 'gradient_size',
+                          value: e.detail,
+                        });
+                      } catch (err) {
+                        console.error('Failed to update gradient size:', err);
+                      }
+                    }}
+                  />
+                </div>
+                <div class="setting-item">
+                  <span class="setting-label">Angle:</span>
+                  <NumberDragBox
+                    bind:value={settings.gradient_angle}
+                    min={0}
+                    max={360}
+                    step={1}
+                    precision={0}
+                    unit="°"
+                    on:change={async (e) => {
+                      try {
+                        await invoke('update_simulation_setting', {
+                          settingName: 'gradient_angle',
+                          value: e.detail,
+                        });
+                      } catch (err) {
+                        console.error('Failed to update gradient angle:', err);
+                      }
+                    }}
+                  />
+                </div>
+              {:else}
+                <ImageSelector
+                  fitMode={settings.gradient_image_fit_mode}
+                  mirrorHorizontal={settings?.gradient_image_mirror_horizontal || false}
+                  invertTone={settings?.gradient_image_invert_tone || false}
+                  loadCommand="load_slime_mold_gradient_image"
+                  onFitModeChange={async (value) => {
                     try {
                       await invoke('update_simulation_setting', {
-                        settingName: 'gradient_size',
-                        value: e.detail,
+                        settingName: 'gradient_image_fit_mode',
+                        value: value,
                       });
                     } catch (err) {
-                      console.error('Failed to update gradient size:', err);
+                      console.error('Failed to update fit mode:', err);
+                    }
+                  }}
+                  onMirrorHorizontalChange={async (value) => {
+                    try {
+                      await invoke('update_simulation_setting', {
+                        settingName: 'gradient_image_mirror_horizontal',
+                        value: value,
+                      });
+                      if (settings) settings.gradient_image_mirror_horizontal = value;
+                    } catch (err) {
+                      console.error('Failed to update mirror:', err);
+                    }
+                  }}
+                  onInvertToneChange={async (value) => {
+                    try {
+                      await invoke('update_simulation_setting', {
+                        settingName: 'gradient_image_invert_tone',
+                        value: value,
+                      });
+                      if (settings) settings.gradient_image_invert_tone = value;
+                    } catch (err) {
+                      console.error('Failed to update invert:', err);
                     }
                   }}
                 />
-              </div>
-              <div class="setting-item">
-                <span class="setting-label">Angle:</span>
-                <NumberDragBox
-                  bind:value={settings.gradient_angle}
-                  min={0}
-                  max={360}
-                  step={1}
-                  precision={0}
-                  unit="°"
-                  on:change={async (e) => {
-                    try {
-                      await invoke('update_simulation_setting', {
-                        settingName: 'gradient_angle',
-                        value: e.detail,
-                      });
-                    } catch (err) {
-                      console.error('Failed to update gradient angle:', err);
-                    }
-                  }}
+                <WebcamControls
+                  {webcamDevices}
+                  {webcamActive}
+                  onStartWebcam={startWebcamCapture}
+                  onStopWebcam={stopWebcamCapture}
                 />
-              </div>
+              {/if}
             {/if}
           </div>
         </div>
@@ -517,6 +587,8 @@
   import AgentCountInput from './components/slime-mold/AgentCountInput.svelte';
   import NumberDragBox from './components/inputs/NumberDragBox.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import ImageSelector from './components/shared/ImageSelector.svelte';
+  import WebcamControls from './components/shared/WebcamControls.svelte';
   import './shared-theme.css';
   import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
@@ -526,7 +598,7 @@
   export let autoHideDelay: number = 3000;
 
   // Simulation state
-  let settings: Record<string, unknown> | undefined = undefined;
+  let settings: any | undefined = undefined;
 
   // State (not saved in presets)
   let position_generator = 'Random';
@@ -571,6 +643,10 @@
 
   let isMousePressed = false;
   let currentMouseButton = 0;
+
+  // Webcam state
+  let webcamDevices: number[] = [];
+  let webcamActive = false;
 
   async function returnToMenu() {
     try {
@@ -912,6 +988,36 @@
     }
   }
 
+  // Webcam functions
+  async function loadWebcamDevices() {
+    try {
+      webcamDevices = await invoke('get_available_webcam_devices');
+      console.log('Available webcam devices:', webcamDevices);
+    } catch (e) {
+      console.error('Failed to load webcam devices:', e);
+    }
+  }
+
+  async function startWebcamCapture() {
+    try {
+      await invoke('start_slime_mold_webcam_capture');
+      webcamActive = true;
+      console.log('Webcam capture started');
+    } catch (e) {
+      console.error('Failed to start webcam capture:', e);
+    }
+  }
+
+  async function stopWebcamCapture() {
+    try {
+      await invoke('stop_slime_mold_webcam_capture');
+      webcamActive = false;
+      console.log('Webcam capture stopped');
+    } catch (e) {
+      console.error('Failed to stop webcam capture:', e);
+    }
+  }
+
   async function startSimulation() {
     if (running || loading) return;
 
@@ -946,6 +1052,9 @@
     // Load available presets and LUTs
     await loadAvailablePresets();
     await loadAvailableLuts();
+
+    // Load webcam devices
+    await loadWebcamDevices();
 
     // Sync settings from backend
     await syncSettingsFromBackend();
@@ -1223,5 +1332,17 @@
     margin: 0 0 0.75rem 0;
     padding: 0.25rem 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* Checkbox styling */
+  .checkbox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .checkbox input[type="checkbox"] {
+    margin: 0;
   }
 </style>

@@ -20,6 +20,9 @@
 //! This layered approach ensures that both isolated components and their
 //! interactions work correctly across different hardware configurations.
 
+use crate::simulations::flow::simulation::DEFAULT_FLOW_FIELD_RESOLUTION;
+use crate::simulations::shared::gpu_utils::resource_helpers;
+
 use super::shaders::{
     BACKGROUND_RENDER_SHADER, FLOW_VECTOR_COMPUTE_SHADER, PARTICLE_RENDER_SHADER,
     PARTICLE_UPDATE_SHADER, TRAIL_DECAY_DIFFUSION_SHADER, TRAIL_RENDER_SHADER,
@@ -31,7 +34,6 @@ use wgpu::util::DeviceExt;
 /// Test framework for validating Flow Field shader compilation and buffer binding
 struct FlowFieldValidator {
     device: wgpu::Device,
-    _queue: wgpu::Queue,
 }
 
 impl FlowFieldValidator {
@@ -50,7 +52,7 @@ impl FlowFieldValidator {
             .await
             .expect("Failed to find an appropriate adapter");
 
-        let (device, queue) = adapter
+        let (device, _) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
@@ -59,10 +61,7 @@ impl FlowFieldValidator {
             .await
             .expect("Failed to create device");
 
-        Self {
-            device,
-            _queue: queue,
-        }
+        Self { device }
     }
 
     /// Validates that the Flow Field particle update shader compiles without errors
@@ -188,36 +187,20 @@ impl FlowFieldValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Particle Render Bind Group Layout 0"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            0,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            true,
+                        ),
+                        resource_helpers::uniform_buffer_entry(
+                            1,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            true,
+                        ),
                     ],
                 });
 
@@ -225,16 +208,10 @@ impl FlowFieldValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Particle Render Bind Group Layout 1"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
+                    entries: &[resource_helpers::uniform_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX,
+                    )],
                 });
 
         // Create render pipeline layout
@@ -292,28 +269,16 @@ impl FlowFieldValidator {
             label: Some("Flow Field Particle Render Bind Group 0"),
             layout: &bind_group_layout_0,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &sim_params_buffer),
+                resource_helpers::buffer_entry(2, &lut_buffer),
             ],
         });
 
         let _bind_group_1 = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Flow Field Particle Render Bind Group 1"),
             layout: &bind_group_layout_1,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &camera_buffer)],
         });
 
         Ok(())
@@ -349,7 +314,8 @@ impl FlowFieldValidator {
 
         let flow_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Test Flow Vector Buffer"),
-            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128,
+            size: std::mem::size_of::<FlowVector>() as u64
+                * (DEFAULT_FLOW_FIELD_RESOLUTION * DEFAULT_FLOW_FIELD_RESOLUTION) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -387,42 +353,22 @@ impl FlowFieldValidator {
             mapped_at_creation: false,
         });
 
+        let spawn_control_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Test Spawn Control Buffer"),
+            size: std::mem::size_of::<super::simulation::SpawnControl>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Test Compute Bind Group"),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: self
-                        .device
-                        .create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("Test Spawn Control Buffer"),
-                            size: std::mem::size_of::<super::simulation::SpawnControl>() as u64,
-                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        })
-                        .as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &flow_vector_buffer),
+                resource_helpers::buffer_entry(2, &sim_params_buffer),
+                resource_helpers::texture_view_entry(3, &trail_texture_view),
+                resource_helpers::buffer_entry(4, &lut_buffer),
+                resource_helpers::buffer_entry(5, &spawn_control_buffer),
             ],
         });
 
@@ -452,7 +398,8 @@ impl FlowFieldValidator {
         // Create test buffers
         let flow_vector_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Test Flow Vector Buffer"),
-            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128,
+            size: std::mem::size_of::<FlowVector>() as u64
+                * (DEFAULT_FLOW_FIELD_RESOLUTION * DEFAULT_FLOW_FIELD_RESOLUTION) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -464,18 +411,43 @@ impl FlowFieldValidator {
             mapped_at_creation: false,
         });
 
+        // Create test texture and sampler for image-based vector field
+        let test_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Test Vector Field Image"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let test_texture_view = test_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let test_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Test Vector Field Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Test Flow Vector Compute Bind Group"),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: flow_vector_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &flow_vector_buffer),
+                resource_helpers::buffer_entry(1, &flow_vector_params_buffer),
+                resource_helpers::texture_view_entry(2, &test_texture_view),
+                resource_helpers::sampler_bind_entry(3, &test_sampler),
             ],
         });
 
@@ -507,26 +479,19 @@ impl FlowFieldValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Storage Texture Test Layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    }],
+                    entries: &[resource_helpers::storage_texture_entry(
+                        0,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::StorageTextureAccess::WriteOnly,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    )],
                 });
 
         // Create bind group (this will fail if the format is not supported)
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Flow Field Storage Texture Test Bind Group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&texture_view),
-            }],
+            entries: &[resource_helpers::texture_view_entry(0, &texture_view)],
         });
 
         Ok(())
@@ -586,56 +551,28 @@ impl FlowFieldValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Compute Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::ReadWrite,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::storage_buffer_entry(
+                            0,
+                            wgpu::ShaderStages::COMPUTE,
+                            false,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            1,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
+                        resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                        resource_helpers::storage_texture_entry(
+                            3,
+                            wgpu::ShaderStages::COMPUTE,
+                            wgpu::StorageTextureAccess::ReadWrite,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            4,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
                     ],
                 });
 
@@ -645,36 +582,18 @@ impl FlowFieldValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Trail Update Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::ReadWrite,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::COMPUTE),
+                        resource_helpers::storage_texture_entry(
+                            1,
+                            wgpu::ShaderStages::COMPUTE,
+                            wgpu::StorageTextureAccess::ReadWrite,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
                     ],
                 });
 
@@ -683,16 +602,10 @@ impl FlowFieldValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Camera Bind Group Layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
+                    entries: &[resource_helpers::uniform_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX,
+                    )],
                 });
 
         let render_bind_group_layout =
@@ -700,22 +613,17 @@ impl FlowFieldValidator {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Flow Field Render Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
+                        resource_helpers::texture_entry(
+                            0,
+                            wgpu::ShaderStages::FRAGMENT,
+                            wgpu::TextureSampleType::Float { filterable: true },
+                            wgpu::TextureViewDimension::D2,
+                        ),
+                        resource_helpers::sampler_entry(
+                            1,
+                            wgpu::ShaderStages::FRAGMENT,
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
                     ],
                 });
 

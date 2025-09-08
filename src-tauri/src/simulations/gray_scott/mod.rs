@@ -12,7 +12,7 @@ use crate::simulation::preset_manager::{GrayScottPresetManager, Preset};
 
 /// Initialize Gray-Scott presets with built-in configurations
 pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
-    use settings::{NutrientPattern, Settings};
+    use settings::{GradientImageFitMode, NutrientPattern, Settings};
 
     // Add default presets
     let all_presets = [
@@ -36,12 +36,17 @@ pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
             timestep: 1.0,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
+            gradient_image_fit_mode: GradientImageFitMode::Stretch,
+            gradient_image_mirror_horizontal: false,
+            gradient_image_invert_tone: false,
             // Optimization defaults
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: false,
             change_threshold: 0.001,
             enable_selective_updates: false,
+            // Simulation resolution scale
+            simulation_resolution_scale: 0.5,
         };
 
         preset_manager.add_preset(Preset::new(preset_name.to_string(), settings));

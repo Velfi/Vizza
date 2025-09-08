@@ -39,6 +39,7 @@ const GRADIENT_RADIAL: u32 = 2u;
 const GRADIENT_ELLIPSE: u32 = 3u;
 const GRADIENT_SPIRAL: u32 = 4u;
 const GRADIENT_CHECKERBOARD: u32 = 5u;
+const GRADIENT_IMAGE: u32 = 6u;
 
 @compute @workgroup_size(256)
 fn generate_gradient(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -48,8 +49,8 @@ fn generate_gradient(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
 
-    // Check if gradient is disabled
-    if (sim_size.gradient_type == GRADIENT_DISABLED) {
+    // Check if gradient is disabled or image-driven
+    if (sim_size.gradient_type == GRADIENT_DISABLED || sim_size.gradient_type == GRADIENT_IMAGE) {
         gradient_map[idx] = 0.0;
         return;
     }

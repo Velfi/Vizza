@@ -35,20 +35,37 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
   var v = vertices.data[i];
 
-  // Outer-totalistic rule on Voronoi sites: compare local alive ratio to threshold
-  let total_n = max(1u, v.alive_neighbors + v.dead_neighbors);
-  let alive_ratio = f32(v.alive_neighbors) / f32(total_n);
-  let target_alive = select(0.0, 1.0, alive_ratio > uniforms.alive_threshold);
-
-  // Optional: support a couple of rule flavors via rule_type (0: threshold, 1: majority with inertia)
-  var next_state = target_alive;
-  if (uniforms.rule_type == 1u) {
-    // Simple inertia: blend toward target to avoid flicker
-    next_state = mix(v.state, target_alive, 0.5);
-    next_state = select(0.0, 1.0, next_state > 0.5);
+  // Conway's Game of Life rules (B3/S23)
+  // B3: Birth if exactly 3 alive neighbors
+  // S23: Survival if 2 or 3 alive neighbors
+  let alive_n = v.alive_neighbors;
+  let is_alive = v.state >= 0.5;
+  
+  var next_state: f32;
+  if (is_alive) {
+    // Survival: live cell survives with 2 or 3 neighbors
+    next_state = select(0.0, 1.0, alive_n == 2u || alive_n == 3u);
+  } else {
+    // Birth: dead cell becomes alive with exactly 3 neighbors
+    next_state = select(0.0, 1.0, alive_n == 3u);
   }
 
-  // Age update: grow age when alive, decay slightly when dead; clamp to a small range
+  // Optional: support rule variations via rule_type
+  if (uniforms.rule_type == 1u) {
+    // High Life variant (B36/S23) - also birth with 6 neighbors
+    if (!is_alive && alive_n == 6u) {
+      next_state = 1.0;
+    }
+  } else if (uniforms.rule_type == 2u) {
+    // Seeds variant (B2/S) - birth with 2 neighbors, no survival
+    if (!is_alive && alive_n == 2u) {
+      next_state = 1.0;
+    } else if (is_alive) {
+      next_state = 0.0; // No survival
+    }
+  }
+
+  // Age update: grow age when alive, decay when dead
   if (next_state >= 0.5) {
     v.age = fract(v.age + 0.016 * 0.6);
   } else {

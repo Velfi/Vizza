@@ -19,8 +19,8 @@
 //! consistently across all simulation types.
 
 use crate::error::SimulationResult;
-use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
 use crate::simulations::gray_scott::GrayScottModel;
+use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
@@ -69,7 +69,7 @@ pub trait Simulation {
     ) -> SimulationResult<()>;
 
     /// Render a static frame without updating simulation state (for paused mode)
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -264,12 +264,23 @@ impl SimulationType {
             }
             "gray_scott" => {
                 let settings = crate::simulations::gray_scott::settings::Settings::default();
+
+                // Calculate simulation resolution based on scale factor
+                let sim_width =
+                    (surface_config.width as f32 * settings.simulation_resolution_scale) as u32;
+                let sim_height =
+                    (surface_config.height as f32 * settings.simulation_resolution_scale) as u32;
+
+                // Ensure minimum resolution
+                let sim_width = sim_width.max(256);
+                let sim_height = sim_height.max(256);
+
                 let simulation = crate::simulations::gray_scott::GrayScottModel::new(
                     device,
                     queue,
                     surface_config,
-                    surface_config.width,
-                    surface_config.height,
+                    sim_width,
+                    sim_height,
                     settings,
                     lut_manager,
                     app_settings,
@@ -362,13 +373,13 @@ impl Simulation for SimulationType {
         delegate_to_simulation!(self, render_frame, device, queue, surface_view, delta_time)
     }
 
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         surface_view: &TextureView,
     ) -> SimulationResult<()> {
-        delegate_to_simulation!(self, render_frame_static, device, queue, surface_view)
+        delegate_to_simulation!(self, render_frame_paused, device, queue, surface_view)
     }
 
     fn resize(
@@ -380,10 +391,12 @@ impl Simulation for SimulationType {
         match self {
             SimulationType::GrayScott(simulation) => {
                 // GrayScott has a different public method signature - call it directly
-                GrayScottModel::resize(simulation, new_config)
-            },
+                GrayScottModel::resize(simulation, device, queue, new_config)
+            }
             SimulationType::SlimeMold(simulation) => simulation.resize(device, queue, new_config),
-            SimulationType::ParticleLife(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::ParticleLife(simulation) => {
+                simulation.resize(device, queue, new_config)
+            }
             SimulationType::Flow(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Pellets(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
@@ -428,7 +441,15 @@ impl Simulation for SimulationType {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        delegate_to_simulation!(self, handle_mouse_interaction, world_x, world_y, mouse_button, device, queue)
+        delegate_to_simulation!(
+            self,
+            handle_mouse_interaction,
+            world_x,
+            world_y,
+            mouse_button,
+            device,
+            queue
+        )
     }
 
     fn handle_mouse_release(

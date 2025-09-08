@@ -1,3 +1,4 @@
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::slime_mold::render::shader_manager::ShaderManager;
 use crate::simulations::slime_mold::workgroup_optimizer::WorkgroupConfig;
 use wgpu::{BindGroupLayout, ComputePipeline, Device, RenderPipeline};
@@ -37,56 +38,11 @@ impl PipelineManager {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Compute Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::uniform_buffer_entry(4, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -94,56 +50,16 @@ impl PipelineManager {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Display Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_texture_entry(
+                        1,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::StorageTextureAccess::WriteOnly,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
                 ],
             });
 
@@ -151,99 +67,46 @@ impl PipelineManager {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                )],
             });
 
         let background_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Background Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::FRAGMENT,
+                )],
             });
 
         let gradient_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Gradient Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 
@@ -251,26 +114,13 @@ impl PipelineManager {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Average Color Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::TextureSampleType::Float { filterable: false },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 

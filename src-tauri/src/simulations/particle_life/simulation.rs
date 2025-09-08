@@ -1,4 +1,5 @@
 use crate::error::{SimulationError, SimulationResult};
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
     BindGroupBuilder, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
     camera::Camera,
@@ -612,14 +613,8 @@ impl ParticleLifeModel {
             label: Some("Display Bind Group"),
             layout: &self.blit_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                },
+                resource_helpers::texture_view_entry(0, &self.display_view),
+                resource_helpers::sampler_bind_entry(1, &self.blit_sampler),
             ],
         });
 
@@ -628,18 +623,9 @@ impl ParticleLifeModel {
             label: Some("Post Effect Bind Group"),
             layout: &self.post_effect_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.post_effect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.post_effect_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.post_effect_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &self.post_effect_view),
+                resource_helpers::sampler_bind_entry(1, &self.post_effect_sampler),
+                resource_helpers::buffer_entry(2, &self.post_effect_params_buffer),
             ],
         });
 
@@ -649,18 +635,9 @@ impl ParticleLifeModel {
                 label: Some("Render Infinite Display Bind Group"),
                 layout: &self.infinite_render_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.display_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.texture_render_params_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, &self.display_view),
+                    resource_helpers::sampler_bind_entry(1, &self.blit_sampler),
+                    resource_helpers::buffer_entry(2, &self.texture_render_params_buffer),
                 ],
             });
 
@@ -668,18 +645,9 @@ impl ParticleLifeModel {
             label: Some("Render Infinite Bind Group"),
             layout: &self.infinite_render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.post_effect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.texture_render_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &self.post_effect_view),
+                resource_helpers::sampler_bind_entry(1, &self.blit_sampler),
+                resource_helpers::buffer_entry(2, &self.texture_render_params_buffer),
             ],
         });
 
@@ -858,36 +826,9 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Particle Life Compute Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
                 ],
             });
 
@@ -914,26 +855,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Particle Life Init Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -993,26 +916,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Force Update Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -1053,26 +958,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Force Randomize Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
                 ],
             });
 
@@ -1105,26 +992,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Render Bind Group Layout (Particles)"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::VERTEX, true),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::VERTEX),
                 ],
             });
 
@@ -1133,26 +1002,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Species Colors Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -1163,26 +1014,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::VERTEX),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::VERTEX),
                 ],
             });
 
@@ -1242,26 +1075,8 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Tile Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::VERTEX),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::VERTEX),
                 ],
             });
 
@@ -1441,14 +1256,8 @@ impl ParticleLifeModel {
             label: Some("Render Bind Group"),
             layout: &render_bind_group_layout_particles,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &sim_params_buffer),
             ],
         });
 
@@ -1547,14 +1356,8 @@ impl ParticleLifeModel {
             label: Some("Species Colors Bind Group"),
             layout: &render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: species_colors_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: color_mode_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &species_colors_buffer),
+                resource_helpers::buffer_entry(1, &color_mode_buffer),
             ],
         });
 
@@ -1579,14 +1382,8 @@ impl ParticleLifeModel {
             label: Some("Camera Bind Group"),
             layout: &camera_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera.buffer().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: viewport_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, camera.buffer()),
+                resource_helpers::buffer_entry(1, &viewport_params_buffer),
             ],
         });
 
@@ -1605,32 +1402,18 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Fade Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::texture_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        2,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                 ],
             });
 
@@ -1723,18 +1506,9 @@ impl ParticleLifeModel {
             label: Some("Fade Bind Group"),
             layout: &fade_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: fade_uniforms_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&placeholder_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&placeholder_sampler),
-                },
+                resource_helpers::buffer_entry(0, &fade_uniforms_buffer),
+                resource_helpers::texture_view_entry(1, &placeholder_texture_view),
+                resource_helpers::sampler_bind_entry(2, &placeholder_sampler),
             ],
         });
 
@@ -1788,22 +1562,17 @@ impl ParticleLifeModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Blit Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                 ],
             });
 
@@ -1951,14 +1720,8 @@ impl ParticleLifeModel {
             label: Some("Blit Bind Group"),
             layout: &blit_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view_a),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                },
+                resource_helpers::texture_view_entry(0, &trail_texture_view_a),
+                resource_helpers::sampler_bind_entry(1, &blit_sampler),
             ],
         });
 
@@ -1972,16 +1735,10 @@ impl ParticleLifeModel {
         let background_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Background Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::FRAGMENT,
+                )],
             });
 
         // Create background render pipeline
@@ -2045,14 +1802,7 @@ impl ParticleLifeModel {
         let background_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Background Bind Group"),
             layout: &background_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &background_params_buffer,
-                    offset: 0,
-                    size: None,
-                }),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &background_params_buffer)],
         });
 
         // Create display texture for offscreen rendering
@@ -2097,14 +1847,8 @@ impl ParticleLifeModel {
             label: Some("Display Bind Group"),
             layout: &blit_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                },
+                resource_helpers::texture_view_entry(0, &display_view),
+                resource_helpers::sampler_bind_entry(1, &blit_sampler),
             ],
         });
 
@@ -2161,34 +1905,20 @@ impl ParticleLifeModel {
                 label: Some("Post Effect Bind Group Layout"),
                 entries: &[
                     // Display texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
                     // Display sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                     // Post effect params
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -2249,34 +1979,20 @@ impl ParticleLifeModel {
                 label: Some("Infinite Render Bind Group Layout"),
                 entries: &[
                     // Display texture
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
                     // Display sampler
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                     // Texture render params
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -2332,18 +2048,9 @@ impl ParticleLifeModel {
             label: Some("Post Effect Bind Group"),
             layout: &post_effect_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: post_effect_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &display_view),
+                resource_helpers::sampler_bind_entry(1, &blit_sampler),
+                resource_helpers::buffer_entry(2, &post_effect_params_buffer),
             ],
         });
 
@@ -2352,18 +2059,9 @@ impl ParticleLifeModel {
             label: Some("Infinite Render Bind Group"),
             layout: &infinite_render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&post_effect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: texture_render_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &post_effect_view),
+                resource_helpers::sampler_bind_entry(1, &blit_sampler),
+                resource_helpers::buffer_entry(2, &texture_render_params_buffer),
             ],
         });
 
@@ -2373,18 +2071,9 @@ impl ParticleLifeModel {
                 label: Some("Infinite Render Display Bind Group"),
                 layout: &infinite_render_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&display_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&blit_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: texture_render_params_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, &display_view),
+                    resource_helpers::sampler_bind_entry(1, &blit_sampler),
+                    resource_helpers::buffer_entry(2, &texture_render_params_buffer),
                 ],
             });
 
@@ -2417,38 +2106,28 @@ impl ParticleLifeModel {
             camera_bind_group,
             tile_render_pipeline,
             tile_render_bind_group_layout: tile_render_bind_group_layout.clone(),
-            tile_render_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Tile Render Bind Group"),
-                layout: &tile_render_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Tile Params Buffer"),
-                                size: std::mem::size_of::<TileParams>() as u64,
-                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }),
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &device.create_buffer(&wgpu::BufferDescriptor {
-                                label: Some("Camera Aware Params Buffer"),
-                                size: std::mem::size_of::<CameraAwareParams>() as u64,
-                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                                mapped_at_creation: false,
-                            }),
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                ],
-            }),
+            tile_render_bind_group: {
+                let tile_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Tile Params Buffer"),
+                    size: std::mem::size_of::<TileParams>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let camera_aware_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("Camera Aware Params Buffer"),
+                    size: std::mem::size_of::<CameraAwareParams>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Tile Render Bind Group"),
+                    layout: &tile_render_bind_group_layout,
+                    entries: &[
+                        resource_helpers::buffer_entry(0, &tile_params_buffer),
+                        resource_helpers::buffer_entry(1, &camera_aware_params_buffer),
+                    ],
+                })
+            },
             tile_params_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Tile Params Buffer"),
                 size: std::mem::size_of::<TileParams>() as u64,
@@ -2795,18 +2474,9 @@ impl ParticleLifeModel {
             label: Some("Particle Life Compute Bind Group"),
             layout: &self.compute_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.force_matrix_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.sim_params_buffer),
+                resource_helpers::buffer_entry(2, &self.force_matrix_buffer),
             ],
         });
     }
@@ -2951,14 +2621,8 @@ impl ParticleLifeModel {
             label: Some("Species Colors Bind Group"),
             layout: &self.render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.species_colors_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.color_mode_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.species_colors_buffer),
+                resource_helpers::buffer_entry(1, &self.color_mode_buffer),
             ],
         });
 
@@ -3000,18 +2664,9 @@ impl ParticleLifeModel {
             label: Some("Fade Bind Group"),
             layout: &self.fade_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.fade_uniforms_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(read_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
+                resource_helpers::buffer_entry(0, &self.fade_uniforms_buffer),
+                resource_helpers::texture_view_entry(1, read_texture_view),
+                resource_helpers::sampler_bind_entry(2, &self.display_sampler),
             ],
         });
     }
@@ -3048,14 +2703,8 @@ impl ParticleLifeModel {
             label: Some("Blit Bind Group"),
             layout: &self.blit_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(read_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
+                resource_helpers::texture_view_entry(0, read_texture_view),
+                resource_helpers::sampler_bind_entry(1, &self.display_sampler),
             ],
         });
     }
@@ -3200,54 +2849,32 @@ impl ParticleLifeModel {
                     label: Some("Blur Bind Group Layout"),
                     entries: &[
                         // Input texture
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::texture_entry(
+                            0,
+                            wgpu::ShaderStages::FRAGMENT,
+                            wgpu::TextureSampleType::Float { filterable: true },
+                            wgpu::TextureViewDimension::D2,
+                        ),
                         // Sampler
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
+                        resource_helpers::sampler_entry(
+                            1,
+                            wgpu::ShaderStages::FRAGMENT,
+                            wgpu::SamplerBindingType::Filtering,
+                        ),
                         // Parameters
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
                     ],
                 }),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            &self.post_processing_resources.blur_sampler,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self
-                            .post_processing_resources
-                            .blur_params_buffer
-                            .as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, input_texture_view),
+                    resource_helpers::sampler_bind_entry(
+                        1,
+                        &self.post_processing_resources.blur_sampler,
+                    ),
+                    resource_helpers::buffer_entry(
+                        2,
+                        &self.post_processing_resources.blur_params_buffer,
+                    ),
                 ],
             });
 
@@ -3280,7 +2907,7 @@ impl ParticleLifeModel {
 }
 
 impl Simulation for ParticleLifeModel {
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -4526,75 +4153,43 @@ impl ParticleLifeModel {
     fn recreate_bind_groups(&mut self, device: &Arc<Device>) -> SimulationResult<()> {
         tracing::info!("Recreating compute bind group");
         // Recreate compute bind group
-        self.compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Life Compute Bind Group"),
-            layout: &self.compute_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.force_matrix_buffer.as_entire_binding(),
-                },
+        self.compute_bind_group = resource_helpers::create_buffer_bind_group(
+            device,
+            &self.compute_pipeline.get_bind_group_layout(0),
+            "Particle Life Compute Bind Group",
+            &[
+                &self.particle_buffer,
+                &self.sim_params_buffer,
+                &self.force_matrix_buffer,
             ],
-        });
+        );
 
         tracing::info!("Recreating render bind group");
         // Recreate render bind group
-        self.render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Life Render Bind Group"),
-            layout: &self.render_particles_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        self.render_bind_group = resource_helpers::create_buffer_bind_group(
+            device,
+            &self.render_particles_bind_group_layout,
+            "Particle Life Render Bind Group",
+            &[&self.particle_buffer, &self.sim_params_buffer],
+        );
 
         tracing::info!("Recreating init bind group");
         // Recreate init bind group (critical for particle initialization)
-        self.init_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Particle Life Init Bind Group"),
-            layout: &self.init_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.init_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        self.init_bind_group = resource_helpers::create_buffer_bind_group(
+            device,
+            &self.init_bind_group_layout,
+            "Particle Life Init Bind Group",
+            &[&self.particle_buffer, &self.init_params_buffer],
+        );
 
         tracing::info!("All bind groups recreated successfully");
         // Recreate LUT bind group to ensure it points to the current species_colors_buffer
-        self.lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Species Colors Bind Group"),
-            layout: &self.render_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.species_colors_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.color_mode_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        self.lut_bind_group = resource_helpers::create_buffer_bind_group(
+            device,
+            &self.render_bind_group_layout,
+            "Species Colors Bind Group",
+            &[&self.species_colors_buffer, &self.color_mode_buffer],
+        );
         Ok(())
     }
 }

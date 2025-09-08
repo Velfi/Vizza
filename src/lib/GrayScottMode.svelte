@@ -56,6 +56,22 @@
             on:reverse={() => updateLutReversed()}
           />
         </div>
+        <div class="control-group">
+          <label for="simulation-resolution-scale">Simulation Resolution Scale</label>
+          <NumberDragBox
+            id="simulation-resolution-scale"
+            value={settings.simulation_resolution_scale}
+            min={0.1}
+            max={10.0}
+            step={0.01}
+            precision={3}
+            on:change={(event) => updateSetting('simulation_resolution_scale', event.detail)}
+          />
+          <div class="control-help">
+            Lower values improve performance but reduce detail. 0.5 = half resolution, 1.0 = full resolution, >1.0 = supersampling.
+            <br><strong>Note:</strong> Changes require restarting the simulation to take effect.
+          </div>
+        </div>
       </fieldset>
 
       <!-- Post Processing -->
@@ -188,6 +204,7 @@
               else if (settingName === 'diffusion_rate_u') updated.diffusion_rate_u = value;
               else if (settingName === 'diffusion_rate_v') updated.diffusion_rate_v = value;
               else if (settingName === 'timestep') updated.timestep = value;
+              else if (settingName === 'simulation_resolution_scale') updated.simulation_resolution_scale = value;
               settings = updated;
 
               await invoke('update_simulation_setting', {
@@ -221,6 +238,52 @@
             Reverse nutrient pattern
           </label>
         </div>
+        {#if settings?.nutrient_pattern === 'Image Gradient'}
+          <ImageSelector
+            fitMode={settings.gradient_image_fit_mode}
+            mirrorHorizontal={settings?.gradient_image_mirror_horizontal || false}
+            invertTone={settings?.gradient_image_invert_tone || false}
+            loadCommand="load_gray_scott_nutrient_image"
+            onFitModeChange={async (value) => {
+              try {
+                await invoke('update_simulation_setting', {
+                  settingName: 'gradient_image_fit_mode',
+                  value: value,
+                });
+              } catch (err) {
+                console.error('Failed to update fit mode:', err);
+              }
+            }}
+            onMirrorHorizontalChange={async (value) => {
+              try {
+                await invoke('update_simulation_setting', {
+                  settingName: 'gradient_image_mirror_horizontal',
+                  value: value,
+                });
+                if (settings) settings.gradient_image_mirror_horizontal = value;
+              } catch (err) {
+                console.error('Failed to update mirror:', err);
+              }
+            }}
+            onInvertToneChange={async (value) => {
+              try {
+                await invoke('update_simulation_setting', {
+                  settingName: 'gradient_image_invert_tone',
+                  value: value,
+                });
+                if (settings) settings.gradient_image_invert_tone = value;
+              } catch (err) {
+                console.error('Failed to update invert:', err);
+              }
+            }}
+          />
+          <WebcamControls
+            webcamDevices={webcamDevices}
+            webcamActive={webcamActive}
+            onStartWebcam={startWebcam}
+            onStopWebcam={stopWebcam}
+          />
+        {/if}
       </fieldset>
     </form>
   {/if}
@@ -243,9 +306,41 @@
   import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
   import Button from './components/shared/Button.svelte';
   import Selector from './components/inputs/Selector.svelte';
+  import NumberDragBox from './components/inputs/NumberDragBox.svelte';
+  import ImageSelector from './components/shared/ImageSelector.svelte';
+  import WebcamControls from './components/shared/WebcamControls.svelte';
   import './shared-theme.css';
 
   const dispatch = createEventDispatcher();
+  // Webcam state
+  let webcamDevices: number[] = [];
+  let webcamActive = false;
+
+  async function startWebcam() {
+    try {
+      await invoke('start_gray_scott_webcam_capture');
+      webcamActive = true;
+    } catch (e) {
+      console.error('Failed to start Gray-Scott webcam:', e);
+    }
+  }
+
+  async function stopWebcam() {
+    try {
+      await invoke('stop_gray_scott_webcam_capture');
+      webcamActive = false;
+    } catch (e) {
+      console.error('Failed to stop Gray-Scott webcam:', e);
+    }
+  }
+
+  async function loadGrayScottWebcams() {
+    try {
+      webcamDevices = await invoke('get_available_gray_scott_webcam_devices');
+    } catch (e) {
+      console.error('Failed to load Gray-Scott webcam devices:', e);
+    }
+  }
 
   export let menuPosition: string = 'middle';
   export let autoHideDelay: number = 3000;
@@ -258,6 +353,10 @@
     timestep: number;
     nutrient_pattern: string;
     nutrient_pattern_reversed: boolean;
+    gradient_image_fit_mode: string;
+    gradient_image_mirror_horizontal?: boolean;
+    gradient_image_invert_tone?: boolean;
+    simulation_resolution_scale: number;
   }
 
   // Simulation state
@@ -283,6 +382,7 @@
     'Enhanced Noise',
     'Wave Function',
     'Cosine Grid',
+    'Image Gradient',
   ];
 
   async function updateNutrientPattern(value: string) {
@@ -308,6 +408,30 @@
       });
     } catch (err) {
       console.error('Failed to toggle nutrient reversal:', err);
+    }
+  }
+
+  async function updateSetting(settingName: string, value: number) {
+    if (!settings) return;
+    try {
+      const updated: Settings = { ...settings };
+      if (settingName === 'simulation_resolution_scale') {
+        updated.simulation_resolution_scale = value;
+      }
+      settings = updated;
+
+      await invoke('update_simulation_setting', {
+        settingName,
+        value,
+      });
+
+      // Show notification for resolution scale changes
+      if (settingName === 'simulation_resolution_scale') {
+        console.log(`Simulation resolution scale updated to ${value}. Restart the simulation to apply changes.`);
+        // You could add a toast notification here if you have a notification system
+      }
+    } catch (err) {
+      console.error(`Failed to update ${settingName}:`, err);
     }
   }
 
@@ -774,6 +898,8 @@
   }
 
   onMount(() => {
+    // Load available webcams once UI mounts
+    loadGrayScottWebcams();
     // Add event listeners for auto-hide functionality (excluding keydown to avoid conflicts with CameraControls)
     const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
     events.forEach((event) => {

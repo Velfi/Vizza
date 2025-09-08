@@ -115,7 +115,7 @@ impl MainMenuModel {
 }
 
 impl Simulation for MainMenuModel {
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,

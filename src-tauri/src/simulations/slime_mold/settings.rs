@@ -72,6 +72,18 @@ pub struct Settings {
     ///
     /// Defaults to 0.0.
     pub gradient_angle: f32,
+    /// The fit mode for image-based gradients.
+    ///
+    /// Defaults to GradientImageFitMode::Stretch.
+    pub gradient_image_fit_mode: GradientImageFitMode,
+    /// Mirror image gradients horizontally
+    pub gradient_image_mirror_horizontal: bool,
+    /// Invert (tone reverse) image gradients
+    pub gradient_image_invert_tone: bool,
+    /// The fit mode for image-based position generation.
+    ///
+    /// Defaults to GradientImageFitMode::Stretch.
+    pub position_image_fit_mode: GradientImageFitMode,
     /// The frequency of diffusion updates.
     ///
     /// Defaults to 1.
@@ -137,6 +149,7 @@ pub enum GradientType {
     Ellipse,
     Spiral,
     Checkerboard,
+    Image,
 }
 
 impl serde::Serialize for GradientType {
@@ -151,6 +164,7 @@ impl serde::Serialize for GradientType {
             GradientType::Ellipse => serializer.serialize_str("ellipse"),
             GradientType::Spiral => serializer.serialize_str("spiral"),
             GradientType::Checkerboard => serializer.serialize_str("checkerboard"),
+            GradientType::Image => serializer.serialize_str("image"),
         }
     }
 }
@@ -168,8 +182,23 @@ impl<'de> serde::Deserialize<'de> for GradientType {
             "ellipse" => Ok(GradientType::Ellipse),
             "spiral" => Ok(GradientType::Spiral),
             "checkerboard" => Ok(GradientType::Checkerboard),
+            "image" => Ok(GradientType::Image),
             _ => Ok(GradientType::Disabled), // Default fallback
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum GradientImageFitMode {
+    Stretch,
+    Center,
+    FitH,
+    FitV,
+}
+
+impl Default for GradientImageFitMode {
+    fn default() -> Self {
+        Self::Stretch
     }
 }
 
@@ -192,6 +221,10 @@ impl Default for Settings {
             gradient_center_y: 0.5,
             gradient_size: 0.3,
             gradient_angle: 0.0,
+            gradient_image_fit_mode: GradientImageFitMode::FitV,
+            gradient_image_mirror_horizontal: false,
+            gradient_image_invert_tone: false,
+            position_image_fit_mode: GradientImageFitMode::FitV,
             diffusion_frequency: 1,
             decay_frequency: 1,
             random_seed: 0,

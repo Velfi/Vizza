@@ -23,6 +23,7 @@ pub mod camera;
 pub mod color_scheme;
 pub mod coordinates;
 pub mod gpu_utils;
+pub mod ping_pong_textures;
 pub mod position_generators;
 pub mod post_processing;
 

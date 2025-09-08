@@ -7,6 +7,7 @@
 
 use super::shaders::{BACKGROUND_RENDER_SHADER, REACTION_DIFFUSION_SHADER};
 use super::simulation::{BackgroundParams, SimulationParams};
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
 use wgpu::util::DeviceExt;
 
@@ -161,16 +162,10 @@ impl GrayScottValidator {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Gray-Scott Background Bind Group Layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
+                    entries: &[resource_helpers::uniform_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                    )],
                 });
 
         // Create render pipeline layout
@@ -227,10 +222,7 @@ impl GrayScottValidator {
         let _bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Gray-Scott Background Bind Group"),
             layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: sim_params_buffer.as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, &sim_params_buffer)],
         });
 
         Ok(())

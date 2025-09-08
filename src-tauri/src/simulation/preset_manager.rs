@@ -34,7 +34,7 @@ pub struct PresetManager<Settings> {
 
 impl<Settings> PresetManager<Settings>
 where
-    Settings: Clone + Serialize + for<'de> Deserialize<'de>,
+    Settings: Clone + Serialize + for<'de> Deserialize<'de> + Default,
 {
     pub fn new(simulation_name: String) -> Self {
         let user_presets_dir = get_user_presets_dir(&simulation_name);
@@ -131,9 +131,84 @@ where
             path: path.clone(),
             error: e.to_string(),
         })?;
-        let preset: Preset<Settings> = toml::from_str(&content)
+
+        // First try to deserialize directly
+        match toml::from_str::<Preset<Settings>>(&content) {
+            Ok(preset) => Ok(preset),
+            Err(_) => {
+                // If direct deserialization fails, try to merge with defaults
+                let default_settings = Settings::default();
+                let default_preset = Preset {
+                    name: "".to_string(),
+                    settings: default_settings,
+                };
+
+                // Parse as a generic TOML value to handle partial data
+                let _toml_value: toml::Value = toml::from_str(&content)
+                    .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+
+                // Convert to a partial preset structure
+                let partial_preset: Preset<toml::Value> = toml::from_str(&content)
+                    .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+
+                // Merge the partial settings with defaults
+                let merged_settings = self.merge_settings_with_defaults(
+                    &partial_preset.settings,
+                    &default_preset.settings,
+                )?;
+
+                Ok(Preset {
+                    name: partial_preset.name,
+                    settings: merged_settings,
+                })
+            }
+        }
+    }
+
+    /// Merge partial settings with default settings, filling in missing fields
+    fn merge_settings_with_defaults(
+        &self,
+        partial_settings: &toml::Value,
+        default_settings: &Settings,
+    ) -> PresetResult<Settings> {
+        // Convert default settings to TOML string and back to value
+        let default_toml_str = toml::to_string_pretty(default_settings)
+            .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+        let default_toml: toml::Value = toml::from_str(&default_toml_str)
             .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
-        Ok(preset)
+
+        // Merge the partial settings with defaults
+        let merged_toml = self.merge_toml_values(&default_toml, partial_settings);
+
+        // Convert back to Settings via TOML string
+        let merged_toml_str = toml::to_string_pretty(&merged_toml)
+            .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+        let merged_settings: Settings = toml::from_str(&merged_toml_str)
+            .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+
+        Ok(merged_settings)
+    }
+
+    /// Recursively merge two TOML values, with the second taking precedence
+    fn merge_toml_values(&self, base: &toml::Value, override_val: &toml::Value) -> toml::Value {
+        match (base, override_val) {
+            (toml::Value::Table(base_table), toml::Value::Table(override_table)) => {
+                let mut result = base_table.clone();
+                for (key, value) in override_table {
+                    result.insert(
+                        key.clone(),
+                        self.merge_toml_values(
+                            base_table
+                                .get(key)
+                                .unwrap_or(&toml::Value::Table(toml::map::Map::new())),
+                            value,
+                        ),
+                    );
+                }
+                toml::Value::Table(result)
+            }
+            (_, override_val) => override_val.clone(),
+        }
     }
 
     /// Delete a user preset file and remove it from memory
@@ -165,7 +240,7 @@ where
 
 impl<Settings> Default for PresetManager<Settings>
 where
-    Settings: Clone + Serialize + for<'de> Deserialize<'de>,
+    Settings: Clone + Serialize + for<'de> Deserialize<'de> + Default,
 {
     fn default() -> Self {
         Self::new("default".to_string())

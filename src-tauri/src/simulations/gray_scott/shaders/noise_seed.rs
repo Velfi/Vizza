@@ -1,4 +1,5 @@
 use crate::error::SimulationResult;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{Device, Queue};
@@ -29,27 +30,9 @@ impl NoiseSeedCompute {
             label: Some("Noise Seed Bind Group Layout"),
             entries: &[
                 // UVs buffer (read-write)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
                 // Params buffer (uniform)
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
             ],
         });
 
@@ -107,14 +90,8 @@ impl NoiseSeedCompute {
             label: Some("Noise Seed Bind Group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uvs_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &uvs_buffer),
+                resource_helpers::buffer_entry(1, &params_buffer),
             ],
         });
 

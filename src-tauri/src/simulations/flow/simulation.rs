@@ -1,4 +1,6 @@
-use super::settings::{BackgroundColorMode, ForegroundColorMode, NoiseType, Settings};
+use super::settings::{
+    BackgroundColorMode, ForegroundColorMode, NoiseType, Settings, VectorFieldType,
+};
 use super::shaders::{
     BACKGROUND_RENDER_SHADER, FLOW_VECTOR_COMPUTE_SHADER, PARTICLE_RENDER_SHADER,
     PARTICLE_UPDATE_SHADER, RENDER_INFINITE_SHADER, SHAPE_DRAWING_SHADER,
@@ -6,6 +8,7 @@ use super::shaders::{
 };
 use crate::commands::AppSettings;
 use crate::simulations::shared::camera::Camera;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
     AverageColorResources, BindGroupBuilder, ColorSchemeManager, CommonBindGroupLayouts,
     ComputePipelineBuilder, PostProcessingResources, PostProcessingState, ShaderManager,
@@ -27,6 +30,8 @@ thread_local! {
         RefCell::new(StdRng::from_rng(&mut thread_rng))
     };
 }
+
+pub(crate) const DEFAULT_FLOW_FIELD_RESOLUTION: u32 = 128;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, Default)]
@@ -51,6 +56,7 @@ pub struct FlowVector {
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct FlowVectorParams {
     pub grid_size: u32,
+    pub vector_field_type: u32, // 0=Noise, 1=Image
     pub noise_type: u32,
     pub noise_scale: f32,
     pub noise_x: f32,
@@ -229,12 +235,28 @@ pub struct FlowModel {
     pub flow_vector_compute_pipeline: wgpu::ComputePipeline,
     pub flow_vector_compute_bind_group: wgpu::BindGroup,
     pub flow_vector_params_buffer: wgpu::Buffer,
+    pub flow_field_resolution: u32,
+
+    // Image-based vector field support
+    pub vector_field_image_texture: Option<wgpu::Texture>,
+    pub vector_field_image_view: Option<wgpu::TextureView>,
+    pub vector_field_image_sampler: Option<wgpu::Sampler>,
+    pub vector_field_image_original: Option<image::DynamicImage>,
+    pub vector_field_image_needs_upload: bool,
+
+    // Default texture for when no image is loaded
+    pub default_vector_field_texture: wgpu::Texture,
+    pub default_vector_field_view: wgpu::TextureView,
+    pub default_vector_field_sampler: wgpu::Sampler,
 
     // Shape drawing system
     pub shape_drawing_pipeline: wgpu::ComputePipeline,
     pub shape_drawing_bind_group: wgpu::BindGroup,
     pub shape_params_buffer: wgpu::Buffer,
     pub shape_drawing_enabled: bool,
+
+    // Webcam capture for image-based vector fields
+    pub webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture,
 }
 
 impl FlowModel {
@@ -253,7 +275,7 @@ impl FlowModel {
     // Generate flow direction using the noise crate
 
     // Regenerate flow vectors with current settings
-    fn regenerate_flow_vectors(
+    pub fn regenerate_flow_vectors(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -279,44 +301,7 @@ impl FlowModel {
         queue.submit(std::iter::once(encoder.finish()));
 
         // Update sim params with new flow field resolution
-        let sim_params = SimParams {
-            total_pool_size: self.settings.total_pool_size,
-            flow_field_resolution: 128 * 128, // 128x128 grid
-            particle_lifetime: self.settings.particle_lifetime,
-            particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed,
-            time: self.time,
-            delta_time: self.delta_time,
-            noise_dt_multiplier: self.noise_dt_multiplier,
-            width: 2.0,
-            height: 2.0,
-            noise_scale: self.settings.noise_scale as f32,
-            noise_x: self.settings.noise_x as f32,
-            noise_y: self.settings.noise_y as f32,
-            vector_magnitude: self.settings.vector_magnitude,
-            trail_decay_rate: self.settings.trail_decay_rate,
-            trail_deposition_rate: self.settings.trail_deposition_rate,
-            trail_diffusion_rate: self.settings.trail_diffusion_rate,
-            trail_wash_out_rate: self.settings.trail_wash_out_rate,
-            trail_map_width: self.trail_map_width,
-            trail_map_height: self.trail_map_height,
-            particle_shape: self.settings.particle_shape as u32,
-            particle_size: self.settings.particle_size,
-            screen_width: self.trail_map_width,
-            screen_height: self.trail_map_height,
-            cursor_x: self.cursor_world_x,
-            cursor_y: self.cursor_world_y,
-            cursor_size: self.cursor_size,
-            mouse_button_down: self.mouse_button_down,
-            particle_autospawn: self.settings.particle_autospawn as u32,
-            autospawn_rate: self.settings.autospawn_rate,
-            brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
-            autospawn_pool_size: self.autospawn_pool_size,
-            brush_pool_size: self.brush_pool_size,
-            _padding_1: 0,
-            _padding_2: 0,
-        };
+        let sim_params = self.create_runtime_sim_params();
 
         queue.write_buffer(
             &self.sim_params_buffer,
@@ -383,72 +368,42 @@ impl FlowModel {
         let flow_vectors = Vec::new();
 
         // Create GPU buffers
-        let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Particle Buffer"),
-            contents: bytemuck::cast_slice(&particles),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let particle_buffer = resource_helpers::create_storage_buffer_with_data(
+            device,
+            "Particle Buffer",
+            &particles,
+        );
 
-        let flow_vector_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Flow Vector Buffer"),
-            size: std::mem::size_of::<FlowVector>() as u64 * 128 * 128, // 128x128 grid
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let flow_vector_buffer = resource_helpers::create_storage_buffer(
+            device,
+            "Flow Vector Buffer",
+            std::mem::size_of::<FlowVector>() as u64
+                * (DEFAULT_FLOW_FIELD_RESOLUTION * DEFAULT_FLOW_FIELD_RESOLUTION) as u64,
+            false,
+        );
 
-        let sim_params = SimParams {
-            total_pool_size: settings.total_pool_size,
-            flow_field_resolution: 128 * 128, // 128x128 grid
-            particle_lifetime: settings.particle_lifetime,
-            particle_speed: settings.particle_speed,
-            noise_seed: settings.noise_seed,
-            time: 0.0,
-            delta_time: 0.016,
-            noise_dt_multiplier: 1.0, // Default multiplier
-            width: 2.0,
-            height: 2.0,
-            noise_scale: settings.noise_scale as f32,
-            noise_x: settings.noise_x as f32,
-            noise_y: settings.noise_y as f32,
-            vector_magnitude: settings.vector_magnitude,
-            trail_decay_rate: settings.trail_decay_rate,
-            trail_deposition_rate: settings.trail_deposition_rate,
-            trail_diffusion_rate: settings.trail_diffusion_rate,
-            trail_wash_out_rate: settings.trail_wash_out_rate,
-            trail_map_width: surface_config.width,
-            trail_map_height: surface_config.height,
-            particle_shape: settings.particle_shape as u32,
-            particle_size: settings.particle_size,
-            screen_width: surface_config.width,
-            screen_height: surface_config.height,
-            cursor_x: 0.0,
-            cursor_y: 0.0,
-            cursor_size: 0.25,
-            mouse_button_down: 0,
-            particle_autospawn: settings.particle_autospawn as u32,
-            autospawn_rate: settings.autospawn_rate,
-            brush_spawn_rate: settings.brush_spawn_rate,
-            display_mode: ForegroundColorMode::Age as u32,
+        let sim_params = Self::create_default_sim_params_static(
+            &settings,
+            surface_config,
+            ForegroundColorMode::Age,
             autospawn_pool_size,
             brush_pool_size,
-            _padding_1: 0,
-            _padding_2: 0,
-        };
+        );
 
-        let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sim Params Buffer"),
-            contents: bytemuck::cast_slice(&[sim_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let sim_params_buffer = resource_helpers::create_uniform_buffer_with_data(
+            device,
+            "Sim Params Buffer",
+            &[sim_params],
+        );
 
         let lut_data = lut_manager
             .get("MATPLOTLIB_terrain")
             .expect("MATPLOTLIB_terrain LUT should exist");
-        let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LUT Buffer"),
-            contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let lut_buffer = resource_helpers::create_storage_buffer_with_data(
+            device,
+            "LUT Buffer",
+            &lut_data.to_u32_buffer(),
+        );
 
         // Create spawn control buffer
         let spawn_control_init = SpawnControl {
@@ -457,38 +412,27 @@ impl FlowModel {
             autospawn_count: 0,
             brush_count: 0,
         };
-        let spawn_control_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Spawn Control Buffer"),
-            contents: bytemuck::cast_slice(&[spawn_control_init]),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let spawn_control_buffer = resource_helpers::create_storage_buffer_with_data(
+            device,
+            "Spawn Control Buffer",
+            &[spawn_control_init],
+        );
 
         // Create background color buffer (will be updated based on background setting)
-        let background_color_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Background Color Buffer"),
-                contents: bytemuck::cast_slice(&[0.0f32, 0.0f32, 0.0f32, 1.0f32]), // Temporary black, will be updated
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        let background_color_buffer = resource_helpers::create_uniform_buffer_with_data(
+            device,
+            "Background Color Buffer",
+            &[0.0f32, 0.0f32, 0.0f32, 1.0f32], // Temporary black, will be updated
+        );
 
         // Create trail texture
-        let trail_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Trail Texture"),
-            size: wgpu::Extent3d {
-                width: surface_config.width,
-                height: surface_config.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        let trail_texture = resource_helpers::create_storage_texture(
+            device,
+            "Trail Texture",
+            surface_config.width,
+            surface_config.height,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
 
         let trail_texture_view = trail_texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("Trail Texture View"),
@@ -497,16 +441,11 @@ impl FlowModel {
             ..Default::default()
         });
 
-        let trail_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Trail Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: app_settings.texture_filtering.into(),
-            min_filter: app_settings.texture_filtering.into(),
-            mipmap_filter: app_settings.texture_filtering.into(),
-            ..Default::default()
-        });
+        let trail_sampler = resource_helpers::create_linear_sampler(
+            device,
+            "Trail Sampler",
+            app_settings.texture_filtering.into(),
+        );
 
         // Initialize GPU utilities
         let mut shader_manager = ShaderManager::new();
@@ -520,66 +459,17 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Compute Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadWrite,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_texture_entry(
+                        3,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::StorageTextureAccess::ReadWrite,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
+                    resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(5, wgpu::ShaderStages::COMPUTE, false),
                 ],
             });
 
@@ -610,36 +500,14 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Trail Update Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadWrite,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_texture_entry(
+                        1,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::StorageTextureAccess::ReadWrite,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
                 ],
             });
 
@@ -664,18 +532,9 @@ impl FlowModel {
                 label: Some("Trail Decay Diffusion Bind Group"),
                 layout: &trail_update_bind_group_layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: sim_params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: flow_vector_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::buffer_entry(0, &sim_params_buffer),
+                    resource_helpers::texture_view_entry(1, &trail_texture_view),
+                    resource_helpers::buffer_entry(2, &flow_vector_buffer),
                 ],
             });
 
@@ -689,36 +548,16 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        true,
+                    ),
+                    resource_helpers::uniform_buffer_entry(
+                        1,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::FRAGMENT, true),
                 ],
             });
 
@@ -726,16 +565,10 @@ impl FlowModel {
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::VERTEX,
+                )],
             });
 
         let particle_render_pipeline =
@@ -798,28 +631,16 @@ impl FlowModel {
             label: Some("Particle Render Bind Group"),
             layout: &render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: lut_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &particle_buffer),
+                resource_helpers::buffer_entry(1, &sim_params_buffer),
+                resource_helpers::buffer_entry(2, &lut_buffer),
             ],
         });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera.buffer().as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, camera.buffer())],
         });
 
         // Create trail render pipeline
@@ -832,26 +653,16 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Trail Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::storage_texture_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::StorageTextureAccess::ReadOnly,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
                 ],
             });
 
@@ -907,14 +718,8 @@ impl FlowModel {
             label: Some("Trail Render Bind Group"),
             layout: &trail_render_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                },
+                resource_helpers::buffer_entry(0, &sim_params_buffer),
+                resource_helpers::texture_view_entry(1, &trail_texture_view),
             ],
         });
 
@@ -928,46 +733,17 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Background Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        true,
+                    ),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::FRAGMENT, true),
+                    resource_helpers::uniform_buffer_entry(
+                        2,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -1023,22 +799,10 @@ impl FlowModel {
             label: Some("Background Render Bind Group"),
             layout: &background_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: lut_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &flow_vector_buffer),
+                resource_helpers::buffer_entry(1, &lut_buffer),
+                resource_helpers::buffer_entry(2, &sim_params_buffer),
+                resource_helpers::buffer_entry(3, &background_color_buffer),
             ],
         });
 
@@ -1243,42 +1007,19 @@ impl FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Flow Render Infinite Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -1304,22 +1045,10 @@ impl FlowModel {
             label: Some("Flow Render Infinite Bind Group"),
             layout: &render_infinite_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&display_mipmap_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: average_color_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &display_mipmap_view),
+                resource_helpers::sampler_bind_entry(1, &display_sampler),
+                resource_helpers::buffer_entry(2, &average_color_uniform_buffer),
+                resource_helpers::buffer_entry(3, &background_color_buffer),
             ],
         });
 
@@ -1399,6 +1128,10 @@ impl FlowModel {
         // Create flow vector params buffer
         let flow_vector_params = FlowVectorParams {
             grid_size: 128,
+            vector_field_type: match settings.vector_field_type {
+                VectorFieldType::Noise => 0,
+                VectorFieldType::Image => 1,
+            },
             noise_type: 0, // Will be set based on settings
             noise_scale: settings.noise_scale as f32,
             noise_x: settings.noise_x as f32,
@@ -1416,19 +1149,66 @@ impl FlowModel {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
+        // Create a default 1x1 white texture for when no image is loaded
+        let default_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Vector Field Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let default_texture_view =
+            default_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Default Vector Field Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // Initialize with white pixel (value 255 = angle 2π)
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &default_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255u8], // White pixel
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
         // Create flow vector compute bind group
         let flow_vector_compute_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Flow Vector Compute Bind Group"),
             layout: &flow_vector_compute_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: flow_vector_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &flow_vector_buffer),
+                resource_helpers::buffer_entry(1, &flow_vector_params_buffer),
+                resource_helpers::texture_view_entry(2, &default_texture_view),
+                resource_helpers::sampler_bind_entry(3, &default_sampler),
             ],
         });
 
@@ -1476,14 +1256,8 @@ impl FlowModel {
             label: Some("Shape Drawing Bind Group"),
             layout: &shape_drawing_pipeline.get_bind_group_layout(0),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&trail_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: shape_params_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &trail_texture_view),
+                resource_helpers::buffer_entry(1, &shape_params_buffer),
             ],
         });
 
@@ -1561,6 +1335,19 @@ impl FlowModel {
             flow_vector_compute_pipeline,
             flow_vector_compute_bind_group,
             flow_vector_params_buffer,
+            flow_field_resolution: DEFAULT_FLOW_FIELD_RESOLUTION,
+
+            // Image-based vector field support
+            vector_field_image_texture: None,
+            vector_field_image_view: None,
+            vector_field_image_sampler: None,
+            vector_field_image_original: None,
+            vector_field_image_needs_upload: false,
+
+            // Default texture for when no image is loaded
+            default_vector_field_texture: default_texture,
+            default_vector_field_view: default_texture_view,
+            default_vector_field_sampler: default_sampler,
 
             // Shape drawing system
             shape_drawing_pipeline,
@@ -1572,6 +1359,9 @@ impl FlowModel {
             autospawn_pool_size,
             brush_pool_size,
             total_pool_size,
+
+            // Webcam capture
+            webcam_capture: Default::default(),
         };
 
         // Update background color buffer to reflect the default white background
@@ -1580,45 +1370,123 @@ impl FlowModel {
         Ok(flow_model)
     }
 
+    /// Start webcam capture for Flow (image-based vector field)
+    pub fn start_webcam_capture(
+        &mut self,
+        device_index: i32,
+    ) -> crate::error::SimulationResult<()> {
+        self.webcam_capture
+            .set_target_dimensions(self.trail_map_width, self.trail_map_height);
+        self.webcam_capture.start_capture(device_index)
+    }
+
+    /// Stop webcam capture
+    pub fn stop_webcam_capture(&mut self) {
+        self.webcam_capture.stop_capture();
+    }
+
+    /// List available webcam device indices
+    pub fn get_available_webcam_devices(&self) -> Vec<i32> {
+        crate::simulations::slime_mold::webcam::WebcamCapture::get_available_devices()
+    }
+
+    /// Upload latest webcam frame into the vector field image texture
+    pub fn update_vector_field_from_webcam(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        if let Some(frame_data) = self.webcam_capture.get_latest_frame_data() {
+            let target_w = self.trail_map_width;
+            let target_h = self.trail_map_height;
+
+            let mut processed = frame_data;
+
+            if self.settings.image_mirror_horizontal {
+                let w = target_w as usize;
+                let h = target_h as usize;
+                for y in 0..h {
+                    processed[y * w..(y + 1) * w].reverse();
+                }
+            }
+
+            if self.settings.image_invert_tone {
+                for px in &mut processed {
+                    *px = 255u8.saturating_sub(*px);
+                }
+            }
+
+            // Ensure texture exists and matches size
+            let recreate = match &self.vector_field_image_texture {
+                Some(tex) => {
+                    let size = tex.size();
+                    size.width != target_w || size.height != target_h
+                }
+                None => true,
+            };
+
+            if recreate {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Vector Field Image Texture (Webcam)"),
+                    size: wgpu::Extent3d {
+                        width: target_w,
+                        height: target_h,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("Vector Field Image Sampler (Webcam)"),
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                });
+
+                self.vector_field_image_texture = Some(texture);
+                self.vector_field_image_view = Some(view);
+                self.vector_field_image_sampler = Some(sampler);
+                self.update_flow_vector_bind_group(device)?;
+            }
+
+            if let Some(texture) = &self.vector_field_image_texture {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &processed,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(target_w),
+                        rows_per_image: Some(target_h),
+                    },
+                    wgpu::Extent3d {
+                        width: target_w,
+                        height: target_h,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn write_sim_params(&self, queue: &Arc<wgpu::Queue>) {
-        let sim_params = SimParams {
-            total_pool_size: self.settings.total_pool_size,
-            flow_field_resolution: self.flow_vectors.len() as u32,
-            particle_lifetime: self.settings.particle_lifetime,
-            particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed,
-            time: self.time,
-            delta_time: self.delta_time,
-            noise_dt_multiplier: self.noise_dt_multiplier,
-            width: 2.0,
-            height: 2.0,
-            noise_scale: self.settings.noise_scale as f32,
-            noise_x: self.settings.noise_x as f32,
-            noise_y: self.settings.noise_y as f32,
-            vector_magnitude: self.settings.vector_magnitude,
-            trail_decay_rate: self.settings.trail_decay_rate,
-            trail_deposition_rate: self.settings.trail_deposition_rate,
-            trail_diffusion_rate: self.settings.trail_diffusion_rate,
-            trail_wash_out_rate: self.settings.trail_wash_out_rate,
-            trail_map_width: self.trail_map_width,
-            trail_map_height: self.trail_map_height,
-            particle_shape: self.settings.particle_shape as u32,
-            particle_size: self.settings.particle_size,
-            screen_width: self.trail_map_width,
-            screen_height: self.trail_map_height,
-            cursor_x: self.cursor_world_x,
-            cursor_y: self.cursor_world_y,
-            cursor_size: self.cursor_size,
-            mouse_button_down: self.mouse_button_down,
-            particle_autospawn: self.settings.particle_autospawn as u32,
-            autospawn_rate: self.settings.autospawn_rate,
-            brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
-            autospawn_pool_size: self.autospawn_pool_size,
-            brush_pool_size: self.brush_pool_size,
-            _padding_1: 0,
-            _padding_2: 0,
-        };
+        let sim_params =
+            self.create_sim_params_with_flow_resolution(self.flow_vectors.len() as u32);
 
         queue.write_buffer(
             &self.sim_params_buffer,
@@ -1644,6 +1512,10 @@ impl FlowModel {
 
         let params = FlowVectorParams {
             grid_size: 128,
+            vector_field_type: match self.settings.vector_field_type {
+                VectorFieldType::Noise => 0,
+                VectorFieldType::Image => 1,
+            },
             noise_type,
             noise_scale: self.settings.noise_scale as f32,
             noise_x: self.settings.noise_x as f32,
@@ -1743,23 +1615,15 @@ impl FlowModel {
                     .blur_pipeline
                     .get_bind_group_layout(0),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            &self.post_processing_resources.blur_sampler,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self
-                            .post_processing_resources
-                            .blur_params_buffer
-                            .as_entire_binding(),
-                    },
+                    resource_helpers::texture_view_entry(0, input_texture_view),
+                    resource_helpers::sampler_bind_entry(
+                        1,
+                        &self.post_processing_resources.blur_sampler,
+                    ),
+                    resource_helpers::buffer_entry(
+                        2,
+                        &self.post_processing_resources.blur_params_buffer,
+                    ),
                 ],
             });
 
@@ -1815,6 +1679,13 @@ impl Simulation for FlowModel {
         } else {
             // If overflow occurs, reset to 0
             self.time = 0.0;
+        }
+
+        // If webcam is active, update vector field image from webcam first
+        if self.webcam_capture.is_active {
+            let _ = self.update_vector_field_from_webcam(device, queue);
+            // Ensure Image mode so the compute uses the texture
+            self.settings.vector_field_type = super::settings::VectorFieldType::Image;
         }
 
         // Update simulation parameters using the centralized method
@@ -2022,7 +1893,7 @@ impl Simulation for FlowModel {
         Ok(())
     }
 
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -2156,93 +2027,26 @@ impl Simulation for FlowModel {
             layout: &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Compute Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadWrite,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_texture_entry(
+                        3,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::StorageTextureAccess::ReadWrite,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
+                    resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(5, wgpu::ShaderStages::COMPUTE, false),
                 ],
             }),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.particle_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.flow_vector_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.trail_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: self.lut_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: self.spawn_control_buffer.as_entire_binding(),
-                },
+                resource_helpers::buffer_entry(0, &self.particle_buffer),
+                resource_helpers::buffer_entry(1, &self.flow_vector_buffer),
+                resource_helpers::buffer_entry(2, &self.sim_params_buffer),
+                resource_helpers::texture_view_entry(3, &self.trail_texture_view),
+                resource_helpers::buffer_entry(4, &self.lut_buffer),
+                resource_helpers::buffer_entry(5, &self.spawn_control_buffer),
             ],
         });
 
@@ -2252,51 +2056,24 @@ impl Simulation for FlowModel {
                 layout: &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("Trail Update Bind Group Layout"),
                     entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::StorageTexture {
-                                access: wgpu::StorageTextureAccess::ReadWrite,
-                                format: wgpu::TextureFormat::Rgba8Unorm,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
+                        resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::COMPUTE),
+                        resource_helpers::storage_texture_entry(
+                            1,
+                            wgpu::ShaderStages::COMPUTE,
+                            wgpu::StorageTextureAccess::ReadWrite,
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        ),
+                        resource_helpers::storage_buffer_entry(
+                            2,
+                            wgpu::ShaderStages::COMPUTE,
+                            true,
+                        ),
                     ],
                 }),
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.sim_params_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.trail_texture_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.flow_vector_buffer.as_entire_binding(),
-                    },
+                    resource_helpers::buffer_entry(0, &self.sim_params_buffer),
+                    resource_helpers::texture_view_entry(1, &self.trail_texture_view),
+                    resource_helpers::buffer_entry(2, &self.flow_vector_buffer),
                 ],
             });
 
@@ -2305,79 +2082,26 @@ impl Simulation for FlowModel {
             layout: &device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Trail Render Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::ReadOnly,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::uniform_buffer_entry(
+                        0,
+                        wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ),
+                    resource_helpers::storage_texture_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::StorageTextureAccess::ReadOnly,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    ),
                 ],
             }),
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.sim_params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.trail_texture_view),
-                },
+                resource_helpers::buffer_entry(0, &self.sim_params_buffer),
+                resource_helpers::texture_view_entry(1, &self.trail_texture_view),
             ],
         });
 
         // Update sim params with new dimensions
-        let sim_params = SimParams {
-            total_pool_size: self.settings.total_pool_size,
-            flow_field_resolution: self.flow_vectors.len() as u32,
-            particle_lifetime: self.settings.particle_lifetime,
-            particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed,
-            time: self.time,
-            delta_time: self.delta_time,
-            noise_dt_multiplier: self.settings.noise_dt_multiplier,
-            width: 2.0,
-            height: 2.0,
-            noise_scale: self.settings.noise_scale as f32,
-            noise_x: self.settings.noise_x as f32,
-            noise_y: self.settings.noise_y as f32,
-            vector_magnitude: self.settings.vector_magnitude,
-            trail_decay_rate: self.settings.trail_decay_rate,
-            trail_deposition_rate: self.settings.trail_deposition_rate,
-            trail_diffusion_rate: self.settings.trail_diffusion_rate,
-            trail_wash_out_rate: self.settings.trail_wash_out_rate,
-            trail_map_width: self.trail_map_width,
-            trail_map_height: self.trail_map_height,
-            particle_shape: self.settings.particle_shape as u32,
-            particle_size: self.settings.particle_size,
-            screen_width: self.trail_map_width,
-            screen_height: self.trail_map_height,
-            cursor_x: self.cursor_world_x,
-            cursor_y: self.cursor_world_y,
-            cursor_size: self.cursor_size,
-            mouse_button_down: self.mouse_button_down,
-            particle_autospawn: self.settings.particle_autospawn as u32,
-            autospawn_rate: self.settings.autospawn_rate,
-            brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
-            autospawn_pool_size: self.autospawn_pool_size,
-            brush_pool_size: self.brush_pool_size,
-            _padding_1: 0,
-            _padding_2: 0,
-        };
+        let sim_params = self.create_runtime_sim_params();
 
         queue.write_buffer(
             &self.sim_params_buffer,
@@ -2389,25 +2113,16 @@ impl Simulation for FlowModel {
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Camera Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
+                entries: &[resource_helpers::uniform_buffer_entry(
+                    0,
+                    wgpu::ShaderStages::VERTEX,
+                )],
             });
 
         self.camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Camera Bind Group"),
             layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.camera.buffer().as_entire_binding(),
-            }],
+            entries: &[resource_helpers::buffer_entry(0, self.camera.buffer())],
         });
 
         // Create display texture for rendering and sampling
@@ -2450,42 +2165,19 @@ impl Simulation for FlowModel {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Flow Render Infinite Bind Group Layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    resource_helpers::texture_entry(
+                        0,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::TextureSampleType::Float { filterable: true },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                    resource_helpers::sampler_entry(
+                        1,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
+                    resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
+                    resource_helpers::uniform_buffer_entry(3, wgpu::ShaderStages::FRAGMENT),
                 ],
             });
 
@@ -2559,22 +2251,10 @@ impl Simulation for FlowModel {
             label: Some("Flow Render Infinite Bind Group"),
             layout: &render_infinite_bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.display_mipmap_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.display_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.average_color_uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: self.background_color_buffer.as_entire_binding(),
-                },
+                resource_helpers::texture_view_entry(0, &self.display_mipmap_view),
+                resource_helpers::sampler_bind_entry(1, &self.display_sampler),
+                resource_helpers::buffer_entry(2, &self.average_color_uniform_buffer),
+                resource_helpers::buffer_entry(3, &self.background_color_buffer),
             ],
         });
 
@@ -2665,44 +2345,7 @@ impl Simulation for FlowModel {
                         self.settings.total_pool_size = new_count;
 
                         // Update sim params with new autospawn limit
-                        let sim_params = SimParams {
-                            total_pool_size: self.settings.total_pool_size,
-                            flow_field_resolution: self.flow_vectors.len() as u32,
-                            particle_lifetime: self.settings.particle_lifetime,
-                            particle_speed: self.settings.particle_speed,
-                            noise_seed: self.settings.noise_seed,
-                            time: self.time,
-                            delta_time: self.delta_time,
-                            noise_dt_multiplier: self.settings.noise_dt_multiplier,
-                            width: 2.0,
-                            height: 2.0,
-                            noise_scale: self.settings.noise_scale as f32,
-                            noise_x: self.settings.noise_x as f32,
-                            noise_y: self.settings.noise_y as f32,
-                            vector_magnitude: self.settings.vector_magnitude,
-                            trail_decay_rate: self.settings.trail_decay_rate,
-                            trail_deposition_rate: self.settings.trail_deposition_rate,
-                            trail_diffusion_rate: self.settings.trail_diffusion_rate,
-                            trail_wash_out_rate: self.settings.trail_wash_out_rate,
-                            trail_map_width: self.trail_map_width,
-                            trail_map_height: self.trail_map_height,
-                            particle_shape: self.settings.particle_shape as u32,
-                            particle_size: self.settings.particle_size,
-                            screen_width: self.trail_map_width,
-                            screen_height: self.trail_map_height,
-                            cursor_x: self.cursor_world_x,
-                            cursor_y: self.cursor_world_y,
-                            cursor_size: self.cursor_size,
-                            mouse_button_down: self.mouse_button_down,
-                            particle_autospawn: self.settings.particle_autospawn as u32,
-                            autospawn_rate: self.settings.autospawn_rate,
-                            brush_spawn_rate: self.settings.brush_spawn_rate,
-                            display_mode: self.foreground_color_mode as u32,
-                            autospawn_pool_size: self.autospawn_pool_size,
-                            brush_pool_size: self.brush_pool_size,
-                            _padding_1: 0,
-                            _padding_2: 0,
-                        };
+                        let sim_params = self.create_runtime_sim_params();
 
                         queue.write_buffer(
                             &self.sim_params_buffer,
@@ -2946,44 +2589,7 @@ impl Simulation for FlowModel {
         };
 
         // Update sim params with cursor state
-        let sim_params = SimParams {
-            total_pool_size: self.settings.total_pool_size,
-            flow_field_resolution: self.flow_vectors.len() as u32,
-            particle_lifetime: self.settings.particle_lifetime,
-            particle_speed: self.settings.particle_speed,
-            noise_seed: self.settings.noise_seed,
-            time: self.time,
-            delta_time: self.delta_time,
-            noise_dt_multiplier: self.noise_dt_multiplier,
-            width: 2.0,
-            height: 2.0,
-            noise_scale: self.settings.noise_scale as f32,
-            noise_x: self.settings.noise_x as f32,
-            noise_y: self.settings.noise_y as f32,
-            vector_magnitude: self.settings.vector_magnitude,
-            trail_decay_rate: self.settings.trail_decay_rate,
-            trail_deposition_rate: self.settings.trail_deposition_rate,
-            trail_diffusion_rate: self.settings.trail_diffusion_rate,
-            trail_wash_out_rate: self.settings.trail_wash_out_rate,
-            trail_map_width: self.trail_map_width,
-            trail_map_height: self.trail_map_height,
-            particle_shape: self.settings.particle_shape as u32,
-            particle_size: self.settings.particle_size,
-            screen_width: self.trail_map_width,
-            screen_height: self.trail_map_height,
-            cursor_x: world_x,
-            cursor_y: world_y,
-            cursor_size: self.cursor_size,
-            mouse_button_down: self.mouse_button_down,
-            particle_autospawn: self.settings.particle_autospawn as u32,
-            autospawn_rate: self.settings.autospawn_rate,
-            brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
-            autospawn_pool_size: self.autospawn_pool_size,
-            brush_pool_size: self.brush_pool_size,
-            _padding_1: 0,
-            _padding_2: 0,
-        };
+        let sim_params = self.create_sim_params_with_cursor(world_x, world_y);
 
         queue.write_buffer(
             &self.sim_params_buffer,
@@ -3124,7 +2730,15 @@ impl Simulation for FlowModel {
             },
         );
 
-        // Also clear the trail texture view for rendering
+        // Also clear the trail texture view for rendering with the correct background color
+        let background_color = self.calculate_background_color();
+        let clear_color = wgpu::Color {
+            r: background_color[0] as f64,
+            g: background_color[1] as f64,
+            b: background_color[2] as f64,
+            a: background_color[3] as f64,
+        };
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Clear Trail Texture Encoder"),
         });
@@ -3135,7 +2749,7 @@ impl Simulation for FlowModel {
                     view: &self.trail_texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -3299,9 +2913,338 @@ impl FlowModel {
         // Update active particle counts
 
         // Update sim params with zero active particle counts
-        let sim_params = SimParams {
+        let sim_params = self.create_sim_params_with_counts(0, 0);
+
+        queue.write_buffer(
+            &self.sim_params_buffer,
+            0,
+            bytemuck::cast_slice(&[sim_params]),
+        );
+
+        Ok(())
+    }
+
+    fn update_trail_sampler(&mut self, device: &Arc<Device>) {
+        self.trail_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Trail Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: self.app_settings.texture_filtering.into(),
+            min_filter: self.app_settings.texture_filtering.into(),
+            mipmap_filter: self.app_settings.texture_filtering.into(),
+            ..Default::default()
+        });
+    }
+
+    /// Load an image for vector field generation
+    pub fn load_vector_field_image_from_path(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        path: &str,
+    ) -> crate::error::SimulationResult<()> {
+        tracing::info!("Loading vector field image from: {}", path);
+
+        let img = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
+
+        self.load_vector_field_image_from_data(device, queue, img)
+    }
+
+    /// Load an image from raw data for vector field generation
+    pub fn load_vector_field_image_from_data(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+        img: image::DynamicImage,
+    ) -> crate::error::SimulationResult<()> {
+        tracing::info!(
+            "Processing vector field image: {}x{}",
+            img.width(),
+            img.height()
+        );
+
+        // Store the original image
+        self.vector_field_image_original = Some(img.clone());
+
+        // Process the image with current fit mode
+        self.reprocess_vector_field_image_with_current_fit_mode(device, queue)?;
+
+        // Update the bind group with the new image texture
+        self.update_flow_vector_bind_group(device)?;
+
+        tracing::info!("Vector field image loaded successfully");
+        Ok(())
+    }
+
+    /// Reprocess the stored original image with the current fit mode
+    pub fn reprocess_vector_field_image_with_current_fit_mode(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> crate::error::SimulationResult<()> {
+        if let Some(original_img) = &self.vector_field_image_original {
+            let (target_w, target_h) = (self.trail_map_width as u32, self.trail_map_height as u32);
+
+            // Convert to Luma8 (grayscale)
+            let gray = original_img.to_luma8();
+            let fit_mode = self.settings.image_fit_mode;
+
+            // Process the image based on fit mode
+            let processed_img = match fit_mode {
+                super::settings::GradientImageFitMode::Stretch => {
+                    // Resize exactly to target size
+                    image::imageops::resize(
+                        &gray,
+                        target_w,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    )
+                }
+                super::settings::GradientImageFitMode::Center => {
+                    // Center the image and pad with black
+                    let mut canvas = image::ImageBuffer::new(target_w, target_h);
+                    let (img_w, img_h) = (gray.width(), gray.height());
+
+                    let start_x = if img_w < target_w {
+                        (target_w - img_w) / 2
+                    } else {
+                        0
+                    };
+                    let start_y = if img_h < target_h {
+                        (target_h - img_h) / 2
+                    } else {
+                        0
+                    };
+
+                    for (x, y, pixel) in gray.enumerate_pixels() {
+                        let canvas_x = start_x + x;
+                        let canvas_y = start_y + y;
+                        if canvas_x < target_w && canvas_y < target_h {
+                            canvas.put_pixel(canvas_x, canvas_y, *pixel);
+                        }
+                    }
+                    canvas
+                }
+                super::settings::GradientImageFitMode::FitH => {
+                    // Fit horizontally, center vertically
+                    let scale = target_w as f32 / gray.width() as f32;
+                    let new_height = (gray.height() as f32 * scale) as u32;
+                    let resized = image::imageops::resize(
+                        &gray,
+                        target_w,
+                        new_height,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let mut canvas = image::ImageBuffer::new(target_w, target_h);
+                    let start_y = if new_height < target_h {
+                        (target_h - new_height) / 2
+                    } else {
+                        0
+                    };
+
+                    for (x, y, pixel) in resized.enumerate_pixels() {
+                        let canvas_y = start_y + y;
+                        if canvas_y < target_h {
+                            canvas.put_pixel(x, canvas_y, *pixel);
+                        }
+                    }
+                    canvas
+                }
+                super::settings::GradientImageFitMode::FitV => {
+                    // Fit vertically, center horizontally
+                    let scale = target_h as f32 / gray.height() as f32;
+                    let new_width = (gray.width() as f32 * scale) as u32;
+                    let resized = image::imageops::resize(
+                        &gray,
+                        new_width,
+                        target_h,
+                        image::imageops::FilterType::Lanczos3,
+                    );
+
+                    let mut canvas = image::ImageBuffer::new(target_w, target_h);
+                    let start_x = if new_width < target_w {
+                        (target_w - new_width) / 2
+                    } else {
+                        0
+                    };
+
+                    for (x, y, pixel) in resized.enumerate_pixels() {
+                        let canvas_x = start_x + x;
+                        if canvas_x < target_w {
+                            canvas.put_pixel(canvas_x, y, *pixel);
+                        }
+                    }
+                    canvas
+                }
+            };
+
+            // Apply mirror and invert transformations
+            let mut final_img = processed_img;
+
+            if self.settings.image_mirror_horizontal {
+                image::imageops::flip_horizontal_in_place(&mut final_img);
+            }
+
+            if self.settings.image_invert_tone {
+                for pixel in final_img.pixels_mut() {
+                    pixel.0[0] = 255 - pixel.0[0];
+                }
+            }
+
+            // Create GPU texture
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Vector Field Image Texture"),
+                size: wgpu::Extent3d {
+                    width: target_w,
+                    height: target_h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Vector Field Image Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            });
+
+            // Upload image data to GPU
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &final_img.into_raw(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(target_w),
+                    rows_per_image: Some(target_h),
+                },
+                wgpu::Extent3d {
+                    width: target_w,
+                    height: target_h,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            // Update the model with new texture resources
+            self.vector_field_image_texture = Some(texture);
+            self.vector_field_image_view = Some(view);
+            self.vector_field_image_sampler = Some(sampler);
+            self.vector_field_image_needs_upload = false;
+
+            // Update the bind group with the new texture
+            self.update_flow_vector_bind_group(device)?;
+
+            Ok(())
+        } else {
+            Err("No original image data available".into())
+        }
+    }
+
+    /// Update the flow vector compute bind group with the current image texture
+    fn update_flow_vector_bind_group(
+        &mut self,
+        device: &Arc<Device>,
+    ) -> crate::error::SimulationResult<()> {
+        // Use image texture if available, otherwise use default texture
+        let (texture_view, sampler) = if let (Some(view), Some(sampler)) = (
+            &self.vector_field_image_view,
+            &self.vector_field_image_sampler,
+        ) {
+            (view, sampler)
+        } else {
+            (
+                &self.default_vector_field_view,
+                &self.default_vector_field_sampler,
+            )
+        };
+
+        // Recreate the bind group with the current texture
+        self.flow_vector_compute_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Flow Vector Compute Bind Group"),
+                layout: &self.flow_vector_compute_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    resource_helpers::buffer_entry(0, &self.flow_vector_buffer),
+                    resource_helpers::buffer_entry(1, &self.flow_vector_params_buffer),
+                    resource_helpers::texture_view_entry(2, texture_view),
+                    resource_helpers::sampler_bind_entry(3, sampler),
+                ],
+            });
+
+        Ok(())
+    }
+
+    /// Create SimParams with default values for initialization (static method for constructor)
+    fn create_default_sim_params_static(
+        settings: &Settings,
+        surface_config: &wgpu::SurfaceConfiguration,
+        foreground_color_mode: ForegroundColorMode,
+        autospawn_pool_size: u32,
+        brush_pool_size: u32,
+    ) -> SimParams {
+        SimParams {
+            total_pool_size: settings.total_pool_size,
+            flow_field_resolution: DEFAULT_FLOW_FIELD_RESOLUTION,
+            particle_lifetime: settings.particle_lifetime,
+            particle_speed: settings.particle_speed,
+            noise_seed: settings.noise_seed,
+            time: 0.0,
+            delta_time: 0.016,
+            noise_dt_multiplier: 1.0,
+            width: 2.0,
+            height: 2.0,
+            noise_scale: settings.noise_scale as f32,
+            noise_x: settings.noise_x as f32,
+            noise_y: settings.noise_y as f32,
+            vector_magnitude: settings.vector_magnitude,
+            trail_decay_rate: settings.trail_decay_rate,
+            trail_deposition_rate: settings.trail_deposition_rate,
+            trail_diffusion_rate: settings.trail_diffusion_rate,
+            trail_wash_out_rate: settings.trail_wash_out_rate,
+            trail_map_width: surface_config.width,
+            trail_map_height: surface_config.height,
+            particle_shape: settings.particle_shape as u32,
+            particle_size: settings.particle_size,
+            screen_width: surface_config.width,
+            screen_height: surface_config.height,
+            cursor_x: 0.0,
+            cursor_y: 0.0,
+            cursor_size: 0.25,
+            mouse_button_down: 0,
+            particle_autospawn: settings.particle_autospawn as u32,
+            autospawn_rate: settings.autospawn_rate,
+            brush_spawn_rate: settings.brush_spawn_rate,
+            display_mode: foreground_color_mode as u32,
+            autospawn_pool_size,
+            brush_pool_size,
+            _padding_1: 0,
+            _padding_2: 0,
+        }
+    }
+
+    /// Create SimParams with current runtime state
+    fn create_runtime_sim_params(&self) -> SimParams {
+        SimParams {
             total_pool_size: self.settings.total_pool_size,
-            flow_field_resolution: self.flow_vectors.len() as u32,
+            flow_field_resolution: self.flow_field_resolution,
             particle_lifetime: self.settings.particle_lifetime,
             particle_speed: self.settings.particle_speed,
             noise_seed: self.settings.noise_seed,
@@ -3336,27 +3279,132 @@ impl FlowModel {
             brush_pool_size: self.brush_pool_size,
             _padding_1: 0,
             _padding_2: 0,
-        };
-
-        queue.write_buffer(
-            &self.sim_params_buffer,
-            0,
-            bytemuck::cast_slice(&[sim_params]),
-        );
-
-        Ok(())
+        }
     }
 
-    fn update_trail_sampler(&mut self, device: &Arc<Device>) {
-        self.trail_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Trail Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: self.app_settings.texture_filtering.into(),
-            min_filter: self.app_settings.texture_filtering.into(),
-            mipmap_filter: self.app_settings.texture_filtering.into(),
-            ..Default::default()
-        });
+    /// Create SimParams with custom flow field resolution
+    fn create_sim_params_with_flow_resolution(&self, flow_field_resolution: u32) -> SimParams {
+        SimParams {
+            total_pool_size: self.settings.total_pool_size,
+            flow_field_resolution,
+            particle_lifetime: self.settings.particle_lifetime,
+            particle_speed: self.settings.particle_speed,
+            noise_seed: self.settings.noise_seed,
+            time: self.time,
+            delta_time: self.delta_time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
+            width: 2.0,
+            height: 2.0,
+            noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
+            vector_magnitude: self.settings.vector_magnitude,
+            trail_decay_rate: self.settings.trail_decay_rate,
+            trail_deposition_rate: self.settings.trail_deposition_rate,
+            trail_diffusion_rate: self.settings.trail_diffusion_rate,
+            trail_wash_out_rate: self.settings.trail_wash_out_rate,
+            trail_map_width: self.trail_map_width,
+            trail_map_height: self.trail_map_height,
+            particle_shape: self.settings.particle_shape as u32,
+            particle_size: self.settings.particle_size,
+            screen_width: self.trail_map_width,
+            screen_height: self.trail_map_height,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_size: self.cursor_size,
+            mouse_button_down: self.mouse_button_down,
+            particle_autospawn: self.settings.particle_autospawn as u32,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
+            display_mode: self.foreground_color_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_1: 0,
+            _padding_2: 0,
+        }
+    }
+
+    /// Create SimParams with custom cursor coordinates
+    fn create_sim_params_with_cursor(&self, cursor_x: f32, cursor_y: f32) -> SimParams {
+        SimParams {
+            total_pool_size: self.settings.total_pool_size,
+            flow_field_resolution: self.flow_field_resolution,
+            particle_lifetime: self.settings.particle_lifetime,
+            particle_speed: self.settings.particle_speed,
+            noise_seed: self.settings.noise_seed,
+            time: self.time,
+            delta_time: self.delta_time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
+            width: 2.0,
+            height: 2.0,
+            noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
+            vector_magnitude: self.settings.vector_magnitude,
+            trail_decay_rate: self.settings.trail_decay_rate,
+            trail_deposition_rate: self.settings.trail_deposition_rate,
+            trail_diffusion_rate: self.settings.trail_diffusion_rate,
+            trail_wash_out_rate: self.settings.trail_wash_out_rate,
+            trail_map_width: self.trail_map_width,
+            trail_map_height: self.trail_map_height,
+            particle_shape: self.settings.particle_shape as u32,
+            particle_size: self.settings.particle_size,
+            screen_width: self.trail_map_width,
+            screen_height: self.trail_map_height,
+            cursor_x,
+            cursor_y,
+            cursor_size: self.cursor_size,
+            mouse_button_down: self.mouse_button_down,
+            particle_autospawn: self.settings.particle_autospawn as u32,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
+            display_mode: self.foreground_color_mode as u32,
+            autospawn_pool_size: self.autospawn_pool_size,
+            brush_pool_size: self.brush_pool_size,
+            _padding_1: 0,
+            _padding_2: 0,
+        }
+    }
+
+    /// Create SimParams with custom active particle counts
+    fn create_sim_params_with_counts(&self, autospawn_count: u32, brush_count: u32) -> SimParams {
+        SimParams {
+            total_pool_size: self.settings.total_pool_size,
+            flow_field_resolution: self.flow_field_resolution,
+            particle_lifetime: self.settings.particle_lifetime,
+            particle_speed: self.settings.particle_speed,
+            noise_seed: self.settings.noise_seed,
+            time: self.time,
+            delta_time: self.delta_time,
+            noise_dt_multiplier: self.settings.noise_dt_multiplier,
+            width: 2.0,
+            height: 2.0,
+            noise_scale: self.settings.noise_scale as f32,
+            noise_x: self.settings.noise_x as f32,
+            noise_y: self.settings.noise_y as f32,
+            vector_magnitude: self.settings.vector_magnitude,
+            trail_decay_rate: self.settings.trail_decay_rate,
+            trail_deposition_rate: self.settings.trail_deposition_rate,
+            trail_diffusion_rate: self.settings.trail_diffusion_rate,
+            trail_wash_out_rate: self.settings.trail_wash_out_rate,
+            trail_map_width: self.trail_map_width,
+            trail_map_height: self.trail_map_height,
+            particle_shape: self.settings.particle_shape as u32,
+            particle_size: self.settings.particle_size,
+            screen_width: self.trail_map_width,
+            screen_height: self.trail_map_height,
+            cursor_x: self.cursor_world_x,
+            cursor_y: self.cursor_world_y,
+            cursor_size: self.cursor_size,
+            mouse_button_down: self.mouse_button_down,
+            particle_autospawn: self.settings.particle_autospawn as u32,
+            autospawn_rate: self.settings.autospawn_rate,
+            brush_spawn_rate: self.settings.brush_spawn_rate,
+            display_mode: self.foreground_color_mode as u32,
+            autospawn_pool_size: autospawn_count,
+            brush_pool_size: brush_count,
+            _padding_1: 0,
+            _padding_2: 0,
+        }
     }
 }

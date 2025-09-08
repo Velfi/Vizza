@@ -1,6 +1,7 @@
 use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
+use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{BindGroupBuilder, ColorScheme, RenderPipelineBuilder};
 use crate::simulations::traits::Simulation;
 use serde_json::Value;
@@ -65,27 +66,9 @@ impl GradientSimulation {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 // LUT buffer
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::FRAGMENT, true),
                 // Params buffer
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::FRAGMENT),
             ],
             label: Some("gradient_bind_group_layout"),
         });
@@ -231,7 +214,7 @@ impl Simulation for GradientSimulation {
         Ok(())
     }
 
-    fn render_frame_static(
+    fn render_frame_paused(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
