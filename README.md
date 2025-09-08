@@ -32,7 +32,7 @@ Flow field simulation with particle movement patterns.
 
 Particle simulation with gravity and density-based interactions.
 
-![Pellets Example](example-pellets.png)
+![Pellets Example](example-pellets-mode.png)
 
 ### Gradient Editor
 
