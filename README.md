@@ -1,3 +1,5 @@
+![Vizza Logo](title.png)
+
 # Vizza
 
 A collection of interactive GPU-accelerated simulations for fun and beauty. Features a friendly UI that puts you in control.
