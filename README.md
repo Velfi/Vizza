@@ -2,6 +2,16 @@
 
 A collection of interactive GPU-accelerated simulations for fun and beauty. Features a friendly UI that puts you in control.
 
+## How to play
+
+Windows, MacOS, and Linux are supported.
+
+Download the latest release from the [releases page](https://github.com/Velfi/Vizza/releases).
+
+Then, open the downloaded file and install the app, usually by double-clicking on it. You'll have to click past security warnings because I haven't paid for a developer certificate yet.
+
+Once the app is installed, you can run it like any other app. Presets and color schemes you create will be saved to your Documents folder.
+
 ## Simulations
 
 ### Slime Mold
@@ -40,7 +50,7 @@ Create custom color schemes for the other simulations.
 
 ![Gradient Editor Example](example-gradient-editor.png)
 
-## Getting Started
+## For Developers
 
 ### Prerequisites
 
