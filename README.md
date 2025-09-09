@@ -1,6 +1,6 @@
 # Vizza
 
-Interactive GPU-accelerated simulations for desktop.
+A collection of interactive GPU-accelerated simulations for fun and beauty. Features a friendly UI that puts you in control.
 
 ## Simulations
 
