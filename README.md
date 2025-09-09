@@ -6,7 +6,11 @@ A collection of interactive GPU-accelerated simulations for fun and beauty. Feat
 
 Windows, MacOS, and Linux are supported.
 
-Download the latest release from the [releases page](https://github.com/Velfi/Vizza/releases).
+Download the latest version for your platform from the [releases page](https://github.com/Velfi/Vizza/releases).
+
+- For Windows: `Vizza_<version>_x64-setup.exe` OR `Vizza_<version>_x64_en-US.msi`, both are equivalent.
+- For MacOS: `Vizza_<version>_aarch64.dmg` for Apple Silicon, `Vizza_<version>_x64.dmg` for Intel.
+- For Linux: `Vizza-<version>-1.x86_64.rpm` or `Vizza_<version>_amd64.AppImage` or `Vizza_<version>_amd64.deb`
 
 Then, open the downloaded file and install the app, usually by double-clicking on it. You'll have to click past security warnings because I haven't paid for a developer certificate yet.
 
