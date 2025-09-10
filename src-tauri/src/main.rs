@@ -249,6 +249,9 @@ fn main() {
             commands::update_voronoi_ca_post_processing_state, // Voronoi CA
             commands::get_voronoi_ca_post_processing_state, // Voronoi CA
             commands::update_voronoi_ca_border_width,    // Voronoi CA
+            commands::start_moire_simulation,            // Moiré
+            commands::randomize_moire_settings,          // Moiré
+            commands::reset_moire_flow,                  // Moiré
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,

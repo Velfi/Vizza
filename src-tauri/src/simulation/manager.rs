@@ -217,6 +217,23 @@ impl SimulationManager {
                 self.resume();
                 Ok(())
             }
+            "moire" => {
+                // Initialize Moiré simulation
+                let settings = crate::simulations::moire::settings::Settings::default();
+                let simulation = crate::simulations::moire::MoireModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &self.app_settings,
+                    &self.lut_manager,
+                )
+                .map_err(|e| format!("Failed to initialize Moiré simulation: {}", e))?;
+
+                self.current_simulation = Some(SimulationType::Moire(Box::new(simulation)));
+                self.resume();
+                Ok(())
+            }
 
             _ => Err("Unknown simulation type".into()),
         }
@@ -722,6 +739,31 @@ impl SimulationManager {
                         color_scheme_name
                     );
                 }
+                SimulationType::Moire(simulation) => {
+                    // For Moiré, load the color scheme data and apply it directly
+                    let mut color_scheme_data =
+                        self.lut_manager.get(color_scheme_name).map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
+
+                    if simulation.settings.color_scheme_reversed {
+                        color_scheme_data.reverse();
+                    }
+
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
+                    simulation.settings.color_scheme_name = color_scheme_name.to_string();
+
+                    tracing::info!(
+                        "Color scheme '{}' applied to Moiré simulation",
+                        color_scheme_name
+                    );
+                }
             }
         }
         Ok(())
@@ -849,6 +891,30 @@ impl SimulationManager {
                 }
                 SimulationType::Gradient(_simulation) => {
                     tracing::warn!("LUT reversal not supported for Gradient simulation");
+                }
+                SimulationType::Moire(simulation) => {
+                    // Toggle the reversed flag and reload the LUT
+                    simulation.settings.color_scheme_reversed =
+                        !simulation.settings.color_scheme_reversed;
+                    let mut color_scheme_data = self
+                        .lut_manager
+                        .get(&simulation.settings.color_scheme_name)
+                        .map_err(|e| {
+                            AppError::Simulation(
+                                format!(
+                                    "Failed to load color scheme '{}': {}",
+                                    simulation.settings.color_scheme_name, e
+                                )
+                                .into(),
+                            )
+                        })?;
+
+                    if simulation.settings.color_scheme_reversed {
+                        color_scheme_data.reverse();
+                    }
+
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
+                    tracing::info!("LUT reversed for Moiré simulation");
                 }
             }
         }
@@ -1130,7 +1196,8 @@ impl SimulationManager {
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::MainMenu(_) => {}
-                SimulationType::VoronoiCA(simulation) => simulation.pan_camera(delta_x, delta_y),
+                SimulationType::VoronoiCA(simulation) => simulation.camera.pan(delta_x, delta_y),
+                SimulationType::Moire(simulation) => simulation.pan_camera(delta_x, delta_y),
                 _ => {}
             }
         }
@@ -1146,6 +1213,7 @@ impl SimulationManager {
                 SimulationType::Pellets(simulation) => simulation.camera.zoom(delta),
                 SimulationType::MainMenu(_) => {}
                 SimulationType::VoronoiCA(simulation) => simulation.camera.zoom(delta),
+                SimulationType::Moire(simulation) => simulation.zoom_camera(delta),
                 _ => {}
             }
         }
@@ -1174,6 +1242,9 @@ impl SimulationManager {
                 SimulationType::VoronoiCA(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
+                SimulationType::Moire(simulation) => {
+                    simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+                }
                 _ => {}
             }
         }
@@ -1189,6 +1260,7 @@ impl SimulationManager {
                 SimulationType::Pellets(simulation) => simulation.camera.reset(),
                 SimulationType::MainMenu(_) => {}
                 SimulationType::VoronoiCA(simulation) => simulation.camera.reset(),
+                SimulationType::Moire(simulation) => simulation.reset_camera(),
                 _ => {}
             }
         }

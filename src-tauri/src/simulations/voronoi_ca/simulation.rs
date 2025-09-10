@@ -17,9 +17,9 @@ use crate::simulations::shared::ping_pong_textures::PingPongTextures;
 use crate::simulations::traits::Simulation;
 
 use super::shaders::{
-    ADJACENCY_BUILD_SHADER, ADJACENCY_COUNT_SHADER, BROWNIAN_SHADER,
-    COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER, JFA_INIT_SHADER,
-    JFA_ITERATION_SHADER, VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_JFA_SHADER,
+    ADJACENCY_BUILD_SHADER, ADJACENCY_COUNT_SHADER, BROWNIAN_SHADER, COMPUTE_UPDATE_SHADER,
+    GRID_CLEAR_SHADER, GRID_POPULATE_SHADER, JFA_INIT_SHADER, JFA_ITERATION_SHADER,
+    VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_JFA_SHADER,
 };
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 
@@ -101,7 +101,7 @@ pub struct VoronoiCASimulation {
     voronoi_render_jfa_pipeline: RenderPipeline,
     // Compute
     compute_update_pipeline: ComputePipeline, // state update
-    brownian_pipeline: ComputePipeline, // brownian motion
+    brownian_pipeline: ComputePipeline,       // brownian motion
     uniform_buffer: Buffer,
     brownian_params_buffer: Buffer,
     // Bind groups
@@ -167,7 +167,7 @@ pub struct VoronoiCASimulation {
     /// and no points have changed. Invalidated when points change due to painting,
     /// point count changes, resolution changes, or simulation reset.
     has_valid_jfa: bool,
-    
+
     /// Flag to skip CA state updates on the next frame after painting
     /// This prevents unwanted births when a cell is painted while running
     skip_next_state_update: bool,
@@ -734,7 +734,6 @@ impl VoronoiCASimulation {
             ..Default::default()
         });
 
-
         // Infinite render pipeline using VCA-specific shader
         let render_infinite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("VCA Render Infinite Shader"),
@@ -826,7 +825,6 @@ impl VoronoiCASimulation {
                 contents: bytemuck::cast_slice(&[filtering_mode_u32, 0u32, 0u32, 0u32]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
-
 
         let post_processing_resources = PostProcessingResources::new(device, surface_config)?;
         // Camera was created above
@@ -951,7 +949,9 @@ impl VoronoiCASimulation {
         const MAX_NEIGHBORS: u32 = 16;
         let adjacency_neighbors = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("VCA Adjacency Neighbors"),
-            size: (std::mem::size_of::<u32>() as u64) * (num_points as u64) * (MAX_NEIGHBORS as u64),
+            size: (std::mem::size_of::<u32>() as u64)
+                * (num_points as u64)
+                * (MAX_NEIGHBORS as u64),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -973,31 +973,33 @@ impl VoronoiCASimulation {
         });
 
         // Adjacency bind group layouts
-        let adjacency_build_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),  // vertices read
-                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),         // uniforms
-                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, false), // neighbors write
-                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false), // degrees write
-                resource_helpers::texture_entry(
-                    4,
-                    wgpu::ShaderStages::COMPUTE,
-                    wgpu::TextureSampleType::Float { filterable: false },
-                    wgpu::TextureViewDimension::D2,
-                ),
-            ],
-            label: Some("VCA Adjacency Build BGL"),
-        });
+        let adjacency_build_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true), // vertices read
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE), // uniforms
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, false), // neighbors write
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false), // degrees write
+                    resource_helpers::texture_entry(
+                        4,
+                        wgpu::ShaderStages::COMPUTE,
+                        wgpu::TextureSampleType::Float { filterable: false },
+                        wgpu::TextureViewDimension::D2,
+                    ),
+                ],
+                label: Some("VCA Adjacency Build BGL"),
+            });
 
-        let adjacency_count_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false), // vertices rw
-                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),         // uniforms
-                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),  // neighbors read
-                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),  // degrees read
-            ],
-            label: Some("VCA Adjacency Count BGL"),
-        });
+        let adjacency_count_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false), // vertices rw
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE), // uniforms
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true), // neighbors read
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true), // degrees read
+                ],
+                label: Some("VCA Adjacency Count BGL"),
+            });
 
         // Adjacency bind groups
         let adjacency_build_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1024,30 +1026,36 @@ impl VoronoiCASimulation {
         });
 
         // Adjacency pipelines
-        let adjacency_build_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("VCA Adjacency Build Pipeline"),
-            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("VCA Adjacency Build PL"),
-                bind_group_layouts: &[&adjacency_build_bgl],
-                push_constant_ranges: &[],
-            })),
-            module: &adjacency_build_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
-        let adjacency_count_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("VCA Adjacency Count Pipeline"),
-            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("VCA Adjacency Count PL"),
-                bind_group_layouts: &[&adjacency_count_bgl],
-                push_constant_ranges: &[],
-            })),
-            module: &adjacency_count_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let adjacency_build_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("VCA Adjacency Build Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("VCA Adjacency Build PL"),
+                        bind_group_layouts: &[&adjacency_build_bgl],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &adjacency_build_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        let adjacency_count_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("VCA Adjacency Count Pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("VCA Adjacency Count PL"),
+                        bind_group_layouts: &[&adjacency_count_bgl],
+                        push_constant_ranges: &[],
+                    }),
+                ),
+                module: &adjacency_count_shader,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
 
         Ok(Self {
             voronoi_render_jfa_pipeline,
@@ -1279,15 +1287,16 @@ impl VoronoiCASimulation {
         self.adjacency_degrees = adjacency_degrees;
 
         // Recreate adjacency count BG (build BG will be rebound dynamically each frame)
-        let adjacency_count_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
-                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
-                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
-                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
-            ],
-            label: Some("VCA Adjacency Count BGL Rebind"),
-        });
+        let adjacency_count_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                    resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                    resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
+                    resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+                ],
+                label: Some("VCA Adjacency Count BGL Rebind"),
+            });
         self.adjacency_count_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("VCA Adjacency Count BG Rebind"),
             layout: &adjacency_count_bgl,
@@ -1316,30 +1325,30 @@ impl VoronoiCASimulation {
 
         // Map of rulestrings to rule types
         match rulestring.as_str() {
-            "B1357/S1357" | "B1357S1357" => 0,  // Replicator
-            "B2/S" | "B2S" => 1,                // Seeds
-            "B25/S4" | "B25S4" => 2,            // Small self-replicating pattern
+            "B1357/S1357" | "B1357S1357" => 0,     // Replicator
+            "B2/S" | "B2S" => 1,                   // Seeds
+            "B25/S4" | "B25S4" => 2,               // Small self-replicating pattern
             "B3/S012345678" | "B3S012345678" => 3, // Life without Death
-            "B3/S23" | "B3S23" => 4,            // Conway's Game of Life
-            "B3/S1234" | "B3S1234" => 5,        // Maze
-            "B3/S12345" | "B3S12345" => 6,      // Mazectric
-            "B34/S34" | "B34S34" => 7,          // 34 Life
-            "B35678/S5678" | "B35678S5678" => 8, // Diamoeba
-            "B36/S125" | "B36S125" => 9,        // 2x2
-            "B36/S23" | "B36S23" => 10,         // High Life
-            "B368/S245" | "B368S245" => 11,     // Day & Night
-            "B4678/S35678" | "B4678S35678" => 12, // Anneal
-            "B5678/S45678" | "B5678S45678" => 13, // Vote
-            "B6/S16" | "B6S16" => 14,           // Coral
-            "B6/S1" | "B6S1" => 15,             // Long Life
-            "B6/S12" | "B6S12" => 16,           // Stains
-            "B6/S123" | "B6S123" => 17,         // Assimilation
-            "B6/S15" | "B6S15" => 18,           // Pseudo Life
-            "B6/S2" | "B6S2" => 19,             // Long Life
-            "B7/S" | "B7S" => 20,               // Seeds variant
-            "B8/S" | "B8S" => 21,               // Seeds variant
-            "B9/S" | "B9S" => 22,               // Seeds variant
-            _ => 4, // Default to Conway's Game of Life
+            "B3/S23" | "B3S23" => 4,               // Conway's Game of Life
+            "B3/S1234" | "B3S1234" => 5,           // Maze
+            "B3/S12345" | "B3S12345" => 6,         // Mazectric
+            "B34/S34" | "B34S34" => 7,             // 34 Life
+            "B35678/S5678" | "B35678S5678" => 8,   // Diamoeba
+            "B36/S125" | "B36S125" => 9,           // 2x2
+            "B36/S23" | "B36S23" => 10,            // High Life
+            "B368/S245" | "B368S245" => 11,        // Day & Night
+            "B4678/S35678" | "B4678S35678" => 12,  // Anneal
+            "B5678/S45678" | "B5678S45678" => 13,  // Vote
+            "B6/S16" | "B6S16" => 14,              // Coral
+            "B6/S1" | "B6S1" => 15,                // Long Life
+            "B6/S12" | "B6S12" => 16,              // Stains
+            "B6/S123" | "B6S123" => 17,            // Assimilation
+            "B6/S15" | "B6S15" => 18,              // Pseudo Life
+            "B6/S2" | "B6S2" => 19,                // Long Life
+            "B7/S" | "B7S" => 20,                  // Seeds variant
+            "B8/S" | "B8S" => 21,                  // Seeds variant
+            "B9/S" | "B9S" => 22,                  // Seeds variant
+            _ => 4,                                // Default to Conway's Game of Life
         }
     }
 }
@@ -1568,9 +1577,10 @@ impl VoronoiCASimulation {
         // State update based on adjacency neighbor counts
         // Skip state update if we just painted to prevent unwanted births
         // Also respect time scale for CA update frequency
-        let should_update_ca = !self.skip_next_state_update && 
-            (self.time_scale <= 0.0 || self.time_accum - self.last_ca_update_time >= 1.0 / self.time_scale);
-        
+        let should_update_ca = !self.skip_next_state_update
+            && (self.time_scale <= 0.0
+                || self.time_accum - self.last_ca_update_time >= 1.0 / self.time_scale);
+
         if should_update_ca {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("VoronoiCA State Update"),
@@ -2039,16 +2049,15 @@ impl Simulation for VoronoiCASimulation {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: new_config.format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT 
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC 
+                | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         self.display_view = self
             .display_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-
 
         // Recreate post-processing resources for new resolution
         self.post_processing_resources = PostProcessingResources::new(device, new_config)?;
@@ -2166,7 +2175,7 @@ impl Simulation for VoronoiCASimulation {
                 dy += h;
             }
             let d2 = dx * dx + dy * dy;
-            
+
             if d2 <= radius_sq {
                 let old_state = v.state;
                 if set_alive {
@@ -2185,7 +2194,7 @@ impl Simulation for VoronoiCASimulation {
                     d2.sqrt(),
                     sim_radius
                 );
-                
+
                 affected_count += 1;
             }
         }
@@ -2210,13 +2219,16 @@ impl Simulation for VoronoiCASimulation {
             // Skip neighbor count updates during painting to avoid confusing visual artifacts
             // The neighbor counts will be updated naturally when the simulation resumes or steps
             // This prevents the appearance of "multiple cells being painted" when only one was clicked
-            
+
             // Also skip CA state updates during painting to prevent unwanted births
             // The CA rules will be applied naturally on the next simulation frame
             // This prevents dead cells from becoming alive due to the newly painted cell
             self.skip_next_state_update = true;
         } else {
-            tracing::info!("VCA painting: no points found within radius {:.1}", sim_radius);
+            tracing::info!(
+                "VCA painting: no points found within radius {:.1}",
+                sim_radius
+            );
         }
         Ok(())
     }
@@ -2336,15 +2348,15 @@ impl Simulation for VoronoiCASimulation {
             "drift" => {
                 if let Some(v) = value.as_f64() {
                     self.drift = v as f32;
-            let uniforms = Uniforms {
-                resolution: self.resolution,
-                time: self.time_accum,
-                drift: self.drift,
-                rule_type: Self::parse_rulestring(&self.rulestring),
-                _pad0: 0,
-                _pad1: 0,
-                _pad2: 0,
-            };
+                    let uniforms = Uniforms {
+                        resolution: self.resolution,
+                        time: self.time_accum,
+                        drift: self.drift,
+                        rule_type: Self::parse_rulestring(&self.rulestring),
+                        _pad0: 0,
+                        _pad1: 0,
+                        _pad2: 0,
+                    };
                     queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
                 }
             }

@@ -22,6 +22,7 @@ pub mod flow;
 pub mod gradient;
 pub mod gray_scott;
 pub mod main_menu;
+pub mod moire;
 pub mod particle_life;
 pub mod pellets;
 pub mod shared;

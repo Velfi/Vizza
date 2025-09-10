@@ -275,20 +275,26 @@ impl WebcamCapture {
         let old_height = self.target_height;
         self.target_width = width;
         self.target_height = height;
-        
+
         // If dimensions changed and capture is active, restart the capture thread
         if self.is_active && (old_width != width || old_height != height) {
             tracing::debug!(
                 "Webcam target dimensions changed from {}x{} to {}x{}, restarting capture",
-                old_width, old_height, width, height
+                old_width,
+                old_height,
+                width,
+                height
             );
-            
+
             // Stop current capture
             self.stop_capture();
-            
+
             // Restart with new dimensions
             if let Err(e) = self.start_capture(self.device_index) {
-                tracing::error!("Failed to restart webcam capture with new dimensions: {}", e);
+                tracing::error!(
+                    "Failed to restart webcam capture with new dimensions: {}",
+                    e
+                );
             }
         }
     }

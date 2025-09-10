@@ -2008,8 +2008,7 @@ impl Simulation for FlowModel {
         self.trail_map_height = new_config.height;
 
         // Ensure webcam capture resizes frames to match new trail dimensions
-        self
-            .webcam_capture
+        self.webcam_capture
             .set_target_dimensions(self.trail_map_width, self.trail_map_height);
 
         self.trail_texture = device.create_texture(&wgpu::TextureDescriptor {

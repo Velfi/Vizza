@@ -60,9 +60,9 @@ Create custom color schemes for the other simulations.
 
 ### Prerequisites
 
-- Node.js 18+
-- Rust toolchain
-- Tauri CLI
+- [Node.js 18+](https://nodejs.org/en/download/)
+- [Rust toolchain](https://www.rust-lang.org/tools/install)
+- [Tauri CLI](https://v2.tauri.app/reference/cli/)
 
 ### Development
 

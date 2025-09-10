@@ -269,6 +269,7 @@ pub type ParticleLifePresetManager =
     PresetManager<crate::simulations::particle_life::settings::Settings>;
 pub type PelletsPresetManager = PresetManager<crate::simulations::pellets::settings::Settings>;
 pub type FlowPresetManager = PresetManager<crate::simulations::flow::settings::Settings>;
+pub type MoirePresetManager = PresetManager<crate::simulations::moire::settings::Settings>;
 
 // Trait for unified preset manager operations
 pub trait AnyPresetManager {
@@ -363,6 +364,23 @@ impl AnyPresetManager for FlowPresetManager {
     }
 }
 
+impl AnyPresetManager for MoirePresetManager {
+    fn get_preset_names(&self) -> Vec<String> {
+        self.get_preset_names()
+    }
+
+    fn delete_user_preset(&mut self, name: &str) -> PresetResult<()> {
+        self.delete_user_preset(name)
+    }
+
+    fn save_user_preset_json(&self, name: &str, settings: &serde_json::Value) -> PresetResult<()> {
+        let typed_settings: crate::simulations::moire::settings::Settings =
+            serde_json::from_value(settings.clone())
+                .map_err(|e| PresetError::DeserializationFailed(e.to_string()))?;
+        self.save_user_preset(name, &typed_settings)
+    }
+}
+
 // Enum to hold different types of preset managers
 pub enum PresetManagerType {
     SlimeMold(SlimeMoldPresetManager),
@@ -370,6 +388,7 @@ pub enum PresetManagerType {
     ParticleLife(ParticleLifePresetManager),
     Pellets(PelletsPresetManager),
     Flow(FlowPresetManager),
+    Moire(MoirePresetManager),
 }
 
 impl PresetManagerType {
@@ -380,6 +399,7 @@ impl PresetManagerType {
             PresetManagerType::ParticleLife(manager) => manager,
             PresetManagerType::Pellets(manager) => manager,
             PresetManagerType::Flow(manager) => manager,
+            PresetManagerType::Moire(manager) => manager,
         }
     }
 
@@ -390,6 +410,7 @@ impl PresetManagerType {
             PresetManagerType::ParticleLife(manager) => manager,
             PresetManagerType::Pellets(manager) => manager,
             PresetManagerType::Flow(manager) => manager,
+            PresetManagerType::Moire(manager) => manager,
         }
     }
 
@@ -471,6 +492,20 @@ impl PresetManagerType {
                     Err(format!("Preset '{}' not found for Flow", preset_name).into())
                 }
             }
+            (PresetManagerType::Moire(manager), SimulationType::Moire(sim)) => {
+                if let Some(settings) = manager.get_preset_settings(preset_name) {
+                    let settings_json = serde_json::to_value(settings)
+                        .map_err(|e| PresetError::SerializationFailed(e.to_string()))?;
+                    sim.apply_settings(settings_json, device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    sim.reset_runtime_state(device, queue)
+                        .map_err(|e| PresetError::SimulationError(e.to_string()))?;
+                    tracing::info!("Applied Moiré preset '{}'", preset_name);
+                    Ok(())
+                } else {
+                    Err(format!("Preset '{}' not found for Moiré", preset_name).into())
+                }
+            }
             (_, SimulationType::MainMenu(_)) => Err("Main menu does not support presets".into()),
             (_, SimulationType::Gradient(_)) => Err("Gradient does not support presets".into()),
             _ => Err("Simulation type does not match preset manager type".into()),
@@ -491,12 +526,14 @@ impl SimulationPresetManager {
             ParticleLifePresetManager::new("particle_life".to_string());
         let mut pellets_preset_manager = PelletsPresetManager::new("pellets".to_string());
         let mut flow_preset_manager = FlowPresetManager::new("flow".to_string());
+        let mut moire_preset_manager = MoirePresetManager::new("moire".to_string());
 
         crate::simulations::slime_mold::init_presets(&mut slime_mold_preset_manager);
         crate::simulations::gray_scott::init_presets(&mut gray_scott_preset_manager);
         crate::simulations::particle_life::init_presets(&mut particle_life_preset_manager);
         crate::simulations::pellets::init_presets(&mut pellets_preset_manager);
         crate::simulations::flow::init_presets(&mut flow_preset_manager);
+        crate::simulations::moire::init_presets(&mut moire_preset_manager);
 
         let mut managers = HashMap::new();
         managers.insert(
@@ -519,6 +556,10 @@ impl SimulationPresetManager {
             "flow".to_string(),
             PresetManagerType::Flow(flow_preset_manager),
         );
+        managers.insert(
+            "moire".to_string(),
+            PresetManagerType::Moire(moire_preset_manager),
+        );
 
         Self { managers }
     }
@@ -532,6 +573,7 @@ impl SimulationPresetManager {
             SimulationType::Flow(_) => "flow",
             SimulationType::MainMenu(_) => "main_menu",
             SimulationType::Gradient(_) => "gradient",
+            SimulationType::Moire(_) => "moire",
             SimulationType::VoronoiCA(_) => "voronoi_ca",
         }
     }
@@ -616,6 +658,9 @@ impl SimulationPresetManager {
                     preset_manager.load_user_presets()?;
                 }
                 PresetManagerType::Flow(preset_manager) => {
+                    preset_manager.load_user_presets()?;
+                }
+                PresetManagerType::Moire(preset_manager) => {
                     preset_manager.load_user_presets()?;
                 }
             }

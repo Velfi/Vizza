@@ -11,13 +11,14 @@
 - PS: Pellets. A particles and gravity simulation.
 - GEM: Gradient Editor. A gradient editor for color schemes.
 - VCA: Voronoi Cellular Automata. A simulation of a cellular automata.
+- MM: Moiré. A simulation of moiré patterns.
 
-## LUTs (Color Schemes)
+## Color Schemes (LUTs)
 
-- LUTs are in planar format `[r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]`
+- Color schemes are in planar format `[r0, r1, ..., r255, g0, g1, ..., g255, b0, b1, ..., b255]`
 - Values are in the range 0-255
-- A LUT can be "reversed" by reversing the order of the values in the array.
-- A "stop" is some point in the LUT and LUTS have 255 stops. For example, choosing stop 128 means to use the middle color value of the LUT.
+- A color scheme can be "reversed" by reversing the order of the values in the array.
+- A "stop" is some point in the color scheme and color schemes have 255 stops. For example, choosing stop 128 means to use the middle color value of the color scheme.
 
 ## State vs Settings
 

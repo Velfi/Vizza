@@ -37,6 +37,7 @@ macro_rules! delegate_to_simulation {
             SimulationType::MainMenu(simulation) => simulation.$method(),
             SimulationType::Gradient(simulation) => simulation.$method(),
             SimulationType::VoronoiCA(simulation) => simulation.$method(),
+            SimulationType::Moire(simulation) => simulation.$method(),
         }
     };
     ($self:expr, $method:ident, $($arg:expr),+) => {
@@ -49,6 +50,7 @@ macro_rules! delegate_to_simulation {
             SimulationType::MainMenu(simulation) => simulation.$method($($arg),+),
             SimulationType::Gradient(simulation) => simulation.$method($($arg),+),
             SimulationType::VoronoiCA(simulation) => simulation.$method($($arg),+),
+            SimulationType::Moire(simulation) => simulation.$method($($arg),+),
         }
     };
 }
@@ -234,6 +236,7 @@ pub enum SimulationType {
     MainMenu(Box<crate::simulations::main_menu::MainMenuModel>),
     Gradient(Box<crate::simulations::gradient::GradientSimulation>),
     VoronoiCA(Box<VoronoiCASimulation>),
+    Moire(Box<crate::simulations::moire::MoireModel>),
 }
 
 impl SimulationType {
@@ -349,6 +352,18 @@ impl SimulationType {
                     VoronoiCASimulation::new(device, queue, surface_config, app_settings)?;
                 Ok(SimulationType::VoronoiCA(Box::new(simulation)))
             }
+            "moire" => {
+                let settings = crate::simulations::moire::settings::Settings::default();
+                let simulation = crate::simulations::moire::MoireModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &std::sync::Arc::new(app_settings.clone()),
+                    lut_manager,
+                )?;
+                Ok(SimulationType::Moire(Box::new(simulation)))
+            }
             _ => Err(format!("Unknown simulation type: {}", simulation_type).into()),
         }
     }
@@ -402,6 +417,7 @@ impl Simulation for SimulationType {
             SimulationType::MainMenu(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Gradient(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::VoronoiCA(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::Moire(simulation) => simulation.resize(device, queue, new_config),
         }
     }
 
