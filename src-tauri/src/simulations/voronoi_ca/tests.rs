@@ -1,7 +1,7 @@
 //! Voronoi CA shader validation tests
 
 use super::shaders::{
-    COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
+    GRID_CLEAR_SHADER, GRID_POPULATE_SHADER,
     JFA_INIT_SHADER, JFA_ITERATION_SHADER, VORONOI_RENDER_JFA_SHADER,
 };
 
@@ -43,21 +43,6 @@ impl VcaValidator {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("VCA JFA Render Shader"),
                 source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_JFA_SHADER.into()),
-            });
-    }
-
-    fn compile_compute(&self) {
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA Compute Shader"),
-                source: wgpu::ShaderSource::Wgsl(COMPUTE_SHADER.into()),
-            });
-        let _ = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("VCA Compute Update Shader"),
-                source: wgpu::ShaderSource::Wgsl(COMPUTE_UPDATE_SHADER.into()),
             });
     }
 
@@ -105,7 +90,6 @@ impl VcaValidator {
 async fn test_vca_shader_compilation() {
     let v = VcaValidator::new().await;
     v.compile_render();
-    v.compile_compute();
     v.compile_grid();
 }
 
@@ -120,7 +104,6 @@ async fn test_vca_jfa_shader_compilation() {
 async fn test_all_vca_shaders_compilation() {
     let v = VcaValidator::new().await;
     v.compile_render();
-    v.compile_compute();
     v.compile_grid();
     v.compile_jfa();
     v.compile_jfa_render();

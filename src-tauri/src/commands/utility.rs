@@ -84,39 +84,15 @@ pub async fn toggle_fullscreen(app: tauri::AppHandle) -> Result<String, String> 
         tracing::debug!("Entered fullscreen mode");
     }
 
-    // After toggling, query the new window size and force a backend resize/reconfigure
+    // Do not force immediate surface reconfigure here. Render loop will acquire,
+    // and on failure it performs a safe recovery path that reconfigures and resizes.
+    // For observability, log the new size only.
     if let Ok(size) = window.inner_size() {
-        let gpu_context_state = app.state::<Arc<tokio::sync::Mutex<crate::GpuContext>>>();
-        let manager_state = app.state::<Arc<tokio::sync::Mutex<SimulationManager>>>();
-
-        let width = size.width;
-        let height = size.height;
-
-        // Reconfigure surface and notify simulation using consistent lock order: manager first, then GPU context
-        let mut errors: Vec<String> = Vec::new();
-        let mut sim_manager = manager_state.lock().await;
-        let gpu_ctx = gpu_context_state.lock().await;
-
-        if let Err(e) = gpu_ctx.resize_surface(width, height).await {
-            errors.push(format!("resize_surface failed: {}", e));
-        } else {
-            let surface_config = gpu_ctx.surface_config.lock().await.clone();
-            if let Err(e) =
-                sim_manager.handle_resize(&gpu_ctx.device, &gpu_ctx.queue, &surface_config)
-            {
-                errors.push(format!("simulation handle_resize failed: {}", e));
-            }
-        }
-
-        if errors.is_empty() {
-            tracing::debug!(
-                "Forced resize after fullscreen toggle to {}x{}",
-                width,
-                height
-            );
-        } else {
-            tracing::warn!("Fullscreen toggle post-resize warnings: {:?}", errors);
-        }
+        tracing::debug!(
+            "Fullscreen toggled; window size now {}x{} (defer surface resize to render loop)",
+            size.width,
+            size.height
+        );
     }
 
     Ok("Toggled fullscreen".to_string())

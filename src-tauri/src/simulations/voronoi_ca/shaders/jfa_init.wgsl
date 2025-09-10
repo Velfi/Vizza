@@ -16,7 +16,6 @@ struct Vertices { data: array<Vertex> }
 struct VoronoiParams {
   count: f32,
   color_mode: f32,
-  neighbor_radius: f32,
   border_enabled: f32,
   border_threshold: f32,
   filter_mode: f32,

@@ -164,17 +164,15 @@
       <div class="settings-section">
         <h3 class="section-header">Voronoi Parameters</h3>
         <div class="settings-grid">
-          <div class="setting-item">
-            <span class="setting-label">Rule String:</span>
-            <input
-              type="text"
-              bind:value={rulestring}
-              placeholder="B3/S23"
-              class="rulestring-input"
-              on:blur={() => updateRulestring(rulestring)}
+          <div class="setting-item rule-item">
+            <span class="setting-label">Cellular Automaton Rule:</span>
+            <Selector
+              options={rulestringOptions.map(opt => opt.label)}
+              value={getCurrentRuleLabel()}
+              on:change={({ detail }) => updateRulestringFromLabel(detail.value)}
             />
             <small class="rulestring-help">
-              Conway's Game of Life: B3/S23, High Life: B36/S23, Seeds: B2/S
+              {getRulestringDescription(rulestring)} ({rulestring})
             </small>
           </div>
           <div class="setting-item">
@@ -188,54 +186,6 @@
               on:change={({ detail }) => updatePointCount(detail)}
             />
           </div>
-          <div class="setting-item">
-            <span class="setting-label">Neighbor Radius:</span>
-            <NumberDragBox
-              value={neighborRadius}
-              min={4}
-              max={200}
-              step={1}
-              precision={0}
-              on:change={({ detail }) => updateNeighborRadius(detail)}
-            />
-          </div>
-          <div class="setting-item">
-            <span class="setting-label">Alive Threshold:</span>
-            <NumberDragBox
-              value={aliveThreshold}
-              min={0}
-              max={1}
-              step={0.01}
-              precision={2}
-              on:change={({ detail }) => updateAliveThreshold(detail)}
-            />
-          </div>
-        </div>
-        
-        <!-- Interactive Threshold Diagram -->
-        <div class="diagram-section">
-          <h4 class="diagram-header">🎯 Interactive Threshold Diagram</h4>
-          <p class="diagram-description">
-            This diagram shows how the alive threshold and neighbor radius determine cell fate. 
-            Drag the yellow threshold line or blue radius handle to adjust parameters. 
-            The radius visualization shows which neighbors are considered in the cellular automata rule.
-          </p>
-          <VCAThresholdDiagram
-            aliveThreshold={aliveThreshold}
-            neighborRadius={neighborRadius}
-            width={580}
-            height={350}
-            on:update={({ detail }) => {
-              if (detail.setting === 'aliveThreshold') {
-                updateAliveThreshold(detail.value);
-              } else if (detail.setting === 'neighborRadius') {
-                updateNeighborRadius(detail.value);
-              }
-            }}
-          />
-        </div>
-        
-        <div class="settings-grid">
           <div class="setting-item">
             <span class="setting-label">Brownian Speed (px/s):</span>
             <NumberDragBox
@@ -295,7 +245,6 @@
   import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
   import PresetFieldset from './components/shared/PresetFieldset.svelte';
   import Button from './components/shared/Button.svelte';
-  import VCAThresholdDiagram from './components/voronoi-ca/VCAThresholdDiagram.svelte';
 
   const dispatch = createEventDispatcher();
   export let menuPosition: string = 'middle';
@@ -319,8 +268,33 @@
   // Simple settings
   let rulestring = 'B3/S23';
   let drift = 0.5;
-  let neighborRadius = 60;
-  let aliveThreshold = 0.5;
+
+  // Rulestring options with human-readable names
+  const rulestringOptions = [
+    { value: 'B3/S23', label: 'Conway\'s Game of Life' },
+    { value: 'B36/S23', label: 'High Life' },
+    { value: 'B2/S', label: 'Seeds' },
+    { value: 'B1357/S1357', label: 'Replicator' },
+    { value: 'B3/S012345678', label: 'Life without Death' },
+    { value: 'B3/S1234', label: 'Maze' },
+    { value: 'B3/S12345', label: 'Mazectric' },
+    { value: 'B34/S34', label: '34 Life' },
+    { value: 'B35678/S5678', label: 'Diamoeba' },
+    { value: 'B36/S125', label: '2x2' },
+    { value: 'B368/S245', label: 'Day & Night' },
+    { value: 'B4678/S35678', label: 'Anneal' },
+    { value: 'B5678/S45678', label: 'Vote' },
+    { value: 'B6/S16', label: 'Coral' },
+    { value: 'B6/S1', label: 'Long Life' },
+    { value: 'B6/S12', label: 'Stains' },
+    { value: 'B6/S123', label: 'Assimilation' },
+    { value: 'B6/S15', label: 'Pseudo Life' },
+    { value: 'B6/S2', label: 'Long Life (variant)' },
+    { value: 'B25/S4', label: 'Self-Replicating' },
+    { value: 'B7/S', label: 'Seeds (7 neighbors)' },
+    { value: 'B8/S', label: 'Seeds (8 neighbors)' },
+    { value: 'B9/S', label: 'Seeds (9 neighbors)' },
+  ];
   let brownianSpeed = 60;
   let timeScale = 1.0;
   let pointCount = 300;
@@ -365,10 +339,6 @@
           const settings = (await invoke('get_current_settings')) as Record<string, unknown>;
           if (settings && typeof settings.rulestring === 'string') rulestring = settings.rulestring;
           if (settings && typeof settings.drift === 'number') drift = settings.drift;
-          if (settings && typeof settings.neighborRadius === 'number')
-            neighborRadius = settings.neighborRadius;
-          if (settings && typeof settings.aliveThreshold === 'number')
-            aliveThreshold = settings.aliveThreshold;
           if (settings && typeof settings.brownianSpeed === 'number') brownianSpeed = settings.brownianSpeed;
           if (settings && typeof settings.timeScale === 'number') timeScale = settings.timeScale;
           if (settings && typeof settings.numPoints === 'number') pointCount = settings.numPoints;
@@ -396,9 +366,7 @@
         currentFps = e.payload;
       });
       await invoke('start_simulation', { simulationType: 'voronoi_ca' });
-      // Backend starts paused by design - keep it paused so painting works
-      // User can manually resume when ready
-      running = false;
+      // Simulation-initialized event will set running state; don't override here
       await loadAvailableLuts();
     } catch (e) {
       console.error('Failed to start Voronoi CA:', e);
@@ -522,8 +490,6 @@
       const settings = (await invoke('get_current_settings')) as Record<string, unknown>;
       if (settings) {
         if (typeof settings.drift === 'number') drift = settings.drift;
-        if (typeof settings.neighborRadius === 'number') neighborRadius = settings.neighborRadius;
-        if (typeof settings.aliveThreshold === 'number') aliveThreshold = settings.aliveThreshold;
         if (typeof settings.brownianSpeed === 'number') brownianSpeed = settings.brownianSpeed;
         if (typeof settings.timeScale === 'number') timeScale = settings.timeScale;
         if (typeof settings.numPoints === 'number') pointCount = settings.numPoints;
@@ -711,23 +677,48 @@
     }
   }
 
-  async function updateNeighborRadius(value: number) {
-    neighborRadius = value;
-    try {
-      await invoke('update_simulation_setting', { settingName: 'neighborRadius', value });
-    } catch (e) {
-      console.error('Failed to update neighbor radius:', e);
+  function getCurrentRuleLabel(): string {
+    const option = rulestringOptions.find(opt => opt.value === rulestring);
+    return option ? option.label : 'Conway\'s Game of Life';
+  }
+
+  async function updateRulestringFromLabel(label: string) {
+    const option = rulestringOptions.find(opt => opt.label === label);
+    if (option) {
+      await updateRulestring(option.value);
     }
   }
 
-  async function updateAliveThreshold(value: number) {
-    aliveThreshold = value;
-    try {
-      await invoke('update_simulation_setting', { settingName: 'aliveThreshold', value });
-    } catch (e) {
-      console.error('Failed to update alive threshold:', e);
-    }
+  function getRulestringDescription(rule: string): string {
+    const descriptions: Record<string, string> = {
+      'B1357/S1357': 'Replicator - Every pattern is eventually replaced by multiple copies of itself',
+      'B2/S': 'Seeds - All patterns are phoenixes, explosive chaotic growth',
+      'B25/S4': 'Small self-replicating pattern with glider bouncing',
+      'B3/S012345678': 'Life without Death - Cells never die once alive',
+      'B3/S23': 'Conway\'s Game of Life - Highly complex behavior',
+      'B3/S1234': 'Maze - Creates maze-like patterns',
+      'B3/S12345': 'Mazectric - Maze with diagonal connections',
+      'B34/S34': '34 Life - Stable patterns with interesting dynamics',
+      'B35678/S5678': 'Diamoeba - Creates diamond-like chaotic patterns',
+      'B36/S125': '2x2 - Supports 2x2 blocks and complex patterns',
+      'B36/S23': 'High Life - Like Life but also births with 6 neighbors',
+      'B368/S245': 'Day & Night - Symmetric rule with interesting patterns',
+      'B4678/S35678': 'Anneal - Creates annealing-like patterns',
+      'B5678/S45678': 'Vote - Majority rule cellular automaton',
+      'B6/S16': 'Coral - Creates coral-like growth patterns',
+      'B6/S1': 'Long Life - Long-lived patterns',
+      'B6/S12': 'Stains - Creates stain-like patterns',
+      'B6/S123': 'Assimilation - Patterns assimilate neighbors',
+      'B6/S15': 'Pseudo Life - Life-like but different dynamics',
+      'B6/S2': 'Long Life - Another long-lived variant',
+      'B7/S': 'Seeds variant - Explosive growth',
+      'B8/S': 'Seeds variant - Explosive growth',
+      'B9/S': 'Seeds variant - Explosive growth',
+    };
+    return descriptions[rule] || 'Custom rule - Birth/Survival conditions';
   }
+
+
 
   async function updateBrownianSpeed(value: number) {
     brownianSpeed = value;
@@ -908,27 +899,6 @@
   }
 
   /* Diagram section styles */
-  .diagram-section {
-    margin: 1rem 0;
-    padding: 1rem;
-    background: #2a2a2a;
-    border-radius: 6px;
-    border: 1px solid #444444;
-  }
-
-  .diagram-header {
-    margin: 0 0 0.5rem 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #ffffff;
-  }
-
-  .diagram-description {
-    margin: 0 0 1rem 0;
-    font-size: 0.9rem;
-    color: #cccccc;
-    line-height: 1.4;
-  }
 
   .setting-item {
     display: contents;
@@ -945,22 +915,8 @@
     border-bottom: none;
   }
 
-  .rulestring-input {
-    background: #3a3a3a;
-    border: 1px solid #555;
-    border-radius: 4px;
-    color: #ffffff;
-    padding: 0.5rem;
-    font-family: monospace;
-    font-size: 0.9rem;
-    width: 100%;
-    margin-top: 0.25rem;
-  }
-
-  .rulestring-input:focus {
-    outline: none;
-    border-color: #007acc;
-    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+  .rule-item .rulestring-help {
+    grid-column: 1 / -1;
   }
 
   .rulestring-help {
@@ -989,68 +945,6 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   }
 
-  /* Painting instructions styles */
-  .painting-instructions {
-    margin-top: 0.75rem;
-    padding: 0.75rem;
-    background: rgba(76, 175, 80, 0.1);
-    border: 1px solid rgba(76, 175, 80, 0.3);
-    border-radius: 6px;
-  }
-
-  .painting-header {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: rgba(76, 175, 80, 1);
-    margin-bottom: 0.5rem;
-  }
-
-  .painting-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .paint-instruction {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-  }
-
-  .mouse-button {
-    display: inline-block;
-    padding: 0.15rem 0.4rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    min-width: 70px;
-    text-align: center;
-  }
-
-  .left-click {
-    background: rgba(33, 150, 243, 0.2);
-    border: 1px solid rgba(33, 150, 243, 0.4);
-    color: rgba(33, 150, 243, 1);
-  }
-
-  .right-click {
-    background: rgba(255, 152, 0, 0.2);
-    border: 1px solid rgba(255, 152, 0, 0.4);
-    color: rgba(255, 152, 0, 1);
-  }
-
-  .paint-action {
-    color: rgba(255, 255, 255, 0.9);
-    font-weight: 500;
-  }
-
-  .painting-note {
-    font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.7);
-    font-style: italic;
-  }
 
   /* Mobile responsive design */
   @media (max-width: 768px) {
@@ -1071,23 +965,5 @@
       font-size: 0.85rem;
     }
 
-    .painting-instructions {
-      margin-top: 0.5rem;
-      padding: 0.5rem;
-    }
-
-    .painting-header {
-      font-size: 0.85rem;
-    }
-
-    .paint-instruction {
-      font-size: 0.8rem;
-    }
-
-    .mouse-button {
-      font-size: 0.7rem;
-      padding: 0.1rem 0.3rem;
-      min-width: 60px;
-    }
   }
 </style>

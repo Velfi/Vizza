@@ -177,11 +177,16 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     if (params.cursor_active > 0u) {
         let cursor_pos = vec2<f32>(params.cursor_x, params.cursor_y);
         let delta_to_cursor = wrapped_distance(particle.position, cursor_pos);
-        let distance_to_cursor_sq = dot(delta_to_cursor, delta_to_cursor);
-        let distance_to_cursor = sqrt(distance_to_cursor_sq);
         
-        // Only apply cursor force if within cursor radius
-        if (distance_to_cursor < params.cursor_size && distance_to_cursor > 0.001) {
+        // Use circular cursor area (same size for X and Y)
+        let cursor_size = params.cursor_size;
+        
+        // Check if particle is within the circular cursor area
+        let distance_to_cursor_sq = dot(delta_to_cursor, delta_to_cursor);
+        let normalized_distance_sq = distance_to_cursor_sq / (cursor_size * cursor_size);
+        
+        if (normalized_distance_sq <= 1.0) {
+            let distance_to_cursor = sqrt(distance_to_cursor_sq);
             let direction_to_cursor = delta_to_cursor / distance_to_cursor;
             
             // Calculate cursor force strength based on distance (stronger when closer)

@@ -1402,6 +1402,19 @@ impl FlowModel {
 
             let mut processed = frame_data;
 
+            // Guard against race during resize: skip mismatched frames
+            let expected_len = (target_w as usize) * (target_h as usize);
+            if processed.len() != expected_len {
+                tracing::debug!(
+                    "Skipping webcam frame due to size mismatch: got {} bytes, expected {} ({}x{})",
+                    processed.len(),
+                    expected_len,
+                    target_w,
+                    target_h
+                );
+                return Ok(());
+            }
+
             if self.settings.image_mirror_horizontal {
                 let w = target_w as usize;
                 let h = target_h as usize;
@@ -1993,6 +2006,11 @@ impl Simulation for FlowModel {
         // Recreate trail texture with new dimensions
         self.trail_map_width = new_config.width;
         self.trail_map_height = new_config.height;
+
+        // Ensure webcam capture resizes frames to match new trail dimensions
+        self
+            .webcam_capture
+            .set_target_dimensions(self.trail_map_width, self.trail_map_height);
 
         self.trail_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Trail Texture"),

@@ -1,9 +1,10 @@
-pub const COMPUTE_SHADER: &str = include_str!("compute.wgsl");
+pub const ADJACENCY_BUILD_SHADER: &str = include_str!("adjacency_build.wgsl");
+pub const ADJACENCY_COUNT_SHADER: &str = include_str!("adjacency_count.wgsl");
+pub const BROWNIAN_SHADER: &str = include_str!("brownian.wgsl");
 pub const COMPUTE_UPDATE_SHADER: &str = include_str!("compute_update.wgsl");
-pub const VORONOI_RENDER_JFA_SHADER: &str = include_str!("voronoi_render_jfa.wgsl");
-pub const VCA_INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
 pub const GRID_CLEAR_SHADER: &str = include_str!("grid_clear.wgsl");
 pub const GRID_POPULATE_SHADER: &str = include_str!("grid_populate.wgsl");
 pub const JFA_INIT_SHADER: &str = include_str!("jfa_init.wgsl");
 pub const JFA_ITERATION_SHADER: &str = include_str!("jfa_iteration.wgsl");
-pub const BROWNIAN_SHADER: &str = include_str!("brownian.wgsl");
+pub const VCA_INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
+pub const VORONOI_RENDER_JFA_SHADER: &str = include_str!("voronoi_render_jfa.wgsl");

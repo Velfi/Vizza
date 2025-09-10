@@ -292,7 +292,7 @@ pub async fn set_flow_image_invert_tone(
 pub async fn load_flow_vector_field_image(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    path: String,
+    image_path: String,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
@@ -301,7 +301,7 @@ pub async fn load_flow_vector_field_image(
         &mut sim_manager.current_simulation
     {
         // Load the image
-        sim.load_vector_field_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &path)
+        sim.load_vector_field_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
             .map_err(|e| format!("Failed to load vector field image: {}", e))?;
 
         // Switch to image mode if not already

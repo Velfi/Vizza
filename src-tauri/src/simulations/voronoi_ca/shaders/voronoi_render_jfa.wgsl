@@ -9,7 +9,6 @@ struct VSOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> }
 struct VoronoiParams {
   count: f32,
   color_mode: f32,
-  neighbor_radius: f32,
   border_enabled: f32,
   border_width: f32,
   filter_mode: f32,

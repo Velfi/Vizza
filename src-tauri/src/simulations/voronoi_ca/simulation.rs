@@ -17,9 +17,9 @@ use crate::simulations::shared::ping_pong_textures::PingPongTextures;
 use crate::simulations::traits::Simulation;
 
 use super::shaders::{
-    BROWNIAN_SHADER, COMPUTE_SHADER, COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER,
-    GRID_POPULATE_SHADER, JFA_INIT_SHADER, JFA_ITERATION_SHADER, VCA_INFINITE_RENDER_SHADER,
-    VORONOI_RENDER_JFA_SHADER,
+    ADJACENCY_BUILD_SHADER, ADJACENCY_COUNT_SHADER, BROWNIAN_SHADER,
+    COMPUTE_UPDATE_SHADER, GRID_CLEAR_SHADER, GRID_POPULATE_SHADER, JFA_INIT_SHADER,
+    JFA_ITERATION_SHADER, VCA_INFINITE_RENDER_SHADER, VORONOI_RENDER_JFA_SHADER,
 };
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
 
@@ -40,7 +40,6 @@ struct Vertex {
 struct VoronoiParams {
     count: f32,
     color_mode: f32,
-    neighbor_radius: f32,
     // Borders enabled flag (1.0 = on, 0.0 = off)
     border_enabled: f32,
     // Border width in pixels (0.0-10.0)
@@ -59,9 +58,9 @@ struct Uniforms {
     time: f32,
     drift: f32,
     rule_type: u32,
-    neighbor_radius: f32,
-    alive_threshold: f32,
     _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 #[repr(C)]
@@ -101,7 +100,6 @@ struct BrownianParams {
 pub struct VoronoiCASimulation {
     voronoi_render_jfa_pipeline: RenderPipeline,
     // Compute
-    compute_pipeline: ComputePipeline, // neighbor counting with grid
     compute_update_pipeline: ComputePipeline, // state update
     brownian_pipeline: ComputePipeline, // brownian motion
     uniform_buffer: Buffer,
@@ -124,9 +122,8 @@ pub struct VoronoiCASimulation {
     num_points: u32,
     time_accum: f32,
     time_scale: f32,
+    last_ca_update_time: f32,
     drift: f32,
-    neighbor_radius: f32,
-    alive_threshold: f32,
     resolution: [f32; 2],
     gui_visible: bool,
     points: Vec<Vertex>,
@@ -157,7 +154,6 @@ pub struct VoronoiCASimulation {
     display_sampler: wgpu::Sampler,
     texture_render_params_buffer: Buffer,
     render_infinite_pipeline: RenderPipeline,
-    render_infinite_bind_group: BindGroup,
     // JFA resources
     jfa_textures: PingPongTextures,
 
@@ -171,6 +167,18 @@ pub struct VoronoiCASimulation {
     /// and no points have changed. Invalidated when points change due to painting,
     /// point count changes, resolution changes, or simulation reset.
     has_valid_jfa: bool,
+    
+    /// Flag to skip CA state updates on the next frame after painting
+    /// This prevents unwanted births when a cell is painted while running
+    skip_next_state_update: bool,
+
+    // Voronoi adjacency resources
+    adjacency_neighbors: Buffer, // flattened u32 [num_points * MAX_NEIGHBORS]
+    adjacency_degrees: Buffer,   // u32 [num_points]
+    adjacency_build_pipeline: ComputePipeline,
+    adjacency_count_pipeline: ComputePipeline,
+    adjacency_build_bg: BindGroup,
+    adjacency_count_bg: BindGroup,
 }
 
 impl VoronoiCASimulation {
@@ -243,7 +251,6 @@ impl VoronoiCASimulation {
             let params = VoronoiParams {
                 count: self.num_points as f32,
                 color_mode: self.color_mode as f32,
-                neighbor_radius: self.neighbor_radius,
                 border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
                 border_width: self.border_width,
                 filter_mode: match self.app_settings.texture_filtering {
@@ -277,6 +284,43 @@ impl VoronoiCASimulation {
             self.jfa_textures.swap();
             jump_distance /= 2;
         }
+
+        // After building JFA, immediately rebuild adjacency so paused painting has correct graph
+        let current_jfa_view = self.get_current_jfa_view();
+        self.adjacency_build_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Adjacency Build BG (Simple Rebind)"),
+            layout: &self.adjacency_build_pipeline.get_bind_group_layout(0),
+            entries: &[
+                resource_helpers::buffer_entry(0, &self.vertex_buffer),
+                resource_helpers::buffer_entry(1, &self.uniform_buffer),
+                resource_helpers::buffer_entry(2, &self.adjacency_neighbors),
+                resource_helpers::buffer_entry(3, &self.adjacency_degrees),
+                resource_helpers::texture_view_entry(4, current_jfa_view),
+            ],
+        });
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Adjacency Build (Simple)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.adjacency_build_pipeline);
+            cpass.set_bind_group(0, &self.adjacency_build_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+        }
+
+        // Count neighbors so density-based coloring is correct while paused
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Adjacency Neighbor Count (Simple)"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.adjacency_count_pipeline);
+            cpass.set_bind_group(0, &self.adjacency_count_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+        }
+
         Ok(())
     }
 
@@ -294,9 +338,9 @@ impl VoronoiCASimulation {
             time: 0.0,
             drift: app_settings.default_camera_sensitivity,
             rule_type: 0, // Will be updated when rulestring is set
-            neighbor_radius: 60.0,
-            alive_threshold: 0.5,
             _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         };
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -339,15 +383,7 @@ impl VoronoiCASimulation {
                 label: Some("voronoi_ca_compute_neighbor_bgl"),
             });
 
-        // Bind groups
-
-        // compute_bind_group will be created after the vertex buffer is created
-
         // Shaders
-        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VoronoiCA Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(COMPUTE_SHADER.into()),
-        });
         let compute_update_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("VoronoiCA Compute Update Shader"),
             source: wgpu::ShaderSource::Wgsl(COMPUTE_UPDATE_SHADER.into()),
@@ -362,25 +398,6 @@ impl VoronoiCASimulation {
             source: wgpu::ShaderSource::Wgsl(VORONOI_RENDER_JFA_SHADER.into()),
         });
 
-        // Pipelines
-        // Remove legacy instanced render pipeline; VCA uses fullscreen Voronoi pipeline only
-
-        // Pipeline for neighbor counting (needs neighbor layout)
-        let compute_neighbor_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("VoronoiCA Compute Pipeline Layout"),
-                bind_group_layouts: &[&compute_neighbor_bgl],
-                push_constant_ranges: &[],
-            });
-
-        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("VoronoiCA Compute Pipeline"),
-            layout: Some(&compute_neighbor_pipeline_layout),
-            module: &compute_shader,
-            entry_point: Some("main"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
         // Pipeline for state update (2-bindings layout)
         let compute_update_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -462,7 +479,7 @@ impl VoronoiCASimulation {
         } else {
             128
         };
-        let base_cell_size = uniforms.neighbor_radius * 1.5;
+        let base_cell_size: f32 = 90.0; // Fixed cell size for spatial partitioning
         let cell_size: f32 = if density > 0.01 {
             base_cell_size.max(8.0)
         } else {
@@ -611,7 +628,6 @@ impl VoronoiCASimulation {
         let initial_params = VoronoiParams {
             count: 0.0,
             color_mode: 0.0,
-            neighbor_radius: 60.0,
             border_enabled: 1.0,
             border_width: 1.0,
             filter_mode: match app_settings.texture_filtering {
@@ -718,6 +734,7 @@ impl VoronoiCASimulation {
             ..Default::default()
         });
 
+
         // Infinite render pipeline using VCA-specific shader
         let render_infinite_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("VCA Render Infinite Shader"),
@@ -810,15 +827,6 @@ impl VoronoiCASimulation {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Render Infinite BG"),
-            layout: &render_infinite_bind_group_layout,
-            entries: &[
-                resource_helpers::texture_view_entry(0, &display_view),
-                resource_helpers::sampler_bind_entry(1, &display_sampler),
-                resource_helpers::buffer_entry(2, &texture_render_params_buffer),
-            ],
-        });
 
         let post_processing_resources = PostProcessingResources::new(device, surface_config)?;
         // Camera was created above
@@ -939,9 +947,110 @@ impl VoronoiCASimulation {
             ],
         });
 
+        // Adjacency buffers
+        const MAX_NEIGHBORS: u32 = 16;
+        let adjacency_neighbors = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("VCA Adjacency Neighbors"),
+            size: (std::mem::size_of::<u32>() as u64) * (num_points as u64) * (MAX_NEIGHBORS as u64),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let adjacency_degrees = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("VCA Adjacency Degrees"),
+            size: (std::mem::size_of::<u32>() as u64) * (num_points as u64),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        // Adjacency shaders
+        let adjacency_build_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA Adjacency Build Shader"),
+            source: wgpu::ShaderSource::Wgsl(ADJACENCY_BUILD_SHADER.into()),
+        });
+        let adjacency_count_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VCA Adjacency Count Shader"),
+            source: wgpu::ShaderSource::Wgsl(ADJACENCY_COUNT_SHADER.into()),
+        });
+
+        // Adjacency bind group layouts
+        let adjacency_build_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),  // vertices read
+                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),         // uniforms
+                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, false), // neighbors write
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, false), // degrees write
+                resource_helpers::texture_entry(
+                    4,
+                    wgpu::ShaderStages::COMPUTE,
+                    wgpu::TextureSampleType::Float { filterable: false },
+                    wgpu::TextureViewDimension::D2,
+                ),
+            ],
+            label: Some("VCA Adjacency Build BGL"),
+        });
+
+        let adjacency_count_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false), // vertices rw
+                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),         // uniforms
+                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),  // neighbors read
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),  // degrees read
+            ],
+            label: Some("VCA Adjacency Count BGL"),
+        });
+
+        // Adjacency bind groups
+        let adjacency_build_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Adjacency Build BG"),
+            layout: &adjacency_build_bgl,
+            entries: &[
+                resource_helpers::buffer_entry(0, &vertex_buffer),
+                resource_helpers::buffer_entry(1, &uniform_buffer),
+                resource_helpers::buffer_entry(2, &adjacency_neighbors),
+                resource_helpers::buffer_entry(3, &adjacency_degrees),
+                resource_helpers::texture_view_entry(4, jfa_textures.current_view()),
+            ],
+        });
+
+        let adjacency_count_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Adjacency Count BG"),
+            layout: &adjacency_count_bgl,
+            entries: &[
+                resource_helpers::buffer_entry(0, &vertex_buffer),
+                resource_helpers::buffer_entry(1, &uniform_buffer),
+                resource_helpers::buffer_entry(2, &adjacency_neighbors),
+                resource_helpers::buffer_entry(3, &adjacency_degrees),
+            ],
+        });
+
+        // Adjacency pipelines
+        let adjacency_build_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("VCA Adjacency Build Pipeline"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("VCA Adjacency Build PL"),
+                bind_group_layouts: &[&adjacency_build_bgl],
+                push_constant_ranges: &[],
+            })),
+            module: &adjacency_build_shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let adjacency_count_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("VCA Adjacency Count Pipeline"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("VCA Adjacency Count PL"),
+                bind_group_layouts: &[&adjacency_count_bgl],
+                push_constant_ranges: &[],
+            })),
+            module: &adjacency_count_shader,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
         Ok(Self {
             voronoi_render_jfa_pipeline,
-            compute_pipeline,
             compute_update_pipeline,
             brownian_pipeline,
             uniform_buffer,
@@ -962,9 +1071,8 @@ impl VoronoiCASimulation {
             num_points,
             time_accum: 0.0,
             time_scale: 1.0,
+            last_ca_update_time: 0.0,
             drift: 1.0,
-            neighbor_radius: 60.0,
-            alive_threshold: 0.5,
             resolution: [width, height],
             gui_visible: true,
             points,
@@ -984,7 +1092,6 @@ impl VoronoiCASimulation {
             display_sampler,
             texture_render_params_buffer,
             render_infinite_pipeline,
-            render_infinite_bind_group,
             post_processing_state,
             post_processing_resources,
             // JFA resources
@@ -1000,6 +1107,14 @@ impl VoronoiCASimulation {
             cursor_size: 0.15,    // Larger default cursor to actually reach cells
             cursor_strength: 1.0,
             has_valid_jfa: false,
+            skip_next_state_update: false,
+
+            adjacency_neighbors,
+            adjacency_degrees,
+            adjacency_build_pipeline,
+            adjacency_count_pipeline,
+            adjacency_build_bg,
+            adjacency_count_bg,
         })
     }
 
@@ -1146,6 +1261,44 @@ impl VoronoiCASimulation {
             ],
         });
 
+        // Recreate adjacency buffers sized for new_count and rebind count BG
+        const MAX_NEIGHBORS: u32 = 16;
+        let adjacency_neighbors = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("VCA Adjacency Neighbors Rebuild"),
+            size: (std::mem::size_of::<u32>() as u64) * (new_count as u64) * (MAX_NEIGHBORS as u64),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let adjacency_degrees = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("VCA Adjacency Degrees Rebuild"),
+            size: (std::mem::size_of::<u32>() as u64) * (new_count as u64),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.adjacency_neighbors = adjacency_neighbors;
+        self.adjacency_degrees = adjacency_degrees;
+
+        // Recreate adjacency count BG (build BG will be rebound dynamically each frame)
+        let adjacency_count_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
+                resource_helpers::storage_buffer_entry(2, wgpu::ShaderStages::COMPUTE, true),
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
+            ],
+            label: Some("VCA Adjacency Count BGL Rebind"),
+        });
+        self.adjacency_count_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Adjacency Count BG Rebind"),
+            layout: &adjacency_count_bgl,
+            entries: &[
+                resource_helpers::buffer_entry(0, &vertex_buffer),
+                resource_helpers::buffer_entry(1, &self.uniform_buffer),
+                resource_helpers::buffer_entry(2, &self.adjacency_neighbors),
+                resource_helpers::buffer_entry(3, &self.adjacency_degrees),
+            ],
+        });
+
         // Update fields
         self.points = points;
         self.vertex_buffer = vertex_buffer;
@@ -1161,23 +1314,33 @@ impl VoronoiCASimulation {
     fn parse_rulestring(rulestring: &str) -> u32 {
         let rulestring = rulestring.to_uppercase();
 
-        // Conway's Game of Life (B3/S23)
-        if rulestring == "B3/S23" || rulestring == "B3S23" {
-            return 0;
+        // Map of rulestrings to rule types
+        match rulestring.as_str() {
+            "B1357/S1357" | "B1357S1357" => 0,  // Replicator
+            "B2/S" | "B2S" => 1,                // Seeds
+            "B25/S4" | "B25S4" => 2,            // Small self-replicating pattern
+            "B3/S012345678" | "B3S012345678" => 3, // Life without Death
+            "B3/S23" | "B3S23" => 4,            // Conway's Game of Life
+            "B3/S1234" | "B3S1234" => 5,        // Maze
+            "B3/S12345" | "B3S12345" => 6,      // Mazectric
+            "B34/S34" | "B34S34" => 7,          // 34 Life
+            "B35678/S5678" | "B35678S5678" => 8, // Diamoeba
+            "B36/S125" | "B36S125" => 9,        // 2x2
+            "B36/S23" | "B36S23" => 10,         // High Life
+            "B368/S245" | "B368S245" => 11,     // Day & Night
+            "B4678/S35678" | "B4678S35678" => 12, // Anneal
+            "B5678/S45678" | "B5678S45678" => 13, // Vote
+            "B6/S16" | "B6S16" => 14,           // Coral
+            "B6/S1" | "B6S1" => 15,             // Long Life
+            "B6/S12" | "B6S12" => 16,           // Stains
+            "B6/S123" | "B6S123" => 17,         // Assimilation
+            "B6/S15" | "B6S15" => 18,           // Pseudo Life
+            "B6/S2" | "B6S2" => 19,             // Long Life
+            "B7/S" | "B7S" => 20,               // Seeds variant
+            "B8/S" | "B8S" => 21,               // Seeds variant
+            "B9/S" | "B9S" => 22,               // Seeds variant
+            _ => 4, // Default to Conway's Game of Life
         }
-
-        // High Life (B36/S23)
-        if rulestring == "B36/S23" || rulestring == "B36S23" {
-            return 1;
-        }
-
-        // Seeds (B2/S)
-        if rulestring == "B2/S" || rulestring == "B2S" {
-            return 2;
-        }
-
-        // Default to Conway's Game of Life
-        0
     }
 }
 
@@ -1197,9 +1360,9 @@ impl VoronoiCASimulation {
             time: self.time_accum,
             drift: self.drift,
             rule_type: Self::parse_rulestring(&self.rulestring),
-            neighbor_radius: self.neighbor_radius,
-            alive_threshold: self.alive_threshold,
             _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         };
         // Only update time/drift fields; write the full struct for simplicity
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -1245,7 +1408,7 @@ impl VoronoiCASimulation {
         };
 
         // Adaptive cell size - smaller cells for high density to reduce neighbor search overhead
-        let base_cell_size = self.neighbor_radius * 1.5;
+        let base_cell_size: f32 = 90.0; // Fixed cell size for spatial partitioning
         let cell_size = if density > 0.01 {
             base_cell_size.max(8.0) // Smaller cells for high density
         } else {
@@ -1285,33 +1448,10 @@ impl VoronoiCASimulation {
             cpass.dispatch_workgroups(self.num_points.div_ceil(128), 1, 1);
         }
 
-        // Compute passes: 1) neighbor count, 2) state update
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VoronoiCA Neighbor Count"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.compute_pipeline);
-            cpass.set_bind_group(0, &self.compute_neighbor_bg, &[]);
-            let wg_count = self.num_points.div_ceil(128);
-            cpass.dispatch_workgroups(wg_count, 1, 1);
-        }
-        {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("VoronoiCA State Update"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.compute_update_pipeline);
-            cpass.set_bind_group(0, &self.compute_update_bg, &[]);
-            let wg_count = self.num_points.div_ceil(128);
-            cpass.dispatch_workgroups(wg_count, 1, 1);
-        }
-
         // Update uniform params (count and color mode)
         let params = VoronoiParams {
             count: self.num_points as f32,
             color_mode: self.color_mode as f32,
-            neighbor_radius: self.neighbor_radius,
             border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
             border_width: self.border_width,
             filter_mode: match self.app_settings.texture_filtering {
@@ -1329,7 +1469,7 @@ impl VoronoiCASimulation {
         self.camera.update(delta_time);
         self.camera.upload_to_gpu(queue);
 
-        // JFA passes: initialize and iterate to build Voronoi diagram
+        // JFA passes: initialize and iterate to build Voronoi diagram (needed before adjacency)
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("VCA JFA Init"),
@@ -1354,7 +1494,6 @@ impl VoronoiCASimulation {
             let params = VoronoiParams {
                 count: self.num_points as f32,
                 color_mode: self.color_mode as f32,
-                neighbor_radius: self.neighbor_radius,
                 border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
                 border_width: self.border_width,
                 filter_mode: match self.app_settings.texture_filtering {
@@ -1389,11 +1528,222 @@ impl VoronoiCASimulation {
             jump_distance /= 2;
         }
 
+        // Build adjacency from JFA
+        let current_jfa_view = self.get_current_jfa_view();
+        // Rebind adjacency build BG to current JFA view each frame
+        self.adjacency_build_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("VCA Adjacency Build BG Dynamic"),
+            layout: &self.adjacency_build_pipeline.get_bind_group_layout(0),
+            entries: &[
+                resource_helpers::buffer_entry(0, &self.vertex_buffer),
+                resource_helpers::buffer_entry(1, &self.uniform_buffer),
+                resource_helpers::buffer_entry(2, &self.adjacency_neighbors),
+                resource_helpers::buffer_entry(3, &self.adjacency_degrees),
+                resource_helpers::texture_view_entry(4, current_jfa_view),
+            ],
+        });
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Adjacency Build"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.adjacency_build_pipeline);
+            cpass.set_bind_group(0, &self.adjacency_build_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+        }
+
+        // Count neighbors via adjacency graph
+        {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VCA Adjacency Neighbor Count"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.adjacency_count_pipeline);
+            cpass.set_bind_group(0, &self.adjacency_count_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+        }
+
+        // State update based on adjacency neighbor counts
+        // Skip state update if we just painted to prevent unwanted births
+        // Also respect time scale for CA update frequency
+        let should_update_ca = !self.skip_next_state_update && 
+            (self.time_scale <= 0.0 || self.time_accum - self.last_ca_update_time >= 1.0 / self.time_scale);
+        
+        if should_update_ca {
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("VoronoiCA State Update"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&self.compute_update_pipeline);
+            cpass.set_bind_group(0, &self.compute_update_bg, &[]);
+            let wg_count = self.num_points.div_ceil(128);
+            cpass.dispatch_workgroups(wg_count, 1, 1);
+            self.last_ca_update_time = self.time_accum;
+        } else if self.skip_next_state_update {
+            // Reset the flag after skipping one frame
+            self.skip_next_state_update = false;
+        }
+
         // Mark JFA as valid after full update.
         // This allows the paused renderer to reuse the texture until changes occur.
         self.has_valid_jfa = true;
 
         queue.submit(std::iter::once(encoder.finish()));
+        Ok(())
+    }
+
+    /// Render the current simulation state to the display
+    pub fn render_offscreen_only(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        // Ensure JFA is up to date before rendering
+        if !self.has_valid_jfa {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("VCA JFA Rebuild Encoder (Offscreen)"),
+            });
+            self.rebuild_jfa_texture(device, queue, &mut encoder)?;
+            queue.submit(std::iter::once(encoder.finish()));
+            self.has_valid_jfa = true;
+        }
+
+        // Render Voronoi to the offscreen display texture
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("VCA Offscreen Render Encoder"),
+        });
+
+        {
+            let current_jfa_view = self.get_current_jfa_view();
+            let voronoi_render_jfa_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Voronoi JFA Render BG (Offscreen)"),
+                layout: &self.voronoi_render_jfa_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    resource_helpers::buffer_entry(0, &self.voronoi_params),
+                    resource_helpers::buffer_entry(1, &self.vertex_buffer),
+                    resource_helpers::buffer_entry(2, &self.lut_buffer),
+                    resource_helpers::texture_view_entry(3, current_jfa_view),
+                ],
+            });
+
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("VoronoiCA Render Pass (Offscreen)"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.display_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            rpass.set_pipeline(&self.voronoi_render_jfa_pipeline);
+            let params = VoronoiParams {
+                count: self.num_points as f32,
+                color_mode: self.color_mode as f32,
+                border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
+                border_width: self.border_width,
+                filter_mode: match self.app_settings.texture_filtering {
+                    crate::commands::app_settings::TextureFiltering::Nearest => 0.0,
+                    crate::commands::app_settings::TextureFiltering::Linear => 1.0,
+                    crate::commands::app_settings::TextureFiltering::Lanczos => 2.0,
+                },
+                resolution_x: self.resolution[0],
+                resolution_y: self.resolution[1],
+                jump_distance: 0.0,
+            };
+            queue.write_buffer(&self.voronoi_params, 0, bytemuck::bytes_of(&params));
+            rpass.set_bind_group(0, &voronoi_render_jfa_bg, &[]);
+            rpass.draw(0..3, 0..1);
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+
+        // Optional blur: display_view -> intermediate_view, then copy back to display
+        if self.post_processing_state.blur_filter.enabled {
+            let radius = self.post_processing_state.blur_filter.radius;
+            let sigma = self.post_processing_state.blur_filter.sigma;
+            self.post_processing_resources.update_blur_params(
+                queue,
+                radius,
+                sigma,
+                self.resolution[0] as u32,
+                self.resolution[1] as u32,
+            );
+
+            let mut blur_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("VCA Blur Encoder (Offscreen)"),
+            });
+
+            let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Blur Bind Group (Offscreen)"),
+                layout: &self
+                    .post_processing_resources
+                    .blur_pipeline
+                    .get_bind_group_layout(0),
+                entries: &[
+                    resource_helpers::texture_view_entry(0, &self.display_view),
+                    resource_helpers::sampler_bind_entry(
+                        1,
+                        &self.post_processing_resources.blur_sampler,
+                    ),
+                    resource_helpers::buffer_entry(
+                        2,
+                        &self.post_processing_resources.blur_params_buffer,
+                    ),
+                ],
+            });
+
+            {
+                let mut rpass = blur_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("VCA PostProcess Pass (Offscreen)"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_processing_resources.intermediate_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                });
+                rpass.set_pipeline(&self.post_processing_resources.blur_pipeline);
+                rpass.set_bind_group(0, &blur_bind_group, &[]);
+                rpass.draw(0..6, 0..1);
+            }
+
+            blur_encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.post_processing_resources.intermediate_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.display_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.resolution[0] as u32,
+                    height: self.resolution[1] as u32,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            queue.submit(std::iter::once(blur_encoder.finish()));
+        }
+
         Ok(())
     }
 
@@ -1454,7 +1804,6 @@ impl VoronoiCASimulation {
             let params = VoronoiParams {
                 count: self.num_points as f32,
                 color_mode: self.color_mode as f32,
-                neighbor_radius: self.neighbor_radius,
                 border_enabled: if self.borders_enabled { 1.0 } else { 0.0 },
                 border_width: self.border_width,
                 filter_mode: match self.app_settings.texture_filtering {
@@ -1472,7 +1821,11 @@ impl VoronoiCASimulation {
             rpass.draw(0..3, 0..1);
         }
 
+        // Submit the main render pass first
+        queue.submit(std::iter::once(encoder.finish()));
+
         // Optional blur: display_view -> intermediate_view, then copy back to display
+        // This must be done in a separate command encoder to avoid texture usage conflicts
         if self.post_processing_state.blur_filter.enabled {
             let radius = self.post_processing_state.blur_filter.radius;
             let sigma = self.post_processing_state.blur_filter.sigma;
@@ -1483,6 +1836,10 @@ impl VoronoiCASimulation {
                 self.resolution[0] as u32,
                 self.resolution[1] as u32,
             );
+
+            let mut blur_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("VCA Blur Encoder"),
+            });
 
             let blur_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("VCA Blur Bind Group"),
@@ -1504,7 +1861,7 @@ impl VoronoiCASimulation {
             });
 
             {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                let mut rpass = blur_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("VCA PostProcess Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.post_processing_resources.intermediate_view,
@@ -1524,7 +1881,7 @@ impl VoronoiCASimulation {
                 rpass.draw(0..6, 0..1);
             }
 
-            encoder.copy_texture_to_texture(
+            blur_encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.post_processing_resources.intermediate_texture,
                     mip_level: 0,
@@ -1543,9 +1900,9 @@ impl VoronoiCASimulation {
                     depth_or_array_layers: 1,
                 },
             );
-        }
 
-        queue.submit(std::iter::once(encoder.finish()));
+            queue.submit(std::iter::once(blur_encoder.finish()));
+        }
 
         // Infinite tiling pass to the surface
         let tile_count = self.calculate_tile_count();
@@ -1555,6 +1912,18 @@ impl VoronoiCASimulation {
             label: Some("VCA Infinite Surface Encoder"),
         });
         {
+            // Create the infinite tiling bind group dynamically to avoid texture usage conflicts
+            // This ensures the display_view is no longer being used as a color target
+            let render_infinite_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("VCA Render Infinite BG Dynamic"),
+                layout: &self.render_infinite_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    resource_helpers::texture_view_entry(0, &self.display_view),
+                    resource_helpers::sampler_bind_entry(1, &self.display_sampler),
+                    resource_helpers::buffer_entry(2, &self.texture_render_params_buffer),
+                ],
+            });
+
             let mut rpass = encoder2.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("VCA Infinite Surface Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1571,7 +1940,7 @@ impl VoronoiCASimulation {
                 timestamp_writes: None,
             });
             rpass.set_pipeline(&self.render_infinite_pipeline);
-            rpass.set_bind_group(0, &self.render_infinite_bind_group, &[]);
+            rpass.set_bind_group(0, &render_infinite_bg, &[]);
             rpass.set_bind_group(1, &self.camera_bind_group, &[]);
             rpass.draw(0..6, 0..total_instances);
         }
@@ -1653,7 +2022,8 @@ impl Simulation for VoronoiCASimulation {
             layout: &self.jfa_init_pipeline.get_bind_group_layout(0),
             entries: &[
                 resource_helpers::buffer_entry(0, &self.vertex_buffer),
-                resource_helpers::texture_view_entry(1, self.jfa_textures.current_view()),
+                resource_helpers::buffer_entry(1, &self.voronoi_params),
+                resource_helpers::texture_view_entry(2, self.jfa_textures.current_view()),
             ],
         });
 
@@ -1668,27 +2038,23 @@ impl Simulation for VoronoiCASimulation {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            format: new_config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT 
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC 
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         self.display_view = self
             .display_texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+
         // Recreate post-processing resources for new resolution
         self.post_processing_resources = PostProcessingResources::new(device, new_config)?;
 
-        // Recreate render infinite bind group with new display texture
-        self.render_infinite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("VCA Render Infinite BG (Resize)"),
-            layout: &self.render_infinite_pipeline.get_bind_group_layout(0),
-            entries: &[
-                resource_helpers::texture_view_entry(0, &self.display_view),
-                resource_helpers::sampler_bind_entry(1, &self.display_sampler),
-                resource_helpers::buffer_entry(2, &self.texture_render_params_buffer),
-            ],
-        });
+        // Note: render_infinite_bind_group is now created dynamically in render_simulation_state
+        // to avoid texture usage conflicts
 
         // Recreate camera bind group
         let camera_bind_group_layout =
@@ -1770,21 +2136,21 @@ impl Simulation for VoronoiCASimulation {
             self.cursor_size
         );
 
-        // Affect only the single nearest site under the cursor (more predictable painting)
-        // Use the same toroidal metric as the JFA init/shaders so the edited site matches the clicked cell
+        // Affect all sites within the cursor radius (brush painting)
+        // Use the same toroidal metric as the JFA init/shaders so the edited sites match the clicked cells
         let w = self.resolution[0];
         let h = self.resolution[1];
-        let mut nearest_index: Option<usize> = None;
-        let mut nearest_dist2: f32 = f32::MAX;
+        let mut affected_count = 0;
 
         tracing::info!(
-            "VCA searching {} points for nearest to ({:.1}, {:.1})",
+            "VCA searching {} points within radius {:.1} of ({:.1}, {:.1})",
             self.points.len(),
+            sim_radius,
             x,
             y
         );
 
-        for (i, v) in self.points.iter().enumerate() {
+        for (i, v) in self.points.iter_mut().enumerate() {
             let mut dx = v.position[0] - x;
             let mut dy = v.position[1] - y;
             if dx > 0.5 * w {
@@ -1800,14 +2166,8 @@ impl Simulation for VoronoiCASimulation {
                 dy += h;
             }
             let d2 = dx * dx + dy * dy;
-            if d2 < nearest_dist2 {
-                nearest_dist2 = d2;
-                nearest_index = Some(i);
-            }
-        }
-        if let Some(i) = nearest_index {
-            if nearest_dist2 <= radius_sq {
-                let v = &mut self.points[i];
+            
+            if d2 <= radius_sq {
                 let old_state = v.state;
                 if set_alive {
                     v.state = 1.0;
@@ -1818,42 +2178,45 @@ impl Simulation for VoronoiCASimulation {
                 tracing::info!(
                     "VCA painting: point {} at ({:.1}, {:.1}), state {} -> {}, distance {:.1} <= {:.1}",
                     i,
-                    x,
-                    y,
+                    v.position[0],
+                    v.position[1],
                     old_state,
                     v.state,
-                    nearest_dist2.sqrt(),
+                    d2.sqrt(),
                     sim_radius
                 );
-
-                // Push updated states to GPU FIRST so the compute shaders see the changes
-                queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
-
-                // Invalidate JFA so it gets rebuilt on next render.
-                // This ensures the visual changes from painting are immediately visible.
-                self.has_valid_jfa = false;
-
-                // Force an immediate render update when paused to show painting changes
-                // This ensures visual feedback is immediate even when the simulation is paused
-                // We need to clone the display_view to avoid borrow checker issues
-                let display_view = self.display_view.clone();
-                if let Err(e) = self.render_simulation_state(device, queue, &display_view) {
-                    tracing::warn!("Failed to render immediate painting update: {}", e);
-                }
-
-                // Skip neighbor count updates during painting to avoid confusing visual artifacts
-                // The neighbor counts will be updated naturally when the simulation resumes or steps
-                // This prevents the appearance of "multiple cells being painted" when only one was clicked
-            } else {
-                tracing::info!(
-                    "VCA painting: point {} too far, distance {:.1} > {:.1}",
-                    i,
-                    nearest_dist2.sqrt(),
-                    sim_radius
-                );
+                
+                affected_count += 1;
             }
+        }
+
+        if affected_count > 0 {
+            tracing::info!("VCA painting: affected {} points", affected_count);
+
+            // Push updated states to GPU FIRST so the compute shaders see the changes
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.points));
+
+            // Invalidate JFA so it gets rebuilt on next render.
+            // This ensures the visual changes from painting are immediately visible.
+            self.has_valid_jfa = false;
+
+            // Force an immediate render update when paused to show painting changes
+            // This ensures visual feedback is immediate even when the simulation is paused
+            // Render only to the offscreen display texture to avoid usage conflicts
+            if let Err(e) = self.render_offscreen_only(device, queue) {
+                tracing::warn!("Failed to render immediate painting update: {}", e);
+            }
+
+            // Skip neighbor count updates during painting to avoid confusing visual artifacts
+            // The neighbor counts will be updated naturally when the simulation resumes or steps
+            // This prevents the appearance of "multiple cells being painted" when only one was clicked
+            
+            // Also skip CA state updates during painting to prevent unwanted births
+            // The CA rules will be applied naturally on the next simulation frame
+            // This prevents dead cells from becoming alive due to the newly painted cell
+            self.skip_next_state_update = true;
         } else {
-            tracing::info!("VCA painting: no points found in range");
+            tracing::info!("VCA painting: no points found within radius {:.1}", sim_radius);
         }
         Ok(())
     }
@@ -1911,9 +2274,9 @@ impl Simulation for VoronoiCASimulation {
                 time: self.time_accum,
                 drift: self.drift,
                 rule_type,
-                neighbor_radius: self.neighbor_radius,
-                alive_threshold: self.alive_threshold,
                 _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
             };
             queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         }
@@ -1963,9 +2326,9 @@ impl Simulation for VoronoiCASimulation {
                         time: self.time_accum,
                         drift: self.drift,
                         rule_type,
-                        neighbor_radius: self.neighbor_radius,
-                        alive_threshold: self.alive_threshold,
                         _pad0: 0,
+                        _pad1: 0,
+                        _pad2: 0,
                     };
                     queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
                 }
@@ -1973,45 +2336,15 @@ impl Simulation for VoronoiCASimulation {
             "drift" => {
                 if let Some(v) = value.as_f64() {
                     self.drift = v as f32;
-                    let uniforms = Uniforms {
-                        resolution: self.resolution,
-                        time: self.time_accum,
-                        drift: self.drift,
-                        rule_type: Self::parse_rulestring(&self.rulestring),
-                        neighbor_radius: self.neighbor_radius,
-                        alive_threshold: self.alive_threshold,
-                        _pad0: 0,
-                    };
-                    queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-                }
-            }
-            "neighborRadius" => {
-                if let Some(v) = value.as_f64() {
-                    self.neighbor_radius = v as f32;
-                    let uniforms = Uniforms {
-                        resolution: self.resolution,
-                        time: self.time_accum,
-                        drift: self.drift,
-                        rule_type: Self::parse_rulestring(&self.rulestring),
-                        neighbor_radius: self.neighbor_radius,
-                        alive_threshold: self.alive_threshold,
-                        _pad0: 0,
-                    };
-                    queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-                }
-            }
-            "aliveThreshold" => {
-                if let Some(v) = value.as_f64() {
-                    self.alive_threshold = v as f32;
-                    let uniforms = Uniforms {
-                        resolution: self.resolution,
-                        time: self.time_accum,
-                        drift: self.drift,
-                        rule_type: Self::parse_rulestring(&self.rulestring),
-                        neighbor_radius: self.neighbor_radius,
-                        alive_threshold: self.alive_threshold,
-                        _pad0: 0,
-                    };
+            let uniforms = Uniforms {
+                resolution: self.resolution,
+                time: self.time_accum,
+                drift: self.drift,
+                rule_type: Self::parse_rulestring(&self.rulestring),
+                _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
+            };
                     queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
                 }
             }
@@ -2051,6 +2384,11 @@ impl Simulation for VoronoiCASimulation {
                     self.border_width = v as f32;
                 }
             }
+            "timeScale" => {
+                if let Some(v) = value.as_f64() {
+                    self.time_scale = v as f32;
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -2080,9 +2418,8 @@ impl Simulation for VoronoiCASimulation {
         serde_json::json!({
             "rulestring": self.rulestring,
             "drift": self.drift,
-            "neighborRadius": self.neighbor_radius,
-            "aliveThreshold": self.alive_threshold,
             "brownianSpeed": self.brownian_speed,
+            "timeScale": self.time_scale,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
             "currentLutName": self.current_lut_name,

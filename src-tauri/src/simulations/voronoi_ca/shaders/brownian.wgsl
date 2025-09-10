@@ -21,9 +21,9 @@ struct Uniforms {
   time: f32,
   drift: f32,
   rule_type: u32,
-  neighbor_radius: f32,
-  alive_threshold: f32,
   _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 }
 
 struct BrownianParams {
