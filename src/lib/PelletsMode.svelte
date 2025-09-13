@@ -49,7 +49,7 @@
                     <label for="colorSchemeSelector">Color Scheme</label>
                     <ColorSchemeSelector
                         bind:available_color_schemes={available_luts}
-                        current_color_scheme={state?.current_lut_name || 'MATPLOTLIB_viridis'}
+                        current_color_scheme={state?.current_lut_name}
                         reversed={state?.lut_reversed || false}
                         on:select={({ detail }) => updateLutName(detail.name)}
                         on:reverse={() => updateLutReversed()}

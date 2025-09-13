@@ -43,8 +43,6 @@ pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: false,
-            change_threshold: 0.001,
-            enable_selective_updates: false,
             // Simulation resolution scale
             simulation_resolution_scale: 0.5,
         };

@@ -22,8 +22,6 @@ pub fn init_presets(preset_manager: &mut MoirePresetManager) {
             moire_scale: 1.02,
             moire_interference: 0.7,
             advect_strength: 0.1,
-            color_scheme_name: "viridis".to_string(),
-            color_scheme_reversed: false,
             ..Settings::default()
         },
     ));
@@ -37,8 +35,6 @@ pub fn init_presets(preset_manager: &mut MoirePresetManager) {
             moire_scale: 1.1,
             moire_interference: 0.5,
             advect_strength: 0.4,
-            color_scheme_name: "plasma".to_string(),
-            color_scheme_reversed: false,
             ..Settings::default()
         },
     ));
@@ -52,8 +48,6 @@ pub fn init_presets(preset_manager: &mut MoirePresetManager) {
             moire_scale: 1.01,
             moire_interference: 0.3,
             advect_strength: 0.2,
-            color_scheme_name: "bone".to_string(),
-            color_scheme_reversed: true,
             ..Settings::default()
         },
     ));

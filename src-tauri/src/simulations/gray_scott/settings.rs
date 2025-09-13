@@ -8,7 +8,6 @@ pub enum NutrientPattern {
     RadialGradient,
     VerticalStripes,
     HorizontalStripes,
-    EnhancedNoise,
     WaveFunction,
     CosineGrid,
     ImageGradient,
@@ -40,7 +39,6 @@ impl Serialize for NutrientPattern {
             NutrientPattern::RadialGradient => "Radial Gradient",
             NutrientPattern::VerticalStripes => "Vertical Stripes",
             NutrientPattern::HorizontalStripes => "Horizontal Stripes",
-            NutrientPattern::EnhancedNoise => "Enhanced Noise",
             NutrientPattern::WaveFunction => "Wave Function",
             NutrientPattern::CosineGrid => "Cosine Grid",
             NutrientPattern::ImageGradient => "Image Gradient",
@@ -63,7 +61,6 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "Radial Gradient" => Ok(NutrientPattern::RadialGradient),
             "Vertical Stripes" => Ok(NutrientPattern::VerticalStripes),
             "Horizontal Stripes" => Ok(NutrientPattern::HorizontalStripes),
-            "Enhanced Noise" => Ok(NutrientPattern::EnhancedNoise),
             "Wave Function" => Ok(NutrientPattern::WaveFunction),
             "Cosine Grid" => Ok(NutrientPattern::CosineGrid),
             "Image Gradient" => Ok(NutrientPattern::ImageGradient),
@@ -74,7 +71,6 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "radial_gradient" => Ok(NutrientPattern::RadialGradient),
             "vertical_stripes" => Ok(NutrientPattern::VerticalStripes),
             "horizontal_stripes" => Ok(NutrientPattern::HorizontalStripes),
-            "enhanced_noise" => Ok(NutrientPattern::EnhancedNoise),
             "wave_function" => Ok(NutrientPattern::WaveFunction),
             "cosine_grid" => Ok(NutrientPattern::CosineGrid),
             "image_gradient" => Ok(NutrientPattern::ImageGradient),
@@ -83,10 +79,13 @@ impl<'de> Deserialize<'de> for NutrientPattern {
             "RadialGradient" => Ok(NutrientPattern::RadialGradient),
             "VerticalStripes" => Ok(NutrientPattern::VerticalStripes),
             "HorizontalStripes" => Ok(NutrientPattern::HorizontalStripes),
-            "EnhancedNoise" => Ok(NutrientPattern::EnhancedNoise),
             "WaveFunction" => Ok(NutrientPattern::WaveFunction),
             "CosineGrid" => Ok(NutrientPattern::CosineGrid),
             "ImageGradient" => Ok(NutrientPattern::ImageGradient),
+            // Handle legacy enhanced_noise by mapping to uniform
+            "Enhanced Noise" => Ok(NutrientPattern::Uniform),
+            "enhanced_noise" => Ok(NutrientPattern::Uniform),
+            "EnhancedNoise" => Ok(NutrientPattern::Uniform),
             _ => Ok(NutrientPattern::Uniform), // Default fallback
         }
     }
@@ -107,10 +106,9 @@ impl From<NutrientPattern> for u32 {
             NutrientPattern::RadialGradient => 3,
             NutrientPattern::VerticalStripes => 4,
             NutrientPattern::HorizontalStripes => 5,
-            NutrientPattern::EnhancedNoise => 6,
-            NutrientPattern::WaveFunction => 7,
-            NutrientPattern::CosineGrid => 8,
-            NutrientPattern::ImageGradient => 9,
+            NutrientPattern::WaveFunction => 6,
+            NutrientPattern::CosineGrid => 7,
+            NutrientPattern::ImageGradient => 8,
         }
     }
 }
@@ -131,8 +129,6 @@ pub struct Settings {
     pub max_timestep: f32,
     pub stability_factor: f32,
     pub enable_adaptive_timestep: bool,
-    pub change_threshold: f32,
-    pub enable_selective_updates: bool,
     // Simulation resolution settings
     pub simulation_resolution_scale: f32,
 }
@@ -144,18 +140,16 @@ impl Default for Settings {
             kill_rate: 0.062,
             diffusion_rate_u: 0.16,
             diffusion_rate_v: 0.08,
-            timestep: 1.0,
+            timestep: 2.5,
             nutrient_pattern: NutrientPattern::Uniform,
             nutrient_pattern_reversed: false,
             gradient_image_fit_mode: GradientImageFitMode::Stretch,
             gradient_image_mirror_horizontal: false,
             gradient_image_invert_tone: false,
-            // Optimization defaults
-            max_timestep: 2.0,
-            stability_factor: 0.8,
-            enable_adaptive_timestep: false,
-            change_threshold: 0.001,
-            enable_selective_updates: false,
+            // Optimization defaults - enable adaptive timestep for better performance
+            max_timestep: 4.0,
+            stability_factor: 0.9,
+            enable_adaptive_timestep: true,
             // Simulation resolution scale (0.5 = half resolution for better performance)
             simulation_resolution_scale: 0.5,
         }
@@ -182,7 +176,6 @@ impl Settings {
             NutrientPattern::RadialGradient,
             NutrientPattern::VerticalStripes,
             NutrientPattern::HorizontalStripes,
-            NutrientPattern::EnhancedNoise,
             NutrientPattern::WaveFunction,
             NutrientPattern::CosineGrid,
             NutrientPattern::ImageGradient,

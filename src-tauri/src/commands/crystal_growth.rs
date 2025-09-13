@@ -4,12 +4,12 @@ use std::sync::Arc;
 use tauri::{Emitter, State};
 
 #[tauri::command]
-pub async fn start_moire_simulation(
+pub async fn start_crystal_growth_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
     app: tauri::AppHandle,
 ) -> Result<String, String> {
-    tracing::debug!("start_moire_simulation called");
+    tracing::debug!("start_crystal_growth_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
@@ -18,7 +18,7 @@ pub async fn start_moire_simulation(
 
     match sim_manager
         .start_simulation(
-            "moire".to_string(),
+            "crystal_growth".to_string(),
             &gpu_ctx.device,
             &gpu_ctx.queue,
             &surface_config,
@@ -27,7 +27,7 @@ pub async fn start_moire_simulation(
         .await
     {
         Ok(_) => {
-            tracing::info!("Moiré simulation started successfully");
+            tracing::info!("Crystal Growth simulation started successfully");
 
             // Start the backend render loop
             sim_manager.start_render_loop(
@@ -41,7 +41,7 @@ pub async fn start_moire_simulation(
                 tracing::warn!("Failed to emit simulation-initialized event: {}", e);
             }
 
-            Ok("Moiré simulation started successfully".to_string())
+            Ok("Crystal Growth simulation started successfully".to_string())
         }
         Err(e) => {
             tracing::error!("Failed to start simulation: {}", e);
@@ -51,59 +51,41 @@ pub async fn start_moire_simulation(
 }
 
 #[tauri::command]
-pub async fn randomize_moire_settings(
+pub async fn randomize_crystal_growth_settings(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::debug!("randomize_moire_settings called");
+    tracing::debug!("randomize_crystal_growth_settings called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(SimulationType::Moire(simulation)) = &mut sim_manager.current_simulation {
+    if let Some(SimulationType::CrystalGrowth(simulation)) = &mut sim_manager.current_simulation {
         simulation
             .randomize_settings(&gpu_ctx.device, &gpu_ctx.queue)
             .map_err(|e| format!("Failed to randomize settings: {}", e))?;
-        tracing::info!("Moiré settings randomized");
-        Ok("Moiré settings randomized successfully".to_string())
+        tracing::info!("Crystal Growth settings randomized");
+        Ok("Crystal Growth settings randomized successfully".to_string())
     } else {
-        Err("This command is only available for Moiré simulation".to_string())
+        Err("This command is only available for Crystal Growth simulation".to_string())
     }
 }
 
 #[tauri::command]
-pub async fn reset_moire_flow(
+pub async fn reset_crystal_growth_simulation(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
     gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
 ) -> Result<String, String> {
-    tracing::debug!("reset_moire_flow called");
+    tracing::debug!("reset_crystal_growth_simulation called");
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(SimulationType::Moire(simulation)) = &mut sim_manager.current_simulation {
+    if let Some(SimulationType::CrystalGrowth(simulation)) = &mut sim_manager.current_simulation {
         simulation
-            .reset_flow(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to reset flow: {}", e))?;
-        tracing::info!("Moiré flow reset");
-        Ok("Moiré flow reset successfully".to_string())
+            .reset_runtime_state(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to reset simulation: {}", e))?;
+        tracing::info!("Crystal Growth simulation reset");
+        Ok("Crystal Growth simulation reset successfully".to_string())
     } else {
-        Err("This command is only available for Moiré simulation".to_string())
-    }
-}
-
-#[tauri::command]
-pub async fn load_moire_image(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-    image_path: String,
-) -> Result<String, String> {
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    if let Some(SimulationType::Moire(sim)) = &mut sim_manager.current_simulation {
-        sim.load_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
-            .map_err(|e| format!("Failed to load moiré image: {}", e))?;
-        Ok("Moiré image loaded successfully".to_string())
-    } else {
-        Err("This command is only available for Moiré simulation".to_string())
+        Err("This command is only available for Crystal Growth simulation".to_string())
     }
 }

@@ -19,18 +19,36 @@ pub struct SimulationParams {
     pub kill_rate: f32,
     pub delta_u: f32,
     pub delta_v: f32,
+
     pub timestep: f32,
     pub width: u32,
     pub height: u32,
     pub nutrient_pattern: u32,
+
     pub is_nutrient_pattern_reversed: u32,
     // Adaptive timestep parameters
     pub max_timestep: f32,
     pub stability_factor: f32,
     pub enable_adaptive_timestep: u32,
-    // Dependency tracking parameters
-    pub change_threshold: f32,
-    pub enable_selective_updates: u32,
+}
+
+// Uniform used by the render shader (matches simulations/shared/infinite_render.wgsl SimulationParams)
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+pub struct RenderSimulationParams {
+    pub feed_rate: f32,
+    pub kill_rate: f32,
+    pub delta_u: f32,
+    pub delta_v: f32,
+    pub timestep: f32,
+    pub width: u32,
+    pub height: u32,
+    pub nutrient_pattern: u32,
+    pub is_nutrient_pattern_reversed: u32,
+    pub cursor_x: f32,
+    pub cursor_y: f32,
+    pub cursor_size: f32,
+    pub cursor_strength: f32,
 }
 
 #[repr(C)]
@@ -51,14 +69,6 @@ pub struct BackgroundParams {
 struct UVPair {
     u: f32,
     v: f32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct CellState {
-    uv: UVPair,
-    change_magnitude: f32,
-    last_update: u32,
 }
 
 #[derive(Debug)]
@@ -84,6 +94,8 @@ pub struct GrayScottModel {
     uvs_buffers: [wgpu::Buffer; 2], // Double buffering
     current_buffer: usize,
     params_buffer: wgpu::Buffer,
+    // Separate uniform for render shader (size must match WGSL SimulationParams in infinite_render.wgsl)
+    render_params_buffer: wgpu::Buffer,
     bind_groups: [wgpu::BindGroup; 2], // Double buffering
     compute_pipeline: wgpu::ComputePipeline,
     noise_seed_compute: NoiseSeedCompute,
@@ -106,9 +118,6 @@ pub struct GrayScottModel {
     pub gradient_image_base: Option<Vec<f32>>, // before strength mapping
     pub gradient_image_raw: Option<Vec<f32>>,  // uploaded values
     pub gradient_image_needs_upload: bool,
-
-    // Cell states buffer (required by shader)
-    pub cell_states_buffer: wgpu::Buffer,
 
     // Webcam capture for live gradient
     pub webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture,
@@ -195,17 +204,36 @@ impl GrayScottModel {
             nutrient_pattern: settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: settings.nutrient_pattern_reversed as u32,
             // Adaptive timestep parameters
-            max_timestep: 1.0,
-            stability_factor: 0.5,
-            enable_adaptive_timestep: 1,
-            // Dependency tracking parameters
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
+            max_timestep: settings.max_timestep,
+            stability_factor: settings.stability_factor,
+            enable_adaptive_timestep: settings.enable_adaptive_timestep as u32,
         };
 
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Params Buffer"),
             contents: bytemuck::cast_slice(&[params]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create render params buffer (matches the render shader's expected struct layout)
+        let render_params = RenderSimulationParams {
+            feed_rate: settings.feed_rate,
+            kill_rate: settings.kill_rate,
+            delta_u: settings.diffusion_rate_u,
+            delta_v: settings.diffusion_rate_v,
+            timestep: settings.timestep,
+            width,
+            height,
+            nutrient_pattern: settings.nutrient_pattern as u32,
+            is_nutrient_pattern_reversed: settings.nutrient_pattern_reversed as u32,
+            cursor_x: 0.0,
+            cursor_y: 0.0,
+            cursor_size: 0.1, // World units: 0.1 = 10% of world space
+            cursor_strength: 0.5,
+        };
+        let render_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("GrayScott Render Params Buffer"),
+            contents: bytemuck::cast_slice(&[render_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -216,8 +244,7 @@ impl GrayScottModel {
                 resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
                 resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
-                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
-                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true), // Optional gradient map buffer
+                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true), // Optional gradient map buffer
             ],
         });
 
@@ -241,16 +268,6 @@ impl GrayScottModel {
             cache: None,
         });
 
-        // Create cell states buffer (required by shader)
-        let cell_states_size =
-            (width as usize * height as usize * std::mem::size_of::<CellState>()) as u64;
-        let cell_states_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GrayScott Cell States Buffer"),
-            size: cell_states_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         // Create gradient buffer (matches simulation size)
         let gradient_buffer_size =
             (width as usize * height as usize * std::mem::size_of::<f32>()) as u64;
@@ -272,8 +289,7 @@ impl GrayScottModel {
                     resource_helpers::buffer_entry(0, &uvs_buffers[0]), // input
                     resource_helpers::buffer_entry(1, &uvs_buffers[1]), // output
                     resource_helpers::buffer_entry(2, &params_buffer),
-                    resource_helpers::buffer_entry(3, &cell_states_buffer),
-                    resource_helpers::buffer_entry(4, &gradient_buffer),
+                    resource_helpers::buffer_entry(3, &gradient_buffer),
                 ],
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -283,8 +299,7 @@ impl GrayScottModel {
                     resource_helpers::buffer_entry(0, &uvs_buffers[1]), // input
                     resource_helpers::buffer_entry(1, &uvs_buffers[0]), // output
                     resource_helpers::buffer_entry(2, &params_buffer),
-                    resource_helpers::buffer_entry(3, &cell_states_buffer),
-                    resource_helpers::buffer_entry(4, &gradient_buffer),
+                    resource_helpers::buffer_entry(3, &gradient_buffer),
                 ],
             }),
         ];
@@ -336,12 +351,13 @@ impl GrayScottModel {
             uvs_buffers,
             current_buffer: 0,
             params_buffer,
+            render_params_buffer,
             bind_groups,
             compute_pipeline,
             noise_seed_compute,
             last_frame_time: std::time::Instant::now(),
             gui_visible: true,
-            cursor_size: 40.0,
+            cursor_size: 0.1, // World units: 0.1 = 10% of world space
             cursor_strength: 0.5,
             background_params_buffer,
             background_bind_group,
@@ -357,7 +373,6 @@ impl GrayScottModel {
             gradient_image_base: None,
             gradient_image_raw: None,
             gradient_image_needs_upload: false,
-            cell_states_buffer,
             webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture::new(),
         };
 
@@ -387,15 +402,33 @@ impl GrayScottModel {
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             // Adaptive timestep parameters
-            max_timestep: 1.0,
-            stability_factor: 0.5,
-            enable_adaptive_timestep: 1,
-            // Dependency tracking parameters
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
+            max_timestep: self.settings.max_timestep,
+            stability_factor: self.settings.stability_factor,
+            enable_adaptive_timestep: self.settings.enable_adaptive_timestep as u32,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
+        // Update render params buffer as well to keep them in sync
+        let render_params = RenderSimulationParams {
+            feed_rate: self.settings.feed_rate,
+            kill_rate: self.settings.kill_rate,
+            delta_u: self.settings.diffusion_rate_u,
+            delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
+            width: self.width,
+            height: self.height,
+            nutrient_pattern: self.settings.nutrient_pattern as u32,
+            is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
+            cursor_x: 0.0,
+            cursor_y: 0.0,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
+        };
+        queue.write_buffer(
+            &self.render_params_buffer,
+            0,
+            bytemuck::cast_slice(&[render_params]),
+        );
         self.renderer.update_settings(&self.settings, queue);
     }
 
@@ -480,16 +513,6 @@ impl GrayScottModel {
             buffer.unmap();
         }
 
-        // Create new cell states buffer
-        let cell_states_size =
-            (self.width as usize * self.height as usize * std::mem::size_of::<CellState>()) as u64;
-        let new_cell_states_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("GrayScott Cell States Buffer (Resized)"),
-            size: cell_states_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         // Create new gradient buffer
         let gradient_buffer_size =
             (self.width as usize * self.height as usize * std::mem::size_of::<f32>()) as u64;
@@ -514,15 +537,33 @@ impl GrayScottModel {
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             // Adaptive timestep parameters
-            max_timestep: 1.0,
-            stability_factor: 0.5,
-            enable_adaptive_timestep: 1,
-            // Dependency tracking parameters
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
+            max_timestep: self.settings.max_timestep,
+            stability_factor: self.settings.stability_factor,
+            enable_adaptive_timestep: self.settings.enable_adaptive_timestep as u32,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
+        // Also update render params dimensions
+        let render_params = RenderSimulationParams {
+            feed_rate: self.settings.feed_rate,
+            kill_rate: self.settings.kill_rate,
+            delta_u: self.settings.diffusion_rate_u,
+            delta_v: self.settings.diffusion_rate_v,
+            timestep: self.settings.timestep,
+            width: self.width,
+            height: self.height,
+            nutrient_pattern: self.settings.nutrient_pattern as u32,
+            is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
+            cursor_x: 0.0,
+            cursor_y: 0.0,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
+        };
+        queue.write_buffer(
+            &self.render_params_buffer,
+            0,
+            bytemuck::cast_slice(&[render_params]),
+        );
 
         // Create new bind groups with new buffers
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -532,7 +573,6 @@ impl GrayScottModel {
                 resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
                 resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
-                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::COMPUTE, true),
             ],
         });
 
@@ -544,8 +584,7 @@ impl GrayScottModel {
                     resource_helpers::buffer_entry(0, &new_uvs_buffers[0]), // input
                     resource_helpers::buffer_entry(1, &new_uvs_buffers[1]), // output
                     resource_helpers::buffer_entry(2, &self.params_buffer),
-                    resource_helpers::buffer_entry(3, &new_cell_states_buffer),
-                    resource_helpers::buffer_entry(4, &new_gradient_buffer),
+                    resource_helpers::buffer_entry(3, &new_gradient_buffer),
                 ],
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -555,15 +594,13 @@ impl GrayScottModel {
                     resource_helpers::buffer_entry(0, &new_uvs_buffers[1]), // input
                     resource_helpers::buffer_entry(1, &new_uvs_buffers[0]), // output
                     resource_helpers::buffer_entry(2, &self.params_buffer),
-                    resource_helpers::buffer_entry(3, &new_cell_states_buffer),
-                    resource_helpers::buffer_entry(4, &new_gradient_buffer),
+                    resource_helpers::buffer_entry(3, &new_gradient_buffer),
                 ],
             }),
         ];
 
         // Replace old buffers with new ones
         self.uvs_buffers = new_uvs_buffers;
-        self.cell_states_buffer = new_cell_states_buffer;
         self.gradient_buffer = Some(new_gradient_buffer);
         self.bind_groups = new_bind_groups;
         self.current_buffer = 0; // Reset to buffer 0
@@ -857,7 +894,7 @@ impl GrayScottModel {
                         "radial_gradient" => NutrientPattern::RadialGradient,
                         "vertical_stripes" => NutrientPattern::VerticalStripes,
                         "horizontal_stripes" => NutrientPattern::HorizontalStripes,
-                        "enhanced_noise" => NutrientPattern::EnhancedNoise,
+                        "enhanced_noise" => NutrientPattern::Uniform, // Map to uniform for backward compatibility
                         "wave_function" => NutrientPattern::WaveFunction,
                         "cosine_grid" => NutrientPattern::CosineGrid,
                         "image_gradient" => NutrientPattern::ImageGradient,
@@ -868,7 +905,7 @@ impl GrayScottModel {
                         "Radial Gradient" => NutrientPattern::RadialGradient,
                         "Vertical Stripes" => NutrientPattern::VerticalStripes,
                         "Horizontal Stripes" => NutrientPattern::HorizontalStripes,
-                        "Enhanced Noise" => NutrientPattern::EnhancedNoise,
+                        "Enhanced Noise" => NutrientPattern::Uniform, // Map to uniform for backward compatibility
                         "Wave Function" => NutrientPattern::WaveFunction,
                         "Cosine Grid" => NutrientPattern::CosineGrid,
                         "Image Gradient" => NutrientPattern::ImageGradient,
@@ -883,10 +920,9 @@ impl GrayScottModel {
                         3 => NutrientPattern::RadialGradient,
                         4 => NutrientPattern::VerticalStripes,
                         5 => NutrientPattern::HorizontalStripes,
-                        6 => NutrientPattern::EnhancedNoise,
-                        7 => NutrientPattern::WaveFunction,
-                        8 => NutrientPattern::CosineGrid,
-                        9 => NutrientPattern::ImageGradient,
+                        6 => NutrientPattern::WaveFunction,
+                        7 => NutrientPattern::CosineGrid,
+                        8 => NutrientPattern::ImageGradient,
                         _ => NutrientPattern::Uniform,
                     };
                 }
@@ -980,12 +1016,9 @@ impl GrayScottModel {
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
             // Adaptive timestep parameters
-            max_timestep: 1.0,
-            stability_factor: 0.5,
-            enable_adaptive_timestep: 1,
-            // Dependency tracking parameters
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
+            max_timestep: self.settings.max_timestep,
+            stability_factor: self.settings.stability_factor,
+            enable_adaptive_timestep: self.settings.enable_adaptive_timestep as u32,
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -1027,7 +1060,7 @@ impl GrayScottModel {
 
             compute_pass.set_pipeline(&self.compute_pipeline);
             compute_pass.set_bind_group(0, &self.bind_groups[self.current_buffer], &[]);
-            compute_pass.dispatch_workgroups(self.width.div_ceil(8), self.height.div_ceil(8), 1);
+            compute_pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
@@ -1041,7 +1074,7 @@ impl GrayScottModel {
             .render(
                 surface_view,
                 output_buffer,
-                &self.params_buffer,
+                &self.render_params_buffer,
                 &self.background_bind_group,
             )
             .map_err(|e| SimulationError::Gpu(Box::new(e)))
@@ -1098,10 +1131,11 @@ impl GrayScottModel {
         _y: f32,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        // x and y are world coordinates, pass them directly to shader
-        // The shader will convert them to view space to match input.world_pos
+        // x and y are world coordinates in [-1,1]; convert to texture space [0,1] for the render params
+        let texture_x = (_x + 1.0) * 0.5;
+        let texture_y = (_y + 1.0) * 0.5;
 
-        let params = SimulationParams {
+        let render_params = RenderSimulationParams {
             feed_rate: self.settings.feed_rate,
             kill_rate: self.settings.kill_rate,
             delta_u: self.settings.diffusion_rate_u,
@@ -1111,17 +1145,16 @@ impl GrayScottModel {
             height: self.height,
             nutrient_pattern: self.settings.nutrient_pattern as u32,
             is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed as u32,
-            // Adaptive timestep parameters
-            max_timestep: 1.0,
-            stability_factor: 0.5,
-            enable_adaptive_timestep: 1,
-            // Dependency tracking parameters
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
+            cursor_x: texture_x,
+            cursor_y: texture_y,
+            cursor_size: self.cursor_size,
+            cursor_strength: self.cursor_strength,
         };
-
-        // Update params buffer
-        queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
+        queue.write_buffer(
+            &self.render_params_buffer,
+            0,
+            bytemuck::cast_slice(&[render_params]),
+        );
 
         Ok(())
     }
@@ -1158,40 +1191,62 @@ impl GrayScottModel {
         let tx = (texture_coords.x * self.width as f32) as i32;
         let ty = (texture_coords.y * self.height as f32) as i32;
 
-        // Apply interaction in a circular area
-        let radius = self.cursor_size as i32; // Use configurable cursor size
+        // Convert cursor size from world units to pixel units
+        // World units are in [-1,1] range, so we need to scale by simulation resolution
+        // The simulation covers the full world space [-1,1] x [-1,1]
+        let world_to_pixel_scale = (self.width as f32) / 2.0; // Half because world is [-1,1] = 2 units wide
+        let radius_pixels = (self.cursor_size * world_to_pixel_scale) as i32;
+
+        // Performance optimization: limit maximum radius to prevent lag
+        let max_radius = (self.width.min(self.height) / 4) as i32; // Max 25% of smallest dimension
+        let radius_pixels = radius_pixels.min(max_radius);
 
         // Collect all updates into a batch
         let mut updates: Vec<(usize, UVPair)> = Vec::new();
 
-        for dy in -radius..=radius {
-            for dx in -radius..=radius {
-                let px = tx + dx;
-                let py = ty + dy;
+        // Pre-calculate squared radius to avoid sqrt in the inner loop
+        let radius_squared = (radius_pixels * radius_pixels) as f32;
+        let radius_f = radius_pixels as f32;
 
-                // Check bounds
-                if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
-                    let distance = ((dx * dx + dy * dy) as f32).sqrt();
-                    if distance <= radius as f32 {
-                        let index = (py * self.width as i32 + px) as usize;
-                        let factor = (1.0 - (distance / radius as f32)) * self.cursor_strength;
+        // Optimize: use a more efficient iteration pattern
+        // Instead of checking every pixel in a square, we can be smarter about bounds
+        let start_x = (tx - radius_pixels).max(0);
+        let end_x = (tx + radius_pixels).min(self.width as i32 - 1);
+        let start_y = (ty - radius_pixels).max(0);
+        let end_y = (ty + radius_pixels).min(self.height as i32 - 1);
 
-                        let uv_pair = if mouse_button == 0 {
-                            // Left mouse button: seed the reaction with higher V concentration
-                            UVPair {
-                                u: 0.2 + 0.3 * factor,
-                                v: 0.8 + 0.2 * factor,
-                            }
-                        } else if mouse_button == 2 {
-                            // Right mouse button: create voids/erase
-                            UVPair { u: 1.0, v: 0.0 }
-                        } else {
-                            // Middle mouse button or other: no effect
-                            continue;
-                        };
+        for py in start_y..=end_y {
+            for px in start_x..=end_x {
+                let dx = px - tx;
+                let dy = py - ty;
+                let distance_squared = (dx * dx + dy * dy) as f32;
 
-                        updates.push((index, uv_pair));
+                // Use squared distance comparison to avoid sqrt
+                if distance_squared <= radius_squared {
+                    let distance = distance_squared.sqrt();
+                    let factor = (1.0 - (distance / radius_f)) * self.cursor_strength;
+
+                    // Skip very small factors to reduce unnecessary updates
+                    if factor < 0.01 {
+                        continue;
                     }
+
+                    let index = (py * self.width as i32 + px) as usize;
+                    let uv_pair = if mouse_button == 0 {
+                        // Left mouse button: seed the reaction with higher V concentration
+                        UVPair {
+                            u: 0.2 + 0.3 * factor,
+                            v: 0.8 + 0.2 * factor,
+                        }
+                    } else if mouse_button == 2 {
+                        // Right mouse button: create voids/erase
+                        UVPair { u: 1.0, v: 0.0 }
+                    } else {
+                        // Middle mouse button or other: no effect
+                        continue;
+                    };
+
+                    updates.push((index, uv_pair));
                 }
             }
         }
@@ -1289,7 +1344,7 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
             .render(
                 surface_view,
                 current_buffer,
-                &self.params_buffer,
+                &self.render_params_buffer,
                 &self.background_bind_group,
             )
             .map_err(|e| SimulationError::Gpu(Box::new(e)))
@@ -1367,11 +1422,55 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
             "cursorSize" => {
                 if let Some(size) = value.as_f64() {
                     self.cursor_size = size as f32;
+                    // Keep render params buffer in sync
+                    let render_params = RenderSimulationParams {
+                        feed_rate: self.settings.feed_rate,
+                        kill_rate: self.settings.kill_rate,
+                        delta_u: self.settings.diffusion_rate_u,
+                        delta_v: self.settings.diffusion_rate_v,
+                        timestep: self.settings.timestep,
+                        width: self.width,
+                        height: self.height,
+                        nutrient_pattern: self.settings.nutrient_pattern as u32,
+                        is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed
+                            as u32,
+                        cursor_x: 0.0,
+                        cursor_y: 0.0,
+                        cursor_size: self.cursor_size,
+                        cursor_strength: self.cursor_strength,
+                    };
+                    queue.write_buffer(
+                        &self.render_params_buffer,
+                        0,
+                        bytemuck::cast_slice(&[render_params]),
+                    );
                 }
             }
             "cursorStrength" => {
                 if let Some(strength) = value.as_f64() {
                     self.cursor_strength = strength as f32;
+                    // Keep render params buffer in sync
+                    let render_params = RenderSimulationParams {
+                        feed_rate: self.settings.feed_rate,
+                        kill_rate: self.settings.kill_rate,
+                        delta_u: self.settings.diffusion_rate_u,
+                        delta_v: self.settings.diffusion_rate_v,
+                        timestep: self.settings.timestep,
+                        width: self.width,
+                        height: self.height,
+                        nutrient_pattern: self.settings.nutrient_pattern as u32,
+                        is_nutrient_pattern_reversed: self.settings.nutrient_pattern_reversed
+                            as u32,
+                        cursor_x: 0.0,
+                        cursor_y: 0.0,
+                        cursor_size: self.cursor_size,
+                        cursor_strength: self.cursor_strength,
+                    };
+                    queue.write_buffer(
+                        &self.render_params_buffer,
+                        0,
+                        bytemuck::cast_slice(&[render_params]),
+                    );
                 }
             }
             _ => {

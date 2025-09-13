@@ -752,12 +752,12 @@ impl SimulationManager {
                             )
                         })?;
 
-                    if simulation.settings.color_scheme_reversed {
+                    if simulation.color_scheme_reversed {
                         color_scheme_data.reverse();
                     }
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-                    simulation.settings.color_scheme_name = color_scheme_name.to_string();
+                    simulation.current_color_scheme = color_scheme_name.to_string();
 
                     tracing::info!(
                         "Color scheme '{}' applied to Moiré simulation",
@@ -894,22 +894,21 @@ impl SimulationManager {
                 }
                 SimulationType::Moire(simulation) => {
                     // Toggle the reversed flag and reload the LUT
-                    simulation.settings.color_scheme_reversed =
-                        !simulation.settings.color_scheme_reversed;
+                    simulation.color_scheme_reversed = !simulation.color_scheme_reversed;
                     let mut color_scheme_data = self
                         .lut_manager
-                        .get(&simulation.settings.color_scheme_name)
+                        .get(&simulation.current_color_scheme)
                         .map_err(|e| {
                             AppError::Simulation(
                                 format!(
                                     "Failed to load color scheme '{}': {}",
-                                    simulation.settings.color_scheme_name, e
+                                    simulation.current_color_scheme, e
                                 )
                                 .into(),
                             )
                         })?;
 
-                    if simulation.settings.color_scheme_reversed {
+                    if simulation.color_scheme_reversed {
                         color_scheme_data.reverse();
                     }
 

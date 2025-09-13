@@ -116,6 +116,15 @@
                         on:change={handleDisplayModeChange}
                     />
                 </div>
+                <div class="display-section">
+                    <label for="interpolation-mode-selector">Interpolation:</label>
+                    <Selector
+                        id="interpolation-mode-selector"
+                        options={['Smooth', 'Stepped']}
+                        bind:value={interpolationMode}
+                        on:change={updateGradient}
+                    />
+                </div>
             </div>
         </div>
 
@@ -211,7 +220,7 @@
                                 <input
                                     type="range"
                                     min="2"
-                                    max="8"
+                                    max="16"
                                     step="1"
                                     bind:value={randomStopCount}
                                     class="stops-range"
@@ -241,7 +250,7 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import { interpolate, formatHex } from 'culori';
-    import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    
 
     const dispatch = createEventDispatcher();
 
@@ -252,6 +261,7 @@
     let selectedColorSpace: 'rgb' | 'lab' | 'oklab' | 'jab' | 'lchuv' = 'oklab';
     let selectedPreset = 'Custom';
     let selectedDisplayMode = 'Smooth';
+    let interpolationMode: 'Smooth' | 'Stepped' = 'Smooth';
     let selectedRandomScheme: string = 'Basic';
     let randomStopPlacement: 'Even' | 'Random' = 'Random';
     let randomStopCount: number = 3;
@@ -421,6 +431,10 @@
         const rightStop = gradientStops[right];
         const t = (position - leftStop.position) / (rightStop.position - leftStop.position);
 
+        if (interpolationMode === 'Stepped') {
+            return leftStop.color;
+        }
+
         return interpolateColor(leftStop.color, rightStop.color, t);
     }
 
@@ -572,7 +586,7 @@
         randomizeGradient(selectedRandomScheme);
     }
 
-    function generateRandomColors(scheme: string): string[] {
+    function generateRandomColors(scheme: string, desiredCount?: number): string[] {
         let colors: string[] = [];
 
         switch (scheme) {
@@ -671,17 +685,21 @@
                 ];
                 break;
             }
-            case 'Truly Random':
-                colors = [];
-                for (let i = 0; i < 8; i++) {
+            case 'Truly Random': {
+                const target = Math.max(2, desiredCount ?? 8);
+                const set = new Set<string>();
+                while (set.size < target) {
                     const r = Math.floor(Math.random() * 256);
                     const g = Math.floor(Math.random() * 256);
                     const b = Math.floor(Math.random() * 256);
-                    colors.push(
-                        `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-                    );
+                    const hex = `#${r.toString(16).padStart(2, '0')}${g
+                        .toString(16)
+                        .padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                    set.add(hex);
                 }
+                colors = Array.from(set);
                 break;
+            }
         }
 
         return colors;
@@ -709,21 +727,19 @@
     }
 
     function randomizeGradient(scheme: string = 'Basic') {
-        // Generate colors for the scheme
-        const colors = generateRandomColors(scheme);
-
-        // Use the slider value for stop count
         const stopCount = randomStopCount;
-
-        // Generate stop positions
+        const colors = generateRandomColors(scheme, stopCount);
         const positions = generateStopPositions(stopCount, randomStopPlacement);
-
-        // Create gradient stops by combining positions and random colors
-        gradientStops = positions.map((position) => ({
+        const palette = [...colors];
+        for (let i = palette.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [palette[i], palette[j]] = [palette[j], palette[i]];
+        }
+        gradientStops = positions.map((position, i) => ({
             position,
-            color: colors[Math.floor(Math.random() * colors.length)],
+            color: palette[i % palette.length],
         }));
-
+        
         selectedStopIndex = 0;
         updateGradient();
     }

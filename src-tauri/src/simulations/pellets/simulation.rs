@@ -1027,7 +1027,7 @@ impl PelletsModel {
                     }),
                     entry_point: Some("fs_main_texture"),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        format: surface_config.format,
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

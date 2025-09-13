@@ -43,12 +43,71 @@
                 <div class="control-group">
                     <ColorSchemeSelector
                         bind:available_color_schemes={available_luts}
-                        bind:current_color_scheme={lut_name}
-                        bind:reversed={lut_reversed}
+                        bind:current_color_scheme={color_scheme_name}
+                        bind:reversed={color_scheme_reversed}
                         on:select={({ detail }) => updateLut(detail.name)}
                         on:reverse={() => updateLutReversed()}
                     />
                 </div>
+                <div class="control-group">
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={settings.image_mode_enabled}
+                            on:change={async (e) => {
+                                try {
+                                    await invoke('update_simulation_setting', {
+                                        settingName: 'image_mode_enabled',
+                                        value: (e.target as HTMLInputElement).checked,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update image mode:', err);
+                                }
+                            }}
+                        />
+                        Enable Image Mode
+                    </label>
+                </div>
+                {#if settings.image_mode_enabled}
+                    <div class="control-group">
+                        <ImageSelector
+                            fitMode={settings.image_fit_mode}
+                            mirrorHorizontal={settings.image_mirror_horizontal}
+                            invertTone={settings.image_invert_tone}
+                            loadCommand="load_moire_image"
+                            onFitModeChange={async (value) => {
+                                try {
+                                    await invoke('update_simulation_setting', {
+                                        settingName: 'image_fit_mode',
+                                        value: value,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update fit mode:', err);
+                                }
+                            }}
+                            onMirrorHorizontalChange={async (value) => {
+                                try {
+                                    await invoke('update_simulation_setting', {
+                                        settingName: 'image_mirror_horizontal',
+                                        value: value,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update mirror:', err);
+                                }
+                            }}
+                            onInvertToneChange={async (value) => {
+                                try {
+                                    await invoke('update_simulation_setting', {
+                                        settingName: 'image_invert_tone',
+                                        value: value,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update invert:', err);
+                                }
+                            }}
+                        />
+                    </div>
+                {/if}
             </fieldset>
 
             <!-- Controls -->
@@ -107,6 +166,26 @@
             <!-- Moiré Pattern Settings -->
             <fieldset>
                 <legend>Moiré Patterns</legend>
+                <div class="control-group">
+                    <span class="setting-label">Generator Type:</span>
+                    <select
+                        value={settings.generator_type}
+                        on:change={async (e) => {
+                            try {
+                                const value = (e.target as HTMLSelectElement).value;
+                                await invoke('update_simulation_setting', {
+                                    settingName: 'generator_type',
+                                    value: value,
+                                });
+                            } catch (err) {
+                                console.error('Failed to update generator type:', err);
+                            }
+                        }}
+                    >
+                        <option value="Linear">Linear</option>
+                        <option value="Radial">Radial</option>
+                    </select>
+                </div>
                 <div class="settings-grid">
                     <div class="setting-item">
                         <span class="setting-label">Base Frequency:</span>
@@ -176,6 +255,48 @@
                 </div>
             </fieldset>
 
+            <!-- Radial Pattern Settings (shown when Radial is selected) -->
+            {#if settings.generator_type === 'Radial'}
+                <fieldset>
+                    <legend>Radial Pattern Settings</legend>
+                    <div class="settings-grid">
+                        <div class="setting-item">
+                            <span class="setting-label">Swirl Strength:</span>
+                            <NumberDragBox
+                                bind:value={settings.radial_swirl_strength}
+                                min={0}
+                                max={2}
+                                step={0.01}
+                                precision={2}
+                                on:change={async (e) => updateSetting('radial_swirl_strength', e.detail)}
+                            />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Starburst Count:</span>
+                            <NumberDragBox
+                                bind:value={settings.radial_starburst_count}
+                                min={4}
+                                max={64}
+                                step={1}
+                                precision={0}
+                                on:change={async (e) => updateSetting('radial_starburst_count', e.detail)}
+                            />
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Center Brightness:</span>
+                            <NumberDragBox
+                                bind:value={settings.radial_center_brightness}
+                                min={0}
+                                max={3}
+                                step={0.1}
+                                precision={1}
+                                on:change={async (e) => updateSetting('radial_center_brightness', e.detail)}
+                            />
+                        </div>
+                    </div>
+                </fieldset>
+            {/if}
+
             <!-- Advection Flow Settings -->
             <fieldset>
                 <legend>Advection Flow</legend>
@@ -240,6 +361,7 @@
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
+    import ImageSelector from './components/shared/ImageSelector.svelte';
     import NumberDragBox from './components/inputs/NumberDragBox.svelte';
     import Button from './components/shared/Button.svelte';
     import CameraControls from './components/shared/CameraControls.svelte';
@@ -273,10 +395,19 @@
     let available_presets: string[] = [];
     let current_preset = '';
 
+    // State type
+    interface State {
+        time: number;
+        width: number;
+        height: number;
+        color_scheme_name: string;
+        color_scheme_reversed: boolean;
+    }
+
     // Color scheme state
     let available_luts: string[] = [];
-    let lut_name = 'viridis';
-    let lut_reversed = false;
+    let color_scheme_name = 'ZELDA_Fordite';
+    let color_scheme_reversed = false;
 
     // Initialize simulation
     onMount(async () => {
@@ -321,6 +452,9 @@
             // Load initial settings
             await loadSettings();
 
+            // Load initial state
+            await loadState();
+
             // Load available presets
             await loadPresets();
 
@@ -356,13 +490,21 @@
     async function loadSettings() {
         try {
             settings = await invoke('get_current_settings');
-            // Update color scheme state from settings
-            if (settings) {
-                lut_name = settings.color_scheme_name || 'viridis';
-                lut_reversed = settings.color_scheme_reversed || false;
-            }
         } catch (error) {
             console.error('Failed to load settings:', error);
+        }
+    }
+
+    // Load current state
+    async function loadState() {
+        try {
+            const state = await invoke('get_current_state') as State;
+            if (state) {
+                color_scheme_name = state.color_scheme_name;
+                color_scheme_reversed = state.color_scheme_reversed || false;
+            }
+        } catch (error) {
+            console.error('Failed to load state:', error);
         }
     }
 
@@ -438,9 +580,12 @@
     // Color scheme functions
     async function updateLut(colorSchemeName: string) {
         try {
-            lut_name = colorSchemeName;
+            color_scheme_name = colorSchemeName;
             await invoke('apply_color_scheme_by_name', { colorSchemeName });
-            await updateSetting('color_scheme_name', colorSchemeName);
+            await invoke('update_simulation_state', {
+                stateName: 'color_scheme_name',
+                value: colorSchemeName,
+            });
         } catch (error) {
             console.error('Failed to update color scheme:', error);
         }
@@ -449,7 +594,11 @@
     async function updateLutReversed() {
         try {
             await invoke('toggle_color_scheme_reversed');
-            lut_reversed = !lut_reversed;
+            color_scheme_reversed = !color_scheme_reversed;
+            await invoke('update_simulation_state', {
+                stateName: 'color_scheme_reversed',
+                value: color_scheme_reversed,
+            });
         } catch (error) {
             console.error('Failed to update color scheme reversal:', error);
         }

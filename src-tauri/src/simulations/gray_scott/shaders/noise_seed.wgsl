@@ -67,7 +67,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let noise_value = fbm_noise(x, y, params.seed);
     
     // Apply noise with configurable strength
-    if (noise_value < (0.05 * params.noise_strength)) {
+    if (noise_value < (0.1 * params.noise_strength)) {
         // Seed reaction areas with high V concentration
         let u_val = 0.2 + noise_value * 0.3;
         let v_val = 0.8 + noise_value * 0.2;

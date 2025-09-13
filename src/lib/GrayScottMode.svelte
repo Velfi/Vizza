@@ -108,16 +108,21 @@
                         <div class="cursor-settings-header">
                             <span>🎯 Cursor Settings</span>
                         </div>
+                        {#if cursorSize > 0.3}
+                            <div class="control-group">
+                                <span class="warning-text">⚠️ Large cursor sizes may cause performance issues</span>
+                            </div>
+                        {/if}
                         <CursorConfig
                             {cursorSize}
                             {cursorStrength}
-                            sizeMin={5}
-                            sizeMax={50}
-                            sizeStep={1}
+                            sizeMin={0.01}
+                            sizeMax={0.5}
+                            sizeStep={0.01}
                             strengthMin={0.1}
                             strengthMax={2.0}
                             strengthStep={0.1}
-                            sizePrecision={0}
+                            sizePrecision={2}
                             strengthPrecision={1}
                             on:sizechange={async (e) => {
                                 try {
@@ -377,7 +382,7 @@
     let settings: Settings | undefined = undefined;
 
     // Cursor state (not saved in presets)
-    let cursorSize = 10.0;
+    let cursorSize = 0.1; // World units: 0.1 = 10% of world space
     let cursorStrength = 0.5;
 
     // Preset and LUT state
@@ -996,6 +1001,13 @@
         font-size: 0.9rem;
         font-weight: 500;
         color: rgba(255, 255, 255, 0.8);
+        padding: 0.25rem 0;
+    }
+
+    .warning-text {
+        font-size: 0.8rem;
+        color: #ffa500;
+        font-weight: 500;
         padding: 0.25rem 0;
     }
 

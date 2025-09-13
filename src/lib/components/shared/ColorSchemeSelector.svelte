@@ -78,13 +78,22 @@
                 />
             </div>
 
+            <!-- Interpolation Mode -->
+            <div class="control-group">
+                <label for="interpolationModeTop">Interpolation</label>
+                <Selector
+                    id="interpolationModeTop"
+                    options={['Smooth', 'Stepped']}
+                    bind:value={interpolationMode}
+                    on:change={updateGradientPreview}
+                />
+            </div>
+
             <!-- Gradient Preview -->
             <div class="gradient-preview-container">
                 <div
                     class="gradient-preview"
-                    style="background: linear-gradient(to right, {gradientStops
-                        .map((stop) => `${stop.color} ${stop.position * 100}%`)
-                        .join(', ')})"
+                    style="background: {gradientBackgroundCss}"
                     role="button"
                     tabindex="0"
                     aria-label="Gradient preview - double-click to add color stops"
@@ -223,7 +232,7 @@
                             id="stopCount"
                             type="range"
                             min="2"
-                            max="8"
+                            max="16"
                             step="1"
                             bind:value={randomStopCount}
                         />
@@ -304,6 +313,8 @@
     let selectedRandomScheme: string = 'Basic';
     let randomStopPlacement: 'Even' | 'Random' = 'Random';
     let randomStopCount: number = 3;
+    let interpolationMode: 'Smooth' | 'Stepped' = 'Smooth';
+    let gradientBackgroundCss = '';
 
     // Reactive statements to handle prop changes
     // Note: Don't auto-select the first LUT when current_lut is empty,
@@ -337,10 +348,7 @@
         custom_color_scheme_name = '';
 
         try {
-            // Clear the temporary color scheme first
-            await invoke('clear_temp_color_scheme');
-
-            // Then restore the original color scheme to ensure it's properly applied
+            // Restore the original color scheme to ensure it's properly applied
             if (original_color_scheme_name) {
                 await invoke('apply_color_scheme_by_name', {
                     colorSchemeName: original_color_scheme_name,
@@ -421,8 +429,9 @@
             }
         }
 
-        // Interpolate between the two colors
+        // Interpolate or step between the two colors
         const t = (position - leftStop.position) / (rightStop.position - leftStop.position);
+        if (interpolationMode === 'Stepped') return leftStop.color;
         return interpolateColor(leftStop.color, rightStop.color, t);
     }
 
@@ -598,7 +607,7 @@
         return `#${hexR}${hexG}${hexB}`;
     }
 
-    function generateRandomColors(scheme: string): string[] {
+    function generateRandomColors(scheme: string, desiredCount?: number): string[] {
         let colors: string[] = [];
         switch (scheme) {
             case 'Basic':
@@ -696,17 +705,21 @@
                 ];
                 break;
             }
-            case 'Truly Random':
-                colors = [];
-                for (let i = 0; i < 8; i++) {
+            case 'Truly Random': {
+                const target = Math.max(2, desiredCount ?? 8);
+                const set = new Set<string>();
+                while (set.size < target) {
                     const r = Math.floor(Math.random() * 256);
                     const g = Math.floor(Math.random() * 256);
                     const b = Math.floor(Math.random() * 256);
-                    colors.push(
-                        `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-                    );
+                    const hex = `#${r.toString(16).padStart(2, '0')}${g
+                        .toString(16)
+                        .padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+                    set.add(hex);
                 }
+                colors = Array.from(set);
                 break;
+            }
         }
         return colors;
     }
@@ -724,12 +737,17 @@
     }
 
     function randomizeGradient(scheme: string = 'Basic') {
-        const colors = generateRandomColors(scheme);
         const stopCount = randomStopCount;
+        const colors = generateRandomColors(scheme, stopCount);
         const positions = generateStopPositions(stopCount, randomStopPlacement);
-        gradientStops = positions.map((position) => ({
+        const palette = [...colors];
+        for (let i = palette.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [palette[i], palette[j]] = [palette[j], palette[i]];
+        }
+        gradientStops = positions.map((position, i) => ({
             position,
-            color: colors[Math.floor(Math.random() * colors.length)],
+            color: palette[i % palette.length],
         }));
         selectedStopIndex = 0;
         updateGradientPreview();
@@ -788,37 +806,7 @@
             const bArr: number[] = [];
             for (let i = 0; i < 256; i++) {
                 const t = i / 255;
-                let leftStop = gradientStops[0];
-                let rightStop = gradientStops[gradientStops.length - 1];
-
-                // Find the correct stops to interpolate between
-                if (t <= gradientStops[0].position) {
-                    // Before first stop - use first stop color
-                    leftStop = gradientStops[0];
-                    rightStop = gradientStops[0];
-                } else if (t >= gradientStops[gradientStops.length - 1].position) {
-                    // After last stop - use last stop color
-                    leftStop = gradientStops[gradientStops.length - 1];
-                    rightStop = gradientStops[gradientStops.length - 1];
-                } else {
-                    // Between stops - find the correct pair
-                    for (let j = 0; j < gradientStops.length - 1; j++) {
-                        if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
-                            leftStop = gradientStops[j];
-                            rightStop = gradientStops[j + 1];
-                            break;
-                        }
-                    }
-                }
-
-                // Calculate interpolation factor, handling edge cases
-                const positionDiff = rightStop.position - leftStop.position;
-                const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
-                const interpolatedColor = interpolateColor(
-                    leftStop.color,
-                    rightStop.color,
-                    interp_t
-                );
+                const interpolatedColor = getColorAtPosition(t);
 
                 const r = parseInt(interpolatedColor.slice(1, 3), 16);
                 const g = parseInt(interpolatedColor.slice(3, 5), 16);
@@ -844,37 +832,7 @@
             const bArr: number[] = [];
             for (let i = 0; i < 256; i++) {
                 const t = i / 255;
-                let leftStop = gradientStops[0];
-                let rightStop = gradientStops[gradientStops.length - 1];
-
-                // Find the correct stops to interpolate between
-                if (t <= gradientStops[0].position) {
-                    // Before first stop - use first stop color
-                    leftStop = gradientStops[0];
-                    rightStop = gradientStops[0];
-                } else if (t >= gradientStops[gradientStops.length - 1].position) {
-                    // After last stop - use last stop color
-                    leftStop = gradientStops[gradientStops.length - 1];
-                    rightStop = gradientStops[gradientStops.length - 1];
-                } else {
-                    // Between stops - find the correct pair
-                    for (let j = 0; j < gradientStops.length - 1; j++) {
-                        if (gradientStops[j].position <= t && gradientStops[j + 1].position >= t) {
-                            leftStop = gradientStops[j];
-                            rightStop = gradientStops[j + 1];
-                            break;
-                        }
-                    }
-                }
-
-                // Calculate interpolation factor, handling edge cases
-                const positionDiff = rightStop.position - leftStop.position;
-                const interp_t = positionDiff === 0 ? 0 : (t - leftStop.position) / positionDiff;
-                const interpolatedColor = interpolateColor(
-                    leftStop.color,
-                    rightStop.color,
-                    interp_t
-                );
+                const interpolatedColor = getColorAtPosition(t);
                 const r = parseInt(interpolatedColor.slice(1, 3), 16);
                 const g = parseInt(interpolatedColor.slice(3, 5), 16);
                 const b = parseInt(interpolatedColor.slice(5, 7), 16);
@@ -887,9 +845,6 @@
                 name: custom_color_scheme_name,
                 colorSchemeData: lutData,
             });
-
-            // Clear the temporary color scheme
-            await invoke('clear_temp_color_scheme');
 
             // Update current color scheme to the newly saved one
             current_color_scheme = custom_color_scheme_name;
@@ -912,6 +867,28 @@
         selectedColorSpace = detail.value as 'RGB' | 'Lab' | 'OkLab' | 'Jzazbz' | 'HSLuv';
         updateGradientPreview();
     }
+
+    // Build CSS gradient string depending on interpolation mode
+    function buildGradientCSS(): string {
+        const stops = [...gradientStops].sort((a, b) => a.position - b.position);
+        if (stops.length === 0) return 'transparent';
+        if (interpolationMode === 'Stepped') {
+            const parts: string[] = [];
+            parts.push(`${stops[0].color} 0%`);
+            for (let i = 0; i < stops.length - 1; i++) {
+                const boundary = Math.round(stops[i + 1].position * 100);
+                parts.push(`${stops[i].color} ${boundary}%`);
+                parts.push(`${stops[i + 1].color} ${boundary}%`);
+            }
+            parts.push(`${stops[stops.length - 1].color} 100%`);
+            return `linear-gradient(to right, ${parts.join(', ')})`;
+        } else {
+            const parts = stops.map((s) => `${s.color} ${s.position * 100}%`);
+            return `linear-gradient(to right, ${parts.join(', ')})`;
+        }
+    }
+
+    $: gradientBackgroundCss = buildGradientCSS();
 
     function removeSelectedStop() {
         if (selectedStopIndex >= 0 && selectedStopIndex < gradientStops.length) {

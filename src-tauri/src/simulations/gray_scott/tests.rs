@@ -87,8 +87,6 @@ impl GrayScottValidator {
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: 1,
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
         };
 
         // Create buffers
@@ -136,8 +134,6 @@ impl GrayScottValidator {
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: 1,
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
         };
 
         // Create buffers
@@ -329,8 +325,6 @@ fn test_struct_layout_consistency() {
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: 1,
-            change_threshold: 0.001,
-            enable_selective_updates: 0,
         };
 
         let dummy_background_params = BackgroundParams {

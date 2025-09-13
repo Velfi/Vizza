@@ -3,11 +3,13 @@
 @group(0) @binding(2) var<storage, read> lut_data: array<u32>;
 @group(0) @binding(3) var prev_texture: texture_2d<f32>;
 @group(0) @binding(4) var tex_sampler: sampler;
+@group(0) @binding(5) var image_texture: texture_2d<f32>;
 
 struct Params {
     time: f32,
     width: f32,
     height: f32,
+    generator_type: f32, // 0 = Linear, 1 = Radial
     base_freq: f32,
     moire_amount: f32,
     moire_rotation: f32,
@@ -16,11 +18,17 @@ struct Params {
     moire_rotation3: f32,
     moire_scale3: f32,
     moire_weight3: f32,
+    radial_swirl_strength: f32,
+    radial_starburst_count: f32,
+    radial_center_brightness: f32,
     color_scheme_reversed: f32,
     advect_strength: f32,
     advect_speed: f32,
     curl: f32,
     decay: f32,
+    // Flags
+    image_loaded: f32,
+    image_mode_enabled: f32,
 }
 
 
@@ -56,7 +64,7 @@ fn get_lut_color(intensity: f32) -> vec3<f32> {
     );
 }
 
-fn compute_moire(pos: vec2<f32>) -> f32 {
+fn compute_linear_moire(pos: vec2<f32>) -> f32 {
     let t = params.time * 0.5;
     
     // First grid pattern with time variation
@@ -76,6 +84,59 @@ fn compute_moire(pos: vec2<f32>) -> f32 {
     let complex_pattern = mix(interference, interference * grid3, params.moire_weight3);
     
     return complex_pattern * params.moire_amount;
+}
+
+fn compute_radial_moire(pos: vec2<f32>) -> f32 {
+    let t = params.time * 0.5;
+    
+    // Calculate distance from center for radial patterns
+    let dist = length(pos);
+    let angle = atan2(pos.y, pos.x);
+    
+    // Create bright center glow
+    let center_glow = exp(-dist * 8.0) * params.radial_center_brightness;
+    
+    // Starburst pattern - straight radiating lines
+    let starburst_angle = angle * params.radial_starburst_count;
+    let starburst = sin(starburst_angle + t * 0.3) * 0.8;
+    
+    // Swirling radial pattern - curved lines with vortex effect
+    let swirl_angle = angle + params.radial_swirl_strength * dist * 3.0 + t * 0.2;
+    let swirl_radial = sin(dist * params.base_freq * 2.0 + swirl_angle * 2.0 + t * 0.5);
+    
+    // Concentric circles for layered effect
+    let concentric = sin(dist * params.base_freq + t * 0.8) * 0.6;
+    
+    // Secondary interference pattern
+    let interference_angle = angle + params.moire_rotation + t * 0.1;
+    let interference_dist = dist * (params.moire_scale + sin(t) * 0.1);
+    let interference = sin(interference_dist * params.base_freq * 1.3 + interference_angle * 3.0 + t * 1.2);
+    
+    // Combine patterns with different weights
+    let primary_pattern = mix(starburst, swirl_radial, params.radial_swirl_strength);
+    let secondary_pattern = mix(concentric, interference, params.moire_interference);
+    
+    // Final combination with center glow
+    let final_pattern = primary_pattern * 0.7 + secondary_pattern * 0.3;
+    let result = final_pattern * params.moire_amount + center_glow;
+    
+    return result;
+}
+
+fn compute_moire(pos: vec2<f32>) -> f32 {
+    // Switch between linear and radial generators based on generator_type
+    if (params.generator_type < 0.5) {
+        return compute_linear_moire(pos);
+    } else {
+        return compute_radial_moire(pos);
+    }
+}
+
+fn sample_image_intensity(uv: vec2<f32>) -> f32 {
+    // Sample external image texture assumed preprocessed to grayscale in R8
+    let color = textureSampleLevel(image_texture, tex_sampler, uv, 0.0);
+    // Use red channel as grayscale
+    return clamp(color.r, 0.0, 1.0);
 }
 
 fn compute_velocity(pos: vec2<f32>, uv: vec2<f32>) -> vec2<f32> {
@@ -161,12 +222,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let animated_moire = moire * (1.0 + sin(params.time * 3.0) * 0.5);
     
     // Generate intensity directly from moiré patterns
-    let base_intensity = (animated_moire + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
+    var base_intensity = (animated_moire + 1.0) * 0.5; // Convert from [-1,1] to [0,1]
     
     // Add some spatial variation and time-based animation
     let spatial_variation = sin(x * 2.0) * cos(y * 2.0) * 0.2;
     let time_variation = sin(params.time * 0.5) * 0.1;
     
+    // Enhanced advection with multiple sampling points for better flow
+    let current_uv = coords / dims;
+    
+    // If image mode is enabled and an image is loaded, use it for intensity
+    if (params.image_mode_enabled > 0.5 && params.image_loaded > 0.5) {
+        base_intensity = sample_image_intensity(current_uv);
+    }
+
     let final_intensity = clamp(base_intensity + spatial_variation + time_variation, 0.0, 1.0);
     
     // Apply color scheme reversal if enabled
@@ -177,9 +246,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     
     // Get color from LUT
     var nn_color = get_lut_color(lut_intensity);
-    
-    // Enhanced advection with multiple sampling points for better flow
-    let current_uv = coords / dims;
     let vel = compute_velocity(vec2<f32>(x, y), current_uv);
     
     // Sample multiple points along the velocity vector for smoother advection

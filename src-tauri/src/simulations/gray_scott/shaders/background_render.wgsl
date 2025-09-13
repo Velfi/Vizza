@@ -3,6 +3,7 @@ struct BackgroundParams {
     gradient_enabled: u32,
     gradient_type: u32,
     gradient_strength: f32,
+
     gradient_center_x: f32,
     gradient_center_y: f32,
     gradient_size: f32,
