@@ -47,6 +47,16 @@ pub enum GradientImageFitMode {
     FitV,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ImageInterferenceMode {
+    Replace,    // Current behavior - replace moiré with image
+    Add,        // Add image to moiré pattern
+    Multiply,   // Multiply image with moiré pattern
+    Overlay,    // Overlay blending mode
+    Mask,       // Use image as mask for moiré pattern
+    Modulate,   // Use image to modulate moiré intensity
+}
+
 impl Default for GradientImageFitMode {
     fn default() -> Self {
         Self::Stretch
@@ -63,6 +73,28 @@ impl FromStr for GradientImageFitMode {
             "fit h" | "fith" => Ok(GradientImageFitMode::FitH),
             "fit v" | "fitv" => Ok(GradientImageFitMode::FitV),
             _ => Err(format!("Invalid GradientImageFitMode: '{}'. Expected 'stretch', 'center', 'fit h', or 'fit v'", s)),
+        }
+    }
+}
+
+impl Default for ImageInterferenceMode {
+    fn default() -> Self {
+        Self::Modulate
+    }
+}
+
+impl FromStr for ImageInterferenceMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "replace" => Ok(ImageInterferenceMode::Replace),
+            "add" => Ok(ImageInterferenceMode::Add),
+            "multiply" => Ok(ImageInterferenceMode::Multiply),
+            "overlay" => Ok(ImageInterferenceMode::Overlay),
+            "mask" => Ok(ImageInterferenceMode::Mask),
+            "modulate" => Ok(ImageInterferenceMode::Modulate),
+            _ => Err(format!("Invalid ImageInterferenceMode: '{}'. Expected 'replace', 'add', 'multiply', 'overlay', 'mask', or 'modulate'", s)),
         }
     }
 }
@@ -103,6 +135,7 @@ pub struct Settings {
     pub image_fit_mode: GradientImageFitMode,
     pub image_mirror_horizontal: bool,
     pub image_invert_tone: bool,
+    pub image_interference_mode: ImageInterferenceMode,
 }
 
 impl Default for Settings {
@@ -126,9 +159,10 @@ impl Default for Settings {
             curl: 0.8,
             decay: 0.98,
             image_mode_enabled: false,
-            image_fit_mode: GradientImageFitMode::Stretch,
+            image_fit_mode: GradientImageFitMode::FitV,
             image_mirror_horizontal: false,
-            image_invert_tone: false,
+            image_invert_tone: true,
+            image_interference_mode: ImageInterferenceMode::Modulate,
         }
     }
 }

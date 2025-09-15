@@ -23,6 +23,7 @@ pub struct Renderer {
     lut_buffer: wgpu::Buffer,
     background_color_buffer: wgpu::Buffer,
     render_params_buffer: wgpu::Buffer,
+    sampler: wgpu::Sampler,
     render_infinite_pipeline: wgpu::RenderPipeline,
     background_render_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -86,15 +87,28 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        // Create sampler for texture sampling (non-filtering for Rg32Float)
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Simulation Data Sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         // Create simulation data bind group layout
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Render Bind Group Layout"),
             entries: &[
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
-                resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::FRAGMENT, true),
-                resource_helpers::storage_buffer_entry(4, wgpu::ShaderStages::FRAGMENT, true),
-                resource_helpers::uniform_buffer_entry(5, wgpu::ShaderStages::FRAGMENT),
+                resource_helpers::texture_entry(3, wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: false }, wgpu::TextureViewDimension::D2),
+                resource_helpers::sampler_entry(4, wgpu::ShaderStages::FRAGMENT, wgpu::SamplerBindingType::NonFiltering),
+                resource_helpers::storage_buffer_entry(5, wgpu::ShaderStages::FRAGMENT, true),
                 resource_helpers::uniform_buffer_entry(6, wgpu::ShaderStages::FRAGMENT),
+                resource_helpers::uniform_buffer_entry(7, wgpu::ShaderStages::FRAGMENT),
             ],
         });
 
@@ -188,6 +202,7 @@ impl Renderer {
             lut_buffer,
             background_color_buffer,
             render_params_buffer,
+            sampler,
             render_infinite_pipeline,
             background_render_pipeline,
             bind_group_layout,
@@ -213,17 +228,22 @@ impl Renderer {
 
     pub fn create_bind_group(
         &self,
-        simulation_buffer: &wgpu::Buffer,
+        simulation_texture: &wgpu::Texture,
         params_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
-        BindGroupBuilder::new(&self.device, &self.bind_group_layout)
-            .add_buffer(2, &self.background_color_buffer)
-            .add_buffer(3, simulation_buffer)
-            .add_buffer(4, &self.lut_buffer)
-            .add_buffer(5, params_buffer)
-            .add_buffer(6, &self.render_params_buffer)
-            .with_label("Render Bind Group".to_string())
-            .build()
+        let texture_view = simulation_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Render Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                resource_helpers::buffer_entry(2, &self.background_color_buffer),
+                resource_helpers::texture_view_entry(3, &texture_view),
+                resource_helpers::sampler_bind_entry(4, &self.sampler),
+                resource_helpers::buffer_entry(5, &self.lut_buffer),
+                resource_helpers::buffer_entry(6, params_buffer),
+                resource_helpers::buffer_entry(7, &self.render_params_buffer),
+            ],
+        })
     }
 
     pub fn create_camera_bind_group(&self) -> wgpu::BindGroup {
@@ -236,14 +256,14 @@ impl Renderer {
     pub fn render(
         &mut self,
         view: &TextureView,
-        simulation_buffer: &wgpu::Buffer,
+        simulation_texture: &wgpu::Texture,
         params_buffer: &wgpu::Buffer,
         background_bind_group: &wgpu::BindGroup,
     ) -> Result<(), wgpu::SurfaceError> {
         // Update camera data on GPU
         self.camera.upload_to_gpu(&self.queue);
 
-        let bind_group = self.create_bind_group(simulation_buffer, params_buffer);
+        let bind_group = self.create_bind_group(simulation_texture, params_buffer);
         let camera_bind_group = self.create_camera_bind_group();
 
         let mut encoder = self

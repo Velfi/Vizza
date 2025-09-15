@@ -1,4 +1,4 @@
-![Vizza Logo](title.png)
+![Vizza Logo](VizzaLogo.gif)
 
 # Vizza
 
@@ -55,6 +55,18 @@ Particle simulation with gravity and density-based interactions.
 Create custom color schemes for the other simulations.
 
 ![Gradient Editor Example](example-gradient-editor.png)
+
+### Voronoi Cellular Automata
+
+Cellular automata with Voronoi cells that move and shift.
+
+![Voronoi Cellular Automata Example](example-voronoi-ca.png)
+
+### Moiré
+
+Moiré patterns with distortion effects.
+
+![Moiré Example](example-moire.png)
 
 ## For Developers
 

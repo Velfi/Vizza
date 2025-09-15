@@ -9,8 +9,10 @@ use super::renderer::Renderer;
 use super::settings::{GradientImageFitMode, NutrientPattern, Settings};
 use super::shaders::REACTION_DIFFUSION_SHADER;
 use super::shaders::noise_seed::NoiseSeedCompute;
+use super::shaders::paint_compute::PaintCompute;
 use crate::simulations::shared::coordinates::TextureCoords;
 use crate::simulations::shared::gpu_utils::resource_helpers;
+use crate::simulations::shared::ping_pong_textures::PingPongTextures;
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -69,6 +71,8 @@ pub struct BackgroundParams {
 struct UVPair {
     u: f32,
     v: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 #[derive(Debug)]
@@ -91,14 +95,14 @@ pub struct GrayScottModel {
     pub height: u32,
     pub color_scheme_reversed: bool,
     pub current_color_scheme_name: String,
-    uvs_buffers: [wgpu::Buffer; 2], // Double buffering
-    current_buffer: usize,
+    simulation_textures: PingPongTextures,
     params_buffer: wgpu::Buffer,
     // Separate uniform for render shader (size must match WGSL SimulationParams in infinite_render.wgsl)
     render_params_buffer: wgpu::Buffer,
     bind_groups: [wgpu::BindGroup; 2], // Double buffering
     compute_pipeline: wgpu::ComputePipeline,
     noise_seed_compute: NoiseSeedCompute,
+    paint_compute: PaintCompute,
     last_frame_time: std::time::Instant,
     gui_visible: bool,
 
@@ -136,7 +140,7 @@ impl GrayScottModel {
     ) -> SimulationResult<Self> {
         let vec_capacity = (width * height) as usize;
         let mut uvs: Vec<UVPair> =
-            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0, _pad1: 0.0, _pad2: 0.0 }, vec_capacity).collect();
 
         // Add some initial perturbations to start the reaction-diffusion process
         let center_x = width as i32 / 2;
@@ -159,38 +163,43 @@ impl GrayScottModel {
                     uvs[index] = UVPair {
                         u: 0.5,
                         v: 0.99 * factor,
+                        _pad1: 0.0,
+                        _pad2: 0.0,
                     };
                 }
             }
         }
 
-        // Create double buffers
-        let uvs_buffers = [
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UVs Buffer 0"),
-                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: true,
-            }),
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UVs Buffer 1"),
-                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: true,
-            }),
-        ];
+        // Create ping-pong textures for simulation data
+        let simulation_textures = PingPongTextures::new(
+            device,
+            width,
+            height,
+            wgpu::TextureFormat::Rgba32Float,
+            "Gray-Scott UVs",
+        );
 
-        // Write initial UVs data to both buffers
-        for buffer in &uvs_buffers {
-            let slice = buffer.slice(..);
-            slice
-                .get_mapped_range_mut()
-                .copy_from_slice(bytemuck::cast_slice(&uvs));
-            buffer.unmap();
+        // Write initial UVs data to both textures
+        for texture in simulation_textures.textures() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&uvs),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * 16), // 4 f32 values * 4 bytes each
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
         }
 
         let params = SimulationParams {
@@ -241,8 +250,8 @@ impl GrayScottModel {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Bind Group Layout"),
             entries: &[
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
-                resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                resource_helpers::storage_texture_entry(0, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::ReadOnly, wgpu::TextureFormat::Rgba32Float),
+                resource_helpers::storage_texture_entry(1, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::WriteOnly, wgpu::TextureFormat::Rgba32Float),
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
                 resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true), // Optional gradient map buffer
             ],
@@ -280,14 +289,14 @@ impl GrayScottModel {
             mapped_at_creation: false,
         });
 
-        // Create bind groups for both buffers (input/output swapped)
+        // Create bind groups for both textures (input/output swapped)
         let bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Bind Group 0"),
                 layout: &bind_group_layout,
                 entries: &[
-                    resource_helpers::buffer_entry(0, &uvs_buffers[0]), // input
-                    resource_helpers::buffer_entry(1, &uvs_buffers[1]), // output
+                    resource_helpers::texture_view_entry(0, &simulation_textures.views()[0]), // input
+                    resource_helpers::texture_view_entry(1, &simulation_textures.views()[1]), // output
                     resource_helpers::buffer_entry(2, &params_buffer),
                     resource_helpers::buffer_entry(3, &gradient_buffer),
                 ],
@@ -296,8 +305,8 @@ impl GrayScottModel {
                 label: Some("Bind Group 1"),
                 layout: &bind_group_layout,
                 entries: &[
-                    resource_helpers::buffer_entry(0, &uvs_buffers[1]), // input
-                    resource_helpers::buffer_entry(1, &uvs_buffers[0]), // output
+                    resource_helpers::texture_view_entry(0, &simulation_textures.views()[1]), // input
+                    resource_helpers::texture_view_entry(1, &simulation_textures.views()[0]), // output
                     resource_helpers::buffer_entry(2, &params_buffer),
                     resource_helpers::buffer_entry(3, &gradient_buffer),
                 ],
@@ -348,13 +357,13 @@ impl GrayScottModel {
             height,
             current_color_scheme_name: "MATPLOTLIB_prism".to_string(),
             color_scheme_reversed: false,
-            uvs_buffers,
-            current_buffer: 0,
+            simulation_textures,
             params_buffer,
             render_params_buffer,
             bind_groups,
             compute_pipeline,
             noise_seed_compute,
+            paint_compute: PaintCompute::new(device),
             last_frame_time: std::time::Instant::now(),
             gui_visible: true,
             cursor_size: 0.1, // World units: 0.1 = 10% of world space
@@ -472,45 +481,47 @@ impl GrayScottModel {
         Ok(())
     }
 
-    /// Recreate simulation buffers with new dimensions
+    /// Recreate simulation textures with new dimensions
     pub fn recreate_simulation_buffers(
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        let vec_capacity = (self.width * self.height) as usize;
-
-        // Create new UV buffers with new dimensions
-        let new_uvs_buffers = [
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UVs Buffer 0 (Resized)"),
-                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: true,
-            }),
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("UVs Buffer 1 (Resized)"),
-                size: (vec_capacity * std::mem::size_of::<UVPair>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: true,
-            }),
-        ];
+        // Create new ping-pong textures with new dimensions
+        let new_simulation_textures = PingPongTextures::new(
+            device,
+            self.width,
+            self.height,
+            wgpu::TextureFormat::Rgba32Float,
+            "Gray-Scott UVs (Resized)",
+        );
 
         // Initialize with default UV values
+        let vec_capacity = (self.width * self.height) as usize;
         let uvs: Vec<UVPair> =
-            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0, _pad1: 0.0, _pad2: 0.0 }, vec_capacity).collect();
 
-        // Write initial data to both buffers
-        for buffer in &new_uvs_buffers {
-            let slice = buffer.slice(..);
-            slice
-                .get_mapped_range_mut()
-                .copy_from_slice(bytemuck::cast_slice(&uvs));
-            buffer.unmap();
+        // Write initial data to both textures
+        for texture in new_simulation_textures.textures() {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&uvs),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.width * 16), // 4 f32 values * 4 bytes each
+                    rows_per_image: Some(self.height),
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+            );
         }
 
         // Create new gradient buffer
@@ -565,12 +576,12 @@ impl GrayScottModel {
             bytemuck::cast_slice(&[render_params]),
         );
 
-        // Create new bind groups with new buffers
+        // Create new bind groups with new textures
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Bind Group Layout (Resized)"),
             entries: &[
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, true),
-                resource_helpers::storage_buffer_entry(1, wgpu::ShaderStages::COMPUTE, false),
+                resource_helpers::storage_texture_entry(0, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::ReadOnly, wgpu::TextureFormat::Rgba32Float),
+                resource_helpers::storage_texture_entry(1, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::WriteOnly, wgpu::TextureFormat::Rgba32Float),
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::COMPUTE),
                 resource_helpers::storage_buffer_entry(3, wgpu::ShaderStages::COMPUTE, true),
             ],
@@ -581,8 +592,8 @@ impl GrayScottModel {
                 label: Some("Bind Group 0 (Resized)"),
                 layout: &bind_group_layout,
                 entries: &[
-                    resource_helpers::buffer_entry(0, &new_uvs_buffers[0]), // input
-                    resource_helpers::buffer_entry(1, &new_uvs_buffers[1]), // output
+                    resource_helpers::texture_view_entry(0, &new_simulation_textures.views()[0]), // input
+                    resource_helpers::texture_view_entry(1, &new_simulation_textures.views()[1]), // output
                     resource_helpers::buffer_entry(2, &self.params_buffer),
                     resource_helpers::buffer_entry(3, &new_gradient_buffer),
                 ],
@@ -591,19 +602,18 @@ impl GrayScottModel {
                 label: Some("Bind Group 1 (Resized)"),
                 layout: &bind_group_layout,
                 entries: &[
-                    resource_helpers::buffer_entry(0, &new_uvs_buffers[1]), // input
-                    resource_helpers::buffer_entry(1, &new_uvs_buffers[0]), // output
+                    resource_helpers::texture_view_entry(0, &new_simulation_textures.views()[1]), // input
+                    resource_helpers::texture_view_entry(1, &new_simulation_textures.views()[0]), // output
                     resource_helpers::buffer_entry(2, &self.params_buffer),
                     resource_helpers::buffer_entry(3, &new_gradient_buffer),
                 ],
             }),
         ];
 
-        // Replace old buffers with new ones
-        self.uvs_buffers = new_uvs_buffers;
+        // Replace old textures with new ones
+        self.simulation_textures = new_simulation_textures;
         self.gradient_buffer = Some(new_gradient_buffer);
         self.bind_groups = new_bind_groups;
-        self.current_buffer = 0; // Reset to buffer 0
 
         // If we have a gradient image, reprocess it for the new resolution
         if self.gradient_image_original.is_some() {
@@ -623,12 +633,28 @@ impl GrayScottModel {
     pub fn reset(&mut self) {
         let vec_capacity = (self.width * self.height) as usize;
         let uvs: Vec<UVPair> =
-            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0 }, vec_capacity).collect();
+            std::iter::repeat_n(UVPair { u: 1.0, v: 0.0, _pad1: 0.0, _pad2: 0.0 }, vec_capacity).collect();
 
-        for buffer in &self.uvs_buffers {
-            self.renderer
-                .queue()
-                .write_buffer(buffer, 0, bytemuck::cast_slice(&uvs));
+        for texture in self.simulation_textures.textures() {
+            self.renderer.queue().write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&uvs),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.width * 16), // 4 f32 values * 4 bytes each
+                    rows_per_image: Some(self.height),
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+            );
         }
     }
 
@@ -640,12 +666,12 @@ impl GrayScottModel {
         // Generate a random seed for this noise generation
         let seed = rand::random::<u32>();
 
-        // Use GPU-based noise seeding for both buffers
-        for buffer in &self.uvs_buffers {
+        // Use GPU-based noise seeding for both textures
+        for texture in self.simulation_textures.textures() {
             self.noise_seed_compute.seed_noise(
                 device,
                 queue,
-                buffer,
+                texture,
                 self.width,
                 self.height,
                 seed,
@@ -1059,21 +1085,21 @@ impl GrayScottModel {
             });
 
             compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.bind_groups[self.current_buffer], &[]);
+            compute_pass.set_bind_group(0, self.simulation_textures.get_bind_group(&self.bind_groups[0], &self.bind_groups[1]), &[]);
             compute_pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
 
-        // Swap buffers for next frame
-        self.current_buffer = 1 - self.current_buffer;
+        // Swap textures for next frame
+        self.simulation_textures.swap();
 
-        // Render the current state - pass the output buffer (which contains the latest results)
-        let output_buffer = &self.uvs_buffers[self.current_buffer];
+        // Render the current state - pass the output texture (which contains the latest results)
+        let output_texture = self.simulation_textures.current_texture();
         self.renderer
             .render(
                 surface_view,
-                output_buffer,
+                output_texture,
                 &self.render_params_buffer,
                 &self.background_bind_group,
             )
@@ -1164,11 +1190,10 @@ impl GrayScottModel {
         texture_x: f32,
         texture_y: f32,
         mouse_button: u32,
-        _device: &Arc<Device>,
+        device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         // texture_x and texture_y are in [0,1] range
-        // Update cursor position (for UI feedback, etc.)
         self.update_cursor_position(texture_x, texture_y, queue)?;
 
         let texture_coords = TextureCoords::new(texture_x, texture_y);
@@ -1188,100 +1213,19 @@ impl GrayScottModel {
             return Ok(()); // Outside simulation bounds
         }
 
-        let tx = (texture_coords.x * self.width as f32) as i32;
-        let ty = (texture_coords.y * self.height as f32) as i32;
-
-        // Convert cursor size from world units to pixel units
-        // World units are in [-1,1] range, so we need to scale by simulation resolution
-        // The simulation covers the full world space [-1,1] x [-1,1]
-        let world_to_pixel_scale = (self.width as f32) / 2.0; // Half because world is [-1,1] = 2 units wide
-        let radius_pixels = (self.cursor_size * world_to_pixel_scale) as i32;
-
-        // Performance optimization: limit maximum radius to prevent lag
-        let max_radius = (self.width.min(self.height) / 4) as i32; // Max 25% of smallest dimension
-        let radius_pixels = radius_pixels.min(max_radius);
-
-        // Collect all updates into a batch
-        let mut updates: Vec<(usize, UVPair)> = Vec::new();
-
-        // Pre-calculate squared radius to avoid sqrt in the inner loop
-        let radius_squared = (radius_pixels * radius_pixels) as f32;
-        let radius_f = radius_pixels as f32;
-
-        // Optimize: use a more efficient iteration pattern
-        // Instead of checking every pixel in a square, we can be smarter about bounds
-        let start_x = (tx - radius_pixels).max(0);
-        let end_x = (tx + radius_pixels).min(self.width as i32 - 1);
-        let start_y = (ty - radius_pixels).max(0);
-        let end_y = (ty + radius_pixels).min(self.height as i32 - 1);
-
-        for py in start_y..=end_y {
-            for px in start_x..=end_x {
-                let dx = px - tx;
-                let dy = py - ty;
-                let distance_squared = (dx * dx + dy * dy) as f32;
-
-                // Use squared distance comparison to avoid sqrt
-                if distance_squared <= radius_squared {
-                    let distance = distance_squared.sqrt();
-                    let factor = (1.0 - (distance / radius_f)) * self.cursor_strength;
-
-                    // Skip very small factors to reduce unnecessary updates
-                    if factor < 0.01 {
-                        continue;
-                    }
-
-                    let index = (py * self.width as i32 + px) as usize;
-                    let uv_pair = if mouse_button == 0 {
-                        // Left mouse button: seed the reaction with higher V concentration
-                        UVPair {
-                            u: 0.2 + 0.3 * factor,
-                            v: 0.8 + 0.2 * factor,
-                        }
-                    } else if mouse_button == 2 {
-                        // Right mouse button: create voids/erase
-                        UVPair { u: 1.0, v: 0.0 }
-                    } else {
-                        // Middle mouse button or other: no effect
-                        continue;
-                    };
-
-                    updates.push((index, uv_pair));
-                }
-            }
-        }
-
-        // Batch write all updates at once
-        if !updates.is_empty() {
-            // Group consecutive updates for more efficient buffer writes
-            updates.sort_by_key(|&(index, _)| index);
-
-            // Find consecutive ranges and batch them
-            let mut i = 0;
-            while i < updates.len() {
-                let start_idx = updates[i].0;
-                let mut end_idx = start_idx;
-                let mut batch_data = vec![updates[i].1];
-
-                // Collect consecutive indices
-                let mut j = i + 1;
-                while j < updates.len() && updates[j].0 == end_idx + 1 {
-                    end_idx = updates[j].0;
-                    batch_data.push(updates[j].1);
-                    j += 1;
-                }
-
-                // Write the batch
-                let offset = (start_idx * std::mem::size_of::<UVPair>()) as u64;
-                let data = bytemuck::cast_slice(&batch_data);
-
-                // Write to both buffers for immediate visibility
-                queue.write_buffer(&self.uvs_buffers[0], offset, data);
-                queue.write_buffer(&self.uvs_buffers[1], offset, data);
-
-                i = j;
-            }
-        }
+        // Use GPU-based painting
+        self.paint_compute.paint(
+            device,
+            queue,
+            self.simulation_textures.current_texture(),
+            texture_x,
+            texture_y,
+            self.cursor_size,
+            self.cursor_strength,
+            mouse_button,
+            self.width,
+            self.height,
+        )?;
 
         Ok(())
     }
@@ -1338,12 +1282,12 @@ impl crate::simulations::traits::Simulation for GrayScottModel {
         self.renderer.camera.update(delta_time);
 
         // Skip compute pass - just render current state
-        // Render the current state - pass the current buffer (which contains the latest results)
-        let current_buffer = &self.uvs_buffers[self.current_buffer];
+        // Render the current state - pass the current texture (which contains the latest results)
+        let current_texture = self.simulation_textures.current_texture();
         self.renderer
             .render(
                 surface_view,
-                current_buffer,
+                current_texture,
                 &self.render_params_buffer,
                 &self.background_bind_group,
             )

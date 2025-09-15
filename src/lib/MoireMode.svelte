@@ -55,13 +55,17 @@
                             type="checkbox"
                             checked={settings.image_mode_enabled}
                             on:change={async (e) => {
+                                const checked = (e.target as HTMLInputElement).checked;
+                                settings.image_mode_enabled = checked; // Update local state immediately
                                 try {
                                     await invoke('update_simulation_setting', {
                                         settingName: 'image_mode_enabled',
-                                        value: (e.target as HTMLInputElement).checked,
+                                        value: checked,
                                     });
                                 } catch (err) {
                                     console.error('Failed to update image mode:', err);
+                                    // Revert local state on error
+                                    settings.image_mode_enabled = !checked;
                                 }
                             }}
                         />
@@ -69,6 +73,30 @@
                     </label>
                 </div>
                 {#if settings.image_mode_enabled}
+                    <div class="control-group">
+                        <span class="setting-label">Interference Mode:</span>
+                        <select
+                            value={settings.image_interference_mode}
+                            on:change={async (e) => {
+                                try {
+                                    const value = (e.target as HTMLSelectElement).value;
+                                    await invoke('update_simulation_setting', {
+                                        settingName: 'image_interference_mode',
+                                        value: value,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update interference mode:', err);
+                                }
+                            }}
+                        >
+                            <option value="Replace">Replace</option>
+                            <option value="Add">Add</option>
+                            <option value="Multiply">Multiply</option>
+                            <option value="Overlay">Overlay</option>
+                            <option value="Mask">Mask</option>
+                            <option value="Modulate">Modulate</option>
+                        </select>
+                    </div>
                     <div class="control-group">
                         <ImageSelector
                             fitMode={settings.image_fit_mode}
@@ -143,7 +171,6 @@
                     <Button variant="default" on:click={randomizeSettings}
                         >Randomize Moiré Settings</Button
                     >
-                    <Button variant="default" on:click={resetFlow}>Reset Flow Field</Button>
                 </div>
             </fieldset>
 
@@ -569,13 +596,7 @@
         }
     }
 
-    async function resetFlow() {
-        try {
-            await invoke('reset_moire_flow');
-        } catch (error) {
-            console.error('Failed to reset flow:', error);
-        }
-    }
+    // resetFlow removed
 
     // Color scheme functions
     async function updateLut(colorSchemeName: string) {
@@ -595,10 +616,6 @@
         try {
             await invoke('toggle_color_scheme_reversed');
             color_scheme_reversed = !color_scheme_reversed;
-            await invoke('update_simulation_state', {
-                stateName: 'color_scheme_reversed',
-                value: color_scheme_reversed,
-            });
         } catch (error) {
             console.error('Failed to update color scheme reversal:', error);
         }

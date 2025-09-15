@@ -146,10 +146,10 @@ impl Default for Settings {
             gradient_image_fit_mode: GradientImageFitMode::Stretch,
             gradient_image_mirror_horizontal: false,
             gradient_image_invert_tone: false,
-            // Optimization defaults - enable adaptive timestep for better performance
+            // Optimization defaults - disable adaptive timestep so user timestep slider works
             max_timestep: 4.0,
             stability_factor: 0.9,
-            enable_adaptive_timestep: true,
+            enable_adaptive_timestep: false,
             // Simulation resolution scale (0.5 = half resolution for better performance)
             simulation_resolution_scale: 0.5,
         }

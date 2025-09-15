@@ -29,8 +29,8 @@ impl NoiseSeedCompute {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Noise Seed Bind Group Layout"),
             entries: &[
-                // UVs buffer (read-write)
-                resource_helpers::storage_buffer_entry(0, wgpu::ShaderStages::COMPUTE, false),
+                // UVs texture (read-write)
+                resource_helpers::storage_texture_entry(0, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::WriteOnly, wgpu::TextureFormat::Rgba32Float),
                 // Params buffer (uniform)
                 resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
             ],
@@ -62,7 +62,7 @@ impl NoiseSeedCompute {
         &self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-        uvs_buffer: &wgpu::Buffer,
+        uvs_texture: &wgpu::Texture,
         width: u32,
         height: u32,
         seed: u32,
@@ -86,11 +86,12 @@ impl NoiseSeedCompute {
         queue.write_buffer(&params_buffer, 0, bytemuck::cast_slice(&[params]));
 
         // Create bind group
+        let texture_view = uvs_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Noise Seed Bind Group"),
             layout: &self.bind_group_layout,
             entries: &[
-                resource_helpers::buffer_entry(0, &uvs_buffer),
+                resource_helpers::texture_view_entry(0, &texture_view),
                 resource_helpers::buffer_entry(1, &params_buffer),
             ],
         });

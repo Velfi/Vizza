@@ -8,9 +8,9 @@
 - GS: Gray-Scott. A simulation of Gray-Scott reaction-diffusion.
 - SM: Slime Mold. A simulation of slime molds.
 - FF: Flow Field. A simulation of a flow field.
-- PS: Pellets. A particles and gravity simulation.
+- PS: Pellets. A particle gravity simulation.
 - GEM: Gradient Editor. A gradient editor for color schemes.
-- VCA: Voronoi Cellular Automata. A simulation of a cellular automata.
+- VCA: Voronoi Cellular Automata. A simulation of a cellular automata with Voronoi cells.
 - MM: Moiré. A simulation of moiré patterns.
 
 ## Color Schemes (LUTs)

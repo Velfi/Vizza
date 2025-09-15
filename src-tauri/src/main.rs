@@ -251,7 +251,6 @@ fn main() {
             commands::update_voronoi_ca_border_width,    // Voronoi CA
             commands::start_moire_simulation,            // Moiré
             commands::randomize_moire_settings,          // Moiré
-            commands::reset_moire_flow,                  // Moiré
             commands::load_moire_image,                  // Moiré image
             // Rendering commands
             commands::render_frame,

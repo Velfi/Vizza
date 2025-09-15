@@ -1,4 +1,4 @@
-use wgpu::{BindGroup, Device, TextureView};
+use wgpu::{BindGroup, Device, Texture, TextureView};
 
 /// Manages a pair of textures for ping-pong operations
 ///
@@ -8,6 +8,8 @@ use wgpu::{BindGroup, Device, TextureView};
 /// methods to swap them safely.
 #[derive(Debug)]
 pub struct PingPongTextures {
+    /// The two textures for ping-pong operations
+    textures: [Texture; 2],
     /// The two texture views for ping-pong operations
     views: [TextureView; 2],
     /// Index of the currently active texture (0 or 1)
@@ -49,6 +51,7 @@ impl PingPongTextures {
         let view_b = texture_b.create_view(&wgpu::TextureViewDescriptor::default());
 
         Self {
+            textures: [texture_a, texture_b],
             views: [view_a, view_b],
             current: 0,
         }
@@ -82,5 +85,20 @@ impl PingPongTextures {
         } else {
             bg_b
         }
+    }
+
+    /// Get the currently active texture
+    pub fn current_texture(&self) -> &Texture {
+        &self.textures[self.current]
+    }
+
+    /// Get both textures (useful for initialization)
+    pub fn textures(&self) -> &[Texture; 2] {
+        &self.textures
+    }
+
+    /// Get both texture views (useful for bind group creation)
+    pub fn views(&self) -> &[TextureView; 2] {
+        &self.views
     }
 }

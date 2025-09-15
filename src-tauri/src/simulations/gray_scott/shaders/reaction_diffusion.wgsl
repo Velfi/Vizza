@@ -23,8 +23,8 @@ struct UVPair {
 }
 
 
-@group(0) @binding(0) var<storage, read> uvs_in: array<UVPair>;
-@group(0) @binding(1) var<storage, read_write> uvs_out: array<UVPair>;
+@group(0) @binding(0) var uvs_in: texture_storage_2d<rgba32float, read>;
+@group(0) @binding(1) var uvs_out: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(2) var<uniform> params: SimulationParams;
 // Optional image-driven nutrient pattern (bound only when used)
 @group(0) @binding(3) var<storage, read> gradient_map: array<f32>;
@@ -39,39 +39,55 @@ fn get_index(x: i32, y: i32) -> u32 {
 
 
 fn get_laplacian(x: i32, y: i32) -> vec2<f32> {
-    let idx = get_index(x, y);
-    let current = uvs_in[idx];
+    let width = i32(params.width);
+    let height = i32(params.height);
+    let wrapped_x = (x + width) % width;
+    let wrapped_y = (y + height) % height;
+    
+    let current_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, wrapped_y));
+    let current = current_sample.xy; // Extract only the first two components (RG -> UV)
     
     var laplacian = vec2<f32>(0.0);
     
     // Center weight
-    laplacian -= vec2<f32>(current.u, current.v) * 1.0;
+    laplacian -= current * 1.0;
     
     // Cardinal directions (weight 0.2) - batch the lookups for better performance
-    let left_idx = get_index(x - 1, y);
-    let right_idx = get_index(x + 1, y);
-    let up_idx = get_index(x, y - 1);
-    let down_idx = get_index(x, y + 1);
+    let left_x = (x - 1 + width) % width;
+    let right_x = (x + 1 + width) % width;
+    let up_y = (y - 1 + height) % height;
+    let down_y = (y + 1 + height) % height;
     
-    let left = uvs_in[left_idx];
-    let right = uvs_in[right_idx];
-    let up = uvs_in[up_idx];
-    let down = uvs_in[down_idx];
+    let left_sample = textureLoad(uvs_in, vec2<i32>(left_x, wrapped_y));
+    let right_sample = textureLoad(uvs_in, vec2<i32>(right_x, wrapped_y));
+    let up_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, up_y));
+    let down_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, down_y));
     
-    laplacian += vec2<f32>(left.u, left.v) * 0.2;
-    laplacian += vec2<f32>(right.u, right.v) * 0.2;
-    laplacian += vec2<f32>(up.u, up.v) * 0.2;
-    laplacian += vec2<f32>(down.u, down.v) * 0.2;
+    let left = left_sample.xy;
+    let right = right_sample.xy;
+    let up = up_sample.xy;
+    let down = down_sample.xy;
+    
+    laplacian += left * 0.2;
+    laplacian += right * 0.2;
+    laplacian += up * 0.2;
+    laplacian += down * 0.2;
     
     // Restore all diagonal directions for symmetric diffusion
-    let up_left = uvs_in[get_index(x - 1, y - 1)];
-    let up_right = uvs_in[get_index(x + 1, y - 1)];
-    let down_left = uvs_in[get_index(x - 1, y + 1)];
-    let down_right = uvs_in[get_index(x + 1, y + 1)];
-    laplacian += vec2<f32>(up_left.u, up_left.v) * 0.05;
-    laplacian += vec2<f32>(up_right.u, up_right.v) * 0.05;
-    laplacian += vec2<f32>(down_left.u, down_left.v) * 0.05;
-    laplacian += vec2<f32>(down_right.u, down_right.v) * 0.05;
+    let up_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y - 1 + height) % height));
+    let up_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y - 1 + height) % height));
+    let down_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y + 1 + height) % height));
+    let down_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y + 1 + height) % height));
+    
+    let up_left = up_left_sample.xy;
+    let up_right = up_right_sample.xy;
+    let down_left = down_left_sample.xy;
+    let down_right = down_right_sample.xy;
+    
+    laplacian += up_left * 0.05;
+    laplacian += up_right * 0.05;
+    laplacian += down_left * 0.05;
+    laplacian += down_right * 0.05;
     
     return laplacian;
 }
@@ -197,33 +213,41 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         return;
     }
     
-    let idx = get_index(x, y);
+    let width = i32(params.width);
+    let height = i32(params.height);
+    let wrapped_x = (x + width) % width;
+    let wrapped_y = (y + height) % height;
     
-    let uv = uvs_in[idx];
-    let reaction_rate = uv.u * uv.v * uv.v;
+    let uv_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, wrapped_y));
+    let uv = uv_sample.xy; // Extract only the first two components (RG -> UV)
+    let reaction_rate = uv.x * uv.y * uv.y;
     
     let laplacian = get_laplacian(x, y);
     let nutrient_factor = get_nutrient_factor(x, y);
     
-    // Always use adaptive timestep for better stability
-    let effective_timestep = calculate_adaptive_timestep(
-        params.delta_u,
-        params.delta_v,
-        params.feed_rate,
-        params.kill_rate,
-        params.stability_factor
-    );
+    // Use adaptive timestep only if enabled, otherwise use the user-specified timestep
+    var effective_timestep: f32;
+    if (params.enable_adaptive_timestep != 0u) {
+        effective_timestep = calculate_adaptive_timestep(
+            params.delta_u,
+            params.delta_v,
+            params.feed_rate,
+            params.kill_rate,
+            params.stability_factor
+        );
+    } else {
+        effective_timestep = params.timestep;
+    }
     
     // Incorporate nutrient factor into the feed rate
     // Map nutrient factor from [0,1] to [0.5,1.0] for feed rate scaling
     let effective_feed_rate = params.feed_rate * (0.5 + nutrient_factor * 0.5);
     
-    let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.u);
-    let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.v;
+    let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.x);
+    let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.y;
     
-    let new_u = clamp(uv.u + delta_u * effective_timestep, 0.0, 1.0);
-    let new_v = clamp(uv.v + delta_v * effective_timestep, 0.0, 1.0);
+    let new_u = clamp(uv.x + delta_u * effective_timestep, 0.0, 1.0);
+    let new_v = clamp(uv.y + delta_v * effective_timestep, 0.0, 1.0);
     
-    let new_uv = UVPair(new_u, new_v);
-    uvs_out[idx] = new_uv;
+    textureStore(uvs_out, vec2<i32>(wrapped_x, wrapped_y), vec4<f32>(new_u, new_v, 0.0, 0.0));
 } 

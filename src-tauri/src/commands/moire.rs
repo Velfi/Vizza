@@ -70,25 +70,7 @@ pub async fn randomize_moire_settings(
     }
 }
 
-#[tauri::command]
-pub async fn reset_moire_flow(
-    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
-    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
-) -> Result<String, String> {
-    tracing::debug!("reset_moire_flow called");
-    let mut sim_manager = manager.lock().await;
-    let gpu_ctx = gpu_context.lock().await;
-
-    if let Some(SimulationType::Moire(simulation)) = &mut sim_manager.current_simulation {
-        simulation
-            .reset_flow(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to reset flow: {}", e))?;
-        tracing::info!("Moiré flow reset");
-        Ok("Moiré flow reset successfully".to_string())
-    } else {
-        Err("This command is only available for Moiré simulation".to_string())
-    }
-}
+// reset_moire_flow command removed
 
 #[tauri::command]
 pub async fn load_moire_image(

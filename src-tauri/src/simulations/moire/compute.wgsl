@@ -29,6 +29,7 @@ struct Params {
     // Flags
     image_loaded: f32,
     image_mode_enabled: f32,
+    image_interference_mode: f32, // 0=Replace, 1=Add, 2=Multiply, 3=Overlay, 4=Mask, 5=Modulate
 }
 
 
@@ -231,9 +232,34 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     // Enhanced advection with multiple sampling points for better flow
     let current_uv = coords / dims;
     
-    // If image mode is enabled and an image is loaded, use it for intensity
+    // If image mode is enabled and an image is loaded, apply interference
     if (params.image_mode_enabled > 0.5 && params.image_loaded > 0.5) {
-        base_intensity = sample_image_intensity(current_uv);
+        let image_intensity = sample_image_intensity(current_uv);
+        
+        // Apply different interference modes
+        if (params.image_interference_mode < 0.5) {
+            // Replace mode - current behavior
+            base_intensity = image_intensity;
+        } else if (params.image_interference_mode < 1.5) {
+            // Add mode - add image to moiré pattern
+            base_intensity = clamp(base_intensity + image_intensity, 0.0, 1.0);
+        } else if (params.image_interference_mode < 2.5) {
+            // Multiply mode - multiply image with moiré pattern
+            base_intensity = base_intensity * image_intensity;
+        } else if (params.image_interference_mode < 3.5) {
+            // Overlay mode - complex blending that preserves highlights and shadows
+            if (base_intensity < 0.5) {
+                base_intensity = 2.0 * base_intensity * image_intensity;
+            } else {
+                base_intensity = 1.0 - 2.0 * (1.0 - base_intensity) * (1.0 - image_intensity);
+            }
+        } else if (params.image_interference_mode < 4.5) {
+            // Mask mode - use image as mask for moiré pattern
+            base_intensity = base_intensity * image_intensity;
+        } else {
+            // Modulate mode - use image to modulate moiré intensity
+            base_intensity = base_intensity * (0.5 + image_intensity * 0.5);
+        }
     }
 
     let final_intensity = clamp(base_intensity + spatial_variation + time_variation, 0.0, 1.0);

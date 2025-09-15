@@ -1,8 +1,8 @@
 // GPU-based noise seeding shader for Gray-Scott simulation
-// Based on the standalone implementation optimizations
+// Writes directly to an RGBA32F storage texture used by the simulation.
 
 @group(0) @binding(0)
-var<storage, read_write> uvs_data: array<vec2<f32>>;
+var uvs_texture: texture_storage_2d<rgba32float, write>;
 
 @group(0) @binding(1)
 var<uniform> params: SimulationParams;
@@ -61,8 +61,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
     
-    let index = y * params.width + x;
-    
     // Generate noise using spatial coordinates
     let noise_value = fbm_noise(x, y, params.seed);
     
@@ -71,9 +69,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Seed reaction areas with high V concentration
         let u_val = 0.2 + noise_value * 0.3;
         let v_val = 0.8 + noise_value * 0.2;
-        uvs_data[index] = vec2<f32>(u_val, v_val);
+        textureStore(uvs_texture, vec2<i32>(i32(x), i32(y)), vec4<f32>(u_val, v_val, 0.0, 0.0));
     } else {
         // Default empty state
-        uvs_data[index] = vec2<f32>(1.0, 0.0);
+        textureStore(uvs_texture, vec2<i32>(i32(x), i32(y)), vec4<f32>(1.0, 0.0, 0.0, 0.0));
     }
 }

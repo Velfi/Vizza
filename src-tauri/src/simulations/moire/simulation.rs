@@ -58,6 +58,7 @@ struct Params {
     decay: f32,
     image_loaded: f32,
     image_mode_enabled: f32,
+    image_interference_mode: f32,
 }
 
 #[repr(C)]
@@ -463,51 +464,7 @@ impl MoireModel {
         })
     }
 
-    pub fn reset_flow(&self, device: &Arc<Device>, queue: &Arc<Queue>) -> SimulationResult<()> {
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Moiré Reset Flow"),
-        });
-
-        // Clear both textures
-        {
-            let _clear_pass1 = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass 1"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.simulation_textures.current_view(),
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
-
-        {
-            let _clear_pass2 = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass 2"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.simulation_textures.inactive_view(),
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
-
-        queue.submit([encoder.finish()]);
-        Ok(())
-    }
+    // reset_flow removed
 
     fn update_params(&self, queue: &Arc<Queue>) {
         let generator_type = match self.settings.generator_type {
@@ -541,6 +498,14 @@ impl MoireModel {
                 1.0
             } else {
                 0.0
+            },
+            image_interference_mode: match self.settings.image_interference_mode {
+                super::settings::ImageInterferenceMode::Replace => 0.0,
+                super::settings::ImageInterferenceMode::Add => 1.0,
+                super::settings::ImageInterferenceMode::Multiply => 2.0,
+                super::settings::ImageInterferenceMode::Overlay => 3.0,
+                super::settings::ImageInterferenceMode::Mask => 4.0,
+                super::settings::ImageInterferenceMode::Modulate => 5.0,
             },
         };
 
@@ -1144,8 +1109,7 @@ impl Simulation for MoireModel {
             ],
         });
 
-        // Clear the new textures
-        self.reset_flow(device, queue)?;
+        // reset_flow removed: no action needed
 
         // Reprocess image to match new size if present
         if self.image_original.is_some() {
@@ -1174,20 +1138,33 @@ impl Simulation for MoireModel {
     fn apply_settings(
         &mut self,
         settings: serde_json::Value,
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
+        let old_settings = self.settings.clone();
         self.settings = serde_json::from_value(settings)?;
+        
+        // If image-related settings changed and an image is loaded, reprocess it
+        if self.image_original.is_some() {
+            let image_settings_changed = 
+                old_settings.image_fit_mode != self.settings.image_fit_mode ||
+                old_settings.image_mirror_horizontal != self.settings.image_mirror_horizontal ||
+                old_settings.image_invert_tone != self.settings.image_invert_tone;
+            
+            if image_settings_changed {
+                self.reprocess_image_with_current_fit_mode(device, queue)?;
+            }
+        }
+        
         Ok(())
     }
 
     fn reset_runtime_state(
         &mut self,
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
+        _device: &Arc<Device>,
+        _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         self.time = 0.0;
-        self.reset_flow(device, queue)?;
         Ok(())
     }
 
@@ -1232,8 +1209,8 @@ impl Simulation for MoireModel {
         &mut self,
         setting_name: &str,
         value: serde_json::Value,
-        _device: &Arc<Device>,
-        _queue: &Arc<Queue>,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         match setting_name {
             "speed" => self.settings.speed = value.as_f64().unwrap() as f32,
@@ -1266,12 +1243,41 @@ impl Simulation for MoireModel {
                 let s = value.as_str().unwrap_or("Stretch");
                 self.settings.image_fit_mode = s.parse::<super::settings::GradientImageFitMode>()
                     .map_err(|e| format!("Invalid image_fit_mode: {}", e))?;
+                // Reprocess existing image with new fit mode if an image is loaded
+                if self.image_original.is_some() {
+                    self.reprocess_image_with_current_fit_mode(device, queue)?;
+                }
             }
             "image_mirror_horizontal" => {
-                self.settings.image_mirror_horizontal = value.as_bool().unwrap_or(false)
+                self.settings.image_mirror_horizontal = value.as_bool().unwrap_or(false);
+                // Reprocess existing image with new mirror setting if an image is loaded
+                if self.image_original.is_some() {
+                    self.reprocess_image_with_current_fit_mode(device, queue)?;
+                }
             }
             "image_invert_tone" => {
-                self.settings.image_invert_tone = value.as_bool().unwrap_or(false)
+                self.settings.image_invert_tone = value.as_bool().unwrap_or(false);
+                // Reprocess existing image with new invert setting if an image is loaded
+                if self.image_original.is_some() {
+                    self.reprocess_image_with_current_fit_mode(device, queue)?;
+                }
+            }
+            "image_interference_mode" => {
+                let s = value.as_str().unwrap_or("Replace");
+                self.settings.image_interference_mode = s.parse::<super::settings::ImageInterferenceMode>()
+                    .map_err(|e| format!("Invalid image_interference_mode: {}", e))?;
+            }
+            "color_scheme_reversed" => {
+                if let Some(reversed) = value.as_bool() {
+                    self.color_scheme_reversed = reversed;
+                    // Reload the current color scheme with the new reversal state
+                    if let Ok(mut lut_data) = self.color_scheme_manager.get(&self.current_color_scheme) {
+                        if self.color_scheme_reversed {
+                            lut_data.reverse();
+                        }
+                        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data.to_u32_buffer()));
+                    }
+                }
             }
             _ => return Err(format!("Unknown setting: {}", setting_name).into()),
         }

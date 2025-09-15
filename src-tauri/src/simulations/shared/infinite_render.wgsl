@@ -22,15 +22,17 @@ var<uniform> texture_render_params: RenderParams;
 
 
 
-// Gray Scott uses storage buffers instead of textures
+// Gray Scott uses textures instead of storage buffers
 @group(0) @binding(3)
-var<storage, read> simulation_data: array<UVPair>;
+var simulation_data: texture_2d<f32>;
 @group(0) @binding(4)
-var<storage, read> lut_data: array<u32>;
+var simulation_sampler: sampler;
 @group(0) @binding(5)
+var<storage, read> lut_data: array<u32>;
+@group(0) @binding(6)
 var<uniform> params: SimulationParams;
 
-@group(0) @binding(6)
+@group(0) @binding(7)
 var<uniform> render_params: RenderParams;
 
 @group(1) @binding(0)
@@ -208,46 +210,33 @@ fn lanczos_kernel(x: f32, a: f32) -> f32 {
     return (sin(x_pi) * sin(x_pi_a)) / (x_pi * x_pi_a);
 }
 
-// Fragment shader for storage buffer-based simulations (Gray Scott)
+// Convert from sRGB (gamma-corrected) to linear RGB
+fn srgb_to_linear(srgb: f32) -> f32 {
+    if (srgb <= 0.04045) {
+        return srgb / 12.92;
+    } else {
+        return pow((srgb + 0.055) / 1.055, 2.4);
+    }
+}
+
+// Fragment shader for texture-based simulations (Gray Scott)
 fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
-    // Calculate exact texture coordinates
-    let tex_x = in.uv.x * f32(params.width);
-    let tex_y = in.uv.y * f32(params.height);
-    
     var u_interpolated: f32;
     
     if (render_params.filtering_mode == 0u) {
         // Nearest neighbor
-        let tex_x_int = u32(floor(tex_x));
-        let tex_y_int = u32(floor(tex_y));
-        let index = tex_y_int * params.width + tex_x_int;
-        let uv_pair = simulation_data[index];
-        u_interpolated = uv_pair.u;
+        let sample = textureSample(simulation_data, simulation_sampler, in.uv);
+        u_interpolated = sample.x; // R channel contains u value
     } else if (render_params.filtering_mode == 1u) {
-        // Bilinear interpolation
-        let x0 = u32(floor(tex_x));
-        let y0 = u32(floor(tex_y));
-        let x1 = min(x0 + 1u, params.width - 1u);
-        let y1 = min(y0 + 1u, params.height - 1u);
-        
-        let fx = fract(tex_x);
-        let fy = fract(tex_y);
-        
-        let index00 = y0 * params.width + x0;
-        let index01 = y0 * params.width + x1;
-        let index10 = y1 * params.width + x0;
-        let index11 = y1 * params.width + x1;
-        
-        let u00 = simulation_data[index00].u;
-        let u01 = simulation_data[index01].u;
-        let u10 = simulation_data[index10].u;
-        let u11 = simulation_data[index11].u;
-        
-        let u0 = mix(u00, u01, fx);
-        let u1 = mix(u10, u11, fx);
-        u_interpolated = mix(u0, u1, fy);
+        // Linear (bilinear interpolation)
+        let sample = textureSample(simulation_data, simulation_sampler, in.uv);
+        u_interpolated = sample.x; // R channel contains u value
     } else {
         // Lanczos filtering
+        let tex_dims = textureDimensions(simulation_data);
+        let tex_x = in.uv.x * f32(tex_dims.x);
+        let tex_y = in.uv.y * f32(tex_dims.y);
+        
         let lanczos_a = 2.0; // Lanczos window size
         let radius = i32(lanczos_a);
         
@@ -261,8 +250,8 @@ fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
                 let sample_y = i32(floor(tex_y)) + dy;
                 
                 // Clamp to texture bounds
-                let clamped_x = u32(clamp(f32(sample_x), 0.0, f32(params.width - 1u)));
-                let clamped_y = u32(clamp(f32(sample_y), 0.0, f32(params.height - 1u)));
+                let clamped_x = u32(clamp(f32(sample_x), 0.0, f32(tex_dims.x - 1u)));
+                let clamped_y = u32(clamp(f32(sample_y), 0.0, f32(tex_dims.y - 1u)));
                 
                 // Calculate distance from target pixel
                 let dist_x = (f32(sample_x) - tex_x);
@@ -274,9 +263,12 @@ fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
                 let weight = weight_x * weight_y;
                 
                 // Sample the pixel
-                let index = clamped_y * params.width + clamped_x;
-                let uv_pair = simulation_data[index];
-                let u = uv_pair.u;
+                let sample_uv = vec2<f32>(
+                    f32(clamped_x) / f32(tex_dims.x),
+                    f32(clamped_y) / f32(tex_dims.y)
+                );
+                let sample = textureSample(simulation_data, simulation_sampler, sample_uv);
+                let u = sample.x; // R channel contains u value
                 
                 u_sum += u * weight;
                 weight_sum += weight;
@@ -289,9 +281,14 @@ fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
     
     // Use interpolated u value for LUT lookup
     let lut_index = u32(clamp(u_interpolated * 255.0, 0.0, 255.0));
-    let r = f32(lut_data[lut_index]) / 255.0;
-    let g = f32(lut_data[lut_index + 256u]) / 255.0;
-    let b = f32(lut_data[lut_index + 512u]) / 255.0;
+    let r_srgb = f32(lut_data[lut_index]) / 255.0;
+    let g_srgb = f32(lut_data[lut_index + 256u]) / 255.0;
+    let b_srgb = f32(lut_data[lut_index + 512u]) / 255.0;
+    
+    // Convert from sRGB to linear RGB
+    let r = srgb_to_linear(r_srgb);
+    let g = srgb_to_linear(g_srgb);
+    let b = srgb_to_linear(b_srgb);
     let a = 1.0;
     
     let base_color = vec4<f32>(r, g, b, a);

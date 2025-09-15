@@ -62,10 +62,10 @@
                     <NumberDragBox
                         id="simulation-resolution-scale"
                         value={settings.simulation_resolution_scale}
-                        min={0.1}
+                        min={0.01}
                         max={10.0}
                         step={0.01}
-                        precision={3}
+                        precision={2}
                         on:change={(event) =>
                             updateSetting('simulation_resolution_scale', event.detail)}
                     />
@@ -108,22 +108,17 @@
                         <div class="cursor-settings-header">
                             <span>🎯 Cursor Settings</span>
                         </div>
-                        {#if cursorSize > 0.3}
-                            <div class="control-group">
-                                <span class="warning-text">⚠️ Large cursor sizes may cause performance issues</span>
-                            </div>
-                        {/if}
                         <CursorConfig
                             {cursorSize}
                             {cursorStrength}
                             sizeMin={0.01}
-                            sizeMax={0.5}
+                            sizeMax={1.0}
                             sizeStep={0.01}
-                            strengthMin={0.1}
-                            strengthMax={2.0}
-                            strengthStep={0.1}
+                            strengthMin={0.01}
+                            strengthMax={1.0}
+                            strengthStep={0.01}
                             sizePrecision={2}
-                            strengthPrecision={1}
+                            strengthPrecision={2}
                             on:sizechange={async (e) => {
                                 try {
                                     cursorSize = e.detail;
