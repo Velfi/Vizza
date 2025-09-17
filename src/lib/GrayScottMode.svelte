@@ -529,7 +529,7 @@
             await invoke('resume_simulation');
             running = true;
             currentFps = 0;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -552,7 +552,7 @@
 
             // Immediately render a frame to show the triangle instead of last simulation frame
             await invoke('render_frame');
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });

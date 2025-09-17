@@ -51,7 +51,7 @@ fn fbm_noise(x: u32, y: u32, seed: u32) -> f32 {
     return result;
 }
 
-@compute @workgroup_size(8, 8)
+@compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x = global_id.x;
     let y = global_id.y;

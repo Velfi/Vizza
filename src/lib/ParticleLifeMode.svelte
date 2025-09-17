@@ -776,7 +776,7 @@
         try {
             await invoke('pause_simulation');
             isSimulationRunning = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running: isSimulationRunning });
@@ -792,7 +792,7 @@
         try {
             await invoke('resume_simulation');
             isSimulationRunning = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running: isSimulationRunning });

@@ -32,6 +32,47 @@
                 </svg>
             </button>
 
+            <button
+                class="music-button"
+                on:click={() => (showMusicModal = true)}
+                aria-label="Music Settings"
+                title="Music Settings"
+            >
+                <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                >
+                    <path
+                        d="M9 18V5l12-2v13"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></path>
+                    <circle
+                        cx="6"
+                        cy="18"
+                        r="3"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></circle>
+                    <circle
+                        cx="18"
+                        cy="16"
+                        r="3"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></circle>
+                </svg>
+            </button>
+
             <button class="quit-button" on:click={quitApp} aria-label="Quit" title="Quit">
                 <svg
                     width="48"
@@ -140,15 +181,21 @@
     </div>
 </div>
 
+{#if showMusicModal}
+    <MusicModal on:close={() => (showMusicModal = false)} />
+{/if}
+
 <script lang="ts">
     import { createEventDispatcher, onMount, onDestroy } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { getCurrentWindow } from '@tauri-apps/api/window';
 
     import logo from '../assets/NewLogo.png';
+    import MusicModal from './components/shared/MusicModal.svelte';
 
     const dispatch = createEventDispatcher();
     let renderLoopId: number | null = null;
+    let showMusicModal = false;
 
     function selectSimulation(simulation: string) {
         dispatch('navigate', simulation);
@@ -345,6 +392,32 @@
     }
 
     .settings-button:active {
+        transform: scale(0.95);
+    }
+
+    .music-button {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 50%;
+        width: 72px;
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 2.5rem;
+        color: rgba(255, 255, 255, 0.9);
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+    }
+
+    .music-button:hover {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.4);
+        transform: scale(1.1);
+    }
+
+    .music-button:active {
         transform: scale(0.95);
     }
 

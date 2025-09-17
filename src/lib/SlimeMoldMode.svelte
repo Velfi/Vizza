@@ -723,7 +723,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -738,7 +738,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -756,7 +756,6 @@
             await resumeSimulation();
         }
     }
-
 
     // Helper function to convert agent count to millions
     const toMillions = (count: number) => count / 1_000_000;

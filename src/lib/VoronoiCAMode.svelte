@@ -526,7 +526,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -541,7 +541,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -773,7 +773,6 @@
             console.error('Failed to update time scale:', e);
         }
     }
-
 
     onMount(() => {
         // Initialize auto-hide manager

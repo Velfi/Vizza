@@ -46,50 +46,66 @@ fn get_laplacian(x: i32, y: i32) -> vec2<f32> {
     
     let current_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, wrapped_y));
     let current = current_sample.xy; // Extract only the first two components (RG -> UV)
-    
-    var laplacian = vec2<f32>(0.0);
-    
-    // Center weight
-    laplacian -= current * 1.0;
-    
-    // Cardinal directions (weight 0.2) - batch the lookups for better performance
+    // Isotropic 9-point Laplacian approximation:
+    // (1 4 1; 4 -20 4; 1 4 1) / 6, applied per-channel (U and V)
     let left_x = (x - 1 + width) % width;
     let right_x = (x + 1 + width) % width;
     let up_y = (y - 1 + height) % height;
     let down_y = (y + 1 + height) % height;
-    
-    let left_sample = textureLoad(uvs_in, vec2<i32>(left_x, wrapped_y));
-    let right_sample = textureLoad(uvs_in, vec2<i32>(right_x, wrapped_y));
-    let up_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, up_y));
-    let down_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, down_y));
-    
-    let left = left_sample.xy;
-    let right = right_sample.xy;
-    let up = up_sample.xy;
-    let down = down_sample.xy;
-    
-    laplacian += left * 0.2;
-    laplacian += right * 0.2;
-    laplacian += up * 0.2;
-    laplacian += down * 0.2;
-    
-    // Restore all diagonal directions for symmetric diffusion
-    let up_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y - 1 + height) % height));
-    let up_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y - 1 + height) % height));
-    let down_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y + 1 + height) % height));
-    let down_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y + 1 + height) % height));
-    
-    let up_left = up_left_sample.xy;
-    let up_right = up_right_sample.xy;
-    let down_left = down_left_sample.xy;
-    let down_right = down_right_sample.xy;
-    
-    laplacian += up_left * 0.05;
-    laplacian += up_right * 0.05;
-    laplacian += down_left * 0.05;
-    laplacian += down_right * 0.05;
-    
-    return laplacian;
+
+    let left = textureLoad(uvs_in, vec2<i32>(left_x, wrapped_y)).xy;
+    let right = textureLoad(uvs_in, vec2<i32>(right_x, wrapped_y)).xy;
+    let up = textureLoad(uvs_in, vec2<i32>(wrapped_x, up_y)).xy;
+    let down = textureLoad(uvs_in, vec2<i32>(wrapped_x, down_y)).xy;
+
+    let up_left = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y - 1 + height) % height)).xy;
+    let up_right = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y - 1 + height) % height)).xy;
+    let down_left = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y + 1 + height) % height)).xy;
+    let down_right = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y + 1 + height) % height)).xy;
+
+    let neighbors4 = left + right + up + down;
+    let neighbors_diag = up_left + up_right + down_left + down_right;
+
+    let isotropic = (4.0 * neighbors4 + neighbors_diag - 20.0 * current) / 6.0;
+
+    // Conservative scaling to preserve similar overall diffusion strength
+    return isotropic * 0.30;
+}
+
+// --- Gaussian diffusion helpers ---
+// 5x5 Gaussian blur per-channel with wrap addressing.
+// Uses σ derived from diffusion: σ² ≈ 2 * D * dt (in pixel units).
+fn gaussian_blur_component(x: i32, y: i32, sigma: f32, channel: u32) -> f32 {
+    let width = i32(params.width);
+    let height = i32(params.height);
+
+    // Avoid division by zero / extremely sharp kernel
+    let sigma_safe = max(sigma, 0.001);
+    let inv_sigma2 = 1.0 / (sigma_safe * sigma_safe);
+
+    // 1D weights for offsets 0,1,2
+    var w: array<f32, 3>;
+    w[0] = 1.0;
+    w[1] = exp(-0.5 * (1.0 * 1.0) * inv_sigma2);
+    w[2] = exp(-0.5 * (2.0 * 2.0) * inv_sigma2);
+    let norm = w[0] + 2.0 * (w[1] + w[2]);
+    w[0] = w[0] / norm;
+    w[1] = w[1] / norm;
+    w[2] = w[2] / norm;
+
+    var acc = 0.0;
+    for (var oy = -2; oy <= 2; oy = oy + 1) {
+        let wy = w[u32(abs(oy))];
+        let yy = (y + oy + height) % height;
+        for (var ox = -2; ox <= 2; ox = ox + 1) {
+            let wx = w[u32(abs(ox))];
+            let xx = (x + ox + width) % width;
+            let s = textureLoad(uvs_in, vec2<i32>(xx, yy));
+            let v = select(s.y, s.x, channel == 0u);
+            acc = acc + (wx * wy) * v;
+        }
+    }
+    return acc;
 }
 
 fn hash(n: u32) -> f32 {
@@ -202,8 +218,7 @@ fn calculate_adaptive_timestep(delta_u: f32, delta_v: f32, feed_rate: f32, kill_
 
 
 
-// Balanced workgroup size for better GPU utilization and stability
-// 16x16 provides good balance between performance and numerical stability
+// Use 16x16 workgroup to avoid visible grid artifacts
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>) {
     let x = i32(global_id.x);
@@ -220,9 +235,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     
     let uv_sample = textureLoad(uvs_in, vec2<i32>(wrapped_x, wrapped_y));
     let uv = uv_sample.xy; // Extract only the first two components (RG -> UV)
-    let reaction_rate = uv.x * uv.y * uv.y;
-    
-    let laplacian = get_laplacian(x, y);
     let nutrient_factor = get_nutrient_factor(x, y);
     
     // Use adaptive timestep only if enabled, otherwise use the user-specified timestep
@@ -242,12 +254,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     // Incorporate nutrient factor into the feed rate
     // Map nutrient factor from [0,1] to [0.5,1.0] for feed rate scaling
     let effective_feed_rate = params.feed_rate * (0.5 + nutrient_factor * 0.5);
-    
-    let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.x);
-    let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.y;
-    
-    let new_u = clamp(uv.x + delta_u * effective_timestep, 0.0, 1.0);
-    let new_v = clamp(uv.y + delta_v * effective_timestep, 0.0, 1.0);
+
+    // Gaussian diffusion step (operator splitting):
+    // Perform exact diffusion over dt via Gaussian blur with σ^2 = 2 D dt
+    let sigma_u = sqrt(max(2.0 * params.delta_u * effective_timestep, 0.0));
+    let sigma_v = sqrt(max(2.0 * params.delta_v * effective_timestep, 0.0));
+    let u_diff = gaussian_blur_component(wrapped_x, wrapped_y, sigma_u, 0u);
+    let v_diff = gaussian_blur_component(wrapped_x, wrapped_y, sigma_v, 1u);
+    let uv_diff = vec2<f32>(u_diff, v_diff);
+
+    // Reaction step using diffused concentrations
+    let reaction_rate = uv_diff.x * uv_diff.y * uv_diff.y;
+    let du_react = -reaction_rate + effective_feed_rate * (1.0 - uv_diff.x);
+    let dv_react =  reaction_rate - (params.kill_rate + effective_feed_rate) * uv_diff.y;
+
+    let new_u = clamp(uv_diff.x + du_react * effective_timestep, 0.0, 1.0);
+    let new_v = clamp(uv_diff.y + dv_react * effective_timestep, 0.0, 1.0);
     
     textureStore(uvs_out, vec2<i32>(wrapped_x, wrapped_y), vec4<f32>(new_u, new_v, 0.0, 0.0));
 } 

@@ -32,6 +32,7 @@
                 <span class="info-text">
                     {simulationName} at {currentFps} FPS
                 </span>
+                <Button variant="default" on:click={() => dispatch('openMusic')}>♫ Music</Button>
             </div>
         {/if}
     </div>
@@ -81,6 +82,7 @@
                 <span class="info-text">
                     {simulationName} at {currentFps} FPS
                 </span>
+                <Button variant="default" on:click={() => dispatch('openMusic')}>♫ Music</Button>
             </div>
         {/if}
     </div>

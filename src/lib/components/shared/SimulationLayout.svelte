@@ -27,11 +27,16 @@
         on:reset={handleReset}
         on:randomize={handleRandomize}
         on:userInteraction={handleUserInteraction}
+        on:openMusic={() => (showMusicModal = true)}
     />
 
     <SimulationMenuContainer position={menuPosition} {showUI}>
         <slot />
     </SimulationMenuContainer>
+
+    {#if showMusicModal}
+        <MusicModal on:close={() => (showMusicModal = false)} />
+    {/if}
 
     <!-- Loading Screen -->
     {#if loading}
@@ -49,6 +54,7 @@
     import { createEventDispatcher, onMount, onDestroy } from 'svelte';
     import SimulationControlBar from './SimulationControlBar.svelte';
     import SimulationMenuContainer from './SimulationMenuContainer.svelte';
+    import MusicModal from './MusicModal.svelte';
 
     const dispatch = createEventDispatcher();
 
@@ -64,6 +70,7 @@
     export let controlModeButton: import('svelte').Snippet | undefined = undefined;
     export let showStep: boolean = false;
 
+    let showMusicModal = false;
     let isMousePressed = false;
     let currentMouseButton = 0;
 

@@ -110,9 +110,9 @@ impl NoiseSeedCompute {
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, &bind_group, &[]);
 
-            // Dispatch with 8x8 workgroup size
-            let workgroups_x = width.div_ceil(8);
-            let workgroups_y = height.div_ceil(8);
+            // Dispatch with 16x16 workgroup size
+            let workgroups_x = width.div_ceil(16);
+            let workgroups_y = height.div_ceil(16);
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 

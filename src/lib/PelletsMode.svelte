@@ -387,7 +387,6 @@
         dispatch('back');
     };
 
-
     const handleMouseEvent = async (e: CustomEvent) => {
         const event = e.detail as MouseEvent | WheelEvent;
 
@@ -695,7 +694,7 @@
                 cancelAnimationFrame(renderLoopId);
                 renderLoopId = null;
             }
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -711,7 +710,7 @@
             await invoke('resume_simulation');
             running = true;
             startRenderLoop();
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });

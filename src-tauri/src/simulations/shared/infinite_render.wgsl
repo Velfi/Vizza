@@ -22,11 +22,9 @@ var<uniform> texture_render_params: RenderParams;
 
 
 
-// Gray Scott uses textures instead of storage buffers
+// Gray Scott uses storage textures
 @group(0) @binding(3)
-var simulation_data: texture_2d<f32>;
-@group(0) @binding(4)
-var simulation_sampler: sampler;
+var simulation_data: texture_storage_2d<rgba32float, read>;
 @group(0) @binding(5)
 var<storage, read> lut_data: array<u32>;
 @group(0) @binding(6)
@@ -221,69 +219,34 @@ fn srgb_to_linear(srgb: f32) -> f32 {
 
 // Fragment shader for texture-based simulations (Gray Scott)
 fn fs_main_storage(in: VertexOutput) -> vec4<f32> {
-    var u_interpolated: f32;
+    // Convert UV coordinates to texture pixel coordinates
+    let tex_dims = textureDimensions(simulation_data);
+    let tex_x = i32(floor(in.uv.x * f32(tex_dims.x)));
+    let tex_y = i32(floor(in.uv.y * f32(tex_dims.y)));
     
-    if (render_params.filtering_mode == 0u) {
-        // Nearest neighbor
-        let sample = textureSample(simulation_data, simulation_sampler, in.uv);
-        u_interpolated = sample.x; // R channel contains u value
-    } else if (render_params.filtering_mode == 1u) {
-        // Linear (bilinear interpolation)
-        let sample = textureSample(simulation_data, simulation_sampler, in.uv);
-        u_interpolated = sample.x; // R channel contains u value
-    } else {
-        // Lanczos filtering
-        let tex_dims = textureDimensions(simulation_data);
-        let tex_x = in.uv.x * f32(tex_dims.x);
-        let tex_y = in.uv.y * f32(tex_dims.y);
-        
-        let lanczos_a = 2.0; // Lanczos window size
-        let radius = i32(lanczos_a);
-        
-        var u_sum = 0.0;
-        var weight_sum = 0.0;
-        
-        // Sample in a radius around the target pixel
-        for (var dy = -radius; dy <= radius; dy++) {
-            for (var dx = -radius; dx <= radius; dx++) {
-                let sample_x = i32(floor(tex_x)) + dx;
-                let sample_y = i32(floor(tex_y)) + dy;
-                
-                // Clamp to texture bounds
-                let clamped_x = u32(clamp(f32(sample_x), 0.0, f32(tex_dims.x - 1u)));
-                let clamped_y = u32(clamp(f32(sample_y), 0.0, f32(tex_dims.y - 1u)));
-                
-                // Calculate distance from target pixel
-                let dist_x = (f32(sample_x) - tex_x);
-                let dist_y = (f32(sample_y) - tex_y);
-                
-                // Calculate Lanczos weights
-                let weight_x = lanczos_kernel(dist_x, lanczos_a);
-                let weight_y = lanczos_kernel(dist_y, lanczos_a);
-                let weight = weight_x * weight_y;
-                
-                // Sample the pixel
-                let sample_uv = vec2<f32>(
-                    f32(clamped_x) / f32(tex_dims.x),
-                    f32(clamped_y) / f32(tex_dims.y)
-                );
-                let sample = textureSample(simulation_data, simulation_sampler, sample_uv);
-                let u = sample.x; // R channel contains u value
-                
-                u_sum += u * weight;
-                weight_sum += weight;
-            }
-        }
-        
-        // Normalize by total weight
-        u_interpolated = u_sum / weight_sum;
-    }
+    // Clamp to texture bounds
+    let clamped_x = clamp(tex_x, 0, i32(tex_dims.x) - 1);
+    let clamped_y = clamp(tex_y, 0, i32(tex_dims.y) - 1);
     
-    // Use interpolated u value for LUT lookup
-    let lut_index = u32(clamp(u_interpolated * 255.0, 0.0, 255.0));
-    let r_srgb = f32(lut_data[lut_index]) / 255.0;
-    let g_srgb = f32(lut_data[lut_index + 256u]) / 255.0;
-    let b_srgb = f32(lut_data[lut_index + 512u]) / 255.0;
+    // Load the pixel directly from storage texture
+    let sample = textureLoad(simulation_data, vec2<i32>(clamped_x, clamped_y));
+    let u_interpolated = sample.x; // R channel contains u value
+    
+    // Use interpolated u value for LUT lookup with linear interpolation between stops
+    let lut_pos = clamp(u_interpolated * 255.0, 0.0, 255.0);
+    let idx0 = u32(floor(lut_pos));
+    let idx1 = min(idx0 + 1u, 255u);
+    let t = lut_pos - f32(idx0);
+
+    let r0 = f32(lut_data[idx0]) / 255.0;
+    let r1 = f32(lut_data[idx1]) / 255.0;
+    let g0 = f32(lut_data[idx0 + 256u]) / 255.0;
+    let g1 = f32(lut_data[idx1 + 256u]) / 255.0;
+    let b0 = f32(lut_data[idx0 + 512u]) / 255.0;
+    let b1 = f32(lut_data[idx1 + 512u]) / 255.0;
+    let r_srgb = mix(r0, r1, t);
+    let g_srgb = mix(g0, g1, t);
+    let b_srgb = mix(b0, b1, t);
     
     // Convert from sRGB to linear RGB
     let r = srgb_to_linear(r_srgb);

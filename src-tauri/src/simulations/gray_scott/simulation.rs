@@ -1086,6 +1086,7 @@ impl GrayScottModel {
 
             compute_pass.set_pipeline(&self.compute_pipeline);
             compute_pass.set_bind_group(0, self.simulation_textures.get_bind_group(&self.bind_groups[0], &self.bind_groups[1]), &[]);
+            // Match shader workgroup_size(16,16)
             compute_pass.dispatch_workgroups(self.width.div_ceil(16), self.height.div_ceil(16), 1);
         }
 

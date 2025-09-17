@@ -295,7 +295,8 @@
                                 max={2}
                                 step={0.01}
                                 precision={2}
-                                on:change={async (e) => updateSetting('radial_swirl_strength', e.detail)}
+                                on:change={async (e) =>
+                                    updateSetting('radial_swirl_strength', e.detail)}
                             />
                         </div>
                         <div class="setting-item">
@@ -306,7 +307,8 @@
                                 max={64}
                                 step={1}
                                 precision={0}
-                                on:change={async (e) => updateSetting('radial_starburst_count', e.detail)}
+                                on:change={async (e) =>
+                                    updateSetting('radial_starburst_count', e.detail)}
                             />
                         </div>
                         <div class="setting-item">
@@ -317,7 +319,8 @@
                                 max={3}
                                 step={0.1}
                                 precision={1}
-                                on:change={async (e) => updateSetting('radial_center_brightness', e.detail)}
+                                on:change={async (e) =>
+                                    updateSetting('radial_center_brightness', e.detail)}
                             />
                         </div>
                     </div>
@@ -525,7 +528,7 @@
     // Load current state
     async function loadState() {
         try {
-            const state = await invoke('get_current_state') as State;
+            const state = (await invoke('get_current_state')) as State;
             if (state) {
                 color_scheme_name = state.color_scheme_name;
                 color_scheme_reversed = state.color_scheme_reversed || false;
@@ -626,7 +629,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -641,7 +644,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -692,7 +695,6 @@
     onDestroy(() => {
         stopRenderLoop();
     });
-
 
     // UI control
     async function toggleBackendGui() {
