@@ -117,6 +117,11 @@
             <p>Mathematical moiré patterns with fluid advection and color schemes</p>
         </button>
 
+        <button class="simulation-card" on:click={() => selectSimulation('fluids')}>
+            <h2>Dye Advection</h2>
+            <p>Stable fluids: velocity, pressure, dye advection</p>
+        </button>
+
         <div class="about-container">
             <h2>About this program</h2>
 

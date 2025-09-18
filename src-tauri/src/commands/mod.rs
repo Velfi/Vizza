@@ -16,6 +16,7 @@ pub mod simulation;
 pub mod slime_mold;
 pub mod utility;
 pub mod voronoi_ca;
+// Fluids uses generic simulation/start; no dedicated command module yet
 
 // Re-export all command functions for easy access
 pub use app_settings::*;
