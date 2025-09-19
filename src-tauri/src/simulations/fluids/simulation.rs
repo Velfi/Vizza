@@ -366,7 +366,7 @@ impl FluidsModel {
             app_settings.texture_filtering.into(),
         );
 
-        // Use shared infinite render shader for texture sampling
+        // Use shared infinite render shader for texture sampling (fs_main_texture)
         let mut shader_mgr2 = ShaderManager::new();
         let render_shader = shader_mgr2.load_shader(
             device,
@@ -374,18 +374,13 @@ impl FluidsModel {
             crate::simulations::shared::INFINITE_RENDER_SHADER,
         );
 
+        // Minimal layout for fs_main_texture: display_tex, display_sampler, render_params
         let render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Fluids Render BGL"),
             entries: &[
                 resource_helpers::texture_entry(0, wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: true }, wgpu::TextureViewDimension::D2),
                 resource_helpers::sampler_entry(1, wgpu::ShaderStages::FRAGMENT, wgpu::SamplerBindingType::Filtering),
                 resource_helpers::uniform_buffer_entry(2, wgpu::ShaderStages::FRAGMENT),
-                // GrayScott bindings reused indices for LUT/render params, but we will bind dye texture via 3/4 here unused
-                resource_helpers::texture_entry(3, wgpu::ShaderStages::FRAGMENT, wgpu::TextureSampleType::Float { filterable: true }, wgpu::TextureViewDimension::D2),
-                resource_helpers::sampler_entry(4, wgpu::ShaderStages::FRAGMENT, wgpu::SamplerBindingType::Filtering),
-                resource_helpers::storage_buffer_entry(5, wgpu::ShaderStages::FRAGMENT, true),
-                resource_helpers::uniform_buffer_entry(6, wgpu::ShaderStages::FRAGMENT),
-                resource_helpers::uniform_buffer_entry(7, wgpu::ShaderStages::FRAGMENT),
             ],
         });
 
@@ -395,13 +390,6 @@ impl FluidsModel {
             device,
             "Fluids Render Params",
             &[filtering_mode, 0u32, 0u32, 0u32],
-        );
-
-        let lut_data = lut_manager.get_default();
-        let lut_buffer = resource_helpers::create_storage_buffer_with_data(
-            device,
-            "Fluids LUT",
-            &lut_data.to_u32_buffer(),
         );
 
         let camera_bind_group = BindGroupBuilder::new(device, &CommonBindGroupLayouts::new(device).camera)
@@ -416,24 +404,44 @@ impl FluidsModel {
                 resource_helpers::texture_view_entry(0, dye_textures.current_view()),
                 resource_helpers::sampler_bind_entry(1, &display_sampler),
                 resource_helpers::buffer_entry(2, &render_params_buffer),
-                resource_helpers::texture_view_entry(3, dye_textures.current_view()),
-                resource_helpers::sampler_bind_entry(4, &display_sampler),
-                resource_helpers::buffer_entry(5, &lut_buffer),
-                resource_helpers::buffer_entry(6, &render_params_buffer),
-                resource_helpers::buffer_entry(7, &render_params_buffer),
             ],
         });
 
-        let render_pipeline = crate::simulations::shared::RenderPipelineBuilder::new(device.clone())
-            .with_shader(render_shader)
-            .with_bind_group_layouts(vec![render_bind_group_layout.clone(), CommonBindGroupLayouts::new(device).camera.clone()])
-            .with_fragment_targets(vec![Some(wgpu::ColorTargetState {
-                format: surface_config.format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })])
-            .with_label("Fluids Render Pipeline".to_string())
-            .build();
+        // Create render pipeline that uses fs_main_texture
+        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Fluids Render Pipeline Layout"),
+            bind_group_layouts: &[
+                &render_bind_group_layout,
+                &CommonBindGroupLayouts::new(device).camera,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Fluids Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &render_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &render_shader,
+                entry_point: Some("fs_main_texture"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
 
         let renderer = Renderer::new(device, queue, surface_config)?;
 
