@@ -50,6 +50,13 @@
             on:back={goBack}
             on:navigate={(e) => navigateToMode(e.detail)}
         />
+    {:else if currentMode === 'fluids'}
+        <FlowMode
+            menuPosition={appSettings.menu_position}
+            autoHideDelay={appSettings.auto_hide_delay}
+            on:back={goBack}
+            on:navigate={(e) => navigateToMode(e.detail)}
+        />
     {:else if currentMode === 'gradient-editor'}
         <GradientEditorMode
             autoHideDelay={appSettings.auto_hide_delay}

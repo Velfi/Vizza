@@ -234,6 +234,23 @@ impl SimulationManager {
                 self.resume();
                 Ok(())
             }
+            "fluids" => {
+                // Initialize Fluids simulation
+                let settings = crate::simulations::fluids::settings::Settings::default();
+                let simulation = crate::simulations::fluids::simulation::FluidsModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    settings,
+                    &self.app_settings,
+                    &self.lut_manager,
+                )
+                .map_err(|e| format!("Failed to initialize Fluids simulation: {}", e))?;
+
+                self.current_simulation = Some(SimulationType::Fluids(Box::new(simulation)));
+                self.resume();
+                Ok(())
+            }
 
             _ => Err("Unknown simulation type".into()),
         }
