@@ -1,5 +1,5 @@
 use crate::simulation::SimulationManager;
-use crate::simulations::traits::{Simulation, SimulationType};
+use crate::simulations::traits::Simulation;
 use std::sync::Arc;
 use tauri::{Emitter, State};
 
@@ -59,15 +59,12 @@ pub async fn randomize_moire_settings(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(SimulationType::Moire(simulation)) = &mut sim_manager.current_simulation {
-        simulation
-            .randomize_settings(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to randomize settings: {}", e))?;
-        tracing::info!("Moiré settings randomized");
-        Ok("Moiré settings randomized successfully".to_string())
-    } else {
-        Err("This command is only available for Moiré simulation".to_string())
-    }
+    let simulation = sim_manager.moire_simulation_mut()?;
+    simulation
+        .randomize_settings(&gpu_ctx.device, &gpu_ctx.queue)
+        .map_err(|e| format!("Failed to randomize settings: {}", e))?;
+    tracing::info!("Moiré settings randomized");
+    Ok("Moiré settings randomized successfully".to_string())
 }
 
 // reset_moire_flow command removed
@@ -81,11 +78,45 @@ pub async fn load_moire_image(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(SimulationType::Moire(sim)) = &mut sim_manager.current_simulation {
-        sim.load_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
-            .map_err(|e| format!("Failed to load moiré image: {}", e))?;
-        Ok("Moiré image loaded successfully".to_string())
-    } else {
-        Err("This command is only available for Moiré simulation".to_string())
+    let sim = sim_manager.moire_simulation_mut()?;
+    sim.load_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
+        .map_err(|e| format!("Failed to load moiré image: {}", e))?;
+    Ok("Moiré image loaded successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn start_moire_webcam_capture(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let sim = sim_manager.moire_simulation_mut()?;
+
+    let devices = crate::simulations::shared::webcam::WebcamCapture::get_available_devices();
+    if devices.is_empty() {
+        return Err("No webcam devices available".to_string());
     }
+
+    let device_index = devices[0];
+    sim.start_webcam_capture(device_index)
+        .map_err(|e| format!("Failed to start webcam capture: {}", e))?;
+
+    Ok("Moiré webcam capture started".to_string())
+}
+
+#[tauri::command]
+pub async fn stop_moire_webcam_capture(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let sim = sim_manager.moire_simulation_mut()?;
+
+    sim.stop_webcam_capture();
+    Ok("Moiré webcam capture stopped".to_string())
+}
+
+#[tauri::command]
+pub async fn get_available_moire_webcam_devices(
+    _manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+) -> Result<Vec<i32>, String> {
+    Ok(crate::simulations::shared::webcam::WebcamCapture::get_available_devices())
 }

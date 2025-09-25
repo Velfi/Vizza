@@ -81,8 +81,15 @@ impl GrayScottValidator {
             timestep: 1.0,
             width: 1920,
             height: 1080,
-            nutrient_pattern: 0,
-            is_nutrient_pattern_reversed: 0,
+
+            // Mask system
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 0.5,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
+
             // Optimization parameters
             max_timestep: 2.0,
             stability_factor: 0.8,
@@ -128,8 +135,15 @@ impl GrayScottValidator {
             timestep: 1.0,
             width: 1920,
             height: 1080,
-            nutrient_pattern: 0,
-            is_nutrient_pattern_reversed: 0,
+
+            // Mask system
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 0.5,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
+
             // Optimization parameters
             max_timestep: 2.0,
             stability_factor: 0.8,
@@ -319,8 +333,15 @@ fn test_struct_layout_consistency() {
             timestep: 1.0,
             width: 1920,
             height: 1080,
-            nutrient_pattern: 0,
-            is_nutrient_pattern_reversed: 0,
+
+            // Mask system
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 0.5,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
+
             // Optimization parameters
             max_timestep: 2.0,
             stability_factor: 0.8,

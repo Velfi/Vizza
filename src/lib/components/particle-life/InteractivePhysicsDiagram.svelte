@@ -775,27 +775,6 @@
         background: #1d4ed8;
     }
 
-    .controls-info {
-        margin-top: 15px;
-        padding: 15px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-        border-left: 4px solid #51cf66;
-    }
-
-    .controls-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-
-    .controls-info h4 {
-        margin: 0;
-        color: rgba(255, 255, 255, 0.9);
-        font-size: 1em;
-    }
-
     .toggle-button {
         background: #6c757d;
         color: white;
@@ -837,37 +816,6 @@
 
     .reset-button:active {
         transform: translateY(1px);
-    }
-
-    .controls-info ul {
-        margin: 0;
-        padding-left: 20px;
-    }
-
-    .controls-info li {
-        margin-bottom: 5px;
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 0.9em;
-        line-height: 1.4;
-    }
-
-    .controls-info strong {
-        color: rgba(255, 255, 255, 0.9);
-    }
-
-    .units-note {
-        margin-top: 10px;
-        padding: 8px 12px;
-        background: rgba(59, 130, 246, 0.1);
-        border: 1px solid rgba(59, 130, 246, 0.3);
-        border-radius: 4px;
-        border-left: 3px solid #3b82f6;
-    }
-
-    .units-note small {
-        color: #93c5fd;
-        font-size: 0.85em;
-        line-height: 1.3;
     }
 
     .brownian-motion-control {

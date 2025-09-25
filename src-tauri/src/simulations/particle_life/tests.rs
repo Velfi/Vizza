@@ -10,9 +10,9 @@ use super::shaders::{
     FORCE_RANDOMIZE_SHADER, FORCE_UPDATE_SHADER, FRAGMENT_SHADER, INIT_SHADER, VERTEX_SHADER,
 };
 use super::simulation::{
-    BackgroundParams, FadeUniforms, ForceRandomizeParams, ForceUpdateParams, InitParams, Particle,
-    SimParams,
+    BackgroundParams, FadeUniforms, ForceRandomizeParams, ForceUpdateParams, InitParams, SimParams,
 };
+use super::state::Particle;
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
 use wgpu::util::DeviceExt;
@@ -836,7 +836,7 @@ fn test_sim_params_size_and_alignment() {
 
     // Create a minimal settings and state for testing
     let settings = Settings::default();
-    let state = super::simulation::State::new(1000, 4, 1920, 1080, 123);
+    let state = super::state::State::new(1000, 4, 1920, 1080, 123);
 
     let sim_params = SimParams::new(1920, 1080, 1000, &settings, &state);
 

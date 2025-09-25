@@ -12,6 +12,7 @@
 //! and color processing. The interaction between these systems creates
 //! emergent visual complexity from relatively simple parameters.
 
+use crate::simulations::shared::ImageFitMode;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -34,47 +35,24 @@ impl FromStr for MoireGeneratorType {
         match s.to_lowercase().as_str() {
             "linear" => Ok(MoireGeneratorType::Linear),
             "radial" => Ok(MoireGeneratorType::Radial),
-            _ => Err(format!("Invalid MoireGeneratorType: '{}'. Expected 'linear' or 'radial'", s)),
+            _ => Err(format!(
+                "Invalid MoireGeneratorType: '{}'. Expected 'linear' or 'radial'",
+                s
+            )),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum GradientImageFitMode {
-    Stretch,
-    Center,
-    FitH,
-    FitV,
-}
+// Use shared ImageFitMode
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ImageInterferenceMode {
-    Replace,    // Current behavior - replace moiré with image
-    Add,        // Add image to moiré pattern
-    Multiply,   // Multiply image with moiré pattern
-    Overlay,    // Overlay blending mode
-    Mask,       // Use image as mask for moiré pattern
-    Modulate,   // Use image to modulate moiré intensity
-}
-
-impl Default for GradientImageFitMode {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
-
-impl FromStr for GradientImageFitMode {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "stretch" => Ok(GradientImageFitMode::Stretch),
-            "center" => Ok(GradientImageFitMode::Center),
-            "fit h" | "fith" => Ok(GradientImageFitMode::FitH),
-            "fit v" | "fitv" => Ok(GradientImageFitMode::FitV),
-            _ => Err(format!("Invalid GradientImageFitMode: '{}'. Expected 'stretch', 'center', 'fit h', or 'fit v'", s)),
-        }
-    }
+    Replace,  // Current behavior - replace moiré with image
+    Add,      // Add image to moiré pattern
+    Multiply, // Multiply image with moiré pattern
+    Overlay,  // Overlay blending mode
+    Mask,     // Use image as mask for moiré pattern
+    Modulate, // Use image to modulate moiré intensity
 }
 
 impl Default for ImageInterferenceMode {
@@ -94,7 +72,10 @@ impl FromStr for ImageInterferenceMode {
             "overlay" => Ok(ImageInterferenceMode::Overlay),
             "mask" => Ok(ImageInterferenceMode::Mask),
             "modulate" => Ok(ImageInterferenceMode::Modulate),
-            _ => Err(format!("Invalid ImageInterferenceMode: '{}'. Expected 'replace', 'add', 'multiply', 'overlay', 'mask', or 'modulate'", s)),
+            _ => Err(format!(
+                "Invalid ImageInterferenceMode: '{}'. Expected 'replace', 'add', 'multiply', 'overlay', 'mask', or 'modulate'",
+                s
+            )),
         }
     }
 }
@@ -132,8 +113,9 @@ pub struct Settings {
 
     // Image controls (for optional image inputs)
     pub image_mode_enabled: bool,
-    pub image_fit_mode: GradientImageFitMode,
+    pub image_fit_mode: ImageFitMode,
     pub image_mirror_horizontal: bool,
+    pub image_mirror_vertical: bool,
     pub image_invert_tone: bool,
     pub image_interference_mode: ImageInterferenceMode,
 }
@@ -159,8 +141,9 @@ impl Default for Settings {
             curl: 0.8,
             decay: 0.98,
             image_mode_enabled: false,
-            image_fit_mode: GradientImageFitMode::FitV,
+            image_fit_mode: ImageFitMode::FitV,
             image_mirror_horizontal: false,
+            image_mirror_vertical: false,
             image_invert_tone: true,
             image_interference_mode: ImageInterferenceMode::Modulate,
         }

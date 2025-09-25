@@ -1,7 +1,7 @@
-pub mod renderer;
 pub mod settings;
 pub mod shaders;
 pub mod simulation;
+pub mod state;
 
 #[cfg(test)]
 mod tests;
@@ -12,8 +12,7 @@ use crate::simulation::preset_manager::{GrayScottPresetManager, Preset};
 
 /// Initialize Gray-Scott presets with built-in configurations
 pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
-    use settings::{GradientImageFitMode, NutrientPattern, Settings};
-
+    use settings::Settings;
     // Add default presets
     let all_presets = [
         ("Brain Coral", (0.0545, 0.062)),
@@ -31,20 +30,15 @@ pub fn init_presets(preset_manager: &mut GrayScottPresetManager) {
         let settings = Settings {
             feed_rate,
             kill_rate,
-            diffusion_rate_u: 0.2097,
-            diffusion_rate_v: 0.105,
+            // Use canonical Gray-Scott diffusion coefficients for classic behavior
+            diffusion_rate_u: 0.16,
+            diffusion_rate_v: 0.08,
             timestep: 1.0,
-            nutrient_pattern: NutrientPattern::Uniform,
-            nutrient_pattern_reversed: false,
-            gradient_image_fit_mode: GradientImageFitMode::Stretch,
-            gradient_image_mirror_horizontal: false,
-            gradient_image_invert_tone: false,
+
             // Optimization defaults
             max_timestep: 2.0,
             stability_factor: 0.8,
             enable_adaptive_timestep: false,
-            // Simulation resolution scale
-            simulation_resolution_scale: 0.5,
         };
 
         preset_manager.add_preset(Preset::new(preset_name.to_string(), settings));

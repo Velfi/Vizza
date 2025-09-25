@@ -30,6 +30,10 @@ struct Params {
     image_loaded: f32,
     image_mode_enabled: f32,
     image_interference_mode: f32, // 0=Replace, 1=Add, 2=Multiply, 3=Overlay, 4=Mask, 5=Modulate
+    // Image processing toggles
+    image_mirror_horizontal: f32,
+    image_mirror_vertical: f32,
+    image_invert_tone: f32,
 }
 
 
@@ -134,10 +138,22 @@ fn compute_moire(pos: vec2<f32>) -> f32 {
 }
 
 fn sample_image_intensity(uv: vec2<f32>) -> f32 {
+    // Apply mirror toggles via UV transforms
+    var suv = uv;
+    if (params.image_mirror_horizontal > 0.5) {
+        suv.x = 1.0 - suv.x;
+    }
+    if (params.image_mirror_vertical > 0.5) {
+        suv.y = 1.0 - suv.y;
+    }
     // Sample external image texture assumed preprocessed to grayscale in R8
-    let color = textureSampleLevel(image_texture, tex_sampler, uv, 0.0);
-    // Use red channel as grayscale
-    return clamp(color.r, 0.0, 1.0);
+    let color = textureSampleLevel(image_texture, tex_sampler, suv, 0.0);
+    // Use red channel as grayscale and apply tone inversion if enabled
+    var intensity = clamp(color.r, 0.0, 1.0);
+    if (params.image_invert_tone > 0.5) {
+        intensity = 1.0 - intensity;
+    }
+    return intensity;
 }
 
 fn compute_velocity(pos: vec2<f32>, uv: vec2<f32>) -> vec2<f32> {

@@ -7,9 +7,15 @@ struct SimulationParams {
     timestep: f32,
     width: u32,
     height: u32,
-    nutrient_pattern: u32,
     
-    is_nutrient_pattern_reversed: u32,
+    // Mask system
+    mask_pattern: u32,
+    mask_target: u32,
+    mask_strength: f32,
+    mask_mirror_horizontal: u32,
+    mask_mirror_vertical: u32,
+    mask_invert_tone: u32,
+    
     // Adaptive timestep parameters
     max_timestep: f32,
     stability_factor: f32,
@@ -23,8 +29,8 @@ struct UVPair {
 }
 
 
-@group(0) @binding(0) var uvs_in: texture_storage_2d<rgba32float, read>;
-@group(0) @binding(1) var uvs_out: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(0) var uvs_in: texture_storage_2d<rgba16float, read>;
+@group(0) @binding(1) var uvs_out: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var<uniform> params: SimulationParams;
 // Optional image-driven nutrient pattern (bound only when used)
 @group(0) @binding(3) var<storage, read> gradient_map: array<f32>;
@@ -49,10 +55,11 @@ fn get_laplacian(x: i32, y: i32) -> vec2<f32> {
     
     var laplacian = vec2<f32>(0.0);
     
-    // Center weight
-    laplacian -= current * 1.0;
+    // 5-point stencil: center + 4 cardinal neighbors
+    // Center weight: -4 (for 5-point stencil)
+    laplacian -= current * 4.0;
     
-    // Cardinal directions (weight 0.2) - batch the lookups for better performance
+    // Cardinal directions (weight 1.0 each) - batch the lookups for better performance
     let left_x = (x - 1 + width) % width;
     let right_x = (x + 1 + width) % width;
     let up_y = (y - 1 + height) % height;
@@ -68,26 +75,10 @@ fn get_laplacian(x: i32, y: i32) -> vec2<f32> {
     let up = up_sample.xy;
     let down = down_sample.xy;
     
-    laplacian += left * 0.2;
-    laplacian += right * 0.2;
-    laplacian += up * 0.2;
-    laplacian += down * 0.2;
-    
-    // Restore all diagonal directions for symmetric diffusion
-    let up_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y - 1 + height) % height));
-    let up_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y - 1 + height) % height));
-    let down_left_sample = textureLoad(uvs_in, vec2<i32>((x - 1 + width) % width, (y + 1 + height) % height));
-    let down_right_sample = textureLoad(uvs_in, vec2<i32>((x + 1 + width) % width, (y + 1 + height) % height));
-    
-    let up_left = up_left_sample.xy;
-    let up_right = up_right_sample.xy;
-    let down_left = down_left_sample.xy;
-    let down_right = down_right_sample.xy;
-    
-    laplacian += up_left * 0.05;
-    laplacian += up_right * 0.05;
-    laplacian += down_left * 0.05;
-    laplacian += down_right * 0.05;
+    laplacian += left;
+    laplacian += right;
+    laplacian += up;
+    laplacian += down;
     
     return laplacian;
 }
@@ -100,15 +91,18 @@ fn noise2D(x: u32, y: u32, seed: u32) -> f32 {
     return hash(x * 73856093u + y * 19349663u + seed);
 }
 
-fn get_nutrient_factor(x: i32, y: i32) -> f32 {
+fn get_mask_factor(x: i32, y: i32) -> f32 {
     // Calculate normalized coordinates
-    let nx = f32(x) / f32(params.width);
-    let ny = f32(y) / f32(params.height);
+    let original_nx = f32(x) / f32(params.width);
+    let original_ny = f32(y) / f32(params.height);
+    
+    // For image-based masks, we need to handle mirroring differently
+    let pattern = params.mask_pattern;
     
     var result = 0.0;
     
-    switch (params.nutrient_pattern) {
-        case 0u: { // Uniform
+    switch (pattern) {
+        case 0u: { // Disabled
             result = 1.0;
         }
         case 1u: { // Checkerboard
@@ -119,9 +113,27 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
             result = select(0.0, 1.0, is_checker);
         }
         case 2u: { // Diagonal gradient
+            var nx = original_nx;
+            var ny = original_ny;
+            // Apply mirror transformations
+            if (params.mask_mirror_horizontal != 0u) {
+                nx = 1.0 - nx;
+            }
+            if (params.mask_mirror_vertical != 0u) {
+                ny = 1.0 - ny;
+            }
             result = (nx + ny) / 2.0;
         }
         case 3u: { // Radial gradient
+            var nx = original_nx;
+            var ny = original_ny;
+            // Apply mirror transformations
+            if (params.mask_mirror_horizontal != 0u) {
+                nx = 1.0 - nx;
+            }
+            if (params.mask_mirror_vertical != 0u) {
+                ny = 1.0 - ny;
+            }
             let center_x = 0.5;
             let center_y = 0.5;
             let dx = nx - center_x;
@@ -130,16 +142,35 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
             result = 1.0 - distance;
         }
         case 4u: { // Vertical stripes
+            var nx = original_nx;
+            // Apply mirror transformations
+            if (params.mask_mirror_horizontal != 0u) {
+                nx = 1.0 - nx;
+            }
             let stripe_width = 0.1;
             let is_stripe = (nx / stripe_width) % 2.0 < 1.0;
             result = select(0.0, 1.0, is_stripe);
         }
         case 5u: { // Horizontal stripes
+            var ny = original_ny;
+            // Apply mirror transformations
+            if (params.mask_mirror_vertical != 0u) {
+                ny = 1.0 - ny;
+            }
             let stripe_width = 0.1;
             let is_stripe = (ny / stripe_width) % 2.0 < 1.0;
             result = select(0.0, 1.0, is_stripe);
         }
         case 6u: { // Wave function f(x,y) = xe^(-(x² + y²))
+            var nx = original_nx;
+            var ny = original_ny;
+            // Apply mirror transformations
+            if (params.mask_mirror_horizontal != 0u) {
+                nx = 1.0 - nx;
+            }
+            if (params.mask_mirror_vertical != 0u) {
+                ny = 1.0 - ny;
+            }
             let x_norm = (nx * 4.0) - 2.0;
             let y_norm = (ny * 4.0) - 2.0;
             let squared_dist = x_norm * x_norm + y_norm * y_norm;
@@ -147,6 +178,15 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
             result = (wave + 0.43) / 0.86;
         }
         case 7u: { // Enhanced cosine grid with phase and frequency variations
+            var nx = original_nx;
+            var ny = original_ny;
+            // Apply mirror transformations
+            if (params.mask_mirror_horizontal != 0u) {
+                nx = 1.0 - nx;
+            }
+            if (params.mask_mirror_vertical != 0u) {
+                ny = 1.0 - ny;
+            }
             // Scale coordinates with different frequencies
             let x_scaled = nx * 18.85; // 6π
             let y_scaled = ny * 12.566; // 4π
@@ -165,7 +205,22 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
             result = (tanh(raw) + 1.0) * 0.5;
         }
         case 8u: { // Image-driven gradient map
-            let idx = get_index(x, y);
+            // For image masks, we need to apply mirroring to the sampling coordinates
+            var sample_x = original_nx;
+            var sample_y = original_ny;
+            
+            // Apply mirror transformations to sampling coordinates
+            if (params.mask_mirror_horizontal != 0u) {
+                sample_x = 1.0 - sample_x;
+            }
+            if (params.mask_mirror_vertical != 0u) {
+                sample_y = 1.0 - sample_y;
+            }
+            
+            // Use mirrored sampling coordinates for image indexing
+            let mirrored_x = i32(sample_x * f32(params.width));
+            let mirrored_y = i32(sample_y * f32(params.height));
+            let idx = get_index(mirrored_x, mirrored_y);
             // Map [0,1] image to [0,1] nutrient factor
             let img = clamp(gradient_map[idx], 0.0, 1.0);
             result = img;
@@ -175,13 +230,14 @@ fn get_nutrient_factor(x: i32, y: i32) -> f32 {
         }
     }
     
-    // If reversed, invert the pattern (keep it in the 0 to 1 range)
-    if (params.is_nutrient_pattern_reversed != 0u) {
+    // If tone inverted, invert the pattern (keep it in the 0 to 1 range)
+    if (params.mask_invert_tone != 0u) {
         result = 1.0 - result;
     }
     
     return result;
 }
+
 
 fn calculate_adaptive_timestep(delta_u: f32, delta_v: f32, feed_rate: f32, kill_rate: f32, stability_factor: f32) -> f32 {
     // Von Neumann stability condition for 2D diffusion
@@ -202,10 +258,8 @@ fn calculate_adaptive_timestep(delta_u: f32, delta_v: f32, feed_rate: f32, kill_
 
 
 
-// Balanced workgroup size for better GPU utilization and stability
-// 16x16 provides good balance between performance and numerical stability
-@compute @workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>) {
+@compute @workgroup_size(1, 1, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x = i32(global_id.x);
     let y = i32(global_id.y);
     
@@ -223,7 +277,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
     let reaction_rate = uv.x * uv.y * uv.y;
     
     let laplacian = get_laplacian(x, y);
-    let nutrient_factor = get_nutrient_factor(x, y);
+    let mask_factor = get_mask_factor(x, y);
     
     // Use adaptive timestep only if enabled, otherwise use the user-specified timestep
     var effective_timestep: f32;
@@ -239,12 +293,43 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invo
         effective_timestep = params.timestep;
     }
     
-    // Incorporate nutrient factor into the feed rate
-    // Map nutrient factor from [0,1] to [0.5,1.0] for feed rate scaling
-    let effective_feed_rate = params.feed_rate * (0.5 + nutrient_factor * 0.5);
+    // Apply mask to the appropriate parameters based on mask_target
+    var effective_feed_rate = params.feed_rate;
+    var effective_kill_rate = params.kill_rate;
+    var effective_delta_u = params.delta_u;
+    var effective_delta_v = params.delta_v;
     
-    let delta_u = params.delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.x);
-    let delta_v = params.delta_v * laplacian.y + reaction_rate - (params.kill_rate + effective_feed_rate) * uv.y;
+    // Calculate mask influence: 0.0 = no effect, 1.0 = full effect
+    let mask_influence = mask_factor * params.mask_strength;
+    
+    switch (params.mask_target) {
+        case 1u: { // FeedRate
+            // Map mask factor from [0,1] to [0.5,1.0] for feed rate scaling
+            effective_feed_rate = params.feed_rate * (0.5 + mask_influence * 0.5);
+        }
+        case 2u: { // KillRate
+            // Map mask factor from [0,1] to [0.5,1.0] for kill rate scaling
+            effective_kill_rate = params.kill_rate * (0.5 + mask_influence * 0.5);
+        }
+        case 3u: { // DiffusionU
+            // Map mask factor from [0,1] to [0.5,1.5] for diffusion scaling
+            effective_delta_u = params.delta_u * (0.5 + mask_influence * 1.0);
+        }
+        case 4u: { // DiffusionV
+            // Map mask factor from [0,1] to [0.5,1.5] for diffusion scaling
+            effective_delta_v = params.delta_v * (0.5 + mask_influence * 1.0);
+        }
+        case 5u: { // UVConcentration
+            // This would affect initial concentrations, but we'll implement it as a feed rate effect for now
+            effective_feed_rate = params.feed_rate * (0.5 + mask_influence * 0.5);
+        }
+        default: { // None or any other value
+            // No masking applied - use original values
+        }
+    }
+    
+    let delta_u = effective_delta_u * laplacian.x - reaction_rate + effective_feed_rate * (1.0 - uv.x);
+    let delta_v = effective_delta_v * laplacian.y + reaction_rate - (effective_kill_rate + effective_feed_rate) * uv.y;
     
     let new_u = clamp(uv.x + delta_u * effective_timestep, 0.0, 1.0);
     let new_v = clamp(uv.y + delta_v * effective_timestep, 0.0, 1.0);

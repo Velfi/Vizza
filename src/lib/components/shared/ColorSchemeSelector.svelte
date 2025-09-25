@@ -317,19 +317,21 @@
     let gradientBackgroundCss = '';
 
     // Reactive statements to handle prop changes
-    // Note: Don't auto-select the first LUT when current_lut is empty,
-    // let the parent component set the initial LUT from backend state
+    // Note: Don't auto-select the first color scheme when current_lut is empty,
+    // let the parent component set the initial color scheme from backend state
 
     function handleSelect({ detail }: { detail: { value: string } }) {
         const selectedName = detail.value;
-        console.log(`LutSelector: Selected ${selectedName}, was ${current_color_scheme}`);
+        console.log(`ColorSchemeSelector: Selected ${selectedName}, was ${current_color_scheme}`);
         current_color_scheme = selectedName; // Update local state
         dispatch('select', { name: selectedName });
     }
 
     async function handleReverse() {
         reversed = !reversed;
-        console.log(`LutSelector: Reversing to ${reversed}, current LUT: ${current_color_scheme}`);
+        console.log(
+            `ColorSchemeSelector: Reversing to ${reversed}, current color scheme: ${current_color_scheme}`
+        );
         dispatch('reverse', { reversed });
     }
 

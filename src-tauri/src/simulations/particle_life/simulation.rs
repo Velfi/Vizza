@@ -1,13 +1,12 @@
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
-    BindGroupBuilder, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
+    BindGroupBuilder, ColorMode, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
     camera::Camera,
     post_processing::{PostProcessingResources, PostProcessingState},
 };
 use bytemuck::{Pod, Zeroable};
 use rand::{Rng, SeedableRng};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
@@ -15,16 +14,8 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 
 use super::settings::{MatrixGenerator, Settings, TypeGenerator};
 use super::shaders;
+use super::state::{Particle, State};
 use crate::simulations::traits::Simulation;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct Particle {
-    pub position: [f32; 2],
-    pub velocity: [f32; 2],
-    pub species: u32,
-    pub _pad: u32,
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -169,97 +160,6 @@ impl SimParams {
     }
 }
 
-/// Particle Life simulation state (runtime data, not saved in presets)
-#[derive(Debug)]
-pub struct State {
-    pub particle_count: usize,
-    pub particles: Vec<Particle>,
-    pub random_seed: u32,
-    pub dt: f32,
-    pub cursor_size: f32,
-    pub cursor_strength: f32,
-    pub traces_enabled: bool,
-    pub trace_fade: f32,
-    pub edge_fade_strength: f32,
-    pub position_generator: PositionGenerator,
-    pub type_generator: TypeGenerator,
-    pub matrix_generator: MatrixGenerator,
-    // Color scheme management (moved from main struct)
-    pub current_color_scheme_name: String,
-    pub color_scheme_reversed: bool,
-    pub background_color_mode: ColorMode,
-    /// Pre-computed exact RGBA colors for each species, used for both UI display and GPU rendering
-    /// In LUT mode: contains species_count + 1 colors (background + species)
-    /// In non-LUT mode: contains exactly species_count colors, one for each species
-    pub species_colors: Vec<[f32; 4]>, // RGBA colors, always up-to-date
-
-    /// Particle size in world space units
-    /// Controls the visual size of particles in the simulation
-    pub particle_size: f32,
-    /// Trail map filtering mode.
-    /// Controls how trail textures are sampled during rendering
-    pub trail_map_filtering: super::settings::TrailMapFiltering,
-}
-
-impl State {
-    pub fn new(
-        particle_count: usize,
-        species_count: u32,
-        width: u32,
-        height: u32,
-        random_seed: u32,
-    ) -> Self {
-        let mut particles = Vec::with_capacity(particle_count);
-        let mut rng = rand::rngs::StdRng::seed_from_u64(random_seed as u64);
-
-        // Distribute particles evenly among species
-        for i in 0..particle_count {
-            let species = (i as u32) % species_count;
-
-            particles.push(Particle {
-                position: [
-                    rng.random_range(0.0..width as f32),
-                    rng.random_range(0.0..height as f32),
-                ],
-                velocity: [0.0, 0.0], // Start with no velocity
-                species,
-                _pad: 0,
-            });
-        }
-
-        Self {
-            particle_count,
-            particles,
-            random_seed,
-            dt: 0.016,
-            cursor_size: 0.5,
-            cursor_strength: 5.0,
-            traces_enabled: false,
-            trace_fade: 0.48,
-            edge_fade_strength: 1.0,
-            position_generator: PositionGenerator::Random,
-            type_generator: TypeGenerator::Random,
-            matrix_generator: MatrixGenerator::Random,
-            current_color_scheme_name: "MATPLOTLIB_ocean".to_string(), // Use a proper default
-            color_scheme_reversed: true,
-            background_color_mode: ColorMode::ColorScheme, // Use color scheme mode as default to match main constructor
-            // Placeholder values - will be properly initialized when LUT is loaded in main constructor
-            species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
-            particle_size: 0.1,
-            trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
-        }
-    }
-}
-
-// Add color mode enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ColorMode {
-    Gray18,
-    White,
-    Black,
-    ColorScheme,
-}
-
 /// Particle Life simulation model
 #[derive(Debug)]
 pub struct ParticleLifeModel {
@@ -380,7 +280,7 @@ pub struct ParticleLifeModel {
     pub gui_visible: bool,
 
     // LUT management
-    pub lut_manager: Arc<ColorSchemeManager>, // Store reference to LUT manager
+    pub color_scheme_manager: Arc<ColorSchemeManager>, // Store reference to color scheme manager
 
     // Dimensions
     pub width: u32,
@@ -683,25 +583,27 @@ impl ParticleLifeModel {
         particle_count: usize,
         settings: Settings,
         app_settings: &crate::commands::app_settings::AppSettings,
-        lut_manager: &ColorSchemeManager,
-        color_mode: ColorMode, // Add color mode param
+        color_scheme_manager: &ColorSchemeManager,
+        color_mode: ColorMode,
     ) -> SimulationResult<Self> {
         let width = surface_config.width;
         let height = surface_config.height;
 
         // Use a proper default LUT name instead of hardcoding
-        let default_lut_name = "MATPLOTLIB_ocean";
+        let default_color_scheme = "MATPLOTLIB_ocean";
 
         // Get LUT and calculate colors first
-        let lut = lut_manager.get(default_lut_name).map_err(|e| {
-            SimulationError::InitializationFailed(format!(
-                "Failed to load default LUT '{}': {}",
-                default_lut_name, e
-            ))
-        })?;
+        let lut = color_scheme_manager
+            .get(default_color_scheme)
+            .map_err(|e| {
+                SimulationError::InitializationFailed(format!(
+                    "Failed to load default LUT '{}': {}",
+                    default_color_scheme, e
+                ))
+            })?;
 
         // Create LUT buffer
-        let (lut_colors, current_color_scheme_name) = if color_mode == ColorMode::ColorScheme {
+        let (lut_colors, current_color_scheme) = if color_mode == ColorMode::ColorScheme {
             // Sample <num_species> + 1 equidistant stops
             // Use first color as background; remaining colors for species
             let raw_colors = lut
@@ -758,7 +660,7 @@ impl ParticleLifeModel {
             position_generator: PositionGenerator::Random,
             type_generator: TypeGenerator::Random,
             matrix_generator: MatrixGenerator::Random,
-            current_color_scheme_name,
+            current_color_scheme,
             color_scheme_reversed: true,
             background_color_mode: color_mode,
             species_colors: lut_colors.clone(),
@@ -2177,7 +2079,7 @@ impl ParticleLifeModel {
             settings,
             state,
             gui_visible: true,
-            lut_manager: Arc::new(lut_manager.clone()),
+            color_scheme_manager: Arc::new(color_scheme_manager.clone()),
             width,
             height,
             camera,
@@ -2200,11 +2102,11 @@ impl ParticleLifeModel {
         };
 
         // Initialize LUT and species colors properly
-        let lut_manager_clone = result.lut_manager.clone();
+        let color_scheme_manager_clone = result.color_scheme_manager.clone();
         result.update_lut(
             device,
             queue,
-            &lut_manager_clone,
+            &color_scheme_manager_clone,
             color_mode,
             Some("MATPLOTLIB_ocean"),
             true,
@@ -2486,31 +2388,31 @@ impl ParticleLifeModel {
         &mut self,
         device: &Arc<Device>,
         queue: &Arc<Queue>,
-        lut_manager: &ColorSchemeManager,
+        color_scheme_manager: &ColorSchemeManager,
         color_mode: ColorMode,
-        lut_name: Option<&str>,
-        lut_reversed: bool,
+        color_scheme: Option<&str>,
+        color_scheme_reversed: bool,
     ) -> SimulationResult<()> {
         // Update color mode
         self.state.background_color_mode = color_mode;
 
         // Get LUT name and validate
-        let lut_name = lut_name.unwrap_or(&self.state.current_color_scheme_name);
-        if lut_name.is_empty() {
+        let color_scheme = color_scheme.unwrap_or(&self.state.current_color_scheme);
+        if color_scheme.is_empty() {
             return Err(SimulationError::InvalidSetting {
                 setting_name: "lut_name".to_string(),
                 message: "LUT name is empty but LUT color mode is enabled".to_string(),
             });
         }
 
-        let mut lut = lut_manager
-            .get(lut_name)
-            .map_err(|e| SimulationError::InvalidSetting {
+        let mut lut = color_scheme_manager.get(color_scheme).map_err(|e| {
+            SimulationError::InvalidSetting {
                 setting_name: "lut_name".to_string(),
-                message: format!("Failed to load LUT '{}': {}", lut_name, e),
-            })?;
+                message: format!("Failed to load LUT '{}': {}", color_scheme, e),
+            }
+        })?;
 
-        if lut_reversed {
+        if color_scheme_reversed {
             lut = lut.reversed();
         }
 
@@ -2566,12 +2468,12 @@ impl ParticleLifeModel {
         // Update stored colors and LUT info
         self.state.species_colors = species_colors;
         // Store the original LUT name, not the reversed LUT name
-        self.state.current_color_scheme_name = lut_name.to_string();
-        self.state.color_scheme_reversed = lut_reversed;
+        self.state.current_color_scheme = color_scheme.to_string();
+        self.state.color_scheme_reversed = color_scheme_reversed;
 
         tracing::debug!(
             "Updated LUT: name={}, reversed={}, species_colors.len={}",
-            self.state.current_color_scheme_name,
+            self.state.current_color_scheme,
             self.state.color_scheme_reversed,
             self.state.species_colors.len()
         );
@@ -3483,16 +3385,16 @@ impl Simulation for ParticleLifeModel {
                     self.recreate_bind_groups_with_force_matrix(device);
 
                     // Update LUT colors for new species count
-                    let current_lut_name = self.state.current_color_scheme_name.clone();
-                    let lut_reversed = self.state.color_scheme_reversed;
-                    let lut_manager = self.lut_manager.clone();
+                    let current_lut_name = self.state.current_color_scheme.clone();
+                    let color_scheme_reversed = self.state.color_scheme_reversed;
+                    let color_scheme_manager = self.color_scheme_manager.clone();
                     self.update_lut(
                         device,
                         queue,
-                        &lut_manager,
+                        &color_scheme_manager,
                         self.state.background_color_mode,
                         Some(&current_lut_name),
-                        lut_reversed,
+                        color_scheme_reversed,
                     )?;
 
                     // Respawn all particles to ensure proper species distribution
@@ -3687,7 +3589,7 @@ impl Simulation for ParticleLifeModel {
                         "Gray18" => ColorMode::Gray18,
                         "White" => ColorMode::White,
                         "Black" => ColorMode::Black,
-                        "ColorScheme" => ColorMode::ColorScheme,
+                        "Color Scheme" => ColorMode::ColorScheme,
                         _ => ColorMode::ColorScheme,
                     };
 
@@ -3695,46 +3597,46 @@ impl Simulation for ParticleLifeModel {
                     self.state.background_color_mode = color_mode;
 
                     // Update LUT with new color mode
-                    let current_lut_name = self.state.current_color_scheme_name.clone();
-                    let lut_reversed = self.state.color_scheme_reversed;
-                    let lut_manager = self.lut_manager.clone();
+                    let current_lut_name = self.state.current_color_scheme.clone();
+                    let color_scheme_reversed = self.state.color_scheme_reversed;
+                    let color_scheme_manager = self.color_scheme_manager.clone();
                     self.update_lut(
                         device,
                         queue,
-                        &lut_manager,
+                        &color_scheme_manager,
                         color_mode,
                         Some(&current_lut_name),
-                        lut_reversed,
+                        color_scheme_reversed,
                     )?;
 
                     // Update background parameters for the new color mode
                     self.update_background_params(queue);
                 }
             }
-            "lut_name" => {
-                if let Some(lut_name) = value.as_str() {
+            "color_scheme" => {
+                if let Some(color_scheme) = value.as_str() {
                     let color_mode = self.state.background_color_mode;
-                    let lut_reversed = self.state.color_scheme_reversed;
-                    let lut_manager = self.lut_manager.clone();
+                    let color_scheme_reversed = self.state.color_scheme_reversed;
+                    let color_scheme_manager = self.color_scheme_manager.clone();
                     self.update_lut(
                         device,
                         queue,
-                        &lut_manager,
+                        &color_scheme_manager,
                         color_mode,
-                        Some(lut_name),
-                        lut_reversed,
+                        Some(color_scheme),
+                        color_scheme_reversed,
                     )?;
                 }
             }
             "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
                     let color_mode = self.state.background_color_mode;
-                    let current_lut_name = self.state.current_color_scheme_name.clone();
-                    let lut_manager = self.lut_manager.clone();
+                    let current_lut_name = self.state.current_color_scheme.clone();
+                    let color_scheme_manager = self.color_scheme_manager.clone();
                     self.update_lut(
                         device,
                         queue,
-                        &lut_manager,
+                        &color_scheme_manager,
                         color_mode,
                         Some(&current_lut_name),
                         reversed,
@@ -3762,15 +3664,15 @@ impl Simulation for ParticleLifeModel {
             "color_scheme" => {
                 if let Some(color_scheme_name) = value.as_str() {
                     let color_mode = self.state.background_color_mode;
-                    let lut_reversed = self.state.color_scheme_reversed;
-                    let lut_manager = self.lut_manager.clone();
+                    let color_scheme_reversed = self.state.color_scheme_reversed;
+                    let color_scheme_manager = self.color_scheme_manager.clone();
                     self.update_lut(
                         device,
                         queue,
-                        &lut_manager,
+                        &color_scheme_manager,
                         color_mode,
                         Some(color_scheme_name),
-                        lut_reversed,
+                        color_scheme_reversed,
                     )?;
                 }
             }
@@ -3786,25 +3688,7 @@ impl Simulation for ParticleLifeModel {
     }
 
     fn get_state(&self) -> Value {
-        serde_json::json!({
-            "particle_count": self.state.particle_count,
-            "species_count": self.settings.species_count,
-            "random_seed": self.state.random_seed,
-            "dt": self.state.dt,
-            "cursor_size": self.state.cursor_size,
-            "cursor_strength": self.state.cursor_strength,
-            "traces_enabled": self.state.traces_enabled,
-            "trace_fade": self.state.trace_fade,
-            "edge_fade_strength": self.state.edge_fade_strength,
-            "position_generator": self.state.position_generator,
-            "type_generator": self.state.type_generator,
-            "matrix_generator": self.state.matrix_generator,
-            "current_color_scheme_name": self.state.current_color_scheme_name,
-            "color_scheme_reversed": self.state.color_scheme_reversed,
-            "background_color_mode": self.state.background_color_mode,
-            "particle_size": self.state.particle_size,
-            "trail_map_filtering": self.state.trail_map_filtering,
-        })
+        serde_json::to_value(&self.state).unwrap_or_else(|_| serde_json::json!({}))
     }
 
     fn handle_mouse_interaction(
@@ -4079,7 +3963,7 @@ impl Simulation for ParticleLifeModel {
 
         // Update state (preserve original name regardless of reversal)
         self.state.species_colors = species_colors;
-        self.state.current_color_scheme_name = color_scheme.name.clone();
+        self.state.current_color_scheme = color_scheme.name.clone();
 
         // Upload to GPU and refresh background color
         self.update_species_colors_gpu(device, queue)?;

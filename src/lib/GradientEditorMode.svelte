@@ -250,7 +250,6 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import { interpolate, formatHex } from 'culori';
-    
 
     const dispatch = createEventDispatcher();
 
@@ -739,7 +738,7 @@
             position,
             color: palette[i % palette.length],
         }));
-        
+
         selectedStopIndex = 0;
         updateGradient();
     }

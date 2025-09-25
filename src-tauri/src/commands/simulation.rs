@@ -1,4 +1,4 @@
-use crate::{simulation::SimulationManager, simulations::particle_life::simulation::ColorMode};
+use crate::{simulation::SimulationManager, simulations::shared::ColorMode};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 
@@ -399,6 +399,22 @@ pub async fn clear_trail_texture(
                 );
 
                 tracing::debug!("Trail texture cleared successfully");
+                Ok("Trail texture cleared".to_string())
+            }
+            crate::simulations::traits::SimulationType::PrimordialParticles(
+                primordial_particles,
+            ) => {
+                // Determine background color based on current Primordial Particles mode/LUT
+                let background_color = primordial_particles.background_clear_color();
+
+                // Clear the trail textures
+                primordial_particles.clear_trail_texture(
+                    &gpu_ctx.device,
+                    &gpu_ctx.queue,
+                    background_color,
+                );
+
+                tracing::debug!("Trail texture cleared successfully for Primordial Particles");
                 Ok("Trail texture cleared".to_string())
             }
             _ => Err(

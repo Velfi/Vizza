@@ -101,6 +101,10 @@
                 return command === 'get'
                     ? 'get_voronoi_ca_post_processing_state'
                     : 'update_voronoi_ca_post_processing_state';
+            case 'primordial_particles':
+                return command === 'get'
+                    ? 'get_primordial_particles_post_processing_state'
+                    : 'update_primordial_particles_post_processing_state';
             case 'flow':
             default:
                 return command === 'get'

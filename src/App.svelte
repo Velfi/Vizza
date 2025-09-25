@@ -1,60 +1,67 @@
 <main>
     {#if currentMode === 'menu'}
-        <MainMenu on:navigate={(e) => navigateToMode(e.detail)} />
+        <MainMenu on:navigate={handleNavigation} />
     {:else if currentMode === 'slime-mold'}
         <SlimeMoldMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'gray-scott'}
         <GrayScottMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'particle-life'}
         <ParticleLifeMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'flow'}
         <FlowMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'pellets'}
         <PelletsMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'voronoi-ca'}
         <VoronoiCAMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'moire'}
         <MoireMode
             menuPosition={appSettings.menu_position}
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
+        />
+    {:else if currentMode === 'primordial-particles'}
+        <PrimordialParticlesMode
+            menuPosition={appSettings.menu_position}
+            autoHideDelay={appSettings.auto_hide_delay}
+            on:back={goBack}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'gradient-editor'}
         <GradientEditorMode
             autoHideDelay={appSettings.auto_hide_delay}
             on:back={goBack}
-            on:navigate={(e) => navigateToMode(e.detail)}
+            on:navigate={handleNavigation}
         />
     {:else if currentMode === 'how-to-play'}
         <HowToPlay on:back={goBack} />
@@ -82,23 +89,13 @@
     import GradientEditorMode from './lib/GradientEditorMode.svelte';
     import VoronoiCAMode from './lib/VoronoiCAMode.svelte';
     import MoireMode from './lib/MoireMode.svelte';
+    import PrimordialParticlesMode from './lib/PrimordialParticlesMode.svelte';
 
     import HowToPlay from './lib/HowToPlay.svelte';
     import Settings from './lib/Settings.svelte';
+    import type { AppMode } from './types/app';
 
-    type AppMode =
-        | 'menu'
-        | 'slime-mold'
-        | 'gray-scott'
-        | 'particle-life'
-        | 'flow'
-        | 'pellets'
-        | 'gradient-editor'
-        | 'voronoi-ca'
-        | 'moire'
-        | 'gradient'
-        | 'how-to-play'
-        | 'settings';
+    type MenuPosition = 'left' | 'right' | 'middle';
 
     interface AppSettings {
         ui_scale: number;
@@ -109,7 +106,7 @@
         window_maximized: boolean;
         auto_hide_ui: boolean;
         auto_hide_delay: number;
-        menu_position: string;
+        menu_position: MenuPosition;
         default_camera_sensitivity: number;
     }
 
@@ -172,25 +169,46 @@
         }
     }
 
-    function navigateToMode(mode: AppMode) {
+    async function handleNavigation(event: CustomEvent<AppMode>) {
         // Store the current mode as previous before navigating
         // Always store the current mode as previous, regardless of what it is
         previousMode = currentMode;
-        currentMode = mode;
+
+        // If navigating to menu, reset graphics resources
+        if (event.detail === 'menu') {
+            try {
+                await invoke('reset_graphics_resources');
+                console.log('Graphics resources reset successfully');
+            } catch (error) {
+                console.error('Failed to reset graphics resources:', error);
+                // Continue with navigation even if reset fails
+            }
+        }
+
+        currentMode = event.detail;
     }
 
-    function returnToMenu() {
+    async function returnToMenu() {
+        try {
+            // Reset graphics resources to prevent crashed simulations from poisoning the state
+            await invoke('reset_graphics_resources');
+            console.log('Graphics resources reset successfully');
+        } catch (error) {
+            console.error('Failed to reset graphics resources:', error);
+            // Continue with navigation even if reset fails
+        }
+
         currentMode = 'menu';
         previousMode = null;
     }
 
-    function goBack() {
+    async function goBack() {
         if (previousMode) {
             currentMode = previousMode;
             previousMode = null;
         } else {
             // Fallback to menu if no previous mode
-            returnToMenu();
+            await returnToMenu();
         }
     }
 

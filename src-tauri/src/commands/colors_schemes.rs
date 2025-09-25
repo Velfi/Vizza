@@ -92,7 +92,10 @@ pub async fn save_custom_color_scheme(
     let lut_data = ColorScheme::from_bytes(name.clone(), &color_scheme_data)
         .map_err(|e| format!("Failed to create color scheme data: {}", e))?;
 
-    match sim_manager.lut_manager.save_custom(&name, &lut_data) {
+    match sim_manager
+        .color_scheme_manager
+        .save_custom(&name, &lut_data)
+    {
         Ok(_) => {
             tracing::info!("Custom color scheme '{}' saved successfully", name);
             Ok(format!("Custom color scheme '{}' saved successfully", name))

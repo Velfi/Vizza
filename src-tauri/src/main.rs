@@ -107,8 +107,8 @@ impl GpuContext {
         let device_arc = Arc::new(device);
         let queue_arc = Arc::new(queue);
 
-        // Create LUT manager
-        let lut_manager = ColorSchemeManager::new();
+        // Create color scheme manager
+        let color_scheme_manager = ColorSchemeManager::new();
 
         // Create main menu background simulation
         let main_menu = SimulationType::new(
@@ -117,7 +117,7 @@ impl GpuContext {
             &queue_arc,
             &surface_config,
             &adapter_info,
-            &lut_manager,
+            &color_scheme_manager,
             app_settings,
         )
         .await
@@ -228,6 +228,7 @@ fn main() {
             commands::set_flow_vector_field_type,        // Flow
             commands::set_flow_image_fit_mode,           // Flow
             commands::set_flow_image_mirror_horizontal,  // Flow
+            commands::set_flow_image_mirror_vertical,    // Flow
             commands::set_flow_image_invert_tone,        // Flow
             commands::load_flow_vector_field_image,      // Flow
             commands::start_flow_webcam_capture,         // Flow webcam
@@ -252,6 +253,12 @@ fn main() {
             commands::start_moire_simulation,            // Moiré
             commands::randomize_moire_settings,          // Moiré
             commands::load_moire_image,                  // Moiré image
+            commands::start_moire_webcam_capture,        // Moiré webcam
+            commands::stop_moire_webcam_capture,         // Moiré webcam
+            commands::get_available_moire_webcam_devices, // Moiré webcam
+            commands::start_primordial_particles_simulation, // Primordial Particles
+            commands::update_primordial_particles_post_processing_state, // Primordial Particles
+            commands::get_primordial_particles_post_processing_state, // Primordial Particles
             // Rendering commands
             commands::render_frame,
             commands::render_single_frame,
@@ -262,7 +269,7 @@ fn main() {
             commands::apply_preset,
             commands::save_preset,
             commands::delete_preset,
-            // LUT commands
+            // Color scheme commands
             commands::apply_color_scheme_by_name,
             commands::apply_color_scheme,
             commands::toggle_color_scheme_reversed,
@@ -288,12 +295,13 @@ fn main() {
             // Slime mold specific commands
             commands::update_agent_count,
             commands::get_current_agent_count,
-            commands::load_slime_mold_gradient_image,
-            commands::set_slime_mold_gradient_image_fit_mode,
+            commands::load_slime_mold_mask_image,
+            commands::set_slime_mold_mask_image_fit_mode,
             commands::load_slime_mold_position_image,
             commands::set_slime_mold_position_image_fit_mode,
             commands::start_slime_mold_webcam_capture,
             commands::stop_slime_mold_webcam_capture,
+            commands::update_slime_mold_background_mode,
             commands::get_available_webcam_devices,
             // Interaction commands
             commands::handle_mouse_interaction,
@@ -318,11 +326,14 @@ fn main() {
             commands::set_flow_vector_field_type,
             commands::set_flow_image_fit_mode,
             commands::set_flow_image_mirror_horizontal,
+            commands::set_flow_image_mirror_vertical,
             commands::set_flow_image_invert_tone,
             // Reset commands
             commands::reset_trails,
             commands::reset_agents,
             commands::reset_simulation,
+            commands::reset_runtime_state,
+            commands::reset_graphics_resources,
             // App settings commands
             commands::get_app_settings,
             commands::save_app_settings,

@@ -241,6 +241,9 @@ pub enum ColorSchemeError {
 
     #[error("Gradient LUT generation failed: {0}")]
     GradientGenerationFailed(String),
+
+    #[error("Failed to load color scheme '{name}': {error}")]
+    ColorSchemeLoadFailed { name: String, error: String },
 }
 
 // Type aliases for convenience
@@ -375,5 +378,13 @@ impl ColorSchemeError {
     /// Create a size error
     pub fn size_error(expected: usize, actual: usize) -> Self {
         ColorSchemeError::SizeError { expected, actual }
+    }
+
+    /// Create a color scheme load failed error
+    pub fn load_failed(name: &str, error: &str) -> Self {
+        ColorSchemeError::ColorSchemeLoadFailed {
+            name: name.to_string(),
+            error: error.to_string(),
+        }
     }
 }

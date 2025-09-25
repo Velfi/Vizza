@@ -146,6 +146,26 @@ impl SlimeMoldPositionGenerator {
         }
     }
 
+    /// Alias for display name to match other enum helpers
+    pub fn as_str(&self) -> &'static str {
+        self.display_name()
+    }
+
+    /// Parse from display string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Random" => Some(SlimeMoldPositionGenerator::Random),
+            "Center" => Some(SlimeMoldPositionGenerator::Center),
+            "Uniform Circle" => Some(SlimeMoldPositionGenerator::UniformCircle),
+            "Centered Circle" => Some(SlimeMoldPositionGenerator::CenteredCircle),
+            "Ring" => Some(SlimeMoldPositionGenerator::Ring),
+            "Line" => Some(SlimeMoldPositionGenerator::Line),
+            "Spiral" => Some(SlimeMoldPositionGenerator::Spiral),
+            "Image" => Some(SlimeMoldPositionGenerator::Image),
+            _ => None,
+        }
+    }
+
     /// Get all available generators for UI dropdowns
     pub fn all_generators() -> Vec<SlimeMoldPositionGenerator> {
         vec![

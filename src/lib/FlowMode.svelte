@@ -59,10 +59,10 @@
                     <label for="colorSchemeSelector">Color Scheme</label>
                     <ColorSchemeSelector
                         available_color_schemes={available_luts}
-                        bind:current_color_scheme={state.currentLut}
-                        bind:reversed={state.lutReversed}
-                        on:select={({ detail }) => updateLut(detail.name)}
-                        on:reverse={(e) => updateLutReversed(e.detail.reversed)}
+                        bind:current_color_scheme={state.currentColorScheme}
+                        bind:reversed={state.colorSchemeReversed}
+                        on:select={({ detail }) => updateColorScheme(detail.name)}
+                        on:reverse={(e) => updateColorSchemeReversed(e.detail.reversed)}
                     />
                 </div>
 
@@ -79,7 +79,7 @@
                     <label for="backgroundColorMode">Background Color Mode</label>
                     <Selector
                         id="backgroundColorMode"
-                        options={['Black', 'White', 'Gray18', 'ColorScheme']}
+                        options={['Black', 'White', 'Gray18', 'Color Scheme']}
                         value={state?.backgroundColorMode}
                         on:change={({ detail }) => updateBackgroundColorMode(detail.value)}
                     />
@@ -90,45 +90,12 @@
             <PostProcessingMenu simulationType="flow" />
 
             <!-- Controls -->
-            <fieldset>
-                <legend>Controls</legend>
-                <div class="interaction-controls-grid">
-                    <div class="interaction-help">
-                        <div class="control-group">
-                            <span
-                                >🖱️ Left click: Spawn particles | Right click: Destroy particles</span
-                            >
-                        </div>
-                        <div class="control-group">
-                            <Button
-                                variant="default"
-                                on:click={() => dispatch('navigate', 'how-to-play')}
-                            >
-                                📖 Camera Controls
-                            </Button>
-                        </div>
-                        <div class="control-group">
-                            <span
-                                >Camera controls not working? Click the control bar at the top of
-                                the screen.</span
-                            >
-                        </div>
-                    </div>
-                    <div class="cursor-settings">
-                        <div class="cursor-settings-header">
-                            <span>🎯 Cursor Settings</span>
-                        </div>
-                        <CursorConfig
-                            cursorSize={state.cursorSize}
-                            sizeMin={0.01}
-                            sizeMax={1.0}
-                            sizeStep={0.01}
-                            sizePrecision={2}
-                            on:sizechange={(e) => updateCursorSize(e.detail)}
-                        />
-                    </div>
-                </div>
-            </fieldset>
+            <ControlsPanel
+                mouseInteractionText="🖱️ Left click: Spawn particles | Right click: Destroy particles"
+                cursorSize={state.cursorSize}
+                on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
+                on:navigate={(e) => dispatch('navigate', e.detail)}
+            />
 
             <!-- Combined Settings -->
             <fieldset>
@@ -175,8 +142,11 @@
                     <h3 class="section-header">Flow Field</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Vector Field Type:</span>
+                            <label class="setting-label" for="flow-vector-field-type"
+                                >Vector Field Type:</label
+                            >
                             <Selector
+                                id="flow-vector-field-type"
                                 options={['Noise', 'Image']}
                                 value={settings.vector_field_type}
                                 on:change={(e) => updateVectorFieldType(e.detail.value)}
@@ -185,8 +155,11 @@
 
                         {#if settings.vector_field_type === 'Noise'}
                             <div class="setting-item">
-                                <span class="setting-label">Noise Type:</span>
+                                <label class="setting-label" for="flow-noise-type"
+                                    >Noise Type:</label
+                                >
                                 <Selector
+                                    id="flow-noise-type"
                                     options={[
                                         'OpenSimplex',
                                         'Worley',
@@ -209,13 +182,8 @@
                         {#if settings.vector_field_type === 'Image'}
                             <ImageSelector
                                 fitMode={settings.image_fit_mode}
-                                mirrorHorizontal={settings.image_mirror_horizontal}
-                                invertTone={settings.image_invert_tone}
                                 loadCommand="load_flow_vector_field_image"
                                 onFitModeChange={(value) => updateImageFitMode(value)}
-                                onMirrorHorizontalChange={(value) =>
-                                    updateImageMirrorHorizontal(value)}
-                                onInvertToneChange={(value) => updateImageInvertTone(value)}
                             />
                             <WebcamControls
                                 {webcamDevices}
@@ -223,12 +191,57 @@
                                 onStartWebcam={startWebcam}
                                 onStopWebcam={stopWebcam}
                             />
+                            <div class="setting-item">
+                                <label class="setting-label" for="flow-image-mirror-horizontal"
+                                    >Mirror Horizontal:</label
+                                >
+                                <input
+                                    id="flow-image-mirror-horizontal"
+                                    type="checkbox"
+                                    checked={settings.image_mirror_horizontal}
+                                    on:change={(e) =>
+                                        updateImageMirrorHorizontal(
+                                            (e.target as HTMLInputElement).checked
+                                        )}
+                                />
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label" for="flow-image-mirror-vertical"
+                                    >Mirror Vertical:</label
+                                >
+                                <input
+                                    id="flow-image-mirror-vertical"
+                                    type="checkbox"
+                                    checked={settings.image_mirror_vertical}
+                                    on:change={(e) =>
+                                        updateImageMirrorVertical(
+                                            (e.target as HTMLInputElement).checked
+                                        )}
+                                />
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label" for="flow-image-invert-tone"
+                                    >Invert Tone:</label
+                                >
+                                <input
+                                    id="flow-image-invert-tone"
+                                    type="checkbox"
+                                    checked={settings.image_invert_tone}
+                                    on:change={(e) =>
+                                        updateImageInvertTone(
+                                            (e.target as HTMLInputElement).checked
+                                        )}
+                                />
+                            </div>
                         {/if}
 
                         {#if settings.vector_field_type === 'Noise'}
                             <div class="setting-item">
-                                <span class="setting-label">Noise Seed:</span>
+                                <label class="setting-label" for="flow-noise-seed"
+                                    >Noise Seed:</label
+                                >
                                 <NumberDragBox
+                                    id="flow-noise-seed"
                                     value={settings.noise_seed}
                                     on:change={({ detail }) => updateNoiseSeed(detail)}
                                     min={0}
@@ -236,8 +249,11 @@
                                 />
                             </div>
                             <div class="setting-item">
-                                <span class="setting-label">Noise Scale:</span>
+                                <label class="setting-label" for="flow-noise-scale"
+                                    >Noise Scale:</label
+                                >
                                 <NumberDragBox
+                                    id="flow-noise-scale"
                                     value={settings.noise_scale}
                                     on:change={({ detail }) => updateNoiseScale(detail)}
                                     min={0.001}
@@ -247,24 +263,29 @@
                                 />
                             </div>
                             <div class="setting-item">
-                                <span class="setting-label">Noise X:</span>
+                                <label class="setting-label" for="flow-noise-x">Noise X:</label>
                                 <NumberDragBox
+                                    id="flow-noise-x"
                                     value={settings.noise_x}
                                     on:change={({ detail }) => updateNoiseX(detail)}
                                     step={1.0}
                                 />
                             </div>
                             <div class="setting-item">
-                                <span class="setting-label">Noise Y:</span>
+                                <label class="setting-label" for="flow-noise-y">Noise Y:</label>
                                 <NumberDragBox
+                                    id="flow-noise-y"
                                     value={settings.noise_y}
                                     on:change={({ detail }) => updateNoiseY(detail)}
                                     step={1.0}
                                 />
                             </div>
                             <div class="setting-item">
-                                <span class="setting-label">Noise DT Multiplier:</span>
+                                <label class="setting-label" for="flow-noise-dt"
+                                    >Noise DT Multiplier:</label
+                                >
                                 <NumberDragBox
+                                    id="flow-noise-dt"
                                     value={settings.noise_dt_multiplier}
                                     on:change={({ detail }) => updateNoiseDtMultiplier(detail)}
                                     min={0.0}
@@ -275,8 +296,11 @@
                             </div>
                         {/if}
                         <div class="setting-item">
-                            <span class="setting-label">Vector Magnitude:</span>
+                            <label class="setting-label" for="flow-vector-magnitude"
+                                >Vector Magnitude:</label
+                            >
                             <NumberDragBox
+                                id="flow-vector-magnitude"
                                 value={settings.vector_magnitude}
                                 on:change={({ detail }) => updateVectorMagnitude(detail)}
                                 min={0.001}
@@ -292,8 +316,11 @@
                     <h3 class="section-header">Particles</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Particle Lifetime:</span>
+                            <label class="setting-label" for="flow-particle-lifetime"
+                                >Particle Lifetime:</label
+                            >
                             <NumberDragBox
+                                id="flow-particle-lifetime"
                                 value={settings.particle_lifetime}
                                 on:change={({ detail }) => updateParticleLifetime(detail)}
                                 min={0.1}
@@ -302,8 +329,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Particle Speed:</span>
+                            <label class="setting-label" for="flow-particle-speed"
+                                >Particle Speed:</label
+                            >
                             <NumberDragBox
+                                id="flow-particle-speed"
                                 value={settings.particle_speed}
                                 on:change={({ detail }) => updateParticleSpeed(detail)}
                                 min={0.001}
@@ -313,8 +343,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Particle Size (pixels):</span>
+                            <label class="setting-label" for="flow-particle-size"
+                                >Particle Size (pixels):</label
+                            >
                             <NumberDragBox
+                                id="flow-particle-size"
                                 value={settings.particle_size}
                                 on:change={({ detail }) => updateParticleSize(detail)}
                                 min={1}
@@ -323,8 +356,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Particle Shape:</span>
+                            <label class="setting-label" for="flow-particle-shape"
+                                >Particle Shape:</label
+                            >
                             <Selector
+                                id="flow-particle-shape"
                                 options={['Circle', 'Square', 'Triangle', 'Flower', 'Diamond']}
                                 value={settings.particle_shape}
                                 on:change={(e) => updateParticleShape(e.detail.value)}
@@ -355,8 +391,11 @@
                             </span>
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Autospawn Rate (particles/sec):</span>
+                            <label class="setting-label" for="flow-autospawn-rate"
+                                >Autospawn Rate (particles/sec):</label
+                            >
                             <NumberDragBox
+                                id="flow-autospawn-rate"
                                 value={settings.autospawn_rate}
                                 on:change={({ detail }) => updateAutospawnRate(detail)}
                                 min={0}
@@ -365,8 +404,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Brush Spawn Rate (particles/sec):</span>
+                            <label class="setting-label" for="flow-brush-spawn-rate"
+                                >Brush Spawn Rate (particles/sec):</label
+                            >
                             <NumberDragBox
+                                id="flow-brush-spawn-rate"
                                 value={settings.brush_spawn_rate}
                                 on:change={({ detail }) => updateBrushSpawnRate(detail)}
                                 min={1}
@@ -382,8 +424,11 @@
                     <h3 class="section-header">Trails</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Trail Decay Rate:</span>
+                            <label class="setting-label" for="flow-trail-decay"
+                                >Trail Decay Rate:</label
+                            >
                             <NumberDragBox
+                                id="flow-trail-decay"
                                 value={settings.trail_decay_rate}
                                 on:change={({ detail }) => updateTrailDecayRate(detail)}
                                 min={0.0}
@@ -393,8 +438,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Trail Deposition Rate:</span>
+                            <label class="setting-label" for="flow-trail-deposition"
+                                >Trail Deposition Rate:</label
+                            >
                             <NumberDragBox
+                                id="flow-trail-deposition"
                                 value={settings.trail_deposition_rate}
                                 on:change={({ detail }) => updateTrailDepositionRate(detail)}
                                 min={0.0}
@@ -403,8 +451,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Trail Diffusion Rate:</span>
+                            <label class="setting-label" for="flow-trail-diffusion"
+                                >Trail Diffusion Rate:</label
+                            >
                             <NumberDragBox
+                                id="flow-trail-diffusion"
                                 value={settings.trail_diffusion_rate}
                                 on:change={({ detail }) => updateTrailDiffusionRate(detail)}
                                 min={0.0}
@@ -413,8 +464,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Trail Wash Out Rate:</span>
+                            <label class="setting-label" for="flow-trail-washout"
+                                >Trail Wash Out Rate:</label
+                            >
                             <NumberDragBox
+                                id="flow-trail-washout"
                                 value={settings.trail_wash_out_rate}
                                 on:change={({ detail }) => updateTrailWashOutRate(detail)}
                                 min={0.0}
@@ -445,8 +499,8 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
     import './shared-theme.css';
     import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
@@ -500,6 +554,7 @@
         // Image-based vector field parameters
         image_fit_mode: string;
         image_mirror_horizontal: boolean;
+        image_mirror_vertical: boolean;
         image_invert_tone: boolean;
 
         // Particle parameters
@@ -524,8 +579,8 @@
 
     type State = {
         cursorSize: number;
-        currentLut: string;
-        lutReversed: boolean;
+        currentColorScheme: string;
+        colorSchemeReversed: boolean;
         backgroundColorMode: string;
         foregroundColorMode: string;
         showParticles: boolean;
@@ -591,7 +646,7 @@
         settings!.noise_type = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseType',
+                settingName: 'noise_type',
                 value,
             });
         } catch (e) {
@@ -664,7 +719,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -679,7 +734,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -697,7 +752,6 @@
             await resumeSimulation();
         }
     }
-
 
     let isMousePressed = false;
     let currentMouseButton = 0;
@@ -846,7 +900,7 @@
         settings!.noise_seed = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseSeed',
+                settingName: 'noise_seed',
                 value,
             });
         } catch (e) {
@@ -863,7 +917,7 @@
         settings!.noise_scale = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseScale',
+                settingName: 'noise_scale',
                 value,
             });
         } catch (e) {
@@ -880,7 +934,7 @@
         settings!.noise_x = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseX',
+                settingName: 'noise_x',
                 value,
             });
         } catch (e) {
@@ -897,7 +951,7 @@
         settings!.noise_y = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseY',
+                settingName: 'noise_y',
                 value,
             });
         } catch (e) {
@@ -914,7 +968,7 @@
         settings!.noise_dt_multiplier = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'noiseDtMultiplier',
+                settingName: 'noise_dt_multiplier',
                 value,
             });
         } catch (e) {
@@ -931,7 +985,7 @@
         settings!.vector_magnitude = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'vectorMagnitude',
+                settingName: 'vector_magnitude',
                 value,
             });
         } catch (e) {
@@ -948,7 +1002,7 @@
         settings!.particle_lifetime = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'particleLifetime',
+                settingName: 'particle_lifetime',
                 value,
             });
         } catch (e) {
@@ -965,7 +1019,7 @@
         settings!.particle_speed = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'particleSpeed',
+                settingName: 'particle_speed',
                 value,
             });
         } catch (e) {
@@ -985,7 +1039,7 @@
         settings!.particle_size = intValue;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'particleSize',
+                settingName: 'particle_size',
                 value: intValue,
             });
         } catch (e) {
@@ -1002,7 +1056,7 @@
         settings!.autospawn_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'autospawnRate',
+                settingName: 'autospawn_rate',
                 value,
             });
         } catch (e) {
@@ -1019,7 +1073,7 @@
         settings!.brush_spawn_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'brushSpawnRate',
+                settingName: 'brush_spawn_rate',
                 value,
             });
         } catch (e) {
@@ -1045,7 +1099,7 @@
         settings!.trail_decay_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'trailDecayRate',
+                settingName: 'trail_decay_rate',
                 value,
             });
         } catch (e) {
@@ -1062,7 +1116,7 @@
         settings!.trail_deposition_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'trailDepositionRate',
+                settingName: 'trail_deposition_rate',
                 value,
             });
         } catch (e) {
@@ -1079,7 +1133,7 @@
         settings!.trail_diffusion_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'trailDiffusionRate',
+                settingName: 'trail_diffusion_rate',
                 value,
             });
         } catch (e) {
@@ -1096,7 +1150,7 @@
         settings!.trail_wash_out_rate = value;
         try {
             await invoke('update_simulation_setting', {
-                settingName: 'trailWashOutRate',
+                settingName: 'trail_wash_out_rate',
                 value,
             });
         } catch (e) {
@@ -1104,29 +1158,29 @@
         }
     }
 
-    async function updateLut(lutName: string) {
-        state!.currentLut = lutName;
+    async function updateColorScheme(colorSchemeName: string) {
+        state!.currentColorScheme = colorSchemeName;
         try {
             await invoke('update_simulation_state', {
-                stateName: 'currentLut',
-                value: lutName,
+                stateName: 'currentColorScheme',
+                value: colorSchemeName,
             });
             await syncStateFromBackend();
         } catch (e) {
-            console.error('Failed to update LUT:', e);
+            console.error('Failed to update color scheme:', e);
         }
     }
 
-    async function updateLutReversed(reversed: boolean) {
+    async function updateColorSchemeReversed(reversed: boolean) {
         try {
-            state!.lutReversed = reversed;
+            state!.colorSchemeReversed = reversed;
             await invoke('update_simulation_state', {
-                stateName: 'lutReversed',
+                stateName: 'colorSchemeReversed',
                 value: reversed,
             });
             await syncStateFromBackend();
         } catch (e) {
-            console.error('Failed to update LUT reversed:', e);
+            console.error('Failed to update color scheme reversed:', e);
         }
     }
 
@@ -1182,7 +1236,7 @@
         try {
             available_luts = await invoke('get_available_color_schemes');
         } catch (e) {
-            console.error('Failed to load available LUTs:', e);
+            console.error('Failed to load available color schemes:', e);
         }
     }
 
@@ -1313,23 +1367,31 @@
         }
     }
 
-    async function updateImageMirrorHorizontal(mirror: boolean) {
-        settings!.image_mirror_horizontal = mirror;
+    async function updateImageMirrorHorizontal(checked: boolean) {
+        if (!settings) return;
+        settings.image_mirror_horizontal = checked;
         try {
-            await invoke('set_flow_image_mirror_horizontal', {
-                mirror,
-            });
+            await invoke('set_flow_image_mirror_horizontal', { mirror: checked });
         } catch (e) {
             console.error('Failed to update image mirror horizontal:', e);
         }
     }
 
-    async function updateImageInvertTone(invert: boolean) {
-        settings!.image_invert_tone = invert;
+    async function updateImageMirrorVertical(checked: boolean) {
+        if (!settings) return;
+        settings.image_mirror_vertical = checked;
         try {
-            await invoke('set_flow_image_invert_tone', {
-                invert,
-            });
+            await invoke('set_flow_image_mirror_vertical', { mirror: checked });
+        } catch (e) {
+            console.error('Failed to update image mirror vertical:', e);
+        }
+    }
+
+    async function updateImageInvertTone(checked: boolean) {
+        if (!settings) return;
+        settings.image_invert_tone = checked;
+        try {
+            await invoke('set_flow_image_invert_tone', { invert: checked });
         } catch (e) {
             console.error('Failed to update image invert tone:', e);
         }
@@ -1337,38 +1399,9 @@
 </script>
 
 <style>
-    .interaction-controls-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .interaction-help {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .cursor-settings {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .cursor-settings-header {
-        font-weight: 600;
-        margin-bottom: 0.5rem;
-    }
-
     .control-group {
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
-    }
-
-    .control-group span {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
     }
 </style>

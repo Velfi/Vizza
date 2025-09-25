@@ -5,13 +5,16 @@ use tauri::{AppHandle, Emitter, Manager};
 use wgpu::{Device, Queue, SurfaceConfiguration};
 
 use crate::commands::AppSettings;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, ColorSchemeError};
 use crate::simulation::preset_manager::SimulationPresetManager;
 use crate::simulations::gray_scott::{GrayScottModel, settings::Settings as GrayScottSettings};
 use crate::simulations::particle_life::{
-    ParticleLifeModel, settings::Settings as ParticleLifeSettings, simulation::ColorMode,
+    ParticleLifeModel, settings::Settings as ParticleLifeSettings,
 };
-use crate::simulations::shared::ColorScheme;
+use crate::simulations::primordial_particles::{
+    PrimordialParticlesModel, settings::Settings as PrimordialParticlesSettings,
+};
+use crate::simulations::shared::{ColorMode, ColorScheme};
 use crate::simulations::shared::{
     ColorSchemeManager, SimulationColorSchemeManager, coordinates::ScreenCoords,
 };
@@ -22,8 +25,9 @@ use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
 pub struct SimulationManager {
     pub current_simulation: Option<SimulationType>,
     pub preset_manager: SimulationPresetManager,
-    pub lut_manager: ColorSchemeManager,
-    pub simulation_lut_manager: SimulationColorSchemeManager,
+    // TODO Why are there two of these?
+    pub color_scheme_manager: ColorSchemeManager,
+    pub simulation_color_scheme_manager: SimulationColorSchemeManager,
     pub render_loop_running: Arc<AtomicBool>,
     pub fps_limit_enabled: Arc<AtomicBool>,
     pub fps_limit: Arc<AtomicU32>,
@@ -41,8 +45,8 @@ impl SimulationManager {
         Self {
             current_simulation: None,
             preset_manager: SimulationPresetManager::new(),
-            lut_manager: ColorSchemeManager::new(),
-            simulation_lut_manager: SimulationColorSchemeManager::new(),
+            color_scheme_manager: ColorSchemeManager::new(),
+            simulation_color_scheme_manager: SimulationColorSchemeManager::new(),
             render_loop_running: Arc::new(AtomicBool::new(false)),
             fps_limit_enabled: Arc::new(AtomicBool::new(false)),
             fps_limit: Arc::new(AtomicU32::new(60)),
@@ -55,6 +59,169 @@ impl SimulationManager {
     /// Get immutable reference to current simulation
     pub fn simulation(&self) -> Option<&SimulationType> {
         self.current_simulation.as_ref()
+    }
+
+    /// Get immutable reference to Gray-Scott simulation if it's the current simulation
+    pub fn gray_scott_simulation(
+        &self,
+    ) -> Result<&crate::simulations::gray_scott::GrayScottModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::GrayScott(sim)) => Ok(sim),
+            Some(_) => Err("No Gray-Scott simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Gray-Scott simulation if it's the current simulation
+    pub fn gray_scott_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::gray_scott::GrayScottModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::GrayScott(sim)) => Ok(sim),
+            Some(_) => Err("No Gray-Scott simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Slime Mold simulation if it's the current simulation
+    pub fn slime_mold_simulation(
+        &self,
+    ) -> Result<&crate::simulations::slime_mold::SlimeMoldModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::SlimeMold(sim)) => Ok(sim),
+            Some(_) => Err("No Slime Mold simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Slime Mold simulation if it's the current simulation
+    pub fn slime_mold_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::slime_mold::SlimeMoldModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::SlimeMold(sim)) => Ok(sim),
+            Some(_) => Err("No Slime Mold simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Particle Life simulation if it's the current simulation
+    pub fn particle_life_simulation(
+        &self,
+    ) -> Result<&crate::simulations::particle_life::simulation::ParticleLifeModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::ParticleLife(sim)) => Ok(sim),
+            Some(_) => Err("No Particle Life simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Particle Life simulation if it's the current simulation
+    pub fn particle_life_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::particle_life::simulation::ParticleLifeModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::ParticleLife(sim)) => Ok(sim),
+            Some(_) => Err("No Particle Life simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Flow simulation if it's the current simulation
+    pub fn flow_simulation(
+        &self,
+    ) -> Result<&crate::simulations::flow::simulation::FlowModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::Flow(sim)) => Ok(sim),
+            Some(_) => Err("No Flow simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Flow simulation if it's the current simulation
+    pub fn flow_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::flow::simulation::FlowModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::Flow(sim)) => Ok(sim),
+            Some(_) => Err("No Flow simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Pellets simulation if it's the current simulation
+    pub fn pellets_simulation(
+        &self,
+    ) -> Result<&crate::simulations::pellets::simulation::PelletsModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::Pellets(sim)) => Ok(sim),
+            Some(_) => Err("No Pellets simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Pellets simulation if it's the current simulation
+    pub fn pellets_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::pellets::simulation::PelletsModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::Pellets(sim)) => Ok(sim),
+            Some(_) => Err("No Pellets simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Moire simulation if it's the current simulation
+    pub fn moire_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::moire::simulation::MoireModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::Moire(sim)) => Ok(sim),
+            Some(_) => Err("No Moire simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Voronoi CA simulation if it's the current simulation
+    pub fn voronoi_ca_simulation(
+        &self,
+    ) -> Result<&crate::simulations::voronoi_ca::simulation::VoronoiCASimulation, String> {
+        match &self.current_simulation {
+            Some(SimulationType::VoronoiCA(sim)) => Ok(sim),
+            Some(_) => Err("No Voronoi CA simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Voronoi CA simulation if it's the current simulation
+    pub fn voronoi_ca_simulation_mut(
+        &mut self,
+    ) -> Result<&mut crate::simulations::voronoi_ca::simulation::VoronoiCASimulation, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::VoronoiCA(sim)) => Ok(sim),
+            Some(_) => Err("No Voronoi CA simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get immutable reference to Primordial Particles simulation if it's the current simulation
+    pub fn primordial_particles_simulation(&self) -> Result<&PrimordialParticlesModel, String> {
+        match &self.current_simulation {
+            Some(SimulationType::PrimordialParticles(sim)) => Ok(sim),
+            Some(_) => Err("No Primordial Particles simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
+    }
+
+    /// Get mutable reference to Primordial Particles simulation if it's the current simulation
+    pub fn primordial_particles_simulation_mut(
+        &mut self,
+    ) -> Result<&mut PrimordialParticlesModel, String> {
+        match &mut self.current_simulation {
+            Some(SimulationType::PrimordialParticles(sim)) => Ok(sim),
+            Some(_) => Err("No Primordial Particles simulation running".to_string()),
+            None => Err("No simulation running".to_string()),
+        }
     }
 
     pub async fn start_simulation(
@@ -77,7 +244,7 @@ impl SimulationManager {
                     10_000_000,
                     settings,
                     &self.app_settings,
-                    &self.lut_manager,
+                    &self.color_scheme_manager,
                 )?;
 
                 self.current_simulation = Some(SimulationType::SlimeMold(Box::new(simulation)));
@@ -100,15 +267,9 @@ impl SimulationManager {
                     GrayScottSettings::default()
                 };
 
-                // Calculate simulation resolution based on scale factor
-                let sim_width =
-                    (surface_config.width as f32 * settings.simulation_resolution_scale) as u32;
-                let sim_height =
-                    (surface_config.height as f32 * settings.simulation_resolution_scale) as u32;
-
-                // Ensure minimum resolution
-                let sim_width = sim_width.max(256);
-                let sim_height = sim_height.max(256);
+                // Use full surface resolution
+                let sim_width = surface_config.width.max(256);
+                let sim_height = surface_config.height.max(256);
 
                 let simulation = GrayScottModel::new(
                     device,
@@ -117,7 +278,8 @@ impl SimulationManager {
                     sim_width,
                     sim_height,
                     settings,
-                    &self.lut_manager,
+                    crate::simulations::gray_scott::state::State::default(),
+                    &self.color_scheme_manager,
                     &self.app_settings,
                 )?;
 
@@ -139,7 +301,7 @@ impl SimulationManager {
                     15000, // Default particle count
                     settings,
                     &self.app_settings,
-                    &self.lut_manager,
+                    &self.color_scheme_manager,
                     ColorMode::ColorScheme,
                 )?;
 
@@ -167,7 +329,7 @@ impl SimulationManager {
                     surface_config,
                     settings,
                     &self.app_settings,
-                    &self.lut_manager,
+                    &self.color_scheme_manager,
                 )
                 .map_err(|e| format!("Failed to initialize Flow simulation: {}", e))?;
 
@@ -184,7 +346,7 @@ impl SimulationManager {
                     surface_config,
                     settings,
                     &self.app_settings,
-                    &self.lut_manager,
+                    &self.color_scheme_manager,
                 )
                 .map_err(|e| format!("Failed to initialize Pellets simulation: {}", e))?;
 
@@ -226,11 +388,32 @@ impl SimulationManager {
                     surface_config,
                     settings,
                     &self.app_settings,
-                    &self.lut_manager,
+                    &self.color_scheme_manager,
                 )
                 .map_err(|e| format!("Failed to initialize Moiré simulation: {}", e))?;
 
                 self.current_simulation = Some(SimulationType::Moire(Box::new(simulation)));
+                self.resume();
+                Ok(())
+            }
+            "primordial_particles" => {
+                // Initialize Primordial Particles simulation
+                let settings = PrimordialParticlesSettings::default();
+                let state = crate::simulations::primordial_particles::state::State::new(
+                    surface_config.width,
+                    surface_config.height,
+                );
+                let simulation =
+                    PrimordialParticlesModel::new(device, queue, surface_config, &settings, &state)
+                        .map_err(|e| {
+                            format!(
+                                "Failed to initialize Primordial Particles simulation: {}",
+                                e
+                            )
+                        })?;
+
+                self.current_simulation =
+                    Some(SimulationType::PrimordialParticles(Box::new(simulation)));
                 self.resume();
                 Ok(())
             }
@@ -307,7 +490,7 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::GrayScott(simulation) => {
-                    let camera = &simulation.renderer.camera;
+                    let camera = &simulation.camera;
                     let screen = ScreenCoords::new(screen_x, screen_y);
                     let world = camera.screen_to_world(screen);
 
@@ -397,6 +580,18 @@ impl SimulationManager {
                         queue,
                     )?;
                 }
+                SimulationType::PrimordialParticles(simulation) => {
+                    let camera = &simulation.camera;
+                    let screen = ScreenCoords::new(screen_x, screen_y);
+                    let world = camera.screen_to_world(screen);
+                    simulation.handle_mouse_interaction(
+                        world.x,
+                        world.y,
+                        mouse_button,
+                        device,
+                        queue,
+                    )?;
+                }
 
                 _ => (),
             }
@@ -424,6 +619,9 @@ impl SimulationManager {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
                 SimulationType::VoronoiCA(simulation) => {
+                    simulation.handle_mouse_release(mouse_button, queue)?;
+                }
+                SimulationType::PrimordialParticles(simulation) => {
                     simulation.handle_mouse_release(mouse_button, queue)?;
                 }
 
@@ -593,8 +791,8 @@ impl SimulationManager {
 
     // Color scheme management methods
     pub fn get_available_color_schemes(&self) -> Vec<String> {
-        self.simulation_lut_manager
-            .get_available_color_schemes(&self.lut_manager)
+        self.simulation_color_scheme_manager
+            .get_available_color_schemes(&self.color_scheme_manager)
     }
 
     pub fn apply_color_scheme(
@@ -607,23 +805,22 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
                     // For slime mold, load the color scheme data and apply it directly
-                    let mut color_scheme_data =
-                        self.lut_manager.get(color_scheme_name).map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(color_scheme_name)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                color_scheme_name,
+                                &e.to_string(),
+                            ))
                         })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.color_scheme_reversed {
                         color_scheme_data.reverse();
                     }
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-                    simulation.current_lut_name = color_scheme_name.to_string();
+                    simulation.current_color_scheme = color_scheme_name.to_string();
 
                     tracing::info!(
                         "Color scheme '{}' applied to slime mold simulation",
@@ -632,28 +829,22 @@ impl SimulationManager {
                 }
                 SimulationType::GrayScott(simulation) => {
                     // For Gray-Scott, load the color scheme data and apply it to the renderer
-                    let mut color_scheme_data =
-                        self.lut_manager.get(color_scheme_name).map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(color_scheme_name)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                color_scheme_name,
+                                &e.to_string(),
+                            ))
                         })?;
 
-                    if simulation.color_scheme_reversed {
+                    if simulation.state.color_scheme_reversed {
                         color_scheme_data.reverse();
                     }
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-                    simulation.current_color_scheme_name = color_scheme_name.to_string();
-
-                    tracing::info!(
-                        "Color scheme '{}' applied to Gray-Scott simulation",
-                        color_scheme_name
-                    );
+                    simulation.state.current_color_scheme = color_scheme_name.to_string();
                 }
                 SimulationType::ParticleLife(simulation) => {
                     // For particle life, use the existing update_state method
@@ -672,10 +863,6 @@ impl SimulationManager {
                         device,
                         queue,
                     )?;
-                    tracing::info!(
-                        "Color scheme '{}' applied to Flow simulation",
-                        color_scheme_name
-                    );
                 }
                 SimulationType::Pellets(simulation) => {
                     // For Pellets, use the existing update_state method
@@ -685,10 +872,6 @@ impl SimulationManager {
                         device,
                         queue,
                     )?;
-                    tracing::info!(
-                        "Color scheme '{}' applied to Pellets simulation",
-                        color_scheme_name
-                    );
                 }
                 SimulationType::MainMenu(_) => {
                     // Main menu doesn't support color scheme changes
@@ -696,60 +879,48 @@ impl SimulationManager {
                 }
                 SimulationType::Gradient(simulation) => {
                     // For gradient simulation, load the color scheme data and apply it directly
-                    let color_scheme_data =
-                        self.lut_manager.get(color_scheme_name).map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                    let color_scheme_data = self
+                        .color_scheme_manager
+                        .get(color_scheme_name)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                color_scheme_name,
+                                &e.to_string(),
+                            ))
                         })?;
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-
-                    tracing::info!(
-                        "Color scheme '{}' applied to gradient simulation",
-                        color_scheme_name
-                    );
                 }
                 SimulationType::VoronoiCA(simulation) => {
-                    // Load color scheme data and write directly into the VCA LUT buffer
-                    let mut color_scheme_data =
-                        self.lut_manager.get(color_scheme_name).map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                    // Load color scheme data and write directly into the VCA color scheme buffer
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(color_scheme_name)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                color_scheme_name,
+                                &e.to_string(),
+                            ))
                         })?;
 
-                    if simulation.lut_reversed {
+                    if simulation.color_scheme_reversed {
                         color_scheme_data.reverse();
                     }
 
                     let data_u32 = color_scheme_data.to_u32_buffer();
                     queue.write_buffer(&simulation.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
-                    simulation.current_lut_name = color_scheme_name.to_string();
-                    tracing::info!(
-                        "Color scheme '{}' applied to Voronoi CA simulation (direct write)",
-                        color_scheme_name
-                    );
+                    simulation.current_color_scheme = color_scheme_name.to_string();
                 }
                 SimulationType::Moire(simulation) => {
                     // For Moiré, load the color scheme data and apply it directly
-                    let mut color_scheme_data =
-                        self.lut_manager.get(color_scheme_name).map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(color_scheme_name)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                color_scheme_name,
+                                &e.to_string(),
+                            ))
                         })?;
 
                     if simulation.color_scheme_reversed {
@@ -758,11 +929,15 @@ impl SimulationManager {
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                     simulation.current_color_scheme = color_scheme_name.to_string();
-
-                    tracing::info!(
-                        "Color scheme '{}' applied to Moiré simulation",
-                        color_scheme_name
-                    );
+                }
+                SimulationType::PrimordialParticles(simulation) => {
+                    // For Primordial Particles, use the existing update_state method
+                    simulation.update_state(
+                        "color_scheme",
+                        serde_json::json!(color_scheme_name),
+                        device,
+                        queue,
+                    )?;
                 }
             }
         }
@@ -778,41 +953,15 @@ impl SimulationManager {
             match simulation {
                 SimulationType::SlimeMold(simulation) => {
                     // Toggle the reversed flag and reload the color scheme
-                    simulation.lut_reversed = !simulation.lut_reversed;
-                    let mut color_scheme_data = self
-                        .lut_manager
-                        .get(&simulation.current_lut_name)
-                        .map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    simulation.current_lut_name, e
-                                )
-                                .into(),
-                            )
-                        })?;
-
-                    if simulation.lut_reversed {
-                        color_scheme_data.reverse();
-                    }
-
-                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-                    tracing::info!("LUT reversed for slime mold simulation");
-                }
-                SimulationType::GrayScott(simulation) => {
-                    // Toggle the reversed flag and reload the LUT
                     simulation.color_scheme_reversed = !simulation.color_scheme_reversed;
                     let mut color_scheme_data = self
-                        .lut_manager
-                        .get(&simulation.current_color_scheme_name)
+                        .color_scheme_manager
+                        .get(&simulation.current_color_scheme)
                         .map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    simulation.current_color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                &simulation.current_color_scheme,
+                                &e.to_string(),
+                            ))
                         })?;
 
                     if simulation.color_scheme_reversed {
@@ -820,25 +969,40 @@ impl SimulationManager {
                     }
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
-                    tracing::info!("LUT reversed for Gray-Scott simulation");
+                    tracing::info!("Color scheme reversed for slime mold simulation");
+                }
+                SimulationType::GrayScott(simulation) => {
+                    // Toggle the reversed flag and reload the color scheme
+                    simulation.state.color_scheme_reversed =
+                        !simulation.state.color_scheme_reversed;
+                    let color_scheme_data = self
+                        .color_scheme_manager
+                        .get(&simulation.state.current_color_scheme)
+                        .map_err(|e| {
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                &simulation.state.current_color_scheme,
+                                &e.to_string(),
+                            ))
+                        })?;
+
+                    // Don't apply reversal here - update_color_scheme handles it internally
+                    simulation.update_color_scheme(&color_scheme_data, device, queue)?;
+                    tracing::info!("Color scheme reversed for Gray-Scott simulation");
                 }
                 SimulationType::ParticleLife(simulation) => {
-                    // For particle life, we need to update the LUT with reversed flag
+                    // For particle life, we need to update the color scheme with reversed flag
                     let current_reversed = simulation.state.color_scheme_reversed;
                     simulation.state.color_scheme_reversed = !current_reversed;
 
                     // Get the current color scheme and apply it with the new reversal state
                     let mut color_scheme_data = self
-                        .lut_manager
-                        .get(&simulation.state.current_color_scheme_name)
+                        .color_scheme_manager
+                        .get(&simulation.state.current_color_scheme)
                         .map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    simulation.state.current_color_scheme_name, e
-                                )
-                                .into(),
-                            )
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                &simulation.state.current_color_scheme,
+                                &e.to_string(),
+                            ))
                         })?;
 
                     if simulation.state.color_scheme_reversed {
@@ -848,21 +1012,19 @@ impl SimulationManager {
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                 }
                 SimulationType::Flow(simulation) => {
-                    // For Flow, use the built-in LUT reversal mechanism
-                    let current_reversed = simulation.lut_reversed;
-                    simulation.update_setting(
-                        "lutReversed",
+                    let current_reversed = simulation.state.color_scheme_reversed;
+                    simulation.update_state(
+                        "color_scheme_reversed",
                         serde_json::json!(!current_reversed),
                         device,
                         queue,
                     )?;
-                    tracing::info!("LUT reversed for Flow simulation");
+                    tracing::info!("Color scheme reversed for Flow simulation");
                 }
                 SimulationType::Pellets(simulation) => {
-                    // For Pellets, use the built-in LUT reversal mechanism
-                    let current_reversed = simulation.state.lut_reversed;
-                    simulation.update_setting(
-                        "lut_reversed",
+                    let current_reversed = simulation.state.color_scheme_reversed;
+                    simulation.update_state(
+                        "color_scheme_reversed",
                         serde_json::json!(!current_reversed),
                         device,
                         queue,
@@ -874,38 +1036,38 @@ impl SimulationManager {
                     tracing::warn!("LUT reversal not supported for main menu simulation");
                 }
                 SimulationType::VoronoiCA(simulation) => {
-                    let current_reversed = simulation.lut_reversed;
-                    simulation.lut_reversed = !current_reversed;
-                    // Update GPU buffer to reflect reversal using the app's LUT manager
-                    if let Ok(lut) = self.lut_manager.get(&simulation.current_lut_name) {
+                    let current_reversed = simulation.color_scheme_reversed;
+                    simulation.color_scheme_reversed = !current_reversed;
+                    // Update GPU buffer to reflect reversal using the app's color scheme manager
+                    if let Ok(lut) = self
+                        .color_scheme_manager
+                        .get(&simulation.current_color_scheme)
+                    {
                         let mut data = lut.to_u32_buffer();
-                        if simulation.lut_reversed {
-                            // reverse planar LUT in-place
+                        if simulation.color_scheme_reversed {
+                            // reverse planar color scheme in-place
                             data[0..256].reverse();
                             data[256..512].reverse();
                             data[512..768].reverse();
                         }
                         queue.write_buffer(&simulation.lut_buffer, 0, bytemuck::cast_slice(&data));
                     }
-                    tracing::info!("LUT reversed for Voronoi CA simulation");
+                    tracing::info!("Color scheme reversed for Voronoi CA simulation");
                 }
                 SimulationType::Gradient(_simulation) => {
-                    tracing::warn!("LUT reversal not supported for Gradient simulation");
+                    tracing::warn!("Color scheme reversal not supported for Gradient simulation");
                 }
                 SimulationType::Moire(simulation) => {
-                    // Toggle the reversed flag and reload the LUT
+                    // Toggle the reversed flag and reload the color scheme
                     simulation.color_scheme_reversed = !simulation.color_scheme_reversed;
                     let mut color_scheme_data = self
-                        .lut_manager
+                        .color_scheme_manager
                         .get(&simulation.current_color_scheme)
                         .map_err(|e| {
-                            AppError::Simulation(
-                                format!(
-                                    "Failed to load color scheme '{}': {}",
-                                    simulation.current_color_scheme, e
-                                )
-                                .into(),
-                            )
+                            AppError::ColorScheme(ColorSchemeError::load_failed(
+                                &simulation.current_color_scheme,
+                                &e.to_string(),
+                            ))
                         })?;
 
                     if simulation.color_scheme_reversed {
@@ -914,6 +1076,17 @@ impl SimulationManager {
 
                     simulation.update_color_scheme(&color_scheme_data, device, queue)?;
                     tracing::info!("LUT reversed for Moiré simulation");
+                }
+                SimulationType::PrimordialParticles(simulation) => {
+                    // For Primordial Particles, use the existing update_state method
+                    let current_reversed = simulation.state.color_scheme_reversed;
+                    simulation.update_state(
+                        "color_scheme_reversed",
+                        serde_json::json!(!current_reversed),
+                        device,
+                        queue,
+                    )?;
+                    tracing::info!("Color scheme reversed for Primordial Particles simulation");
                 }
             }
         }
@@ -1152,6 +1325,17 @@ impl SimulationManager {
         Ok(())
     }
 
+    pub fn reset_runtime_state(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> AppResult<()> {
+        if let Some(simulation) = &mut self.current_simulation {
+            simulation.reset_runtime_state(device, queue)?;
+        }
+        Ok(())
+    }
+
     pub fn randomize_settings(
         &mut self,
         device: &Arc<Device>,
@@ -1188,15 +1372,16 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.pan_camera(delta_x, delta_y),
-                SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.camera.pan(delta_x, delta_y)
-                }
+                SimulationType::GrayScott(simulation) => simulation.camera.pan(delta_x, delta_y),
                 SimulationType::ParticleLife(simulation) => simulation.camera.pan(delta_x, delta_y),
                 SimulationType::Flow(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::Pellets(simulation) => simulation.pan_camera(delta_x, delta_y),
                 SimulationType::MainMenu(_) => {}
                 SimulationType::VoronoiCA(simulation) => simulation.camera.pan(delta_x, delta_y),
                 SimulationType::Moire(simulation) => simulation.pan_camera(delta_x, delta_y),
+                SimulationType::PrimordialParticles(simulation) => {
+                    simulation.pan_camera(delta_x, delta_y)
+                }
                 _ => {}
             }
         }
@@ -1206,13 +1391,14 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.zoom_camera(delta),
-                SimulationType::GrayScott(simulation) => simulation.renderer.camera.zoom(delta),
+                SimulationType::GrayScott(simulation) => simulation.camera.zoom(delta),
                 SimulationType::ParticleLife(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Flow(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Pellets(simulation) => simulation.camera.zoom(delta),
                 SimulationType::MainMenu(_) => {}
                 SimulationType::VoronoiCA(simulation) => simulation.camera.zoom(delta),
                 SimulationType::Moire(simulation) => simulation.zoom_camera(delta),
+                SimulationType::PrimordialParticles(simulation) => simulation.zoom_camera(delta),
                 _ => {}
             }
         }
@@ -1224,10 +1410,9 @@ impl SimulationManager {
                 SimulationType::SlimeMold(simulation) => {
                     simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
                 }
-                SimulationType::GrayScott(simulation) => simulation
-                    .renderer
-                    .camera
-                    .zoom_to_cursor(delta, cursor_x, cursor_y),
+                SimulationType::GrayScott(simulation) => {
+                    simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
+                }
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.zoom_to_cursor(delta, cursor_x, cursor_y)
                 }
@@ -1244,6 +1429,9 @@ impl SimulationManager {
                 SimulationType::Moire(simulation) => {
                     simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
                 }
+                SimulationType::PrimordialParticles(simulation) => {
+                    simulation.zoom_camera_to_cursor(delta, cursor_x, cursor_y)
+                }
                 _ => {}
             }
         }
@@ -1253,13 +1441,14 @@ impl SimulationManager {
         if let Some(simulation) = &mut self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => simulation.reset_camera(),
-                SimulationType::GrayScott(simulation) => simulation.renderer.camera.reset(),
+                SimulationType::GrayScott(simulation) => simulation.camera.reset(),
                 SimulationType::ParticleLife(simulation) => simulation.camera.reset(),
                 SimulationType::Flow(simulation) => simulation.camera.reset(),
                 SimulationType::Pellets(simulation) => simulation.camera.reset(),
                 SimulationType::MainMenu(_) => {}
                 SimulationType::VoronoiCA(simulation) => simulation.camera.reset(),
                 SimulationType::Moire(simulation) => simulation.reset_camera(),
+                SimulationType::PrimordialParticles(simulation) => simulation.reset_camera(),
                 _ => {}
             }
         }
@@ -1269,14 +1458,15 @@ impl SimulationManager {
         if let Some(simulation) = &self.current_simulation {
             match simulation {
                 SimulationType::SlimeMold(simulation) => Some(simulation.camera.get_state()),
-                SimulationType::GrayScott(simulation) => {
-                    Some(simulation.renderer.camera.get_state())
-                }
+                SimulationType::GrayScott(simulation) => Some(simulation.camera.get_state()),
                 SimulationType::ParticleLife(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::Flow(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::Pellets(simulation) => Some(simulation.get_camera_state()),
                 SimulationType::MainMenu(_) => Some(serde_json::json!({})), // No camera for main menu background
                 SimulationType::VoronoiCA(simulation) => Some(simulation.get_camera_state()),
+                SimulationType::PrimordialParticles(simulation) => {
+                    Some(simulation.get_camera_state())
+                }
                 _ => Some(serde_json::json!({})), // No camera for other simulations
             }
         } else {
@@ -1291,10 +1481,9 @@ impl SimulationManager {
                 SimulationType::SlimeMold(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
-                SimulationType::GrayScott(simulation) => simulation
-                    .renderer
-                    .camera
-                    .set_smoothing_factor(smoothing_factor),
+                SimulationType::GrayScott(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
@@ -1306,6 +1495,9 @@ impl SimulationManager {
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
                 SimulationType::VoronoiCA(simulation) => {
+                    simulation.camera.set_smoothing_factor(smoothing_factor)
+                }
+                SimulationType::PrimordialParticles(simulation) => {
                     simulation.camera.set_smoothing_factor(smoothing_factor)
                 }
                 _ => {} // No camera for other simulations
@@ -1321,7 +1513,7 @@ impl SimulationManager {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::GrayScott(simulation) => {
-                    simulation.renderer.camera.set_sensitivity(sensitivity)
+                    simulation.camera.set_sensitivity(sensitivity)
                 }
                 SimulationType::ParticleLife(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
@@ -1332,6 +1524,9 @@ impl SimulationManager {
                 }
                 SimulationType::MainMenu(_) => {} // No camera for main menu background
                 SimulationType::VoronoiCA(simulation) => {
+                    simulation.camera.set_sensitivity(sensitivity)
+                }
+                SimulationType::PrimordialParticles(simulation) => {
                     simulation.camera.set_sensitivity(sensitivity)
                 }
                 _ => {} // No camera for other simulations
@@ -1407,6 +1602,16 @@ impl SimulationManager {
                             queue,
                         )
                         .map_err(AppError::Simulation)?;
+                }
+                SimulationType::PrimordialParticles(simulation) => {
+                    simulation.update_state(
+                        "cursor_size",
+                        serde_json::Value::Number(
+                            serde_json::Number::from_f64(size as f64).unwrap(),
+                        ),
+                        device,
+                        queue,
+                    )?;
                 }
                 _ => {
                     return Err(AppError::Simulation(
@@ -1494,6 +1699,16 @@ impl SimulationManager {
                             queue,
                         )
                         .map_err(AppError::Simulation)?;
+                }
+                SimulationType::PrimordialParticles(simulation) => {
+                    simulation.update_state(
+                        "cursor_strength",
+                        serde_json::Value::Number(
+                            serde_json::Number::from_f64(strength as f64).unwrap(),
+                        ),
+                        device,
+                        queue,
+                    )?;
                 }
                 _ => {
                     return Err(AppError::Simulation(

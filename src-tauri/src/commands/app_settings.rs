@@ -23,6 +23,16 @@ impl From<TextureFiltering> for wgpu::FilterMode {
     }
 }
 
+impl Into<u32> for TextureFiltering {
+    fn into(self) -> u32 {
+        match self {
+            TextureFiltering::Nearest => 0,
+            TextureFiltering::Linear => 1,
+            TextureFiltering::Lanczos => 2,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     // Display Settings

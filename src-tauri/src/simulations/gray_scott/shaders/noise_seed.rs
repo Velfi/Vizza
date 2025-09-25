@@ -30,7 +30,12 @@ impl NoiseSeedCompute {
             label: Some("Noise Seed Bind Group Layout"),
             entries: &[
                 // UVs texture (read-write)
-                resource_helpers::storage_texture_entry(0, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::WriteOnly, wgpu::TextureFormat::Rgba32Float),
+                resource_helpers::storage_texture_entry(
+                    0,
+                    wgpu::ShaderStages::COMPUTE,
+                    wgpu::StorageTextureAccess::WriteOnly,
+                    wgpu::TextureFormat::Rgba16Float,
+                ),
                 // Params buffer (uniform)
                 resource_helpers::uniform_buffer_entry(1, wgpu::ShaderStages::COMPUTE),
             ],

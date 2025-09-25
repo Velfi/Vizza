@@ -1,3 +1,5 @@
+use super::settings::Settings as GradientSettings;
+use super::state::State as GradientState;
 use crate::commands::app_settings::AppSettings;
 use crate::error::SimulationResult;
 use crate::simulations::gradient::shaders::GRADIENT_SHADER;
@@ -26,6 +28,9 @@ pub struct GradientSimulation {
     params_buffer: Buffer,
     // GUI state
     gui_visible: bool,
+    // Settings and state (minimal for convention)
+    settings: GradientSettings,
+    state: GradientState,
 }
 
 impl GradientSimulation {
@@ -158,6 +163,8 @@ impl GradientSimulation {
             display_mode: 0, // Start with smooth mode
             params_buffer,
             gui_visible: true, // Start with GUI visible
+            settings: GradientSettings::default(),
+            state: GradientState { display_mode: 0 },
         }
     }
 
@@ -170,6 +177,7 @@ impl GradientSimulation {
 
     pub fn set_display_mode(&mut self, mode: u32, queue: &Queue) {
         self.display_mode = mode;
+        self.state.display_mode = mode;
         let params_data = [mode, 0u32, 0u32, 0u32]; // display_mode, padding
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&params_data));
     }
@@ -244,11 +252,11 @@ impl Simulation for GradientSimulation {
     }
 
     fn get_settings(&self) -> Value {
-        serde_json::json!({})
+        serde_json::to_value(&self.settings).unwrap_or(serde_json::json!({}))
     }
 
     fn get_state(&self) -> Value {
-        serde_json::json!({})
+        serde_json::to_value(&self.state).unwrap_or(serde_json::json!({}))
     }
 
     fn handle_mouse_interaction(

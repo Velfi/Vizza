@@ -1,11 +1,10 @@
 pub mod settings;
 pub mod shaders;
 pub mod simulation;
+pub mod state;
 
 #[cfg(test)]
 mod tests;
-
-// pub use simulation::FlowModel; // Not needed for preset functionality
 
 use crate::simulation::preset_manager::{FlowPresetManager, Preset};
 

@@ -15,16 +15,15 @@ struct SimSizeUniform {
     agent_sensor_distance: f32,
     diffusion_rate: f32,
     pheromone_deposition_rate: f32,
-    gradient_enabled: u32,
-    gradient_type: u32,
-    gradient_strength: f32,
-    gradient_center_x: f32,
-    gradient_center_y: f32,
-    gradient_size: f32,
-    gradient_angle: f32,
+    mask_pattern: u32,
+    mask_target: u32,
+    mask_strength: f32,
+    mask_curve: f32,
+    mask_mirror_horizontal: u32,
+    mask_mirror_vertical: u32,
+    mask_invert_tone: u32,
     random_seed: u32,
     position_generator: u32,
-    _pad1: u32,
 };
 
 struct CursorParams {
@@ -47,7 +46,7 @@ var<storage, read_write> trail_map: array<f32>;
 var<uniform> sim_size: SimSizeUniform;
 
 @group(0) @binding(3)
-var<storage, read> gradient_map: array<f32>;
+var<storage, read> mask_map: array<f32>;
 
 @group(0) @binding(4)
 var<uniform> cursor: CursorParams;
@@ -86,8 +85,8 @@ fn sample_trail_map_fast(pos: vec2<f32>) -> f32 {
     return trail_map[y * width + x];
 }
 
-// Helper function to sample gradient map
-fn sample_gradient_map(pos: vec2<f32>) -> f32 {
+// Helper function to sample mask map
+fn sample_mask_map(pos: vec2<f32>) -> f32 {
     let width = i32(sim_size.width);
     let height = i32(sim_size.height);
 
@@ -99,42 +98,56 @@ fn sample_gradient_map(pos: vec2<f32>) -> f32 {
     let dx = pos.x - f32(i32(floor(pos.x)));
     let dy = pos.y - f32(i32(floor(pos.y)));
 
-    let v00 = gradient_map[y0 * width + x0];
-    let v10 = gradient_map[y0 * width + x1];
-    let v01 = gradient_map[y1 * width + x0];
-    let v11 = gradient_map[y1 * width + x1];
+    let v00 = mask_map[y0 * width + x0];
+    let v10 = mask_map[y0 * width + x1];
+    let v01 = mask_map[y1 * width + x0];
+    let v11 = mask_map[y1 * width + x1];
 
     let v0 = mix(v00, v10, dx);
     let v1 = mix(v01, v11, dx);
     return mix(v0, v1, dy);
 }
 
-// Combined function to sample both trail and gradient
+// Unified mask sampling with mirror + tone inversion applied consistently
+fn sample_mask_with_mirror_invert(pos: vec2<f32>) -> f32 {
+    // Normalize for mirroring
+    var sx = pos.x / f32(sim_size.width);
+    var sy = pos.y / f32(sim_size.height);
+
+    if (sim_size.mask_mirror_horizontal != 0u) { sx = 1.0 - sx; }
+    if (sim_size.mask_mirror_vertical != 0u) { sy = 1.0 - sy; }
+
+    // Convert back to texture space and use bilinear sampling
+    let mirrored_pos = vec2<f32>(sx * f32(sim_size.width), sy * f32(sim_size.height));
+    var v = sample_mask_map(mirrored_pos);
+    if (sim_size.mask_invert_tone != 0u) { v = 1.0 - v; }
+    return v;
+}
+
+// Combined function to sample both trail and mask
 fn sample_combined_map(pos: vec2<f32>) -> f32 {
     let trail_value = sample_trail_map(pos);
-    var gradient_value: f32;
-    if (sim_size.gradient_enabled == 1u) {
-        gradient_value = sample_gradient_map(pos);
-    } else {
-        gradient_value = 0.0;
+    var mask_value: f32 = 0.0;
+    if (sim_size.mask_pattern != 0u) {
+        mask_value = sample_mask_with_mirror_invert(pos);
     }
-    return trail_value + gradient_value;
+    return trail_value + mask_value;
 }
 
 // Fast combined sampling for performance-critical paths
 fn sample_combined_map_fast(pos: vec2<f32>) -> f32 {
     let trail_value = sample_trail_map_fast(pos);
-    var gradient_value: f32;
-    if (sim_size.gradient_enabled == 1u) {
-        let width = i32(sim_size.width);
-        let height = i32(sim_size.height);
-        let x = ((i32(round(pos.x)) % width) + width) % width;
-        let y = ((i32(round(pos.y)) % height) + height) % height;
-        gradient_value = gradient_map[y * width + x];
-    } else {
-        gradient_value = 0.0;
+    var mask_value: f32 = 0.0;
+    if (sim_size.mask_pattern != 0u) {
+        mask_value = sample_mask_with_mirror_invert(pos);
     }
-    return trail_value + gradient_value;
+    return trail_value + mask_value;
+}
+
+// Get mask factor for the current position
+fn get_mask_factor(x: f32, y: f32) -> f32 {
+    // Sample from precomputed mask map with unified mirror/invert
+    return sample_mask_with_mirror_invert(vec2<f32>(x, y));
 }
 
 // Parameters for the simulation (now mostly from uniform)
@@ -175,8 +188,49 @@ fn update_agents(
     var angle = agent.z;
     var speed = agent.w;
 
+    // Get mask factor for this position, apply curve and strength
+    var mask_factor = get_mask_factor(x, y);
+    mask_factor = pow(clamp(mask_factor, 0.0, 1.0), max(0.0001, sim_size.mask_curve));
+    mask_factor = clamp(mask_factor * sim_size.mask_strength, 0.0, 1.0);
+    
+    // Apply mask to parameters based on target
+    var effective_sensor_distance = sim_size.agent_sensor_distance;
+    var effective_speed = speed;
+    var effective_turn_rate = sim_size.agent_turn_rate;
+    var effective_deposition_rate = sim_size.pheromone_deposition_rate;
+    
+    if (sim_size.mask_target == 0u) { // PheromoneDeposition (0..100)
+        let target_min = 0.0;
+        let target_max = 100.0;
+        let target_value = mix(target_min, target_max, mask_factor);
+        effective_deposition_rate = mix(effective_deposition_rate, target_value, mask_factor);
+    } else if (sim_size.mask_target == 3u) { // AgentSpeed (normalize within min/max)
+        let speed_min = sim_size.agent_speed_min;
+        let speed_max = sim_size.agent_speed_max;
+        let speed_norm = clamp((effective_speed - speed_min) / max(0.0001, speed_max - speed_min), 0.0, 1.0);
+        let target_norm = mask_factor; // 0..1 in normalized space
+        let mixed_norm = mix(speed_norm, target_norm, mask_factor);
+        effective_speed = speed_min + mixed_norm * (speed_max - speed_min);
+    } else if (sim_size.mask_target == 4u) { // AgentTurnRate (0..pi)
+        let target_min = 0.0;
+        let target_max = 3.14159265;
+        let target_value = mix(target_min, target_max, mask_factor);
+        effective_turn_rate = mix(effective_turn_rate, target_value, mask_factor);
+    } else if (sim_size.mask_target == 5u) { // AgentSensorDistance (0..500 per UI)
+        let target_min = 0.0;
+        let target_max = 500.0;
+        let target_value = mix(target_min, target_max, mask_factor);
+        effective_sensor_distance = mix(effective_sensor_distance, target_value, mask_factor);
+    } else if (sim_size.mask_target == 6u) { // TrailMap (direct trail map modification)
+        // For TrailMap target, we'll apply the mask factor directly to the deposition rate
+        // This allows the mask to control how much pheromone is deposited in different areas
+        // Make the effect more pronounced by using a wider range
+        let min_deposition = 0.0;
+        let max_deposition = effective_deposition_rate * 2.0;
+        effective_deposition_rate = mix(min_deposition, max_deposition, mask_factor);
+    }
+
     // Sample trail map at sensor positions
-    let sensor_distance = sim_size.agent_sensor_distance;
     let sensor_angle = sim_size.agent_sensor_angle;
     
     // Calculate sensor positions
@@ -184,12 +238,12 @@ fn update_agents(
     let right_angle = angle + sensor_angle;
     
     let left_pos = vec2<f32>(
-        x + cos(left_angle) * sensor_distance,
-        y + sin(left_angle) * sensor_distance
+        x + cos(left_angle) * effective_sensor_distance,
+        y + sin(left_angle) * effective_sensor_distance
     );
     let right_pos = vec2<f32>(
-        x + cos(right_angle) * sensor_distance,
-        y + sin(right_angle) * sensor_distance
+        x + cos(right_angle) * effective_sensor_distance,
+        y + sin(right_angle) * effective_sensor_distance
     );
     
     // Sample combined trail + gradient maps at sensor positions
@@ -202,18 +256,18 @@ fn update_agents(
         // Calculate shortest path to turn left
         let target_angle = angle - TAU;
         let angle_diff = target_angle - angle;
-        angle += min(sim_size.agent_turn_rate, abs(angle_diff)) * sign(angle_diff);
+        angle += min(effective_turn_rate, abs(angle_diff)) * sign(angle_diff);
     } else if (right_value > left_value) {
         // Calculate shortest path to turn right
         let target_angle = angle + TAU;
         let angle_diff = target_angle - angle;
-        angle += min(sim_size.agent_turn_rate, abs(angle_diff)) * sign(angle_diff);
+        angle += min(effective_turn_rate, abs(angle_diff)) * sign(angle_diff);
     } else {
         // If equal, do nothing
     }
 
     // Update agent position
-    let move_dist = speed * TIME_STEP;
+    let move_dist = effective_speed * TIME_STEP;
     x = x + move_dist * cos(angle);
     y = y + move_dist * sin(angle);
 
@@ -271,7 +325,7 @@ fn update_agents(
     let deposit_y = i32(y);
     if (deposit_x >= 0 && deposit_x < i32(sim_size.width) && deposit_y >= 0 && deposit_y < i32(sim_size.height)) {
         let idx = deposit_y * i32(sim_size.width) + deposit_x;
-        trail_map[idx] = clamp(trail_map[idx] + sim_size.pheromone_deposition_rate * 0.01, 0.0, 1.0);
+        trail_map[idx] = clamp(trail_map[idx] + effective_deposition_rate * 0.01, 0.0, 1.0);
     }
 
     // Update agent in the buffer
@@ -287,8 +341,29 @@ fn decay_trail(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let idx = y * sim_size.width + x;
+    
+    // Get mask factor for this position, apply curve and strength
+    var mask_factor = get_mask_factor(f32(x), f32(y));
+    mask_factor = pow(clamp(mask_factor, 0.0, 1.0), max(0.0001, sim_size.mask_curve));
+    mask_factor = clamp(mask_factor * sim_size.mask_strength, 0.0, 1.0);
+    
+    // Apply mask to decay rate if target is PheromoneDecay
+    var effective_decay_rate = sim_size.decay_rate;
+    if (sim_size.mask_target == 1u) { // PheromoneDecay (0..10000)
+        let target_min = 0.0;
+        let target_max = 10000.0;
+        let target_value = mix(target_min, target_max, mask_factor);
+        effective_decay_rate = mix(effective_decay_rate, target_value, 1.0);
+    } else if (sim_size.mask_target == 6u) { // TrailMap (direct trail map modification)
+        // Blend trail toward mask pattern each pass for a clear effect
+        // Use mask_strength as the blend factor, shaped by mask_curve
+        let blend = clamp(sim_size.mask_strength, 0.0, 1.0);
+        let target_trail = mask_factor; // 0..1 from pattern/image
+        trail_map[idx] = mix(trail_map[idx], target_trail, blend);
+    }
+    
     // Apply decay rate
-    let decay_rate = sim_size.decay_rate * 0.0001;
+    let decay_rate = effective_decay_rate * 0.0001;
     trail_map[idx] = max(0.0, trail_map[idx] - decay_rate);
 }
 
@@ -301,12 +376,26 @@ fn diffuse_trail(@builtin(global_invocation_id) id: vec3<u32>) {
         return;
     }
     let idx = y * sim_size.width + x;
+    
+    // Get mask factor for this position
+    let mask_factor = get_mask_factor(f32(x), f32(y));
+    
+    // Apply mask to diffusion rate if target is PheromoneDiffusion
+    var effective_diffusion_rate = sim_size.diffusion_rate;
+    if (sim_size.mask_target == 2u) { // PheromoneDiffusion (0..100)
+        let target_min = 0.0;
+        let target_max = 100.0;
+        let target_value = mix(target_min, target_max, mask_factor);
+        effective_diffusion_rate = mix(effective_diffusion_rate, target_value, 1.0);
+    }
+    
     // Get neighboring values with toroidal wrapping
     let x_prev = (x + sim_size.width - 1) % sim_size.width;
     let x_next = (x + 1) % sim_size.width;
     let y_prev = (y + sim_size.height - 1) % sim_size.height;
     let y_next = (y + 1) % sim_size.height;
     
+    // Read from trail_map
     let center = trail_map[y * sim_size.width + x];
     let left = trail_map[y * sim_size.width + x_prev];
     let right = trail_map[y * sim_size.width + x_next];
@@ -314,11 +403,15 @@ fn diffuse_trail(@builtin(global_invocation_id) id: vec3<u32>) {
     let down = trail_map[y_next * sim_size.width + x];
     
     // Simple diffusion: average of neighbors
-    let diffusion_rate = sim_size.diffusion_rate * 0.01;
+    let diffusion_rate = effective_diffusion_rate * 0.01;
     let new_value = center * (1.0 - diffusion_rate) + 
                    (left + right + up + down) * (diffusion_rate * 0.25);
     
-    trail_map[y * sim_size.width + x] = new_value;
+    // Clamp to prevent numerical instability and negative values
+    let clamped_value = max(0.0, min(1.0, new_value));
+    
+    // Write back to trail_map (ping-pong will be handled at higher level)
+    trail_map[y * sim_size.width + x] = clamped_value;
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -427,7 +520,7 @@ fn generate_spiral_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
 }
 
 fn generate_image_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
-    // Use rejection sampling to generate positions based on gradient image intensity
+    // Use rejection sampling to generate positions based on mask image intensity
     // Higher intensity areas are more likely to be selected
     
     let max_attempts = 100u; // Prevent infinite loops
@@ -438,8 +531,8 @@ fn generate_image_position(seed: u32, width: f32, height: f32) -> vec2<f32> {
         let x = random_range(seed * 2u + attempts, 0.0, width);
         let y = random_range(seed * 3u + attempts, 0.0, height);
         
-        // Sample gradient map at this position
-        let intensity = sample_gradient_map(vec2<f32>(x, y));
+        // Sample mask intensity using unified mirror/invert sampler
+        var intensity = sample_mask_with_mirror_invert(vec2<f32>(x, y));
         
         // Generate random threshold
         let threshold = random_range(seed * 4u + attempts, 0.0, 1.0);

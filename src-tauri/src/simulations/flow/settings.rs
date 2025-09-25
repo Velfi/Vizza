@@ -1,3 +1,4 @@
+use crate::simulations::shared::ImageFitMode;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
@@ -86,7 +87,7 @@ impl Display for BackgroundColorMode {
                 Self::Black => "Black",
                 Self::White => "White",
                 Self::Gray18 => "Gray18",
-                Self::ColorScheme => "ColorScheme",
+                Self::ColorScheme => "Color Scheme",
             }
         )
     }
@@ -202,35 +203,6 @@ impl Default for TrailMapFiltering {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum GradientImageFitMode {
-    Stretch,
-    Center,
-    FitH,
-    FitV,
-}
-
-impl Display for GradientImageFitMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::Stretch => "Stretch",
-                Self::Center => "Center",
-                Self::FitH => "Fit H",
-                Self::FitV => "Fit V",
-            }
-        )
-    }
-}
-
-impl Default for GradientImageFitMode {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     // Flow field parameters
@@ -244,8 +216,9 @@ pub struct Settings {
     pub vector_magnitude: f32,
 
     // Image-based vector field parameters
-    pub image_fit_mode: GradientImageFitMode,
+    pub image_fit_mode: ImageFitMode,
     pub image_mirror_horizontal: bool,
+    pub image_mirror_vertical: bool,
     pub image_invert_tone: bool,
 
     // Particle parameters
@@ -282,8 +255,9 @@ impl Default for Settings {
             vector_magnitude: 0.1,
 
             // Image-based vector field parameters
-            image_fit_mode: GradientImageFitMode::Stretch,
+            image_fit_mode: ImageFitMode::Stretch,
             image_mirror_horizontal: false,
+            image_mirror_vertical: false,
             image_invert_tone: false,
 
             // Particle parameters

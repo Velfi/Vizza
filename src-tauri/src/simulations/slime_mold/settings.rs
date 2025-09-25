@@ -1,3 +1,4 @@
+use crate::simulations::shared::ImageFitMode;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::ops::Range;
@@ -48,42 +49,10 @@ pub struct Settings {
     ///
     /// Defaults to 1.0
     pub pheromone_diffusion_rate: f32,
-    /// The type of gradient.
-    ///
-    /// Defaults to GradientType::Disabled.
-    pub gradient_type: GradientType,
-    /// The strength of the gradient.
-    ///
-    /// Defaults to 0.5.
-    pub gradient_strength: f32,
-    /// The x-coordinate of the center of the gradient.
-    ///
-    /// Defaults to 0.5.
-    pub gradient_center_x: f32,
-    /// The y-coordinate of the center of the gradient.
-    ///
-    /// Defaults to 0.5.
-    pub gradient_center_y: f32,
-    /// The size of the gradient.
-    ///
-    /// Defaults to 0.3.
-    pub gradient_size: f32,
-    /// The angle of the gradient.
-    ///
-    /// Defaults to 0.0.
-    pub gradient_angle: f32,
-    /// The fit mode for image-based gradients.
-    ///
-    /// Defaults to GradientImageFitMode::Stretch.
-    pub gradient_image_fit_mode: GradientImageFitMode,
-    /// Mirror image gradients horizontally
-    pub gradient_image_mirror_horizontal: bool,
-    /// Invert (tone reverse) image gradients
-    pub gradient_image_invert_tone: bool,
     /// The fit mode for image-based position generation.
     ///
-    /// Defaults to GradientImageFitMode::Stretch.
-    pub position_image_fit_mode: GradientImageFitMode,
+    /// Defaults to ImageFitMode::Stretch.
+    pub position_image_fit_mode: ImageFitMode,
     /// The frequency of diffusion updates.
     ///
     /// Defaults to 1.
@@ -96,12 +65,65 @@ pub struct Settings {
     ///
     /// Defaults to 0.
     pub random_seed: u32,
+    /// Background mode for the simulation.
+    ///
+    /// Defaults to BackgroundMode::Black.
+    pub background_mode: BackgroundMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BackgroundMode {
+    Black,
+    White,
+}
+
+impl BackgroundMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BackgroundMode::Black => "black",
+            BackgroundMode::White => "white",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "black" => Some(BackgroundMode::Black),
+            "white" => Some(BackgroundMode::White),
+            _ => None,
+        }
+    }
+}
+
+impl From<BackgroundMode> for u32 {
+    fn from(mode: BackgroundMode) -> Self {
+        match mode {
+            BackgroundMode::Black => 0,
+            BackgroundMode::White => 1,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum TrailMapFiltering {
     Nearest,
     Linear,
+}
+
+impl TrailMapFiltering {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrailMapFiltering::Nearest => "Nearest",
+            TrailMapFiltering::Linear => "Linear",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Nearest" => Some(TrailMapFiltering::Nearest),
+            "Linear" => Some(TrailMapFiltering::Linear),
+            _ => None,
+        }
+    }
 }
 
 impl Display for TrailMapFiltering {
@@ -141,67 +163,6 @@ where
     Ok(start..end)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum GradientType {
-    Disabled,
-    Linear,
-    Radial,
-    Ellipse,
-    Spiral,
-    Checkerboard,
-    Image,
-}
-
-impl serde::Serialize for GradientType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            GradientType::Disabled => serializer.serialize_str("disabled"),
-            GradientType::Linear => serializer.serialize_str("linear"),
-            GradientType::Radial => serializer.serialize_str("radial"),
-            GradientType::Ellipse => serializer.serialize_str("ellipse"),
-            GradientType::Spiral => serializer.serialize_str("spiral"),
-            GradientType::Checkerboard => serializer.serialize_str("checkerboard"),
-            GradientType::Image => serializer.serialize_str("image"),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for GradientType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        match s.as_str() {
-            "disabled" => Ok(GradientType::Disabled),
-            "linear" => Ok(GradientType::Linear),
-            "radial" => Ok(GradientType::Radial),
-            "ellipse" => Ok(GradientType::Ellipse),
-            "spiral" => Ok(GradientType::Spiral),
-            "checkerboard" => Ok(GradientType::Checkerboard),
-            "image" => Ok(GradientType::Image),
-            _ => Ok(GradientType::Disabled), // Default fallback
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum GradientImageFitMode {
-    Stretch,
-    Center,
-    FitH,
-    FitV,
-}
-
-impl Default for GradientImageFitMode {
-    fn default() -> Self {
-        Self::Stretch
-    }
-}
-
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -215,19 +176,11 @@ impl Default for Settings {
             pheromone_decay_rate: 10.0,
             pheromone_deposition_rate: 100.0,
             pheromone_diffusion_rate: 100.0,
-            gradient_type: GradientType::Disabled,
-            gradient_strength: 0.5,
-            gradient_center_x: 0.5,
-            gradient_center_y: 0.5,
-            gradient_size: 0.3,
-            gradient_angle: 0.0,
-            gradient_image_fit_mode: GradientImageFitMode::FitV,
-            gradient_image_mirror_horizontal: false,
-            gradient_image_invert_tone: false,
-            position_image_fit_mode: GradientImageFitMode::FitV,
+            position_image_fit_mode: ImageFitMode::FitV,
             diffusion_frequency: 1,
             decay_frequency: 1,
             random_seed: 0,
+            background_mode: BackgroundMode::Black,
         }
     }
 }
@@ -249,13 +202,7 @@ impl Settings {
         self.pheromone_deposition_rate = 100.0;
         self.pheromone_diffusion_rate = 100.0;
 
-        // Don't randomize gradient settings
-        self.gradient_type = GradientType::Disabled;
-        self.gradient_strength = 0.5;
-        self.gradient_center_x = 0.5;
-        self.gradient_center_y = 0.5;
-        self.gradient_size = 1.0;
-        self.gradient_angle = 0.0;
+        // Mask settings are runtime state; do not modify here
 
         // Randomize starting direction range
         let start = rand::random::<f32>() * 360.0;

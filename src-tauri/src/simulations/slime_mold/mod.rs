@@ -1,10 +1,9 @@
 pub mod buffer_pool;
-pub mod commands;
 pub mod render;
 pub mod settings;
 pub mod shaders;
 pub mod simulation;
-pub mod webcam;
+pub mod state;
 pub mod workgroup_optimizer;
 
 #[cfg(test)]
@@ -16,7 +15,7 @@ use crate::simulation::preset_manager::{Preset, SlimeMoldPresetManager};
 
 /// Initialize slime mold presets with built-in configurations
 pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
-    use settings::{GradientType, Settings};
+    use settings::Settings;
 
     // Add built-in presets
     preset_manager.add_preset(Preset::new("Default".to_string(), Settings::default()));
@@ -102,12 +101,6 @@ pub fn init_presets(preset_manager: &mut SlimeMoldPresetManager) {
             pheromone_decay_rate: 100.0,
             pheromone_deposition_rate: 43.590575,
             pheromone_diffusion_rate: 47.481_44,
-            gradient_type: GradientType::Disabled,
-            gradient_strength: 0.5,
-            gradient_center_x: 0.5,
-            gradient_center_y: 0.5,
-            gradient_size: 0.3,
-            gradient_angle: 0.0,
             ..Settings::default()
         },
     ));

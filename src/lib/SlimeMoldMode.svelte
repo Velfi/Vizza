@@ -1,7 +1,7 @@
 <SimulationLayout
     simulationName="Slime Mold"
     {running}
-    loading={loading || !settings}
+    {loading}
     {showUI}
     {currentFps}
     {controlsVisible}
@@ -10,10 +10,10 @@
     on:toggleUI={toggleBackendGui}
     on:pause={stopSimulation}
     on:resume={resumeSimulation}
-    on:userInteraction={() => autoHideManager?.handleUserInteraction()}
+    on:userInteraction={() => autoHideManager.handleUserInteraction()}
     on:mouseEvent={handleMouseEvent}
 >
-    {#if settings}
+    {#if settings && state}
         <form on:submit|preventDefault>
             <!-- About this simulation -->
             <CollapsibleFieldset title="About this simulation" bind:open={show_about_section}>
@@ -52,8 +52,8 @@
                     <label for="colorSchemeSelector">Color Scheme</label>
                     <ColorSchemeSelector
                         bind:available_color_schemes={available_luts}
-                        current_color_scheme={lut_name}
-                        reversed={lut_reversed}
+                        current_color_scheme={state?.current_color_scheme}
+                        reversed={state?.color_scheme_reversed}
                         on:select={({ detail }) => updateLutName(detail.name)}
                         on:reverse={() => updateLutReversed()}
                     />
@@ -64,49 +64,22 @@
             <PostProcessingMenu simulationType="slime_mold" />
 
             <!-- Controls -->
-            <fieldset>
-                <legend>Controls</legend>
-                <div class="interaction-controls-grid">
-                    <div class="interaction-help">
-                        <div class="control-group">
-                            <span>🖱️ Left click: Attract agents | Right click: Repel agents</span>
-                        </div>
-                        <div class="control-group">
-                            <Button
-                                variant="default"
-                                on:click={() => dispatch('navigate', 'how-to-play')}
-                            >
-                                📖 Camera Controls
-                            </Button>
-                        </div>
-                        <div class="control-group">
-                            <span
-                                >Camera controls not working? Click the control bar at the top of
-                                the screen.</span
-                            >
-                        </div>
-                    </div>
-                    <div class="cursor-settings">
-                        <div class="cursor-settings-header">
-                            <span>🎯 Cursor Settings</span>
-                        </div>
-                        <CursorConfig
-                            {cursorSize}
-                            {cursorStrength}
-                            sizeMin={10}
-                            sizeMax={500}
-                            sizeStep={5}
-                            strengthMin={0}
-                            strengthMax={50}
-                            strengthStep={0.5}
-                            sizePrecision={0}
-                            strengthPrecision={1}
-                            on:sizechange={(e) => updateCursorSize(e.detail)}
-                            on:strengthchange={(e) => updateCursorStrength(e.detail)}
-                        />
-                    </div>
-                </div>
-            </fieldset>
+            <ControlsPanel
+                mouseInteractionText="🖱️ Left click: Attract agents | Right click: Repel agents"
+                cursorSize={state.cursor_size}
+                cursorStrength={state.cursor_strength}
+                sizeMin={10}
+                sizeMax={500}
+                sizeStep={5}
+                strengthMin={0}
+                strengthMax={50}
+                strengthStep={0.5}
+                sizePrecision={0}
+                strengthPrecision={1}
+                on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
+                on:cursorStrengthChange={(e) => updateCursorStrength(e.detail)}
+                on:navigate={(e) => dispatch('navigate', e.detail)}
+            />
 
             <!-- Combined Settings -->
             <fieldset>
@@ -146,7 +119,7 @@
                             >Agent Position Generator</label
                         >
                         <ButtonSelect
-                            bind:value={position_generator}
+                            value={state.position_generator}
                             options={[
                                 { value: 'Random', label: 'Random', buttonAction: 'randomize' },
                                 { value: 'Center', label: 'Center', buttonAction: 'randomize' },
@@ -168,14 +141,16 @@
                             buttonText="Reset Agents"
                             placeholder="Select position generator..."
                             on:change={async (e) => {
-                                try {
-                                    await invoke('update_simulation_setting', {
-                                        settingName: 'position_generator',
-                                        value: e.detail.value,
-                                    });
-                                    await syncSettingsFromBackend();
-                                } catch (err) {
-                                    console.error('Failed to update position generator:', err);
+                                if (state) {
+                                    state.position_generator = e.detail.value;
+                                    try {
+                                        await invoke('update_simulation_state', {
+                                            stateName: 'position_generator',
+                                            value: e.detail.value,
+                                        });
+                                    } catch (err) {
+                                        console.error('Failed to update position generator:', err);
+                                    }
                                 }
                             }}
                             on:buttonclick={async () => {
@@ -191,24 +166,29 @@
                     </div>
 
                     <!-- Image Position Generator Controls -->
-                    {#if position_generator === 'Image'}
+                    {#if state.position_generator === 'Image'}
                         <div class="control-group">
                             <ImageSelector
                                 fitMode={settings.position_image_fit_mode}
                                 loadCommand="load_slime_mold_position_image"
-                                showMirrorHorizontal={false}
-                                showInvertTone={false}
-                                onFitModeChange={async (value) => {
-                                    try {
-                                        await invoke('update_simulation_setting', {
-                                            settingName: 'position_image_fit_mode',
-                                            value: value,
-                                        });
-                                    } catch (err) {
-                                        console.error(
-                                            'Failed to update position image fit mode:',
-                                            err
-                                        );
+                                showFitMode={true}
+                                showLoadButton={true}
+                                onFitModeChange={async (
+                                    value: 'Center' | 'Stretch' | 'FitH' | 'FitV'
+                                ) => {
+                                    if (settings) {
+                                        settings.position_image_fit_mode = value;
+                                        try {
+                                            await invoke('update_simulation_setting', {
+                                                settingName: 'position_image_fit_mode',
+                                                value: value,
+                                            });
+                                        } catch (err) {
+                                            console.error(
+                                                'Failed to update position image fit mode:',
+                                                err
+                                            );
+                                        }
                                     }
                                 }}
                             />
@@ -221,8 +201,9 @@
                     <h3 class="section-header">Pheromone</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Decay Rate:</span>
+                            <label class="setting-label" for="sm-decay-rate">Decay Rate:</label>
                             <NumberDragBox
+                                id="sm-decay-rate"
                                 bind:value={settings.pheromone_decay_rate}
                                 min={0}
                                 max={10000}
@@ -245,8 +226,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Deposition Rate:</span>
+                            <label class="setting-label" for="sm-deposition-rate"
+                                >Deposition Rate:</label
+                            >
                             <NumberDragBox
+                                id="sm-deposition-rate"
                                 bind:value={settings.pheromone_deposition_rate}
                                 min={0}
                                 max={100}
@@ -269,8 +253,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Diffusion Rate:</span>
+                            <label class="setting-label" for="sm-diffusion-rate"
+                                >Diffusion Rate:</label
+                            >
                             <NumberDragBox
+                                id="sm-diffusion-rate"
                                 bind:value={settings.pheromone_diffusion_rate}
                                 min={0}
                                 max={100}
@@ -300,7 +287,9 @@
                     <h3 class="section-header">Agent</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Agent Count (millions):</span>
+                            <label class="setting-label" for="sm-agent-count"
+                                >Agent Count (millions):</label
+                            >
                             <AgentCountInput
                                 value={agent_count_millions}
                                 min={0}
@@ -316,8 +305,9 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Min Speed:</span>
+                            <label class="setting-label" for="sm-min-speed">Min Speed:</label>
                             <NumberDragBox
+                                id="sm-min-speed"
                                 bind:value={settings.agent_speed_min}
                                 min={0}
                                 max={500}
@@ -337,8 +327,9 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Max Speed:</span>
+                            <label class="setting-label" for="sm-max-speed">Max Speed:</label>
                             <NumberDragBox
+                                id="sm-max-speed"
                                 bind:value={settings.agent_speed_max}
                                 min={0}
                                 max={500}
@@ -358,9 +349,12 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Turn Rate:</span>
+                            <label class="setting-label" for="sm-turn-rate">Turn Rate:</label>
                             <NumberDragBox
+                                id="sm-turn-rate"
                                 value={(settings.agent_turn_rate * 180) / Math.PI}
+                                on:change={({ detail }) =>
+                                    (settings!.agent_turn_rate = (detail * Math.PI) / 180)}
                                 min={0}
                                 max={360}
                                 step={1}
@@ -380,11 +374,12 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Jitter:</span>
+                            <label class="setting-label" for="sm-jitter">Jitter:</label>
                             <NumberDragBox
+                                id="sm-jitter"
                                 bind:value={settings.agent_jitter}
-                                min={0}
-                                max={5}
+                                min={0.0}
+                                max={10.0}
                                 step={0.01}
                                 precision={2}
                                 on:change={async (e) => {
@@ -401,9 +396,12 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Sensor Angle:</span>
+                            <label class="setting-label" for="sm-sensor-angle">Sensor Angle:</label>
                             <NumberDragBox
+                                id="sm-sensor-angle"
                                 value={(settings.agent_sensor_angle * 180) / Math.PI}
+                                on:change={({ detail }) =>
+                                    (settings!.agent_sensor_angle = (detail * Math.PI) / 180)}
                                 min={0}
                                 max={180}
                                 step={1}
@@ -423,8 +421,11 @@
                             />
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Sensor Distance:</span>
+                            <label class="setting-label" for="sm-sensor-distance"
+                                >Sensor Distance:</label
+                            >
                             <NumberDragBox
+                                id="sm-sensor-distance"
                                 bind:value={settings.agent_sensor_distance}
                                 min={0}
                                 max={500}
@@ -446,159 +447,157 @@
                     </div>
                 </div>
 
-                <!-- Gradient Settings -->
+                <!-- Mask Settings -->
                 <div class="settings-section">
-                    <h3 class="section-header">Gradient</h3>
+                    <h3 class="section-header">Mask</h3>
                     <div class="settings-grid">
                         <div class="setting-item">
-                            <span class="setting-label">Gradient Type:</span>
+                            <label class="setting-label" for="sm-mask-pattern">Mask Pattern:</label>
                             <Selector
+                                id="sm-mask-pattern"
                                 options={[
-                                    'disabled',
-                                    'radial',
-                                    'linear',
-                                    'ellipse',
-                                    'spiral',
-                                    'checkerboard',
-                                    'image',
+                                    'Disabled',
+                                    'Checkerboard',
+                                    'Diagonal Gradient',
+                                    'Radial Gradient',
+                                    'Vertical Stripes',
+                                    'Horizontal Stripes',
+                                    'Wave Function',
+                                    'Cosine Grid',
+                                    'Image',
                                 ]}
-                                bind:value={settings.gradient_type}
-                                on:change={handleGradientType}
+                                value={state.mask_pattern}
+                                on:change={handleMaskPattern}
                             />
                         </div>
-                        {#if settings.gradient_type !== 'disabled'}
+                        {#if state.mask_pattern !== 'Disabled'}
                             <div class="setting-item">
-                                <span class="setting-label">Strength:</span>
+                                <label class="setting-label" for="sm-mask-target"
+                                    >Mask Target:</label
+                                >
+                                <Selector
+                                    id="sm-mask-target"
+                                    options={[
+                                        'Pheromone Deposition',
+                                        'Pheromone Decay',
+                                        'Pheromone Diffusion',
+                                        'Agent Speed',
+                                        'Agent Turn Rate',
+                                        'Agent Sensor Distance',
+                                        'Trail Map',
+                                    ]}
+                                    value={state.mask_target}
+                                    on:change={handleMaskTarget}
+                                />
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label" for="sm-mask-strength">Strength:</label
+                                >
                                 <NumberDragBox
-                                    bind:value={settings.gradient_strength}
-                                    min={0}
-                                    max={2}
+                                    id="sm-mask-strength"
+                                    value={state.mask_strength}
+                                    min={0.0}
+                                    max={1.0}
                                     step={0.01}
-                                    precision={2}
                                     on:change={async (e) => {
-                                        try {
-                                            await invoke('update_simulation_setting', {
-                                                settingName: 'gradient_strength',
-                                                value: e.detail,
-                                            });
-                                        } catch (err) {
-                                            console.error(
-                                                'Failed to update gradient strength:',
-                                                err
-                                            );
+                                        if (state) {
+                                            state.mask_strength = e.detail;
+                                            try {
+                                                await invoke('update_simulation_state', {
+                                                    stateName: 'mask_strength',
+                                                    value: e.detail,
+                                                });
+                                            } catch (err) {
+                                                console.error(
+                                                    'Failed to update mask strength:',
+                                                    err
+                                                );
+                                            }
                                         }
                                     }}
                                 />
                             </div>
-                            {#if settings.gradient_type !== 'image'}
-                                <div class="setting-item">
-                                    <span class="setting-label">Center X:</span>
-                                    <NumberDragBox
-                                        value={gradient_center_x_percent}
-                                        min={0}
-                                        max={100}
-                                        step={1}
-                                        precision={0}
-                                        on:change={(e) => updateGradientCenterX(e.detail)}
-                                    />
-                                </div>
-                                <div class="setting-item">
-                                    <span class="setting-label">Center Y:</span>
-                                    <NumberDragBox
-                                        value={gradient_center_y_percent}
-                                        min={0}
-                                        max={100}
-                                        step={1}
-                                        precision={0}
-                                        on:change={(e) => updateGradientCenterY(e.detail)}
-                                    />
-                                </div>
-                                <div class="setting-item">
-                                    <span class="setting-label">Size:</span>
-                                    <NumberDragBox
-                                        bind:value={settings.gradient_size}
-                                        min={0.1}
-                                        max={2}
-                                        step={0.01}
-                                        precision={2}
-                                        on:change={async (e) => {
+                            <div class="setting-item">
+                                <label class="setting-label" for="sm-mask-curve">Mask Curve:</label>
+                                <NumberDragBox
+                                    id="sm-mask-curve"
+                                    value={state.mask_curve}
+                                    min={0.2}
+                                    max={5.0}
+                                    step={0.05}
+                                    on:change={async (e) => {
+                                        if (state) {
+                                            state.mask_curve = e.detail;
                                             try {
-                                                await invoke('update_simulation_setting', {
-                                                    settingName: 'gradient_size',
+                                                await invoke('update_simulation_state', {
+                                                    stateName: 'mask_curve',
                                                     value: e.detail,
                                                 });
                                             } catch (err) {
-                                                console.error(
-                                                    'Failed to update gradient size:',
-                                                    err
-                                                );
+                                                console.error('Failed to update mask curve:', err);
                                             }
-                                        }}
+                                        }
+                                    }}
+                                />
+                            </div>
+                            <div class="setting-item">
+                                <label class="checkbox">
+                                    <input
+                                        type="checkbox"
+                                        checked={state.mask_mirror_horizontal}
+                                        on:change={(e) =>
+                                            handleMaskMirrorHorizontal(
+                                                (e.target as HTMLInputElement).checked
+                                            )}
                                     />
-                                </div>
-                                <div class="setting-item">
-                                    <span class="setting-label">Angle:</span>
-                                    <NumberDragBox
-                                        bind:value={settings.gradient_angle}
-                                        min={0}
-                                        max={360}
-                                        step={1}
-                                        precision={0}
-                                        unit="°"
-                                        on:change={async (e) => {
-                                            try {
-                                                await invoke('update_simulation_setting', {
-                                                    settingName: 'gradient_angle',
-                                                    value: e.detail,
-                                                });
-                                            } catch (err) {
-                                                console.error(
-                                                    'Failed to update gradient angle:',
-                                                    err
-                                                );
-                                            }
-                                        }}
+                                    Mirror horizontal
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <label class="checkbox">
+                                    <input
+                                        type="checkbox"
+                                        checked={state.mask_mirror_vertical || false}
+                                        on:change={(e) =>
+                                            handleMaskMirrorVertical(
+                                                (e.target as HTMLInputElement).checked
+                                            )}
                                     />
-                                </div>
-                            {:else}
+                                    Mirror vertical
+                                </label>
+                            </div>
+                            <div class="setting-item">
+                                <label class="checkbox">
+                                    <input
+                                        type="checkbox"
+                                        checked={state.mask_invert_tone || false}
+                                        on:change={(e) =>
+                                            handleMaskInvertTone(
+                                                (e.target as HTMLInputElement).checked
+                                            )}
+                                    />
+                                    Invert tone
+                                </label>
+                            </div>
+                            {#if state.mask_pattern === 'Image'}
                                 <ImageSelector
-                                    fitMode={settings.gradient_image_fit_mode}
-                                    mirrorHorizontal={settings?.gradient_image_mirror_horizontal ||
-                                        false}
-                                    invertTone={settings?.gradient_image_invert_tone || false}
-                                    loadCommand="load_slime_mold_gradient_image"
+                                    fitMode={state.mask_image_fit_mode}
+                                    loadCommand="load_slime_mold_mask_image"
                                     onFitModeChange={async (value) => {
-                                        try {
-                                            await invoke('update_simulation_setting', {
-                                                settingName: 'gradient_image_fit_mode',
-                                                value: value,
-                                            });
-                                        } catch (err) {
-                                            console.error('Failed to update fit mode:', err);
-                                        }
-                                    }}
-                                    onMirrorHorizontalChange={async (value) => {
-                                        try {
-                                            await invoke('update_simulation_setting', {
-                                                settingName: 'gradient_image_mirror_horizontal',
-                                                value: value,
-                                            });
-                                            if (settings)
-                                                settings.gradient_image_mirror_horizontal = value;
-                                        } catch (err) {
-                                            console.error('Failed to update mirror:', err);
-                                        }
-                                    }}
-                                    onInvertToneChange={async (value) => {
-                                        try {
-                                            await invoke('update_simulation_setting', {
-                                                settingName: 'gradient_image_invert_tone',
-                                                value: value,
-                                            });
-                                            if (settings)
-                                                settings.gradient_image_invert_tone = value;
-                                        } catch (err) {
-                                            console.error('Failed to update invert:', err);
+                                        if (state) {
+                                            state.mask_image_fit_mode = value as
+                                                | 'Stretch'
+                                                | 'Center'
+                                                | 'FitH'
+                                                | 'FitV';
+                                            try {
+                                                await invoke('update_simulation_state', {
+                                                    stateName: 'mask_image_fit_mode',
+                                                    value: value,
+                                                });
+                                            } catch (err) {
+                                                console.error('Failed to update fit mode:', err);
+                                            }
                                         }
                                     }}
                                 />
@@ -624,12 +623,12 @@
     import { createEventDispatcher, onMount, onDestroy } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { listen } from '@tauri-apps/api/event';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import SimulationLayout from './components/shared/SimulationLayout.svelte';
     import CameraControls from './components/shared/CameraControls.svelte';
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import ButtonSelect from './components/inputs/ButtonSelect.svelte';
     import Button from './components/shared/Button.svelte';
     import AgentCountInput from './components/slime-mold/AgentCountInput.svelte';
@@ -646,24 +645,94 @@
     export let menuPosition: string = 'middle';
     export let autoHideDelay: number = 3000;
 
+    // Settings type (matches src-tauri/src/simulations/slime_mold/settings.rs)
+    type Settings = {
+        // Agent parameters
+        agent_jitter: number;
+        agent_possible_starting_headings: [number, number];
+        agent_sensor_angle: number; // radians
+        agent_sensor_distance: number;
+        agent_speed_max: number;
+        agent_speed_min: number;
+        agent_turn_rate: number; // radians per second
+
+        // Pheromone parameters
+        pheromone_decay_rate: number;
+        pheromone_deposition_rate: number;
+        pheromone_diffusion_rate: number;
+
+        // Position image fit mode
+        position_image_fit_mode: 'Stretch' | 'Center' | 'FitH' | 'FitV';
+
+        // Update frequencies and randomness
+        diffusion_frequency: number;
+        decay_frequency: number;
+        random_seed: number;
+
+        // Background mode
+        background_mode: 'black' | 'white';
+    };
+
+    // State type (matches src-tauri/src/simulations/slime_mold/state.rs)
+    type State = {
+        // Mask system state
+        mask_pattern:
+            | 'Disabled'
+            | 'Checkerboard'
+            | 'Diagonal Gradient'
+            | 'Radial Gradient'
+            | 'Vertical Stripes'
+            | 'Horizontal Stripes'
+            | 'Wave Function'
+            | 'Cosine Grid'
+            | 'Image';
+        mask_target:
+            | 'Pheromone Deposition'
+            | 'Pheromone Decay'
+            | 'Pheromone Diffusion'
+            | 'Agent Speed'
+            | 'Agent Turn Rate'
+            | 'Agent Sensor Distance'
+            | 'Trail Map';
+        mask_strength: number;
+        mask_curve: number;
+        mask_reversed: boolean;
+        mask_image_fit_mode: 'Stretch' | 'Center' | 'FitH' | 'FitV';
+        mask_mirror_horizontal: boolean;
+        mask_mirror_vertical: boolean;
+        mask_invert_tone: boolean;
+
+        // Current color scheme state (runtime)
+        current_color_scheme: string;
+        color_scheme_reversed: boolean;
+
+        // Cursor interaction parameters
+        cursor_size: number;
+        cursor_strength: number;
+
+        // Position generator
+        position_generator: string;
+
+        // UI visibility state
+        gui_visible: boolean;
+
+        // Camera state (position and zoom)
+        camera_position: [number, number];
+        camera_zoom: number;
+
+        // Simulation runtime state
+        simulation_time: number;
+        is_running: boolean;
+    };
+
     // Simulation state
-    let settings: any | undefined = undefined;
-
-    // State (not saved in presets)
-    let position_generator = 'Random';
-
-    // LUT state (runtime, not saved in presets)
-    let lut_name: string;
-    let lut_reversed = true;
+    let settings: Settings | undefined = undefined;
+    let state: State | undefined = undefined;
 
     // Agent count tracked separately (not part of preset settings)
     let currentAgentCount = 1_000_000;
 
-    // Cursor interaction state (runtime, not saved in presets)
-    let cursorSize: number = 300.0; // Default cursor size (matches backend)
-    let cursorStrength: number = 5.0; // Default cursor strength (matches backend)
-
-    // Preset and LUT state
+    // Preset and color scheme state
     let current_preset = '';
     let available_presets: string[] = [];
     let available_luts: string[] = [];
@@ -723,7 +792,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -738,7 +807,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -757,19 +826,12 @@
         }
     }
 
-
     // Helper function to convert agent count to millions
     const toMillions = (count: number) => count / 1_000_000;
     const fromMillions = (millions: number) => millions * 1_000_000;
 
     // Computed values
     $: agent_count_millions = toMillions(currentAgentCount);
-    $: gradient_center_x_percent = settings?.gradient_center_x
-        ? settings.gradient_center_x * 100
-        : 50;
-    $: gradient_center_y_percent = settings?.gradient_center_y
-        ? settings.gradient_center_y * 100
-        : 50;
 
     // Two-way binding handlers
     async function updateAgentCount(value: number) {
@@ -786,76 +848,114 @@
         }
     }
 
-    async function updateGradientCenterX(value: number) {
-        if (settings) {
-            settings.gradient_center_x = value / 100;
-            try {
-                await invoke('update_simulation_setting', {
-                    settingName: 'gradient_center_x',
-                    value: settings.gradient_center_x,
-                });
-            } catch (e) {
-                console.error('Failed to update gradient center X:', e);
-            }
-        }
-    }
-
-    async function updateGradientCenterY(value: number) {
-        if (settings) {
-            settings.gradient_center_y = value / 100;
-            try {
-                await invoke('update_simulation_setting', {
-                    settingName: 'gradient_center_y',
-                    value: settings.gradient_center_y,
-                });
-            } catch (e) {
-                console.error('Failed to update gradient center Y:', e);
-            }
-        }
-    }
-
     async function updateLutReversed() {
-        try {
-            await invoke('toggle_color_scheme_reversed');
-            await syncSettingsFromBackend(); // Sync UI with backend
-        } catch (e) {
-            console.error('Failed to toggle LUT reversed:', e);
+        if (state) {
+            state.color_scheme_reversed = !state.color_scheme_reversed;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'color_scheme_reversed',
+                    value: state.color_scheme_reversed,
+                });
+            } catch (e) {
+                console.error('Failed to toggle color scheme reversed:', e);
+            }
         }
     }
 
     // Cursor configuration handlers
     async function updateCursorSize(size: number) {
-        cursorSize = size;
-        try {
-            await invoke('update_simulation_setting', { settingName: 'cursor_size', value: size });
-        } catch (e) {
-            console.error('Failed to update cursor size:', e);
+        if (state) {
+            state.cursor_size = size;
+            try {
+                await invoke('update_simulation_state', { stateName: 'cursor_size', value: size });
+            } catch (e) {
+                console.error('Failed to update cursor size:', e);
+            }
         }
     }
 
     async function updateCursorStrength(strength: number) {
-        cursorStrength = strength;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'cursor_strength',
-                value: strength,
-            });
-        } catch (e) {
-            console.error('Failed to update cursor strength:', e);
+        if (state) {
+            state.cursor_strength = strength;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'cursor_strength',
+                    value: strength,
+                });
+            } catch (e) {
+                console.error('Failed to update cursor strength:', e);
+            }
         }
     }
 
-    async function handleGradientType(e: CustomEvent) {
+    async function handleMaskPattern(e: CustomEvent) {
         const value = e.detail.value;
-        if (settings) {
-            settings.gradient_type = value;
+        if (state) {
+            state.mask_pattern = value;
             try {
-                await invoke('update_simulation_setting', {
-                    settingName: 'gradient_type',
-                    value: settings.gradient_type,
+                await invoke('update_simulation_state', {
+                    stateName: 'mask_pattern',
+                    value: state.mask_pattern,
                 });
             } catch (err) {
-                console.error('Failed to update gradient type:', err);
+                console.error('Failed to update mask pattern:', err);
+            }
+        }
+    }
+
+    async function handleMaskTarget(e: CustomEvent) {
+        const value = e.detail.value;
+        if (state) {
+            state.mask_target = value;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'mask_target',
+                    value: state.mask_target,
+                });
+            } catch (err) {
+                console.error('Failed to update mask target:', err);
+            }
+        }
+    }
+
+    async function handleMaskMirrorHorizontal(checked: boolean) {
+        if (state) {
+            state.mask_mirror_horizontal = checked;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'mask_mirror_horizontal',
+                    value: state.mask_mirror_horizontal,
+                });
+            } catch (err) {
+                console.error('Failed to update mask mirror horizontal:', err);
+            }
+        }
+    }
+
+    async function handleMaskMirrorVertical(checked: boolean) {
+        if (state) {
+            state.mask_mirror_vertical = checked;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'mask_mirror_vertical',
+                    value: state.mask_mirror_vertical,
+                });
+            } catch (err) {
+                console.error('Failed to update mask mirror vertical:', err);
+            }
+        }
+    }
+
+    async function handleMaskInvertTone(checked: boolean) {
+        if (state) {
+            state.mask_invert_tone = checked;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'mask_invert_tone',
+                    value: state.mask_invert_tone,
+                });
+            } catch (err) {
+                console.error('Failed to update mask invert tone:', err);
             }
         }
     }
@@ -903,13 +1003,13 @@
         }
     }
 
-    // Load available LUTs from backend
+    // Load available color schemes from backend
     async function loadAvailableLuts() {
         try {
             available_luts = await invoke('get_available_color_schemes');
-            console.log('Available LUTs loaded:', available_luts.length);
+            console.log('Available color schemes loaded:', available_luts.length);
         } catch (e) {
-            console.error('Failed to load available LUTs:', e);
+            console.error('Failed to load available color schemes:', e);
         }
     }
 
@@ -917,44 +1017,23 @@
     async function syncSettingsFromBackend() {
         try {
             const backendSettings = await invoke('get_current_settings');
-            const backendState = await invoke('get_current_state');
-
             if (backendSettings) {
-                // Use backend settings directly
-                settings = backendSettings as Record<string, unknown>;
-            }
-
-            if (backendState) {
-                // Update LUT-related settings from state
-                const state = backendState as {
-                    current_lut_name?: string;
-                    lut_reversed?: boolean;
-                    cursor_size?: number;
-                    cursor_strength?: number;
-                    position_generator?: string;
-                };
-                if (state.current_lut_name !== undefined) {
-                    lut_name = state.current_lut_name;
-                }
-                if (state.lut_reversed !== undefined) {
-                    lut_reversed = state.lut_reversed;
-                }
-
-                // Update cursor configuration from state
-                if (state.cursor_size !== undefined) {
-                    cursorSize = state.cursor_size;
-                }
-                if (state.cursor_strength !== undefined) {
-                    cursorStrength = state.cursor_strength;
-                }
-
-                // Update position generator from state
-                if (state.position_generator !== undefined) {
-                    position_generator = state.position_generator;
-                }
+                settings = backendSettings as Settings;
             }
         } catch (e) {
             console.error('Failed to sync settings from backend:', e);
+        }
+    }
+
+    // Sync state from backend to frontend
+    async function syncStateFromBackend() {
+        try {
+            const backendState = await invoke('get_current_state');
+            if (backendState) {
+                state = backendState as State;
+            }
+        } catch (e) {
+            console.error('Failed to sync state from backend:', e);
         }
     }
 
@@ -1056,20 +1135,19 @@
         });
         eventListeners.add();
 
-        // Set up event listeners BEFORE starting simulation to avoid race conditions
-
         // Start the simulation first
         await startSimulation();
 
-        // Load available presets and LUTs
+        // Load available presets and color schemes
         await loadAvailablePresets();
         await loadAvailableLuts();
 
         // Load webcam devices
         await loadWebcamDevices();
 
-        // Sync settings from backend
+        // Sync settings and state from backend
         await syncSettingsFromBackend();
+        await syncStateFromBackend();
         await syncAgentCountFromBackend();
 
         // Listen for FPS updates
@@ -1100,11 +1178,16 @@
     });
 
     async function updateLutName(value: string) {
-        try {
-            await invoke('apply_color_scheme_by_name', { colorSchemeName: value });
-            await syncSettingsFromBackend(); // Sync UI with backend state
-        } catch (e) {
-            console.error('Failed to update LUT name:', e);
+        if (state) {
+            state.current_color_scheme = value;
+            try {
+                await invoke('update_simulation_state', {
+                    stateName: 'current_color_scheme',
+                    value: state.current_color_scheme,
+                });
+            } catch (e) {
+                console.error('Failed to update color scheme name:', e);
+            }
         }
     }
 
@@ -1242,52 +1325,6 @@
         margin-bottom: 0.25rem;
     }
 
-    .interaction-controls-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
-        align-items: start;
-    }
-
-    .interaction-help {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings-header {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.8);
-        padding: 0.15rem 0;
-    }
-
-    /* Mobile responsive design */
-    @media (max-width: 768px) {
-        .interaction-controls-grid {
-            grid-template-columns: 1fr;
-            gap: 0.4rem;
-        }
-
-        .interaction-help {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings-header {
-            font-size: 0.85rem;
-        }
-    }
-
     /* Key/Value pair settings layout */
     .settings-grid {
         display: grid;
@@ -1339,17 +1376,5 @@
         margin: 0 0 0.75rem 0;
         padding: 0.25rem 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    /* Checkbox styling */
-    .checkbox {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-    }
-
-    .checkbox input[type='checkbox'] {
-        margin: 0;
     }
 </style>

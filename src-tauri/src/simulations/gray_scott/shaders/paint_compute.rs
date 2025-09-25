@@ -20,7 +20,12 @@ impl PaintCompute {
             label: Some("Paint Bind Group Layout"),
             entries: &[
                 resource_helpers::uniform_buffer_entry(0, wgpu::ShaderStages::COMPUTE),
-                resource_helpers::storage_texture_entry(1, wgpu::ShaderStages::COMPUTE, wgpu::StorageTextureAccess::ReadWrite, wgpu::TextureFormat::Rgba32Float),
+                resource_helpers::storage_texture_entry(
+                    1,
+                    wgpu::ShaderStages::COMPUTE,
+                    wgpu::StorageTextureAccess::ReadWrite,
+                    wgpu::TextureFormat::Rgba16Float,
+                ),
             ],
         });
 

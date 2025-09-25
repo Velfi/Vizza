@@ -25,6 +25,7 @@ pub mod main_menu;
 pub mod moire;
 pub mod particle_life;
 pub mod pellets;
+pub mod primordial_particles;
 pub mod shared;
 pub mod slime_mold;
 pub mod traits;

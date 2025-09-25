@@ -38,8 +38,8 @@ pub struct State {
     pub grabbed_particles: Vec<usize>, // Indices of particles being dragged
 
     /// Current LUT state (runtime)
-    pub current_lut_name: String,
-    pub lut_reversed: bool,
+    pub current_color_scheme: String,
+    pub color_scheme_reversed: bool,
 
     /// UI visibility state
     pub gui_visible: bool,
@@ -71,8 +71,8 @@ impl Default for State {
             cursor_size: 0.20,
             cursor_strength: 1.0, // Increased for better throwing visibility
             grabbed_particles: Vec::new(),
-            current_lut_name: "MATPLOTLIB_bone".to_string(),
-            lut_reversed: true,
+            current_color_scheme: "MATPLOTLIB_bone".to_string(),
+            color_scheme_reversed: true,
             gui_visible: true,
             camera_position: [0.0, 0.0],
             camera_zoom: 1.0,

@@ -2,7 +2,7 @@
 // Writes directly to an RGBA32F storage texture used by the simulation.
 
 @group(0) @binding(0)
-var uvs_texture: texture_storage_2d<rgba32float, write>;
+var uvs_texture: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(1)
 var<uniform> params: SimulationParams;

@@ -1,5 +1,5 @@
 // Display shader for converting trail map to displayable texture
-// Uses LUT for color mapping
+// Uses color scheme (planar LUT) for color mapping
 
 struct SimSizeUniform {
     width: u32,
@@ -98,7 +98,7 @@ fn srgb_to_linear(srgb: f32) -> f32 {
     }
 }
 
-// Get color from LUT
+// Get color from color scheme (planar LUT)
 fn get_lut_color(intensity: f32) -> vec3<f32> {
     let idx = clamp(i32(intensity * 255.0), 0, 255);
     let r_srgb = f32(lut_data[idx]) / 255.0;
@@ -129,12 +129,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         // Use bilinear interpolation for smooth sampling
         let trail = sample_trail_map_smooth(vec2<f32>(sim_x, sim_y));
         
-        // Only add gradient if it's enabled (gradient_type != 0 means enabled)
-        var intensity = trail;
-        if (sim_size.gradient_type != 0u) {
-            let grad = sample_gradient_map_smooth(vec2<f32>(sim_x, sim_y));
-            intensity = clamp(trail + grad, 0.0, 1.0);
-        }
+        let intensity = trail;
         
         color = get_lut_color(intensity);
     }

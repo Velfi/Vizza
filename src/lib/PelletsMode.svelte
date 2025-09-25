@@ -49,8 +49,8 @@
                     <label for="colorSchemeSelector">Color Scheme</label>
                     <ColorSchemeSelector
                         bind:available_color_schemes={available_luts}
-                        current_color_scheme={state?.current_lut_name}
-                        reversed={state?.lut_reversed || false}
+                        current_color_scheme={state?.current_color_scheme}
+                        reversed={state?.color_scheme_reversed || false}
                         on:select={({ detail }) => updateLutName(detail.name)}
                         on:reverse={() => updateLutReversed()}
                     />
@@ -59,7 +59,7 @@
                     <label for="backgroundColorMode">Background Color Mode</label>
                     <Selector
                         id="backgroundColorMode"
-                        options={['Black', 'White', 'Gray18', 'ColorScheme']}
+                        options={['Black', 'White', 'Gray18', 'Color Scheme']}
                         value={settings?.background_color_mode}
                         on:change={({ detail }) =>
                             updateSetting('background_color_mode', detail.value)}
@@ -121,49 +121,14 @@
             <PostProcessingMenu simulationType="pellets" />
 
             <!-- Controls -->
-            <fieldset>
-                <legend>Controls</legend>
-                <div class="interaction-controls-grid">
-                    <div class="interaction-help">
-                        <div class="control-group">
-                            <span>🖱️ Left click: Attract particles</span>
-                        </div>
-                        <div class="control-group">
-                            <button
-                                type="button"
-                                on:click={() => dispatch('navigate', 'how-to-play')}
-                            >
-                                📖 Camera Controls
-                            </button>
-                        </div>
-                        <div class="control-group">
-                            <span
-                                >Camera controls not working? Click the control bar at the top of
-                                the screen.</span
-                            >
-                        </div>
-                    </div>
-                    <div class="cursor-settings">
-                        <div class="cursor-settings-header">
-                            <span>🎯 Cursor Settings</span>
-                        </div>
-                        <CursorConfig
-                            {cursorSize}
-                            {cursorStrength}
-                            sizeMin={0.01}
-                            sizeMax={1.0}
-                            sizeStep={0.01}
-                            strengthMin={0}
-                            strengthMax={1.0}
-                            strengthStep={0.01}
-                            sizePrecision={2}
-                            strengthPrecision={2}
-                            on:sizechange={(e) => updateCursorSize(e.detail)}
-                            on:strengthchange={(e) => updateCursorStrength(e.detail)}
-                        />
-                    </div>
-                </div>
-            </fieldset>
+            <ControlsPanel
+                mouseInteractionText="🖱️ Left click: Attract particles"
+                {cursorSize}
+                {cursorStrength}
+                on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
+                on:cursorStrengthChange={(e) => updateCursorStrength(e.detail)}
+                on:navigate={(e) => dispatch('navigate', e.detail)}
+            />
 
             <!-- Settings -->
             <fieldset>
@@ -311,9 +276,9 @@
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import NumberDragBox from './components/inputs/NumberDragBox.svelte';
     import CameraControls from './components/shared/CameraControls.svelte';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
     import './shared-theme.css';
@@ -342,8 +307,8 @@
     }
 
     interface PelletsState {
-        current_lut_name: string;
-        lut_reversed: boolean;
+        current_color_scheme: string;
+        color_scheme_reversed: boolean;
         gui_visible: boolean;
         mouse_pressed: boolean;
         mouse_mode: number;
@@ -386,7 +351,6 @@
     const returnToMenu = () => {
         dispatch('back');
     };
-
 
     const handleMouseEvent = async (e: CustomEvent) => {
         const event = e.detail as MouseEvent | WheelEvent;
@@ -695,7 +659,7 @@
                 cancelAnimationFrame(renderLoopId);
                 renderLoopId = null;
             }
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -711,7 +675,7 @@
             await invoke('resume_simulation');
             running = true;
             startRenderLoop();
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -927,25 +891,5 @@
         margin: 0 0 0.75rem 0;
         padding: 0.25rem 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    /* Mobile responsive design */
-    @media (max-width: 768px) {
-        .interaction-controls-grid {
-            grid-template-columns: 1fr;
-            gap: 0.4rem;
-        }
-
-        .interaction-help {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings-header {
-            font-size: 0.85rem;
-        }
     }
 </style>

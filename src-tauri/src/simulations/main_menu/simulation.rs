@@ -26,7 +26,7 @@ impl MainMenuModel {
     pub fn new(
         device: &Arc<Device>,
         surface_config: &SurfaceConfiguration,
-        lut_manager: &ColorSchemeManager,
+        color_scheme_manager: &ColorSchemeManager,
         _app_settings: &AppSettings,
     ) -> SimulationResult<Self> {
         // Create common layouts
@@ -48,7 +48,7 @@ impl MainMenuModel {
             .build();
 
         // Create LUT buffer from a random LUT and create bind group
-        let lut_data = lut_manager.get_random_lut()?;
+        let lut_data = color_scheme_manager.get_random_lut()?;
         let lut_data_u32 = lut_data.to_u32_buffer();
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Main Menu LUT Buffer"),

@@ -23,9 +23,13 @@ pub mod camera;
 pub mod color_scheme;
 pub mod coordinates;
 pub mod gpu_utils;
+pub mod ping_pong_buffers;
+pub mod ping_pong_render_textures;
 pub mod ping_pong_textures;
 pub mod position_generators;
 pub mod post_processing;
+pub mod types;
+pub mod webcam;
 
 pub use average_color::AverageColorResources;
 pub use color_scheme::{ColorScheme, ColorSchemeManager, SimulationColorSchemeManager};
@@ -35,6 +39,8 @@ pub use gpu_utils::{
 };
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
 pub use post_processing::{PostProcessingResources, PostProcessingState};
+pub use types::{ColorMode, ImageFitMode};
+pub use webcam::WebcamCapture;
 
 pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");
 pub const AVERAGE_COLOR_SHADER: &str = include_str!("average_color.wgsl");

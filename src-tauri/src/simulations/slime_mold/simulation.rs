@@ -9,10 +9,14 @@ use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
 use super::buffer_pool::BufferPool;
 use super::render::{bind_group_manager::BindGroupManager, pipeline_manager::PipelineManager};
 use super::settings::Settings;
+use super::state::{MaskPattern, MaskTarget, State as SlimeMoldState};
 use super::workgroup_optimizer::WorkgroupConfig;
+use crate::simulations::shared::ImageFitMode;
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::post_processing::{PostProcessingResources, PostProcessingState};
-use crate::simulations::shared::{ColorScheme, ColorSchemeManager, camera::Camera};
+use crate::simulations::shared::{
+    ColorScheme, ColorSchemeManager, camera::Camera, ping_pong_buffers::PingPongBuffers,
+};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -21,23 +25,26 @@ pub struct SimSizeUniform {
     pub height: u32,
     pub decay_rate: f32,
     pub agent_jitter: f32,
+
     pub agent_speed_min: f32,
     pub agent_speed_max: f32,
     pub agent_turn_rate: f32,
     pub agent_sensor_angle: f32,
+
     pub agent_sensor_distance: f32,
     pub diffusion_rate: f32,
     pub pheromone_deposition_rate: f32,
-    pub gradient_enabled: u32,
-    pub gradient_type: u32,
-    pub gradient_strength: f32,
-    pub gradient_center_x: f32,
-    pub gradient_center_y: f32,
-    pub gradient_size: f32,
-    pub gradient_angle: f32,
+    pub mask_pattern: u32,
+
+    pub mask_target: u32,
+    pub mask_strength: f32,
+    pub mask_curve: f32,
+    pub mask_mirror_horizontal: u32,
+
+    pub mask_mirror_vertical: u32,
+    pub mask_invert_tone: u32,
     pub random_seed: u32,
     pub position_generator: u32, // Position generator type for agent initialization
-    pub _pad1: u32,
 }
 
 impl SimSizeUniform {
@@ -46,6 +53,7 @@ impl SimSizeUniform {
         height: u32,
         decay_rate: f32,
         settings: &Settings,
+        state: &SlimeMoldState,
         position_generator: &crate::simulations::shared::SlimeMoldPositionGenerator,
     ) -> Self {
         Self {
@@ -60,28 +68,15 @@ impl SimSizeUniform {
             agent_sensor_distance: settings.agent_sensor_distance,
             diffusion_rate: settings.pheromone_diffusion_rate,
             pheromone_deposition_rate: settings.pheromone_deposition_rate,
-            gradient_enabled: if settings.gradient_type == super::settings::GradientType::Disabled {
-                0
-            } else {
-                1
-            },
-            gradient_type: match settings.gradient_type {
-                super::settings::GradientType::Disabled => 0,
-                super::settings::GradientType::Linear => 1,
-                super::settings::GradientType::Radial => 2,
-                super::settings::GradientType::Ellipse => 3,
-                super::settings::GradientType::Spiral => 4,
-                super::settings::GradientType::Checkerboard => 5,
-                super::settings::GradientType::Image => 6,
-            },
-            gradient_strength: settings.gradient_strength,
-            gradient_center_x: settings.gradient_center_x,
-            gradient_center_y: settings.gradient_center_y,
-            gradient_size: settings.gradient_size,
-            gradient_angle: settings.gradient_angle,
+            mask_pattern: u32::from(state.mask_pattern),
+            mask_target: u32::from(state.mask_target),
+            mask_strength: state.mask_strength,
+            mask_curve: state.mask_curve,
+            mask_mirror_horizontal: if state.mask_mirror_horizontal { 1 } else { 0 },
+            mask_mirror_vertical: if state.mask_mirror_vertical { 1 } else { 0 },
+            mask_invert_tone: if state.mask_invert_tone { 1 } else { 0 },
             random_seed: settings.random_seed,
             position_generator: position_generator.as_u32(),
-            _pad1: 0,
         }
     }
 }
@@ -93,22 +88,25 @@ pub struct CursorParams {
     pub x: f32,
     pub y: f32,
     pub strength: f32,
+
     pub size: f32,
     pub _pad1: u32,
     pub _pad2: u32,
+    pub _pad3: u32,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct BackgroundParams {
-    pub background_type: u32, // 0 = black, 1 = white, 2 = gradient
-    pub gradient_enabled: u32,
-    pub gradient_type: u32,
-    pub gradient_strength: f32,
-    pub gradient_center_x: f32,
-    pub gradient_center_y: f32,
-    pub gradient_size: f32,
-    pub gradient_angle: f32,
+    pub background_type: u32, // 0 = black, 1 = white
+    pub mask_enabled: u32,
+    pub mask_pattern: u32,
+    pub mask_strength: f32,
+
+    pub mask_mirror_horizontal: u32,
+    pub mask_mirror_vertical: u32,
+    pub mask_invert_tone: u32,
+    pub _pad0: u32,
 }
 
 #[derive(Debug)]
@@ -119,8 +117,8 @@ pub struct SlimeMoldModel {
     pub bind_group_manager: BindGroupManager,
     pub pipeline_manager: PipelineManager,
     pub agent_buffer: wgpu::Buffer,
-    pub trail_map_buffer: wgpu::Buffer,
-    pub gradient_buffer: wgpu::Buffer,
+    pub trail_map_buffers: PingPongBuffers, // Ping-pong buffers for diffusion
+    pub mask_buffer: wgpu::Buffer,
     pub sim_size_buffer: Arc<wgpu::Buffer>,
     pub lut_buffer: Arc<wgpu::Buffer>,
     pub display_texture: wgpu::Texture,
@@ -131,15 +129,16 @@ pub struct SlimeMoldModel {
 
     // Simulation state
     pub settings: Settings,
+    pub state: SlimeMoldState,
     pub agent_count: usize,
-    pub lut_reversed: bool,
-    pub current_lut_name: String,
+    pub color_scheme_reversed: bool,
+    pub current_color_scheme: String,
     pub position_generator: crate::simulations::shared::SlimeMoldPositionGenerator,
     pub trail_map_filtering: super::settings::TrailMapFiltering,
 
     // Buffer size tracking for pool management
     pub current_trail_map_size: u64,
-    pub current_gradient_buffer_size: u64,
+    pub current_mask_buffer_size: u64,
     pub current_agent_buffer_size: u64,
 
     // Dimension tracking for resize scaling
@@ -172,26 +171,26 @@ pub struct SlimeMoldModel {
     pub average_color_staging_buffer: wgpu::Buffer,
     pub average_color_bind_group: wgpu::BindGroup,
     pub average_color_uniform_buffer: wgpu::Buffer,
-    pub lut_manager: Arc<ColorSchemeManager>,
+    pub color_scheme_manager: Arc<ColorSchemeManager>,
     pub post_processing_state: PostProcessingState,
     pub post_processing_resources: PostProcessingResources,
     pub app_settings: AppSettings,
-    // Raw grayscale (0..1) image for image-based gradient, sized to current sim dims
-    pub gradient_image_raw: Option<Vec<f32>>,
+    // Raw grayscale (0..1) image for image-based mask, sized to current sim dims
+    pub mask_image_raw: Option<Vec<f32>>,
     // Original grayscale values (0..1) before strength is applied, for reprocessing
-    pub gradient_image_base: Option<Vec<f32>>,
+    pub mask_image_base: Option<Vec<f32>>,
     // Original image data for reprocessing with different fit modes
-    pub gradient_image_original: Option<image::DynamicImage>,
-    // Flag to indicate gradient image needs to be re-uploaded to GPU
-    pub gradient_image_needs_upload: bool,
+    pub mask_image_original: Option<image::DynamicImage>,
+    // Flag to indicate mask image needs to be re-uploaded to GPU
+    pub mask_image_needs_upload: bool,
     // Original image data for position generation
     pub position_image_original: Option<image::DynamicImage>,
     // Raw grayscale (0..1) image for position generation, sized to current sim dims
     pub position_image_raw: Option<Vec<f32>>,
     // Flag to indicate position image needs to be re-uploaded to GPU
     pub position_image_needs_upload: bool,
-    // Webcam capture for real-time gradient input
-    pub webcam_capture: super::webcam::WebcamCapture,
+    // Webcam capture for real-time mask input
+    pub webcam_capture: crate::simulations::shared::WebcamCapture,
 }
 
 impl SlimeMoldModel {
@@ -217,7 +216,7 @@ impl SlimeMoldModel {
         agent_count: usize,
         settings: Settings,
         app_settings: &AppSettings,
-        lut_manager: &ColorSchemeManager,
+        color_scheme_manager: &ColorSchemeManager,
     ) -> SimulationResult<Self> {
         let physical_width = surface_config.width;
         let physical_height = surface_config.height;
@@ -253,27 +252,42 @@ impl SlimeMoldModel {
 
         let trail_map_size = (effective_width * effective_height) as usize;
         let trail_map_size_bytes = (trail_map_size * std::mem::size_of::<f32>()) as u64;
-        let trail_map_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Trail Map Buffer"),
-            size: trail_map_size_bytes,
-            usage: wgpu::BufferUsages::STORAGE
+
+        // Create ping-pong buffers for trail map diffusion
+        let trail_map_buffers = PingPongBuffers::new(
+            device,
+            trail_map_size_bytes,
+            wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: true,
-        });
+            "Trail Map",
+        );
 
-        // Initialize trail map with some random values
+        // Initialize the current buffer with some random values
         {
-            let mut view = trail_map_buffer.slice(..).get_mapped_range_mut();
-            let view_slice = bytemuck::cast_slice_mut::<u8, f32>(&mut view);
-            for cell in view_slice.iter_mut() {
+            let mut data = vec![0.0f32; trail_map_size];
+            for cell in data.iter_mut() {
                 *cell = rand::random::<f32>() * 0.1; // Small initial values
             }
+            queue.write_buffer(
+                trail_map_buffers.current_buffer(),
+                0,
+                bytemuck::cast_slice(&data),
+            );
         }
-        trail_map_buffer.unmap();
 
-        let gradient_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Gradient Buffer"),
+        // Initialize the inactive buffer with zeros
+        {
+            let data = vec![0.0f32; trail_map_size];
+            queue.write_buffer(
+                trail_map_buffers.inactive_buffer(),
+                0,
+                bytemuck::cast_slice(&data),
+            );
+        }
+
+        let mask_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Mask Buffer"),
             size: trail_map_size_bytes,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
@@ -305,11 +319,13 @@ impl SlimeMoldModel {
         let display_view = display_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Create uniform buffer
+        let default_state = SlimeMoldState::default();
         let sim_size_uniform = SimSizeUniform::new(
             effective_width,
             effective_height,
             settings.pheromone_decay_rate,
             &settings,
+            &default_state,
             &crate::simulations::shared::SlimeMoldPositionGenerator::Random,
         );
         let sim_size_buffer = resource_helpers::create_uniform_buffer_with_data(
@@ -319,12 +335,15 @@ impl SlimeMoldModel {
         );
         let sim_size_buffer = Arc::new(sim_size_buffer);
 
-        // Create LUT buffer
-        let lut_data = lut_manager.get("MATPLOTLIB_cubehelix")?;
+        // Create color scheme buffer
+        let lut_data = color_scheme_manager.get("MATPLOTLIB_cubehelix")?;
         let lut_data_u32 = lut_data.to_u32_buffer();
 
-        let lut_buffer =
-            resource_helpers::create_storage_buffer_with_data(device, "LUT Buffer", &lut_data_u32);
+        let lut_buffer = resource_helpers::create_storage_buffer_with_data(
+            device,
+            "Color Scheme Buffer",
+            &lut_data_u32,
+        );
         let lut_buffer = Arc::new(lut_buffer);
 
         // Create display sampler
@@ -353,6 +372,7 @@ impl SlimeMoldModel {
             size: 80.0,     // reasonable default
             _pad1: 0,
             _pad2: 0,
+            _pad3: 0,
         };
         let cursor_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cursor Params Buffer"),
@@ -362,26 +382,26 @@ impl SlimeMoldModel {
 
         // Create background parameters
         let background_params = BackgroundParams {
-            background_type: 0, // Black background by default
-            gradient_enabled: if settings.gradient_type == super::settings::GradientType::Disabled {
+            background_type: u32::from(settings.background_mode),
+            mask_enabled: if default_state.mask_pattern == MaskPattern::Disabled {
                 0
             } else {
                 1
             },
-            gradient_type: match settings.gradient_type {
-                super::settings::GradientType::Disabled => 0,
-                super::settings::GradientType::Linear => 1,
-                super::settings::GradientType::Radial => 2,
-                super::settings::GradientType::Ellipse => 3,
-                super::settings::GradientType::Spiral => 4,
-                super::settings::GradientType::Checkerboard => 5,
-                super::settings::GradientType::Image => 6,
+            mask_pattern: u32::from(default_state.mask_pattern),
+            mask_strength: default_state.mask_strength,
+            mask_mirror_horizontal: if default_state.mask_mirror_horizontal {
+                1
+            } else {
+                0
             },
-            gradient_strength: settings.gradient_strength,
-            gradient_center_x: settings.gradient_center_x,
-            gradient_center_y: settings.gradient_center_y,
-            gradient_size: settings.gradient_size,
-            gradient_angle: settings.gradient_angle,
+            mask_mirror_vertical: if default_state.mask_mirror_vertical {
+                1
+            } else {
+                0
+            },
+            mask_invert_tone: if default_state.mask_invert_tone { 1 } else { 0 },
+            _pad0: 0,
         };
         let background_params_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -432,8 +452,9 @@ impl SlimeMoldModel {
             &pipeline_manager.camera_bind_group_layout,
             &pipeline_manager.gradient_bind_group_layout,
             &agent_buffer,
-            &trail_map_buffer,
-            &gradient_buffer,
+            trail_map_buffers.current_buffer(),
+            trail_map_buffers.inactive_buffer(),
+            &mask_buffer,
             &sim_size_buffer,
             &display_view,
             &display_sampler,
@@ -471,8 +492,8 @@ impl SlimeMoldModel {
             bind_group_manager,
             pipeline_manager,
             agent_buffer,
-            trail_map_buffer,
-            gradient_buffer,
+            trail_map_buffers,
+            mask_buffer,
             sim_size_buffer,
             lut_buffer,
             display_texture,
@@ -481,11 +502,12 @@ impl SlimeMoldModel {
             workgroup_config,
             buffer_pool,
             settings,
+            state: default_state,
             agent_count,
-            current_lut_name: "MATPLOTLIB_cubehelix".to_string(),
-            lut_reversed: true,
+            current_color_scheme: "MATPLOTLIB_cubehelix".to_string(),
+            color_scheme_reversed: true,
             current_trail_map_size: trail_map_size_bytes,
-            current_gradient_buffer_size: trail_map_size_bytes,
+            current_mask_buffer_size: trail_map_size_bytes,
             current_agent_buffer_size: agent_buffer_size_bytes,
             current_width: effective_width,
             current_height: effective_height,
@@ -508,22 +530,22 @@ impl SlimeMoldModel {
             average_color_staging_buffer,
             average_color_bind_group,
             average_color_uniform_buffer,
-            lut_manager: Arc::new(lut_manager.clone()),
+            color_scheme_manager: Arc::new(color_scheme_manager.clone()),
             post_processing_state,
             post_processing_resources,
             app_settings: app_settings.clone(),
-            gradient_image_raw: None,
-            gradient_image_base: None,
-            gradient_image_original: None,
-            gradient_image_needs_upload: false,
+            mask_image_raw: None,
+            mask_image_base: None,
+            mask_image_original: None,
+            mask_image_needs_upload: false,
             position_image_original: None,
             position_image_raw: None,
             position_image_needs_upload: false,
-            webcam_capture: super::webcam::WebcamCapture::new(),
+            webcam_capture: crate::simulations::shared::WebcamCapture::new(),
         };
 
-        if let Ok(mut lut_data) = lut_manager.get(&simulation.current_lut_name) {
-            if simulation.lut_reversed {
+        if let Ok(mut lut_data) = color_scheme_manager.get(&simulation.current_color_scheme) {
+            if simulation.color_scheme_reversed {
                 lut_data.reverse();
             }
             simulation.update_lut(&lut_data, queue);
@@ -615,39 +637,39 @@ impl SlimeMoldModel {
         }
 
         // Store old buffers for scaling
-        let old_trail_map_buffer = std::mem::replace(
-            &mut self.trail_map_buffer,
+        let old_trail_map_buffers = std::mem::replace(
+            &mut self.trail_map_buffers,
+            PingPongBuffers::new(
+                device,
+                1, // Temporary size
+                wgpu::BufferUsages::STORAGE,
+                "Temp Trail Map",
+            ),
+        );
+
+        let old_mask_buffer = std::mem::replace(
+            &mut self.mask_buffer,
             device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Temp Trail Map Buffer"),
+                label: Some("Temp Mask Buffer"),
                 size: 1,
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             }),
         );
 
-        let old_gradient_buffer = std::mem::replace(
-            &mut self.gradient_buffer,
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Temp Gradient Buffer"),
-                size: 1,
-                usage: wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            }),
-        );
-
-        // Get new buffers from pool (or create new if none available)
-        self.trail_map_buffer = self.buffer_pool.get_buffer(
+        // Create new ping-pong buffers
+        self.trail_map_buffers = PingPongBuffers::new(
             device,
-            Some("Trail Map Buffer"),
             trail_map_size_bytes,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
+            "Trail Map",
         );
 
-        self.gradient_buffer = self.buffer_pool.get_buffer(
+        self.mask_buffer = self.buffer_pool.get_buffer(
             device,
-            Some("Gradient Buffer"),
+            Some("Mask Buffer"),
             trail_map_size_bytes,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
@@ -659,8 +681,8 @@ impl SlimeMoldModel {
             scale_trail_map_data(
                 device,
                 queue,
-                &old_trail_map_buffer,
-                &self.trail_map_buffer,
+                old_trail_map_buffers.current_buffer(),
+                self.trail_map_buffers.current_buffer(),
                 self.current_width,
                 self.current_height,
                 effective_width,
@@ -670,48 +692,38 @@ impl SlimeMoldModel {
             tracing::error!("Failed to scale trail map data: {:?}", e);
             // If scaling fails, just reset the trail map
             reset_trails(
-                &self.trail_map_buffer,
+                self.trail_map_buffers.current_buffer(),
                 queue,
                 effective_width,
                 effective_height,
             );
         }
 
-        // Scale gradient data from old dimensions to new dimensions
+        // Scale mask data from old dimensions to new dimensions
         if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             scale_trail_map_data(
                 device,
                 queue,
-                &old_gradient_buffer,
-                &self.gradient_buffer,
+                &old_mask_buffer,
+                &self.mask_buffer,
                 self.current_width,
                 self.current_height,
                 effective_width,
                 effective_height,
             );
         })) {
-            tracing::error!("Failed to scale gradient data: {:?}", e);
-            // If scaling fails, just reset the gradient
-            reset_trails(
-                &self.gradient_buffer,
-                queue,
-                effective_width,
-                effective_height,
-            );
+            tracing::error!("Failed to scale mask data: {:?}", e);
+            // If scaling fails, just reset the mask
+            reset_trails(&self.mask_buffer, queue, effective_width, effective_height);
         }
 
         // Return old buffers to pool after scaling is complete
-        self.buffer_pool.return_buffer(
-            old_trail_map_buffer,
-            self.current_trail_map_size,
-            wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::COPY_SRC
-                | wgpu::BufferUsages::COPY_DST,
-        );
+        // Note: PingPongBuffers contains two buffers, but we can't return them individually
+        // The old buffers will be dropped automatically when old_trail_map_buffers goes out of scope
 
         self.buffer_pool.return_buffer(
-            old_gradient_buffer,
-            self.current_gradient_buffer_size,
+            old_mask_buffer,
+            self.current_mask_buffer_size,
             wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_SRC
                 | wgpu::BufferUsages::COPY_DST,
@@ -763,7 +775,7 @@ impl SlimeMoldModel {
 
         // Update current sizes and dimensions
         self.current_trail_map_size = trail_map_size_bytes;
-        self.current_gradient_buffer_size = trail_map_size_bytes;
+        self.current_mask_buffer_size = trail_map_size_bytes;
         self.current_agent_buffer_size = agent_buffer_size_bytes;
         self.current_width = effective_width;
         self.current_height = effective_height;
@@ -774,6 +786,7 @@ impl SlimeMoldModel {
             effective_height,
             self.settings.pheromone_decay_rate,
             &self.settings,
+            &self.state,
             &self.position_generator,
         );
         queue.write_buffer(
@@ -836,36 +849,36 @@ impl SlimeMoldModel {
         self.update_background_params(queue);
         self.update_background_color(queue);
 
-        // Upload gradient image if it needs to be re-uploaded
-        if self.gradient_image_needs_upload {
-            if let Some(buffer) = &self.gradient_image_raw {
+        // Upload mask image if it needs to be re-uploaded
+        if self.mask_image_needs_upload {
+            if let Some(buffer) = &self.mask_image_raw {
                 queue.write_buffer(
-                    &self.gradient_buffer,
+                    &self.mask_buffer,
                     0,
                     bytemuck::cast_slice::<f32, u8>(buffer),
                 );
-                self.gradient_image_needs_upload = false;
+                self.mask_image_needs_upload = false;
             }
         }
 
-        // Update gradient from webcam if active
+        // Update mask from webcam if active
         if self.webcam_capture.is_active {
             // Update webcam frame first
             if let Err(e) = self.webcam_capture.update_frame() {
                 tracing::warn!("Failed to update webcam frame: {}", e);
             }
 
-            // Then update gradient buffer
-            if let Err(e) = self.update_gradient_from_webcam(queue) {
-                tracing::warn!("Failed to update gradient from webcam: {}", e);
+            // Then update mask buffer
+            if let Err(e) = self.update_mask_from_webcam(queue) {
+                tracing::warn!("Failed to update mask from webcam: {}", e);
             }
         }
 
-        // Upload position image if it needs to be re-uploaded
+        // Upload position image if it needs to be re-uploaded (single shared image buffer).
         if self.position_image_needs_upload {
             if let Some(buffer) = &self.position_image_raw {
                 queue.write_buffer(
-                    &self.gradient_buffer,
+                    &self.mask_buffer,
                     0,
                     bytemuck::cast_slice::<f32, u8>(buffer),
                 );
@@ -975,13 +988,13 @@ impl SlimeMoldModel {
     }
 
     /// Run the compute passes for the simulation
-    fn run_compute_passes(&self, encoder: &mut wgpu::CommandEncoder) {
-        // Gradient pass (if enabled)
-        if self.settings.gradient_type != super::settings::GradientType::Disabled
-            && self.settings.gradient_type != super::settings::GradientType::Image
+    fn run_compute_passes(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        // Mask pass (if enabled)
+        if self.state.mask_pattern != MaskPattern::Disabled
+            && self.state.mask_pattern != MaskPattern::Image
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Slime Mold Gradient Pass"),
+                label: Some("Slime Mold Mask Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.gradient_pipeline);
@@ -1028,14 +1041,25 @@ impl SlimeMoldModel {
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
         }
 
-        // Diffusion pass
+        // Diffusion pass with ping-pong buffering
         {
+            // Swap buffers before diffusion (current becomes source, inactive becomes destination)
+            self.trail_map_buffers.swap();
+
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Slime Mold Diffusion Pass"),
                 timestamp_writes: None,
             });
             compute_pass.set_pipeline(&self.pipeline_manager.diffuse_pipeline);
-            compute_pass.set_bind_group(0, &self.bind_group_manager.compute_bind_group, &[]);
+
+            // Use the appropriate bind group based on current buffer state
+            let bind_group = if self.trail_map_buffers.current_index() == 0 {
+                &self.bind_group_manager.compute_bind_group
+            } else {
+                &self.bind_group_manager.compute_bind_group_b
+            };
+            compute_pass.set_bind_group(0, bind_group, &[]);
+
             let workgroups_x = self.display_texture.width().div_ceil(16);
             let workgroups_y = self.display_texture.height().div_ceil(16);
             compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
@@ -1047,6 +1071,7 @@ impl SlimeMoldModel {
         self.settings = new_settings;
         update_settings(
             &self.settings,
+            &self.state,
             &self.sim_size_buffer,
             queue,
             self.display_texture.width(),
@@ -1064,7 +1089,7 @@ impl SlimeMoldModel {
     /// Reset trail map to zero
     pub fn reset_trails(&self, queue: &Arc<Queue>) {
         reset_trails(
-            &self.trail_map_buffer,
+            self.trail_map_buffers.current_buffer(),
             queue,
             self.display_texture.width(),
             self.display_texture.height(),
@@ -1086,6 +1111,7 @@ impl SlimeMoldModel {
             self.current_height,
             self.settings.pheromone_decay_rate,
             &self.settings,
+            &self.state,
             &self.position_generator,
         );
         queue.write_buffer(&self.sim_size_buffer, 0, bytemuck::cast_slice(&[sim_size]));
@@ -1159,8 +1185,6 @@ impl SlimeMoldModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        use super::settings::GradientType;
-
         match setting_name {
             "pheromone_decay_rate" => {
                 if let Some(v) = value.as_f64() {
@@ -1221,95 +1245,158 @@ impl SlimeMoldModel {
                     self.settings.agent_sensor_distance = v as f32;
                 }
             }
-            "gradient_type" => {
+            "mask_pattern" => {
                 if let Some(v) = value.as_str() {
-                    self.settings.gradient_type = match v {
-                        "disabled" => GradientType::Disabled,
-                        "linear" => GradientType::Linear,
-                        "radial" => GradientType::Radial,
-                        "ellipse" => GradientType::Ellipse,
-                        "spiral" => GradientType::Spiral,
-                        "checkerboard" => GradientType::Checkerboard,
-                        "image" => GradientType::Image,
-                        _ => GradientType::Disabled,
-                    };
+                    // Accept display-case or snake/lowercase
+                    self.state.mask_pattern =
+                        MaskPattern::from_str(v).expect("Invalid mask pattern");
+
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+
+                    // Force mask regeneration immediately
+                    self.regenerate_mask(device, queue);
                 }
             }
-            "gradient_image_fit_mode" => {
+            "mask_target" => {
                 if let Some(v) = value.as_str() {
-                    self.settings.gradient_image_fit_mode = match v {
-                        "Stretch" | "stretch" => super::settings::GradientImageFitMode::Stretch,
-                        "Center" | "center" => super::settings::GradientImageFitMode::Center,
-                        "Fit H" | "fit h" => super::settings::GradientImageFitMode::FitH,
-                        "Fit V" | "fit v" => super::settings::GradientImageFitMode::FitV,
-                        _ => unreachable!(),
-                    };
+                    // Accept display-case or snake/lowercase
+                    self.state.mask_target = MaskTarget::from_str(v).expect("Invalid mask target");
+
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_strength" => {
+                if let Some(v) = value.as_f64() {
+                    self.state.mask_strength = v as f32;
+
+                    // Update uniform buffer to reflect the new mask strength
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_curve" => {
+                if let Some(v) = value.as_f64() {
+                    self.state.mask_curve = v as f32;
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_reversed" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_reversed = v;
+
+                    // Update uniform buffer to reflect the new mask reversed setting
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_mirror_horizontal" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_mirror_horizontal = v;
+
+                    // Update uniform buffer to reflect the new mask mirror horizontal setting
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+
+                    // Force mask regeneration immediately
+                    self.regenerate_mask(device, queue);
+                }
+            }
+            "mask_mirror_vertical" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_mirror_vertical = v;
+
+                    // Update uniform buffer to reflect the new mask mirror vertical setting
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+
+                    // Force mask regeneration immediately
+                    self.regenerate_mask(device, queue);
+                }
+            }
+            "mask_invert_tone" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_invert_tone = v;
+                    self.update_background_params(queue);
+
+                    // Update uniform buffer to reflect the new mask invert tone setting
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+
+                    // Force mask regeneration immediately
+                    self.regenerate_mask(device, queue);
+                }
+            }
+            "mask_image_fit_mode" => {
+                if let Some(v) = value.as_str() {
+                    self.state.mask_image_fit_mode =
+                        v.parse::<ImageFitMode>().expect("Invalid image fit mode");
 
                     // If we have a loaded image, reprocess it with the new fit mode
-                    if self.settings.gradient_type == super::settings::GradientType::Image
-                        && self.gradient_image_raw.is_some()
+                    if self.state.mask_pattern == MaskPattern::Image
+                        && self.mask_image_raw.is_some()
                     {
                         // Reprocess the stored raw image data with new fit mode
-                        self.reprocess_gradient_image_with_current_fit_mode();
+                        self.reprocess_mask_image_with_current_fit_mode();
                     }
-                }
-            }
-            "gradient_image_mirror_horizontal" => {
-                if let Some(v) = value.as_bool() {
-                    self.settings.gradient_image_mirror_horizontal = v;
-
-                    // If we have a loaded image, reprocess it with the new mirror setting
-                    if self.settings.gradient_type == super::settings::GradientType::Image
-                        && self.gradient_image_raw.is_some()
-                    {
-                        // Reprocess the stored raw image data with new mirror setting
-                        self.reprocess_gradient_image_with_current_fit_mode();
-                    }
-                }
-            }
-            "gradient_image_invert_tone" => {
-                if let Some(v) = value.as_bool() {
-                    self.settings.gradient_image_invert_tone = v;
-
-                    // If we have a loaded image, reprocess it with the new invert setting
-                    if self.settings.gradient_type == super::settings::GradientType::Image
-                        && self.gradient_image_raw.is_some()
-                    {
-                        // Reprocess the stored raw image data with new invert setting
-                        self.reprocess_gradient_image_with_current_fit_mode();
-                    }
-                }
-            }
-            "gradient_strength" => {
-                if let Some(v) = value.as_f64() {
-                    self.settings.gradient_strength = v as f32;
-
-                    // If we have a loaded image, reprocess it with the new strength
-                    if self.settings.gradient_type == super::settings::GradientType::Image
-                        && self.gradient_image_raw.is_some()
-                    {
-                        self.reprocess_gradient_image_with_current_strength();
-                    }
-                }
-            }
-            "gradient_center_x" => {
-                if let Some(v) = value.as_f64() {
-                    self.settings.gradient_center_x = v as f32;
-                }
-            }
-            "gradient_center_y" => {
-                if let Some(v) = value.as_f64() {
-                    self.settings.gradient_center_y = v as f32;
-                }
-            }
-            "gradient_size" => {
-                if let Some(v) = value.as_f64() {
-                    self.settings.gradient_size = v as f32;
-                }
-            }
-            "gradient_angle" => {
-                if let Some(v) = value.as_f64() {
-                    self.settings.gradient_angle = v as f32;
                 }
             }
             "cursor_size" => {
@@ -1329,10 +1416,10 @@ impl SlimeMoldModel {
             "position_image_fit_mode" => {
                 if let Some(v) = value.as_str() {
                     self.settings.position_image_fit_mode = match v {
-                        "Stretch" | "stretch" => super::settings::GradientImageFitMode::Stretch,
-                        "Center" | "center" => super::settings::GradientImageFitMode::Center,
-                        "Fit H" | "fit h" => super::settings::GradientImageFitMode::FitH,
-                        "Fit V" | "fit v" => super::settings::GradientImageFitMode::FitV,
+                        "Stretch" | "stretch" => ImageFitMode::Stretch,
+                        "Center" | "center" => ImageFitMode::Center,
+                        "Fit H" | "fit h" => ImageFitMode::FitH,
+                        "Fit V" | "fit v" => ImageFitMode::FitV,
                         _ => unreachable!(),
                     };
 
@@ -1353,32 +1440,25 @@ impl SlimeMoldModel {
             }
             "position_generator" => {
                 if let Some(generator_str) = value.as_str() {
-                    let generator = match generator_str {
-                        "Random" => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
-                        "Center" => crate::simulations::shared::SlimeMoldPositionGenerator::Center,
-                        "UniformCircle" => {
-                            crate::simulations::shared::SlimeMoldPositionGenerator::UniformCircle
-                        }
-                        "CenteredCircle" => {
-                            crate::simulations::shared::SlimeMoldPositionGenerator::CenteredCircle
-                        }
-                        "Ring" => crate::simulations::shared::SlimeMoldPositionGenerator::Ring,
-                        "Line" => crate::simulations::shared::SlimeMoldPositionGenerator::Line,
-                        "Spiral" => crate::simulations::shared::SlimeMoldPositionGenerator::Spiral,
-                        "Image" => crate::simulations::shared::SlimeMoldPositionGenerator::Image,
-                        _ => crate::simulations::shared::SlimeMoldPositionGenerator::Random,
-                    };
-                    self.position_generator = generator;
+                    if let Some(selected_generator) =
+                        crate::simulations::shared::SlimeMoldPositionGenerator::from_str(
+                            generator_str,
+                        )
+                    {
+                        self.position_generator = selected_generator;
+                    } else {
+                        self.position_generator =
+                            crate::simulations::shared::SlimeMoldPositionGenerator::Random;
+                    }
                 }
             }
             "trailMapFiltering" => {
                 if let Some(filtering_str) = value.as_str() {
-                    self.trail_map_filtering = match filtering_str {
-                        "Nearest" => super::settings::TrailMapFiltering::Nearest,
-                        "Linear" => super::settings::TrailMapFiltering::Linear,
-                        _ => super::settings::TrailMapFiltering::Nearest,
-                    };
-                    // Update the display sampler with new filtering
+                    if let Some(f) = super::settings::TrailMapFiltering::from_str(filtering_str) {
+                        self.trail_map_filtering = f;
+                    } else {
+                        self.trail_map_filtering = super::settings::TrailMapFiltering::Nearest;
+                    }
                     self.update_display_sampler(device);
                 }
             }
@@ -1390,6 +1470,7 @@ impl SlimeMoldModel {
         // Update the GPU uniforms with the new settings
         update_settings(
             &self.settings,
+            &self.state,
             &self.sim_size_buffer,
             queue,
             self.display_texture.width(),
@@ -1466,8 +1547,9 @@ impl SlimeMoldModel {
             &self.pipeline_manager.camera_bind_group_layout,
             &self.pipeline_manager.gradient_bind_group_layout,
             &self.agent_buffer,
-            &self.trail_map_buffer,
-            &self.gradient_buffer,
+            self.trail_map_buffers.current_buffer(),
+            self.trail_map_buffers.inactive_buffer(),
+            &self.mask_buffer,
             &self.sim_size_buffer,
             &self.display_view,
             &self.display_sampler,
@@ -1519,12 +1601,41 @@ impl SlimeMoldModel {
             size: self.cursor_size,
             _pad1: 0,
             _pad2: 0,
+            _pad3: 0,
         };
         queue.write_buffer(&self.cursor_buffer, 0, bytemuck::bytes_of(&params));
     }
 
-    /// Load an external image, convert to grayscale, fit to current sim size, and upload to gradient buffer
-    pub fn load_gradient_image_from_path(
+    /// Force regeneration of the mask pattern
+    pub fn regenerate_mask(&mut self, device: &Arc<Device>, queue: &Arc<Queue>) {
+        // Only regenerate if mask is enabled and not image-based
+        if self.state.mask_pattern != MaskPattern::Disabled
+            && self.state.mask_pattern != MaskPattern::Image
+        {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Force Mask Regeneration Encoder"),
+            });
+
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Force Mask Regeneration Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(&self.pipeline_manager.gradient_pipeline);
+                compute_pass.set_bind_group(0, &self.bind_group_manager.gradient_bind_group, &[]);
+
+                let total_pixels = self.display_texture.width() * self.display_texture.height();
+                let workgroup_size = self.workgroup_config.compute_1d;
+                let workgroups = total_pixels.div_ceil(workgroup_size);
+                compute_pass.dispatch_workgroups(workgroups, 1, 1);
+            } // compute_pass is dropped here
+
+            queue.submit(std::iter::once(encoder.finish()));
+        }
+    }
+
+    /// Load an external image, convert to grayscale, fit to current sim size, and upload to mask buffer
+    pub fn load_mask_image_from_path(
         &mut self,
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
@@ -1535,20 +1646,20 @@ impl SlimeMoldModel {
         })?;
 
         // Store original image for reprocessing
-        self.gradient_image_original = Some(img.clone());
+        self.mask_image_original = Some(img.clone());
 
         let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
 
         // Convert to Luma8 (grayscale)
         let gray = img.to_luma8();
 
-        let fit_mode = self.settings.gradient_image_fit_mode;
+        let fit_mode = self.state.mask_image_fit_mode;
 
         // Prepare buffer of size target_w * target_h
         let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
 
         match fit_mode {
-            super::settings::GradientImageFitMode::Stretch => {
+            ImageFitMode::Stretch => {
                 // Resize exactly to target size
                 let resized = image::imageops::resize(
                     &gray,
@@ -1563,7 +1674,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::Center => {
+            ImageFitMode::Center => {
                 // Paste without scaling, centered, cropping if larger, padding if smaller
                 let src_w = gray.width();
                 let src_h = gray.height();
@@ -1592,7 +1703,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::FitH => {
+            ImageFitMode::FitH => {
                 // Fit horizontally, maintain aspect ratio, center vertically
                 let src_w = gray.width() as f32;
                 let src_h = gray.height() as f32;
@@ -1629,7 +1740,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::FitV => {
+            ImageFitMode::FitV => {
                 // Fit vertically, maintain aspect ratio, center horizontally
                 let src_w = gray.width() as f32;
                 let src_h = gray.height() as f32;
@@ -1668,27 +1779,21 @@ impl SlimeMoldModel {
             }
         }
 
-        // Store base grayscale values (before strength is applied)
-        self.gradient_image_base = Some(buffer.clone());
+        // Store base grayscale values (no CPU-side strength/curve)
+        self.mask_image_base = Some(buffer.clone());
 
-        // Apply strength now so display shader can add directly
-        let strength = self.settings.gradient_strength;
-        for v in buffer.iter_mut() {
-            *v = (*v * strength).clamp(0.0, 1.0);
-        }
-
-        // Store final processed values
-        self.gradient_image_raw = Some(buffer.clone());
+        // Store raw grayscale; shader applies strength/curve/invert/mirror
+        self.mask_image_raw = Some(buffer.clone());
 
         // Upload to GPU buffer
         queue.write_buffer(
-            &self.gradient_buffer,
+            &self.mask_buffer,
             0,
             bytemuck::cast_slice::<f32, u8>(&buffer),
         );
 
         // Mark that image is uploaded and doesn't need re-upload
-        self.gradient_image_needs_upload = false;
+        self.mask_image_needs_upload = false;
 
         Ok(())
     }
@@ -1718,7 +1823,7 @@ impl SlimeMoldModel {
         let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
 
         match fit_mode {
-            super::settings::GradientImageFitMode::Stretch => {
+            ImageFitMode::Stretch => {
                 // Resize exactly to target size
                 let resized = image::imageops::resize(
                     &gray,
@@ -1733,7 +1838,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::Center => {
+            ImageFitMode::Center => {
                 // Paste without scaling, centered, cropping if larger, padding if smaller
                 let src_w = gray.width();
                 let src_h = gray.height();
@@ -1762,7 +1867,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::FitH => {
+            ImageFitMode::FitH => {
                 // Fit horizontally, maintain aspect ratio, center vertically
                 let src_w = gray.width() as f32;
                 let src_h = gray.height() as f32;
@@ -1799,7 +1904,7 @@ impl SlimeMoldModel {
                     }
                 }
             }
-            super::settings::GradientImageFitMode::FitV => {
+            ImageFitMode::FitV => {
                 // Fit vertically, maintain aspect ratio, center horizontally
                 let src_w = gray.width() as f32;
                 let src_h = gray.height() as f32;
@@ -1841,9 +1946,9 @@ impl SlimeMoldModel {
         // Store the processed image data
         self.position_image_raw = Some(buffer.clone());
 
-        // Upload to GPU buffer (reuse gradient buffer for now, since position generation uses gradient_map)
+        // Upload to GPU buffer (reuse mask buffer for now, since position generation uses mask_map)
         queue.write_buffer(
-            &self.gradient_buffer,
+            &self.mask_buffer,
             0,
             bytemuck::cast_slice::<f32, u8>(&buffer),
         );
@@ -1855,20 +1960,21 @@ impl SlimeMoldModel {
     }
 
     /// Reprocess the stored original image with the current fit mode
-    fn reprocess_gradient_image_with_current_fit_mode(&mut self) {
-        if let Some(original_img) = &self.gradient_image_original {
+    fn reprocess_mask_image_with_current_fit_mode(&mut self) {
+        if let Some(original_img) = &self.mask_image_original {
             let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
 
             // Convert to Luma8 (grayscale)
             let gray = original_img.to_luma8();
-            let fit_mode = self.settings.gradient_image_fit_mode;
+
+            let fit_mode = self.state.mask_image_fit_mode;
 
             // Prepare buffer of size target_w * target_h
             let mut buffer = vec![0.0f32; (target_w * target_h) as usize];
 
             // Apply the same processing logic as in load_gradient_image_from_path
             match fit_mode {
-                super::settings::GradientImageFitMode::Stretch => {
+                ImageFitMode::Stretch => {
                     let resized = image::imageops::resize(
                         &gray,
                         target_w,
@@ -1882,7 +1988,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::Center => {
+                ImageFitMode::Center => {
                     let src_w = gray.width();
                     let src_h = gray.height();
                     let offset_x = if target_w > src_w {
@@ -1911,7 +2017,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::FitH => {
+                ImageFitMode::FitH => {
                     let src_w = gray.width() as f32;
                     let src_h = gray.height() as f32;
                     let target_w_f = target_w as f32;
@@ -1944,7 +2050,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::FitV => {
+                ImageFitMode::FitV => {
                     let src_w = gray.width() as f32;
                     let src_h = gray.height() as f32;
                     let target_h_f = target_h as f32;
@@ -1979,35 +2085,16 @@ impl SlimeMoldModel {
                 }
             }
 
-            // Mirror / invert controls for static image
-            if self.settings.gradient_image_mirror_horizontal {
-                let w = target_w as usize;
-                let h = target_h as usize;
-                for y in 0..h {
-                    let row = &mut buffer[y * w..(y + 1) * w];
-                    row.reverse();
-                }
-            }
-            if self.settings.gradient_image_invert_tone {
-                for v in buffer.iter_mut() {
-                    *v = 1.0 - *v;
-                }
-            }
+            // Mirror, mask reversal, and tone inversion are all handled in shaders
 
-            // Store base grayscale values (before strength is applied)
-            self.gradient_image_base = Some(buffer.clone());
+            // Store base grayscale values (no CPU-side strength)
+            self.mask_image_base = Some(buffer.clone());
 
-            // Apply strength
-            let strength = self.settings.gradient_strength;
-            for v in buffer.iter_mut() {
-                *v = (*v * strength).clamp(0.0, 1.0);
-            }
-
-            // Store final processed values
-            self.gradient_image_raw = Some(buffer.clone());
+            // Store raw grayscale; shader applies strength/curve/invert/mirror
+            self.mask_image_raw = Some(buffer.clone());
 
             // Mark that the image needs to be re-uploaded to GPU
-            self.gradient_image_needs_upload = true;
+            self.mask_image_needs_upload = true;
         }
     }
 
@@ -2025,7 +2112,7 @@ impl SlimeMoldModel {
 
             // Apply the same processing logic as in load_position_image_from_path
             match fit_mode {
-                super::settings::GradientImageFitMode::Stretch => {
+                ImageFitMode::Stretch => {
                     let resized = image::imageops::resize(
                         &gray,
                         target_w,
@@ -2039,7 +2126,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::Center => {
+                ImageFitMode::Center => {
                     let src_w = gray.width();
                     let src_h = gray.height();
                     let offset_x = if target_w > src_w {
@@ -2068,7 +2155,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::FitH => {
+                ImageFitMode::FitH => {
                     let src_w = gray.width() as f32;
                     let src_h = gray.height() as f32;
                     let target_w_f = target_w as f32;
@@ -2101,7 +2188,7 @@ impl SlimeMoldModel {
                         }
                     }
                 }
-                super::settings::GradientImageFitMode::FitV => {
+                ImageFitMode::FitV => {
                     let src_w = gray.width() as f32;
                     let src_h = gray.height() as f32;
                     let target_h_f = target_h as f32;
@@ -2144,47 +2231,29 @@ impl SlimeMoldModel {
         }
     }
 
-    /// Reprocess the stored image with the current strength setting
-    fn reprocess_gradient_image_with_current_strength(&mut self) {
-        if let (Some(base_buffer), Some(processed_buffer)) =
-            (&self.gradient_image_base, &mut self.gradient_image_raw)
-        {
-            // Apply the current strength to the base values
-            let strength = self.settings.gradient_strength;
-            for (i, base_value) in base_buffer.iter().enumerate() {
-                processed_buffer[i] = (base_value * strength).clamp(0.0, 1.0);
-            }
-
-            // Mark that the image needs to be re-uploaded to GPU
-            self.gradient_image_needs_upload = true;
-        }
-    }
-
     /// Update the background parameters and upload to GPU
     pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
         let background_params = BackgroundParams {
-            background_type: 0, // Black background by default
-            gradient_enabled: if self.settings.gradient_type
-                == super::settings::GradientType::Disabled
-            {
+            background_type: u32::from(self.settings.background_mode),
+            mask_enabled: if self.state.mask_pattern == MaskPattern::Disabled {
                 0
             } else {
                 1
             },
-            gradient_type: match self.settings.gradient_type {
-                super::settings::GradientType::Disabled => 0,
-                super::settings::GradientType::Linear => 1,
-                super::settings::GradientType::Radial => 2,
-                super::settings::GradientType::Ellipse => 3,
-                super::settings::GradientType::Spiral => 4,
-                super::settings::GradientType::Checkerboard => 5,
-                super::settings::GradientType::Image => 6,
+            mask_pattern: u32::from(self.state.mask_pattern),
+            mask_strength: self.state.mask_strength,
+            mask_mirror_horizontal: if self.state.mask_mirror_horizontal {
+                1
+            } else {
+                0
             },
-            gradient_strength: self.settings.gradient_strength,
-            gradient_center_x: self.settings.gradient_center_x,
-            gradient_center_y: self.settings.gradient_center_y,
-            gradient_size: self.settings.gradient_size,
-            gradient_angle: self.settings.gradient_angle,
+            mask_mirror_vertical: if self.state.mask_mirror_vertical {
+                1
+            } else {
+                0
+            },
+            mask_invert_tone: if self.state.mask_invert_tone { 1 } else { 0 },
+            _pad0: 0,
         };
         queue.write_buffer(
             &self.background_params_buffer,
@@ -2197,9 +2266,9 @@ impl SlimeMoldModel {
         // This method is now only used for initial setup
         // The actual average color is calculated in calculate_average_color
         let lut = self
-            .lut_manager
-            .get(&self.current_lut_name)
-            .unwrap_or_else(|_| self.lut_manager.get_default());
+            .color_scheme_manager
+            .get(&self.current_color_scheme)
+            .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
         // Use a color from the middle of the LUT as initial background
         let colors = lut.get_colors(128);
@@ -2400,17 +2469,127 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         match state_name {
-            "currentLut" => {
+            "mask_pattern" => {
+                if let Some(v) = value.as_str() {
+                    if let Some(pattern) = MaskPattern::from_str(v) {
+                        self.state.mask_pattern = pattern;
+                        update_settings(
+                            &self.settings,
+                            &self.state,
+                            &self.sim_size_buffer,
+                            queue,
+                            self.display_texture.width(),
+                            self.display_texture.height(),
+                            &self.position_generator,
+                        );
+                        // Regenerate non-image mask immediately
+                        self.regenerate_mask(_device, queue);
+                    } else {
+                        tracing::warn!("Invalid mask pattern: {}", v);
+                    }
+                }
+            }
+            "mask_mirror_horizontal" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_mirror_horizontal = v;
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_mirror_vertical" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_mirror_vertical = v;
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_invert_tone" => {
+                if let Some(v) = value.as_bool() {
+                    self.state.mask_invert_tone = v;
+                    // Keep background params in sync (even if not used by all pipelines)
+                    self.update_background_params(queue);
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_target" => {
+                if let Some(v) = value.as_str() {
+                    if let Some(target) = MaskTarget::from_str(v) {
+                        self.state.mask_target = target;
+                        update_settings(
+                            &self.settings,
+                            &self.state,
+                            &self.sim_size_buffer,
+                            queue,
+                            self.display_texture.width(),
+                            self.display_texture.height(),
+                            &self.position_generator,
+                        );
+                    } else {
+                        tracing::warn!("Invalid mask target: {}", v);
+                    }
+                }
+            }
+            "mask_strength" => {
+                if let Some(v) = value.as_f64() {
+                    self.state.mask_strength = v as f32;
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "mask_curve" => {
+                if let Some(v) = value.as_f64() {
+                    self.state.mask_curve = v as f32;
+                    update_settings(
+                        &self.settings,
+                        &self.state,
+                        &self.sim_size_buffer,
+                        queue,
+                        self.display_texture.width(),
+                        self.display_texture.height(),
+                        &self.position_generator,
+                    );
+                }
+            }
+            "current_color_scheme" => {
                 if let Some(lut_name) = value.as_str() {
-                    self.current_lut_name = lut_name.to_string();
+                    self.current_color_scheme = lut_name.to_string();
                     let lut_data = self
-                        .lut_manager
-                        .get(&self.current_lut_name)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+                        .color_scheme_manager
+                        .get(&self.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
-                    if self.lut_reversed {
+                    if self.color_scheme_reversed {
                         data_u32[0..256].reverse();
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
@@ -2419,17 +2598,17 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
-            "lutReversed" => {
+            "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    self.lut_reversed = reversed;
+                    self.color_scheme_reversed = reversed;
                     let lut_data = self
-                        .lut_manager
-                        .get(&self.current_lut_name)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+                        .color_scheme_manager
+                        .get(&self.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
-                    if self.lut_reversed {
+                    if self.color_scheme_reversed {
                         data_u32[0..256].reverse();
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
@@ -2438,12 +2617,12 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
-            "cursorSize" => {
+            "cursor_size" => {
                 if let Some(size) = value.as_f64() {
                     self.cursor_size = size as f32;
                 }
             }
-            "cursorStrength" => {
+            "cursor_strength" => {
                 if let Some(strength) = value.as_f64() {
                     self.cursor_strength = strength as f32;
                 }
@@ -2456,6 +2635,7 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
     }
 
     fn get_settings(&self) -> serde_json::Value {
+        // Return settings as-is, matching other sims (no snake_case conversion)
         serde_json::to_value(&self.settings).unwrap_or_else(|_| serde_json::json!({}))
     }
 
@@ -2464,17 +2644,28 @@ impl crate::simulations::traits::Simulation for SlimeMoldModel {
             "agent_count": self.agent_count,
             "current_width": self.current_width,
             "current_height": self.current_height,
-            "lut_reversed": self.lut_reversed,
-            "current_lut_name": self.current_lut_name,
+            "color_scheme_reversed": self.color_scheme_reversed,
+            "current_color_scheme": self.current_color_scheme,
             "gui_visible": self.gui_visible,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
-            "position_generator": self.position_generator,
-            "trail_map_filtering": self.trail_map_filtering,
+            "position_generator": crate::simulations::shared::SlimeMoldPositionGenerator::as_str(&self.position_generator),
+            "trail_map_filtering": super::settings::TrailMapFiltering::as_str(&self.trail_map_filtering),
+            "mask_pattern": self.state.mask_pattern.as_str(),
+            "mask_target": self.state.mask_target.as_str(),
+            "mask_strength": self.state.mask_strength,
+            "mask_curve": self.state.mask_curve,
+            "mask_reversed": self.state.mask_reversed,
+            "mask_mirror_horizontal": self.state.mask_mirror_horizontal,
+            "mask_mirror_vertical": self.state.mask_mirror_vertical,
+            "mask_invert_tone": self.state.mask_invert_tone,
+            "mask_image_fit_mode": self.state.mask_image_fit_mode.as_str(),
             "camera": {
                 "position": self.camera.position,
                 "zoom": self.camera.zoom
-            }
+            },
+            "simulation_time": 0.0,
+            "is_running": true
         })
     }
 
@@ -2771,6 +2962,7 @@ fn reset_trails(
 
 fn update_settings(
     settings: &Settings,
+    state: &SlimeMoldState,
     sim_size_buffer: &wgpu::Buffer,
     queue: &wgpu::Queue,
     physical_width: u32,
@@ -2782,6 +2974,7 @@ fn update_settings(
         physical_height,
         settings.pheromone_decay_rate,
         settings,
+        state,
         position_generator,
     );
     queue.write_buffer(
@@ -2982,7 +3175,7 @@ impl SlimeMoldModel {
         });
     }
 
-    /// Start webcam capture for gradient input
+    /// Start webcam capture for mask input
     pub fn start_webcam_capture(&mut self, device_index: i32) -> SimulationResult<()> {
         self.webcam_capture
             .set_target_dimensions(self.current_width, self.current_height);
@@ -2998,60 +3191,40 @@ impl SlimeMoldModel {
         self.webcam_capture.stop_capture();
     }
 
-    /// Update gradient buffer with latest webcam frame
-    pub fn update_gradient_from_webcam(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
+    /// Update mask buffer with latest webcam frame
+    pub fn update_mask_from_webcam(&mut self, queue: &Arc<Queue>) -> SimulationResult<()> {
         if let Some(frame_data) = self.webcam_capture.get_latest_frame_data() {
-            let mut buffer = self.webcam_capture.frame_data_to_gradient_buffer(
+            let buffer = self.webcam_capture.frame_data_to_gradient_buffer(
                 &frame_data,
                 self.current_width,
                 self.current_height,
             )?;
 
-            // Apply mirror/invert controls
-            if self.settings.gradient_image_mirror_horizontal {
-                let w = self.current_width as usize;
-                let h = self.current_height as usize;
-                for y in 0..h {
-                    let row = &mut buffer[y * w..(y + 1) * w];
-                    row.reverse();
-                }
-            }
-            if self.settings.gradient_image_invert_tone {
-                for v in buffer.iter_mut() {
-                    *v = 1.0 - *v;
-                }
-            }
+            // Tone inversion, mirroring, and mask strength/curve handled in the shader
 
-            // Apply strength
-            let strength = self.settings.gradient_strength;
-            let processed_buffer = buffer
-                .iter()
-                .map(|&v| (v * strength).clamp(0.0, 1.0))
-                .collect::<Vec<f32>>();
-
-            // Upload to GPU buffer
+            // Upload raw grayscale to GPU buffer
             queue.write_buffer(
-                &self.gradient_buffer,
+                &self.mask_buffer,
                 0,
-                bytemuck::cast_slice::<f32, u8>(&processed_buffer),
+                bytemuck::cast_slice::<f32, u8>(&buffer),
             );
 
             // Store for reprocessing if needed
-            self.gradient_image_raw = Some(processed_buffer);
-            self.gradient_image_needs_upload = false;
+            self.mask_image_raw = Some(buffer);
+            self.mask_image_needs_upload = false;
         } else {
-            // No new data this tick: keep the last uploaded gradient intact
+            // No new data this tick: keep the last uploaded mask intact
         }
         Ok(())
     }
 
     /// Check if webcam is available
     pub fn is_webcam_available(&self, device_index: i32) -> bool {
-        super::webcam::WebcamCapture::is_webcam_available(device_index)
+        crate::simulations::shared::WebcamCapture::is_webcam_available(device_index)
     }
 
     /// Get list of available webcam devices
     pub fn get_available_webcam_devices(&self) -> Vec<i32> {
-        super::webcam::WebcamCapture::get_available_devices()
+        crate::simulations::shared::WebcamCapture::get_available_devices()
     }
 }

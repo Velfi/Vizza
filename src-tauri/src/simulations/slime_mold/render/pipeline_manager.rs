@@ -216,16 +216,16 @@ impl PipelineManager {
             });
 
         let gradient_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Gradient Pipeline"),
+            label: Some("Mask Pipeline"),
             layout: Some(
                 &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Gradient Pipeline Layout"),
+                    label: Some("Mask Pipeline Layout"),
                     bind_group_layouts: &[&gradient_bind_group_layout],
                     push_constant_ranges: &[],
                 }),
             ),
             module: &shader_manager.gradient_shader,
-            entry_point: Some("generate_gradient"),
+            entry_point: Some("generate_mask"),
             cache: None,
             compilation_options: Default::default(),
         });

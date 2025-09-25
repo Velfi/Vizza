@@ -98,6 +98,7 @@ struct BrownianParams {
 /// - Surface rendering with infinite tiling
 #[derive(Debug)]
 pub struct VoronoiCASimulation {
+    pub state: super::state::State,
     voronoi_render_jfa_pipeline: RenderPipeline,
     // Compute
     compute_update_pipeline: ComputePipeline, // state update
@@ -137,8 +138,8 @@ pub struct VoronoiCASimulation {
     pub post_processing_resources: PostProcessingResources,
     // LUT + coloring
     pub lut_buffer: Buffer,
-    pub current_lut_name: String,
-    pub lut_reversed: bool,
+    pub current_color_scheme: String,
+    pub color_scheme_reversed: bool,
     color_mode: u32, // 0=Random, 1=Density, 2=Age
     borders_enabled: bool,
     pub border_width: f32, // Border width in pixels
@@ -642,9 +643,9 @@ impl VoronoiCASimulation {
         queue.write_buffer(&voronoi_params, 0, bytemuck::bytes_of(&initial_params));
 
         // Create LUT buffer with default LUT
-        let lut_manager = crate::simulations::shared::ColorSchemeManager::new();
+        let color_scheme_manager = crate::simulations::shared::ColorSchemeManager::new();
         let default_lut_name = "MATPLOTLIB_YlGnBu".to_string();
-        let lut_data = lut_manager.get(&default_lut_name).unwrap();
+        let lut_data = color_scheme_manager.get(&default_lut_name).unwrap();
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("VCA LUT Buffer"),
             contents: bytemuck::cast_slice(&lut_data.to_u32_buffer()),
@@ -1058,6 +1059,28 @@ impl VoronoiCASimulation {
             });
 
         Ok(Self {
+            state: super::state::State {
+                num_points,
+                time_accum: 0.0,
+                time_scale: 1.0,
+                last_ca_update_time: 0.0,
+                drift: 1.0,
+                resolution: [width, height],
+                gui_visible: true,
+                brownian_speed: 10.0,
+                cursor_size: 0.1,
+                cursor_strength: 1.0,
+                current_color_scheme: default_lut_name.clone(),
+                color_scheme_reversed: false,
+                color_mode: 1,
+                borders_enabled: true,
+                border_width: 1.0,
+                rulestring: "B3/S23".to_string(),
+                camera_position: [0.0, 0.0],
+                camera_zoom: 1.0,
+                simulation_time: 0.0,
+                is_running: true,
+            },
             voronoi_render_jfa_pipeline,
             compute_update_pipeline,
             brownian_pipeline,
@@ -1086,8 +1109,8 @@ impl VoronoiCASimulation {
             points,
             // LUT + coloring defaults
             lut_buffer,
-            current_lut_name: default_lut_name,
-            lut_reversed: false,
+            current_color_scheme: default_lut_name,
+            color_scheme_reversed: false,
             color_mode: 1,
             borders_enabled: true,
             border_width: 1.0,
@@ -1312,6 +1335,7 @@ impl VoronoiCASimulation {
         self.points = points;
         self.vertex_buffer = vertex_buffer;
         self.num_points = new_count;
+        self.state.num_points = new_count;
 
         // Invalidate JFA since points have changed.
         // This ensures the new point configuration is properly visualized.
@@ -2368,11 +2392,13 @@ impl Simulation for VoronoiCASimulation {
             "cursor_size" => {
                 if let Some(v) = value.as_f64() {
                     self.cursor_size = v as f32;
+                    self.state.cursor_size = v as f32;
                 }
             }
             "cursor_strength" => {
                 if let Some(v) = value.as_f64() {
                     self.cursor_strength = v as f32;
+                    self.state.cursor_strength = v as f32;
                 }
             }
             "coloringMode" => {
@@ -2430,20 +2456,20 @@ impl Simulation for VoronoiCASimulation {
         serde_json::json!({
             "rulestring": self.rulestring,
             "drift": self.drift,
-            "brownianSpeed": self.brownian_speed,
-            "timeScale": self.time_scale,
+            "brownian_speed": self.brownian_speed,
+            "time_scale": self.time_scale,
             "cursor_size": self.cursor_size,
             "cursor_strength": self.cursor_strength,
-            "currentLutName": self.current_lut_name,
-            "lutReversed": self.lut_reversed,
-            "coloringMode": match self.color_mode { 0 => "Random", 1 => "Density", 2 => "Age", 3 => "Binary", _ => "Random" },
-            "bordersEnabled": self.borders_enabled,
-            "borderWidth": self.border_width
+            "current_color_scheme": self.current_color_scheme,
+            "color_scheme_reversed": self.color_scheme_reversed,
+            "coloring_mode": match self.color_mode { 0 => "Random", 1 => "Density", 2 => "Age", 3 => "Binary", _ => "Random" },
+            "borders_enabled": self.borders_enabled,
+            "border_width": self.border_width
         })
     }
 
     fn get_state(&self) -> Value {
-        serde_json::json!({ "num_points": self.num_points })
+        serde_json::to_value(&self.state).unwrap_or_else(|_| serde_json::json!({}))
     }
 
     fn is_gui_visible(&self) -> bool {
@@ -2466,7 +2492,7 @@ impl Simulation for VoronoiCASimulation {
     ) -> SimulationResult<()> {
         // Direct-write the color scheme data to the VCA buffer for immediate preview
         let mut data_u32 = color_scheme.to_u32_buffer();
-        if self.lut_reversed {
+        if self.color_scheme_reversed {
             data_u32[0..256].reverse();
             data_u32[256..512].reverse();
             data_u32[512..768].reverse();

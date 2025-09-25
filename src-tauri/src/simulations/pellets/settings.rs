@@ -33,7 +33,7 @@ impl BackgroundColorMode {
             "Black" => Some(BackgroundColorMode::Black),
             "White" => Some(BackgroundColorMode::White),
             "Gray18" => Some(BackgroundColorMode::Gray18),
-            "ColorScheme" => Some(BackgroundColorMode::ColorScheme),
+            "Color Scheme" => Some(BackgroundColorMode::ColorScheme),
             _ => {
                 tracing::warn!("Invalid background color mode: {}", bg_type);
                 None
@@ -105,7 +105,7 @@ pub struct Settings {
     /// Random seed for reproducible simulations
     pub random_seed: u32,
 
-    /// Background type: "Black", "White", "Gray18", or "ColorScheme"
+    /// Background type: "Black", "White", "Gray18", or "Color Scheme"
     pub background_color_mode: BackgroundColorMode,
 
     // Physics parameters

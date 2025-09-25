@@ -49,32 +49,13 @@
             <fieldset>
                 <legend>Display Settings</legend>
                 <div class="control-group">
-                    <LutSelector
+                    <ColorSchemeSelector
                         bind:available_color_schemes={available_luts}
-                        current_color_scheme={lut_name}
-                        reversed={lut_reversed}
+                        current_color_scheme={state?.current_color_scheme}
+                        reversed={state?.color_scheme_reversed || false}
                         on:select={({ detail }) => updateLut(detail.name)}
                         on:reverse={() => updateLutReversed()}
                     />
-                </div>
-                <div class="control-group">
-                    <label for="simulation-resolution-scale">Simulation Resolution Scale</label>
-                    <NumberDragBox
-                        id="simulation-resolution-scale"
-                        value={settings.simulation_resolution_scale}
-                        min={0.01}
-                        max={10.0}
-                        step={0.01}
-                        precision={2}
-                        on:change={(event) =>
-                            updateSetting('simulation_resolution_scale', event.detail)}
-                    />
-                    <div class="control-help">
-                        Lower values improve performance but reduce detail. 0.5 = half resolution,
-                        1.0 = full resolution, >1.0 = supersampling.
-                        <br /><strong>Note:</strong> Changes require restarting the simulation to take
-                        effect.
-                    </div>
                 </div>
             </fieldset>
 
@@ -82,69 +63,34 @@
             <PostProcessingMenu simulationType="gray_scott" />
 
             <!-- Controls -->
-            <fieldset>
-                <legend>Controls</legend>
-                <div class="interaction-controls-grid">
-                    <div class="interaction-help">
-                        <div class="control-group">
-                            <span>🖱️ Left click: Seed reaction | Right click: Erase</span>
-                        </div>
-                        <div class="control-group">
-                            <Button
-                                variant="default"
-                                on:click={() => dispatch('navigate', 'how-to-play')}
-                            >
-                                📖 Camera Controls
-                            </Button>
-                        </div>
-                        <div class="control-group">
-                            <span
-                                >Camera controls not working? Click the control bar at the top of
-                                the screen.</span
-                            >
-                        </div>
-                    </div>
-                    <div class="cursor-settings">
-                        <div class="cursor-settings-header">
-                            <span>🎯 Cursor Settings</span>
-                        </div>
-                        <CursorConfig
-                            {cursorSize}
-                            {cursorStrength}
-                            sizeMin={0.01}
-                            sizeMax={1.0}
-                            sizeStep={0.01}
-                            strengthMin={0.01}
-                            strengthMax={1.0}
-                            strengthStep={0.01}
-                            sizePrecision={2}
-                            strengthPrecision={2}
-                            on:sizechange={async (e) => {
-                                try {
-                                    cursorSize = e.detail;
-                                    await invoke('update_simulation_setting', {
-                                        settingName: 'cursor_size',
-                                        value: e.detail,
-                                    });
-                                } catch (err) {
-                                    console.error('Failed to update cursor size:', err);
-                                }
-                            }}
-                            on:strengthchange={async (e) => {
-                                try {
-                                    cursorStrength = e.detail;
-                                    await invoke('update_simulation_setting', {
-                                        settingName: 'cursor_strength',
-                                        value: e.detail,
-                                    });
-                                } catch (err) {
-                                    console.error('Failed to update cursor strength:', err);
-                                }
-                            }}
-                        />
-                    </div>
-                </div>
-            </fieldset>
+            <ControlsPanel
+                mouseInteractionText="🖱️ Left click: Seed reaction | Right click: Erase"
+                cursorSize={state?.cursor_size}
+                cursorStrength={state?.cursor_strength}
+                on:cursorSizeChange={async (e) => {
+                    try {
+                        if (state) state.cursor_size = e.detail;
+                        await invoke('update_simulation_state', {
+                            stateName: 'cursor_size',
+                            value: e.detail,
+                        });
+                    } catch (err) {
+                        console.error('Failed to update cursor size:', err);
+                    }
+                }}
+                on:cursorStrengthChange={async (e) => {
+                    try {
+                        if (state) state.cursor_strength = e.detail;
+                        await invoke('update_simulation_state', {
+                            stateName: 'cursor_strength',
+                            value: e.detail,
+                        });
+                    } catch (err) {
+                        console.error('Failed to update cursor strength:', err);
+                    }
+                }}
+                on:navigate={(e) => dispatch('navigate', e.detail)}
+            />
 
             <!-- Settings -->
             <fieldset>
@@ -207,15 +153,34 @@
                             if (!settings) return;
 
                             const updated: Settings = { ...settings };
-                            if (settingName === 'feed_rate') updated.feed_rate = value;
-                            else if (settingName === 'kill_rate') updated.kill_rate = value;
-                            else if (settingName === 'diffusion_rate_u')
-                                updated.diffusion_rate_u = value;
-                            else if (settingName === 'diffusion_rate_v')
-                                updated.diffusion_rate_v = value;
-                            else if (settingName === 'timestep') updated.timestep = value;
-                            else if (settingName === 'simulation_resolution_scale')
-                                updated.simulation_resolution_scale = value;
+
+                            switch (settingName) {
+                                case 'feed_rate':
+                                    updated.feed_rate = value;
+                                    break;
+                                case 'kill_rate':
+                                    updated.kill_rate = value;
+                                    break;
+                                case 'diffusion_rate_u':
+                                    updated.diffusion_rate_u = value;
+                                    break;
+                                case 'diffusion_rate_v':
+                                    updated.diffusion_rate_v = value;
+                                    break;
+                                case 'timestep':
+                                    updated.timestep = value;
+                                    break;
+                                case 'max_timestep':
+                                    updated.max_timestep = Number(value);
+                                    break;
+                                case 'stability_factor':
+                                    updated.stability_factor = Number(value);
+                                    break;
+                                case 'enable_adaptive_timestep':
+                                    updated.enable_adaptive_timestep = Boolean(value);
+                                    break;
+                            }
+
                             settings = updated;
 
                             await invoke('update_simulation_setting', {
@@ -228,74 +193,104 @@
                     }}
                 />
 
-                <!-- Nutrient Gradients (merged) -->
+                <!-- Mask System -->
                 <div class="control-group" style="margin-top: 0.5rem;">
                     <Selector
-                        label="Nutrient Pattern"
-                        options={nutrient_pattern_options}
-                        value={settings?.nutrient_pattern || 'Uniform'}
+                        label="Mask Pattern"
+                        options={mask_pattern_options}
+                        value={state?.mask_pattern}
                         placeholder="Select pattern..."
-                        on:change={({ detail }) => updateNutrientPattern(detail.value)}
+                        on:change={({ detail }) => updateMaskPattern(detail.value)}
                     />
                 </div>
-                <div class="control-group">
-                    <label class="checkbox">
+
+                {#if state?.mask_pattern && state.mask_pattern !== 'Disabled'}
+                    <div class="control-group">
+                        <Selector
+                            label="Mask Target"
+                            options={mask_target_options}
+                            value={state?.mask_target}
+                            placeholder="Select target..."
+                            on:change={({ detail }) => updateMaskTarget(detail.value)}
+                        />
+                    </div>
+                    <div class="control-group">
+                        <label class="checkbox">
+                            <input
+                                type="checkbox"
+                                checked={state?.mask_mirror_horizontal || false}
+                                on:change={(e) =>
+                                    updateMaskMirrorHorizontal(
+                                        (e.target as HTMLInputElement).checked
+                                    )}
+                            />
+                            Mirror horizontal
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label class="checkbox">
+                            <input
+                                type="checkbox"
+                                checked={state?.mask_mirror_vertical || false}
+                                on:change={(e) =>
+                                    updateMaskMirrorVertical(
+                                        (e.target as HTMLInputElement).checked
+                                    )}
+                            />
+                            Mirror vertical
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label class="checkbox">
+                            <input
+                                type="checkbox"
+                                checked={state?.mask_invert_tone || false}
+                                on:change={(e) =>
+                                    updateMaskInvertTone((e.target as HTMLInputElement).checked)}
+                            />
+                            Invert tone
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label for="mask-strength"
+                            >Mask Strength: {state?.mask_strength?.toFixed(2) || '0.50'}</label
+                        >
                         <input
-                            type="checkbox"
-                            checked={settings?.nutrient_pattern_reversed || false}
-                            on:change={(e) =>
-                                updateNutrientPatternReversed(
-                                    (e.target as HTMLInputElement).checked
+                            id="mask-strength"
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={state?.mask_strength || 0.5}
+                            on:input={(e) =>
+                                updateMaskStrength(
+                                    parseFloat((e.target as HTMLInputElement).value)
                                 )}
                         />
-                        Reverse nutrient pattern
-                    </label>
-                </div>
-                {#if settings?.nutrient_pattern === 'Image Gradient'}
-                    <ImageSelector
-                        fitMode={settings.gradient_image_fit_mode}
-                        mirrorHorizontal={settings?.gradient_image_mirror_horizontal || false}
-                        invertTone={settings?.gradient_image_invert_tone || false}
-                        loadCommand="load_gray_scott_nutrient_image"
-                        onFitModeChange={async (value) => {
-                            try {
-                                await invoke('update_simulation_setting', {
-                                    settingName: 'gradient_image_fit_mode',
-                                    value: value,
-                                });
-                            } catch (err) {
-                                console.error('Failed to update fit mode:', err);
-                            }
-                        }}
-                        onMirrorHorizontalChange={async (value) => {
-                            try {
-                                await invoke('update_simulation_setting', {
-                                    settingName: 'gradient_image_mirror_horizontal',
-                                    value: value,
-                                });
-                                if (settings) settings.gradient_image_mirror_horizontal = value;
-                            } catch (err) {
-                                console.error('Failed to update mirror:', err);
-                            }
-                        }}
-                        onInvertToneChange={async (value) => {
-                            try {
-                                await invoke('update_simulation_setting', {
-                                    settingName: 'gradient_image_invert_tone',
-                                    value: value,
-                                });
-                                if (settings) settings.gradient_image_invert_tone = value;
-                            } catch (err) {
-                                console.error('Failed to update invert:', err);
-                            }
-                        }}
-                    />
-                    <WebcamControls
-                        {webcamDevices}
-                        {webcamActive}
-                        onStartWebcam={startWebcam}
-                        onStopWebcam={stopWebcam}
-                    />
+                    </div>
+
+                    {#if state?.mask_pattern === 'Image'}
+                        <ImageSelector
+                            fitMode={state?.mask_image_fit_mode || 'Stretch'}
+                            loadCommand="load_gray_scott_nutrient_image"
+                            onFitModeChange={async (value) => {
+                                try {
+                                    await invoke('update_simulation_state', {
+                                        stateName: 'mask_image_fit_mode',
+                                        value: value,
+                                    });
+                                } catch (err) {
+                                    console.error('Failed to update fit mode:', err);
+                                }
+                            }}
+                        />
+                        <WebcamControls
+                            {webcamDevices}
+                            {webcamActive}
+                            onStartWebcam={startWebcam}
+                            onStopWebcam={stopWebcam}
+                        />
+                    {/if}
                 {/if}
             </fieldset>
         </form>
@@ -309,17 +304,16 @@
     import { createEventDispatcher, onMount, onDestroy } from 'svelte';
     import { invoke } from '@tauri-apps/api/core';
     import { listen } from '@tauri-apps/api/event';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import SimulationLayout from './components/shared/SimulationLayout.svelte';
-    import LutSelector from './components/shared/ColorSchemeSelector.svelte';
+    import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
     import GrayScottDiagram from './components/gray-scott/GrayScottDiagram.svelte';
     import CameraControls from './components/shared/CameraControls.svelte';
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import Button from './components/shared/Button.svelte';
     import Selector from './components/inputs/Selector.svelte';
-    import NumberDragBox from './components/inputs/NumberDragBox.svelte';
     import ImageSelector from './components/shared/ImageSelector.svelte';
     import WebcamControls from './components/shared/WebcamControls.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
@@ -365,98 +359,164 @@
         diffusion_rate_u: number;
         diffusion_rate_v: number;
         timestep: number;
-        nutrient_pattern: string;
-        nutrient_pattern_reversed: boolean;
-        gradient_image_fit_mode: string;
-        gradient_image_mirror_horizontal?: boolean;
-        gradient_image_invert_tone?: boolean;
-        simulation_resolution_scale: number;
+
+        // Optimization settings
+        max_timestep: number;
+        stability_factor: number;
+        enable_adaptive_timestep: boolean;
     }
 
-    // Simulation state
+    interface State {
+        // Mask system
+        mask_pattern: string;
+        mask_target: string;
+        mask_strength: number;
+        mask_reversed: boolean;
+        mask_image_fit_mode: string;
+        mask_mirror_horizontal: boolean;
+        mask_mirror_vertical: boolean;
+        mask_invert_tone: boolean;
+
+        // Cursor settings
+        cursor_size: number;
+        cursor_strength: number;
+
+        // Color scheme state
+        current_color_scheme: string;
+        color_scheme_reversed: boolean;
+
+        // UI state
+        gui_visible: boolean;
+
+        // Camera state
+        camera_position: [number, number];
+        camera_zoom: number;
+
+        // Mouse interaction state
+        mouse_pressed: boolean;
+        mouse_position: [number, number];
+        mouse_screen_position: [number, number];
+
+        // Simulation runtime state
+        simulation_time: number;
+        is_running: boolean;
+    }
+
+    // Simulation settings (saved in presets)
     let settings: Settings | undefined = undefined;
 
-    // Cursor state (not saved in presets)
-    let cursorSize = 0.1; // World units: 0.1 = 10% of world space
-    let cursorStrength = 0.5;
+    // Simulation state (runtime, not saved in presets)
+    let state: State | undefined = undefined;
 
     // Preset and LUT state
     let current_preset = '';
     let available_presets: string[] = [];
     let available_luts: string[] = [];
 
-    // Nutrient gradient options (display names match backend serialization)
-    const nutrient_pattern_options: string[] = [
-        'Uniform',
+    // Mask pattern options (display names match backend serialization)
+    const mask_pattern_options: string[] = [
+        'Disabled',
         'Checkerboard',
         'Diagonal Gradient',
         'Radial Gradient',
         'Vertical Stripes',
         'Horizontal Stripes',
-        'Enhanced Noise',
         'Wave Function',
         'Cosine Grid',
-        'Image Gradient',
+        'Image',
     ];
 
-    async function updateNutrientPattern(value: string) {
-        if (!settings) return;
+    // Mask target options
+    const mask_target_options: string[] = [
+        'Feed Rate',
+        'Kill Rate',
+        'Diffusion U',
+        'Diffusion V',
+        'UV Concentration',
+    ];
+
+    async function updateMaskPattern(value: string) {
+        if (!state) return;
         try {
-            settings = { ...settings, nutrient_pattern: value };
-            await invoke('update_simulation_setting', {
-                settingName: 'nutrient_pattern',
+            state = { ...state, mask_pattern: value };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_pattern',
                 value,
             });
         } catch (err) {
-            console.error('Failed to set nutrient pattern:', err);
+            console.error('Failed to set mask pattern:', err);
         }
     }
 
-    async function updateNutrientPatternReversed(checked: boolean) {
-        if (!settings) return;
+    async function updateMaskTarget(value: string) {
+        if (!state) return;
         try {
-            settings = { ...settings, nutrient_pattern_reversed: checked };
-            await invoke('update_simulation_setting', {
-                settingName: 'nutrient_pattern_reversed',
+            state = { ...state, mask_target: value };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_target',
+                value,
+            });
+        } catch (err) {
+            console.error('Failed to set mask target:', err);
+        }
+    }
+
+    async function updateMaskStrength(value: number) {
+        if (!state) return;
+        try {
+            state = { ...state, mask_strength: value };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_strength',
+                value,
+            });
+        } catch (err) {
+            console.error('Failed to set mask strength:', err);
+        }
+    }
+
+    async function updateMaskMirrorHorizontal(checked: boolean) {
+        if (!state) return;
+        try {
+            state = { ...state, mask_mirror_horizontal: checked };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_mirror_horizontal',
                 value: checked,
             });
         } catch (err) {
-            console.error('Failed to toggle nutrient reversal:', err);
+            console.error('Failed to toggle mirror horizontal:', err);
         }
     }
 
-    async function updateSetting(settingName: string, value: number) {
-        if (!settings) return;
+    async function updateMaskMirrorVertical(checked: boolean) {
+        if (!state) return;
         try {
-            const updated: Settings = { ...settings };
-            if (settingName === 'simulation_resolution_scale') {
-                updated.simulation_resolution_scale = value;
-            }
-            settings = updated;
-
-            await invoke('update_simulation_setting', {
-                settingName,
-                value,
+            state = { ...state, mask_mirror_vertical: checked };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_mirror_vertical',
+                value: checked,
             });
-
-            // Show notification for resolution scale changes
-            if (settingName === 'simulation_resolution_scale') {
-                console.log(
-                    `Simulation resolution scale updated to ${value}. Restart the simulation to apply changes.`
-                );
-                // You could add a toast notification here if you have a notification system
-            }
         } catch (err) {
-            console.error(`Failed to update ${settingName}:`, err);
+            console.error('Failed to toggle mirror vertical:', err);
         }
     }
+
+    async function updateMaskInvertTone(checked: boolean) {
+        if (!state) return;
+        try {
+            state = { ...state, mask_invert_tone: checked };
+            await invoke('update_simulation_state', {
+                stateName: 'mask_invert_tone',
+                value: checked,
+            });
+        } catch (err) {
+            console.error('Failed to toggle invert tone:', err);
+        }
+    }
+
+    // removed generic updateSetting used previously for resolution scale
 
     // UI state
     let show_about_section = false;
-
-    // LUT state (runtime, not saved in presets)
-    let lut_name = '';
-    let lut_reversed = false;
 
     // Auto-hide functionality for controls when UI is hidden
     let controlsVisible = true;
@@ -470,7 +530,7 @@
             await invoke('toggle_color_scheme_reversed');
             await syncSettingsFromBackend(); // Sync UI with backend state
         } catch (e) {
-            console.error('Failed to toggle LUT reversed:', e);
+            console.error('Failed to toggle color scheme reversed:', e);
         }
     }
 
@@ -489,7 +549,7 @@
         try {
             await invoke('save_preset', { presetName: presetName.trim() });
             // Refresh the available presets list
-            await loadAvailablePresets();
+            await getPresets();
             // Set the current preset to the newly saved one
             current_preset = presetName.trim();
             console.log(`Saved preset: ${presetName}`);
@@ -529,7 +589,7 @@
             await invoke('resume_simulation');
             running = true;
             currentFps = 0;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -552,7 +612,7 @@
 
             // Immediately render a frame to show the triangle instead of last simulation frame
             await invoke('render_frame');
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -595,7 +655,7 @@
 
     // Load available presets from backend
     let initialPresetApplied = false;
-    async function loadAvailablePresets() {
+    async function getPresets() {
         try {
             available_presets = await invoke('get_presets_for_simulation_type', {
                 simulationType: 'gray_scott',
@@ -614,17 +674,15 @@
             console.error('Failed to load available presets:', e);
         }
     }
-
-    // Load available LUTs from backend
-    async function loadAvailableLuts() {
+    async function getColorSchemes() {
         try {
             available_luts = await invoke('get_available_color_schemes');
         } catch (e) {
-            console.error('Failed to load available LUTs:', e);
+            console.error('Failed to load available color schemes:', e);
         }
     }
 
-    // Sync settings from backend to frontend
+    // Sync settings and state from backend to frontend
     async function syncSettingsFromBackend() {
         try {
             const backendSettings = await invoke('get_current_settings');
@@ -636,27 +694,8 @@
             }
 
             if (backendState) {
-                // Update LUT-related settings from state
-                const state = backendState as {
-                    current_lut_name?: string;
-                    lut_reversed?: boolean;
-                    cursor_size?: number;
-                    cursor_strength?: number;
-                };
-                if (state.current_lut_name !== undefined) {
-                    lut_name = state.current_lut_name;
-                }
-                if (state.lut_reversed !== undefined) {
-                    lut_reversed = state.lut_reversed;
-                }
-
-                // Update cursor configuration from state
-                if (state.cursor_size !== undefined) {
-                    cursorSize = state.cursor_size;
-                }
-                if (state.cursor_strength !== undefined) {
-                    cursorStrength = state.cursor_strength;
-                }
+                // Use backend state directly
+                state = backendState as State;
             }
         } catch (e) {
             console.error('Failed to sync settings from backend:', e);
@@ -846,7 +885,7 @@
             await invoke('apply_color_scheme_by_name', { colorSchemeName: name });
             await syncSettingsFromBackend(); // Sync UI with backend state
         } catch (e) {
-            console.error('Failed to update LUT:', e);
+            console.error('Failed to update color scheme:', e);
         }
     }
 
@@ -891,9 +930,9 @@
         // Listen for simulation initialization event
         listen('simulation-initialized', async () => {
             console.log('Simulation initialized, syncing settings...');
-            // Load presets and LUTs after simulation is initialized
-            await loadAvailablePresets();
-            await loadAvailableLuts();
+            // Load presets and color schemes after simulation is initialized
+            await getPresets();
+            await getColorSchemes();
             await syncSettingsFromBackend();
 
             // Fetch initial camera state to get correct viewport dimensions
@@ -973,56 +1012,4 @@
 </script>
 
 <style>
-    .interaction-controls-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 1rem;
-        align-items: start;
-    }
-
-    .interaction-help {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .cursor-settings {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .cursor-settings-header {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.8);
-        padding: 0.25rem 0;
-    }
-
-    .warning-text {
-        font-size: 0.8rem;
-        color: #ffa500;
-        font-weight: 500;
-        padding: 0.25rem 0;
-    }
-
-    /* Mobile responsive design */
-    @media (max-width: 768px) {
-        .interaction-controls-grid {
-            grid-template-columns: 1fr;
-            gap: 0.75rem;
-        }
-
-        .interaction-help {
-            gap: 0.4rem;
-        }
-
-        .cursor-settings {
-            gap: 0.4rem;
-        }
-
-        .cursor-settings-header {
-            font-size: 0.85rem;
-        }
-    }
 </style>

@@ -138,6 +138,7 @@ pub struct ShapeParams {
 #[derive(Debug)]
 pub struct FlowModel {
     pub settings: Settings,
+    pub state: super::state::State,
 
     // GPU utilities
     pub shader_manager: ShaderManager,
@@ -184,7 +185,7 @@ pub struct FlowModel {
 
     // Runtime state
     pub camera: Camera,
-    pub lut_manager: Arc<ColorSchemeManager>,
+    pub color_scheme_manager: Arc<ColorSchemeManager>,
     pub time: f32,
     pub delta_time: f32,
     pub autospawn_accumulator: f32,
@@ -195,11 +196,6 @@ pub struct FlowModel {
     pub gui_visible: bool,
     pub trail_map_width: u32,
     pub trail_map_height: u32,
-    pub background_color_mode: BackgroundColorMode,
-    pub current_lut: String,
-    pub lut_reversed: bool,
-    pub show_particles: bool,
-    pub foreground_color_mode: ForegroundColorMode,
     pub trail_map_filtering: super::settings::TrailMapFiltering,
 
     // Particle pool management
@@ -256,7 +252,7 @@ pub struct FlowModel {
     pub shape_drawing_enabled: bool,
 
     // Webcam capture for image-based vector fields
-    pub webcam_capture: crate::simulations::slime_mold::webcam::WebcamCapture,
+    pub webcam_capture: crate::simulations::shared::WebcamCapture,
 }
 
 impl FlowModel {
@@ -318,7 +314,7 @@ impl FlowModel {
         surface_config: &SurfaceConfiguration,
         settings: Settings,
         app_settings: &AppSettings,
-        lut_manager: &ColorSchemeManager,
+        color_scheme_manager: &ColorSchemeManager,
     ) -> Result<Self, crate::error::SimulationError> {
         // Initialize camera
         let camera = Camera::new(
@@ -396,12 +392,12 @@ impl FlowModel {
             &[sim_params],
         );
 
-        let lut_data = lut_manager
+        let lut_data = color_scheme_manager
             .get("MATPLOTLIB_terrain")
-            .expect("MATPLOTLIB_terrain LUT should exist");
+            .expect("MATPLOTLIB_terrain color scheme should exist");
         let lut_buffer = resource_helpers::create_storage_buffer_with_data(
             device,
-            "LUT Buffer",
+            "Color Scheme Buffer",
             &lut_data.to_u32_buffer(),
         );
 
@@ -1266,6 +1262,35 @@ impl FlowModel {
         // Create the FlowModel instance
         let flow_model = Self {
             settings: settings.clone(),
+            state: super::state::State {
+                time: 0.0,
+                delta_time: 0.016,
+                autospawn_accumulator: 0.0,
+                brush_spawn_accumulator: 0.0,
+                noise_dt_multiplier: settings.noise_dt_multiplier,
+                gui_visible: true,
+                trail_map_width: surface_config.width,
+                trail_map_height: surface_config.height,
+                background_color_mode: BackgroundColorMode::ColorScheme,
+                current_color_scheme: "MATPLOTLIB_terrain".to_string(),
+                color_scheme_reversed: false,
+                show_particles: true,
+                foreground_color_mode: settings.foreground_color_mode,
+                trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
+                autospawn_pool_size,
+                brush_pool_size,
+                total_pool_size,
+                cursor_world_x: 0.0,
+                cursor_world_y: 0.0,
+                cursor_size: 0.33,
+                mouse_button_down: 0,
+                flow_field_resolution: DEFAULT_FLOW_FIELD_RESOLUTION,
+                shape_drawing_enabled: false,
+                camera_position: [0.0, 0.0],
+                camera_zoom: 1.0,
+                simulation_time: 0.0,
+                is_running: true,
+            },
             shader_manager,
             common_layouts,
             particle_buffer,
@@ -1287,7 +1312,7 @@ impl FlowModel {
             camera_bind_group,
 
             camera,
-            lut_manager: Arc::new(lut_manager.clone()),
+            color_scheme_manager: Arc::new(color_scheme_manager.clone()),
             time: 0.0,
             delta_time: 0.016,
             autospawn_accumulator: 0.0,
@@ -1298,11 +1323,6 @@ impl FlowModel {
             gui_visible: true,
             trail_map_width: surface_config.width,
             trail_map_height: surface_config.height,
-            background_color_mode: BackgroundColorMode::ColorScheme,
-            current_lut: "MATPLOTLIB_terrain".to_string(),
-            lut_reversed: false,
-            show_particles: true,
-            foreground_color_mode: settings.foreground_color_mode,
             trail_map_filtering: super::settings::TrailMapFiltering::Nearest,
             trail_render_pipeline,
             trail_display_render_pipeline,
@@ -1387,7 +1407,7 @@ impl FlowModel {
 
     /// List available webcam device indices
     pub fn get_available_webcam_devices(&self) -> Vec<i32> {
-        crate::simulations::slime_mold::webcam::WebcamCapture::get_available_devices()
+        crate::simulations::shared::WebcamCapture::get_available_devices()
     }
 
     /// Upload latest webcam frame into the vector field image texture
@@ -1420,6 +1440,19 @@ impl FlowModel {
                 let h = target_h as usize;
                 for y in 0..h {
                     processed[y * w..(y + 1) * w].reverse();
+                }
+            }
+
+            if self.settings.image_mirror_vertical {
+                let w = target_w as usize;
+                let h = target_h as usize;
+                for y_top in 0..(h / 2) {
+                    let y_bottom = h - 1 - y_top;
+                    let top_start = y_top * w;
+                    let bottom_start = y_bottom * w;
+                    for x in 0..w {
+                        processed.swap(top_start + x, bottom_start + x);
+                    }
                 }
             }
 
@@ -1547,22 +1580,22 @@ impl FlowModel {
     }
 
     fn calculate_background_color(&self) -> [f32; 4] {
-        match self.background_color_mode {
+        match self.state.background_color_mode {
             super::settings::BackgroundColorMode::Black => [0.0f32, 0.0f32, 0.0f32, 1.0f32],
             super::settings::BackgroundColorMode::White => [1.0f32, 1.0f32, 1.0f32, 1.0f32],
             super::settings::BackgroundColorMode::Gray18 => [0.18f32, 0.18f32, 0.18f32, 1.0f32],
             super::settings::BackgroundColorMode::ColorScheme => {
                 let mut lut = self
-                    .lut_manager
-                    .get(&self.current_lut)
-                    .unwrap_or_else(|_| self.lut_manager.get_default());
+                    .color_scheme_manager
+                    .get(&self.state.current_color_scheme)
+                    .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                 // Apply reversal if needed
-                if self.lut_reversed {
+                if self.state.color_scheme_reversed {
                     lut = lut.reversed();
                 }
 
-                // Use the last color from the LUT for background
+                // Use the last color from the color scheme for background
                 if let Some(color) = lut.get_last_color() {
                     [color[0], color[1], color[2], color[3]]
                 } else {
@@ -1689,9 +1722,11 @@ impl Simulation for FlowModel {
         let new_time = self.time + delta_time;
         if new_time.is_finite() {
             self.time = new_time;
+            self.state.time = new_time;
         } else {
             // If overflow occurs, reset to 0
             self.time = 0.0;
+            self.state.time = 0.0;
         }
 
         // If webcam is active, update vector field image from webcam first
@@ -1822,7 +1857,7 @@ impl Simulation for FlowModel {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..1); // Single instance
             // Render particles (if enabled)
-            if self.show_particles {
+            if self.state.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -1949,7 +1984,7 @@ impl Simulation for FlowModel {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.draw(0..6, 0..1); // Single instance
             // Render particles (if enabled)
-            if self.show_particles {
+            if self.state.show_particles {
                 render_pass.set_pipeline(&self.particle_render_pipeline);
                 render_pass.set_bind_group(0, &self.particle_render_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
@@ -2291,7 +2326,7 @@ impl Simulation for FlowModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         match setting_name {
-            "noiseType" => {
+            "noise_type" => {
                 if let Some(noise_type_str) = value.as_str() {
                     self.settings.noise_type = match noise_type_str {
                         "OpenSimplex" => NoiseType::OpenSimplex,
@@ -2311,35 +2346,35 @@ impl Simulation for FlowModel {
                     self.regenerate_flow_vectors(device, queue)?;
                 }
             }
-            "noiseSeed" => {
+            "noise_seed" => {
                 if let Some(seed) = value.as_u64() {
                     self.settings.noise_seed = seed as u32;
                     // Regenerate flow vectors with new seed
                     self.regenerate_flow_vectors(device, queue)?;
                 }
             }
-            "noiseScale" => {
+            "noise_scale" => {
                 if let Some(scale) = value.as_f64() {
                     self.settings.noise_scale = scale;
                     // Regenerate flow vectors with new scale
                     self.regenerate_flow_vectors(device, queue)?;
                 }
             }
-            "noiseX" => {
+            "noise_x" => {
                 if let Some(x) = value.as_f64() {
                     self.settings.noise_x = x;
                     // Regenerate flow vectors with new X scale
                     self.regenerate_flow_vectors(device, queue)?;
                 }
             }
-            "noiseY" => {
+            "noise_y" => {
                 if let Some(y) = value.as_f64() {
                     self.settings.noise_y = y;
                     // Regenerate flow vectors with new Y scale
                     self.regenerate_flow_vectors(device, queue)?;
                 }
             }
-            "noiseDtMultiplier" => {
+            "noise_dt_multiplier" => {
                 if let Some(multiplier) = value.as_f64() {
                     self.settings.noise_dt_multiplier = multiplier as f32;
                     // Update sim params with new multiplier
@@ -2347,7 +2382,7 @@ impl Simulation for FlowModel {
                 }
             }
 
-            "vectorMagnitude" => {
+            "vector_magnitude" => {
                 if let Some(magnitude) = value.as_f64() {
                     self.settings.vector_magnitude = magnitude as f32;
                     // Regenerate flow vectors with new magnitude
@@ -2355,7 +2390,7 @@ impl Simulation for FlowModel {
                 }
             }
 
-            "autospawnLimit" => {
+            "autospawn_limit" => {
                 if let Some(count) = value.as_u64() {
                     let new_count = count as u32;
                     if new_count != self.settings.total_pool_size {
@@ -2372,43 +2407,43 @@ impl Simulation for FlowModel {
                     }
                 }
             }
-            "particleLifetime" => {
+            "particle_lifetime" => {
                 if let Some(lifetime) = value.as_f64() {
                     self.settings.particle_lifetime = lifetime as f32;
                 }
             }
-            "particleSpeed" => {
+            "particle_speed" => {
                 if let Some(speed) = value.as_f64() {
                     self.settings.particle_speed = speed as f32;
                 }
             }
-            "particleSize" => {
+            "particle_size" => {
                 if let Some(size) = value.as_u64() {
                     self.settings.particle_size = size as u32;
                 }
             }
 
-            "trailDecayRate" => {
+            "trail_decay_rate" => {
                 if let Some(rate) = value.as_f64() {
                     self.settings.trail_decay_rate = rate as f32;
                 }
             }
-            "trailDepositionRate" => {
+            "trail_deposition_rate" => {
                 if let Some(rate) = value.as_f64() {
                     self.settings.trail_deposition_rate = rate as f32;
                 }
             }
-            "trailDiffusionRate" => {
+            "trail_diffusion_rate" => {
                 if let Some(rate) = value.as_f64() {
                     self.settings.trail_diffusion_rate = rate as f32;
                 }
             }
-            "trailWashOutRate" => {
+            "trail_wash_out_rate" => {
                 if let Some(rate) = value.as_f64() {
                     self.settings.trail_wash_out_rate = rate as f32;
                 }
             }
-            "particleShape" => {
+            "particle_shape" => {
                 if let Some(shape_str) = value.as_str() {
                     self.settings.particle_shape = match shape_str {
                         "Circle" => super::settings::ParticleShape::Circle,
@@ -2421,23 +2456,23 @@ impl Simulation for FlowModel {
                 }
             }
 
-            "particleAutospawn" => {
+            "particle_autospawn" => {
                 if let Some(autospawn) = value.as_bool() {
                     self.settings.particle_autospawn = autospawn;
                 }
             }
-            "autospawnRate" => {
+            "autospawn_rate" => {
                 if let Some(rate) = value.as_u64() {
                     self.settings.autospawn_rate = rate as u32;
                 }
             }
-            "brushSpawnRate" => {
+            "brush_spawn_rate" => {
                 if let Some(rate) = value.as_u64() {
                     self.settings.brush_spawn_rate = rate as u32;
                 }
             }
 
-            "trailMapFiltering" => {
+            "trail_map_filtering" => {
                 if let Some(filtering_str) = value.as_str() {
                     self.trail_map_filtering = match filtering_str {
                         "Nearest" => super::settings::TrailMapFiltering::Nearest,
@@ -2465,27 +2500,27 @@ impl Simulation for FlowModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         match state_name {
-            "currentLut" => {
-                if let Some(lut_name) = value.as_str() {
-                    self.current_lut = lut_name.to_string();
-                    let mut lut_data = self
-                        .lut_manager
-                        .get(&self.current_lut)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+            "current_color_scheme" => {
+                if let Some(color_scheme_name) = value.as_str() {
+                    self.state.current_color_scheme = color_scheme_name.to_string();
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(&self.state.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.lut_reversed {
-                        lut_data = lut_data.reversed();
+                    if self.state.color_scheme_reversed {
+                        color_scheme_data = color_scheme_data.reversed();
                     }
 
                     queue.write_buffer(
                         &self.lut_buffer,
                         0,
-                        bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+                        bytemuck::cast_slice(&color_scheme_data.to_u32_buffer()),
                     );
 
-                    // Update LUT background color if LUT background is selected
-                    if self.background_color_mode
+                    // Update background color if ColorScheme background is selected
+                    if self.state.background_color_mode
                         == super::settings::BackgroundColorMode::ColorScheme
                     {
                         // Update background color first
@@ -2493,29 +2528,29 @@ impl Simulation for FlowModel {
                     }
                 }
             }
-            "lutReversed" => {
+            "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    self.lut_reversed = reversed;
+                    self.state.color_scheme_reversed = reversed;
 
-                    // Reload the current LUT with new reversal state
-                    let mut lut_data = self
-                        .lut_manager
-                        .get(&self.current_lut)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+                    // Reload the current color scheme with new reversal state
+                    let mut color_scheme_data = self
+                        .color_scheme_manager
+                        .get(&self.state.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
-                    if self.lut_reversed {
-                        lut_data = lut_data.reversed();
+                    if self.state.color_scheme_reversed {
+                        color_scheme_data = color_scheme_data.reversed();
                     }
 
                     queue.write_buffer(
                         &self.lut_buffer,
                         0,
-                        bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+                        bytemuck::cast_slice(&color_scheme_data.to_u32_buffer()),
                     );
 
-                    // Update LUT background color if LUT background is selected
-                    if self.background_color_mode
+                    // Update background color if ColorScheme background is selected
+                    if self.state.background_color_mode
                         == super::settings::BackgroundColorMode::ColorScheme
                     {
                         // Update background color first
@@ -2523,37 +2558,40 @@ impl Simulation for FlowModel {
                     }
                 }
             }
-            "cursorSize" => {
+            "cursor_size" => {
                 if let Some(size) = value.as_f64() {
                     self.cursor_size = size as f32;
+                    self.state.cursor_size = size as f32;
                 }
             }
-            "backgroundColorMode" => {
+            "background_color_mode" => {
                 if let Some(background_str) = value.as_str() {
-                    self.background_color_mode = match background_str {
+                    let background_mode = match background_str {
                         "Black" => super::settings::BackgroundColorMode::Black,
                         "White" => super::settings::BackgroundColorMode::White,
                         "Gray18" => super::settings::BackgroundColorMode::Gray18,
-                        "ColorScheme" => super::settings::BackgroundColorMode::ColorScheme,
+                        "Color Scheme" => super::settings::BackgroundColorMode::ColorScheme,
                         _ => panic!("Unknown background color mode: {}", background_str),
                     };
+                    self.state.background_color_mode = background_mode;
                     // Update background color
                     self.update_background_color(queue);
                 }
             }
-            "foregroundColorMode" => {
+            "foreground_color_mode" => {
                 if let Some(mode_str) = value.as_str() {
-                    self.foreground_color_mode = match mode_str {
+                    let foreground_mode = match mode_str {
                         "Age" => super::settings::ForegroundColorMode::Age,
                         "Random" => super::settings::ForegroundColorMode::Random,
                         "Direction" => super::settings::ForegroundColorMode::Direction,
                         _ => super::settings::ForegroundColorMode::Age,
                     };
+                    self.state.foreground_color_mode = foreground_mode;
                 }
             }
-            "showParticles" => {
+            "show_particles" => {
                 if let Some(show) = value.as_bool() {
-                    self.show_particles = show;
+                    self.state.show_particles = show;
                 }
             }
             _ => {
@@ -2572,18 +2610,7 @@ impl Simulation for FlowModel {
     }
 
     fn get_state(&self) -> serde_json::Value {
-        serde_json::json!({
-            "time": self.time,
-            "guiVisible": self.gui_visible,
-            "cursorSize": self.cursor_size,
-            "backgroundColorMode": self.background_color_mode,
-            "currentLut": self.current_lut,
-            "lutReversed": self.lut_reversed,
-            "showParticles": self.show_particles,
-            "foregroundColorMode": self.foreground_color_mode,
-            "trailMapFiltering": self.trail_map_filtering,
-            "autospawnRate": self.settings.autospawn_rate,
-        })
+        serde_json::to_value(&self.state).unwrap_or_else(|_| serde_json::json!({}))
     }
 
     fn handle_mouse_interaction(
@@ -2689,6 +2716,7 @@ impl Simulation for FlowModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         self.time = 0.0;
+        self.state.time = 0.0;
         // Reset particles
         let mut particles = Vec::with_capacity(self.settings.total_pool_size as usize);
 
@@ -2789,6 +2817,7 @@ impl Simulation for FlowModel {
 
     fn toggle_gui(&mut self) -> bool {
         self.gui_visible = !self.gui_visible;
+        self.state.gui_visible = self.gui_visible;
         self.gui_visible
     }
 
@@ -3009,7 +3038,7 @@ impl FlowModel {
 
             // Process the image based on fit mode
             let processed_img = match fit_mode {
-                super::settings::GradientImageFitMode::Stretch => {
+                crate::simulations::shared::ImageFitMode::Stretch => {
                     // Resize exactly to target size
                     image::imageops::resize(
                         &gray,
@@ -3018,7 +3047,7 @@ impl FlowModel {
                         image::imageops::FilterType::Lanczos3,
                     )
                 }
-                super::settings::GradientImageFitMode::Center => {
+                crate::simulations::shared::ImageFitMode::Center => {
                     // Center the image and pad with black
                     let mut canvas = image::ImageBuffer::new(target_w, target_h);
                     let (img_w, img_h) = (gray.width(), gray.height());
@@ -3043,7 +3072,7 @@ impl FlowModel {
                     }
                     canvas
                 }
-                super::settings::GradientImageFitMode::FitH => {
+                crate::simulations::shared::ImageFitMode::FitH => {
                     // Fit horizontally, center vertically
                     let scale = target_w as f32 / gray.width() as f32;
                     let new_height = (gray.height() as f32 * scale) as u32;
@@ -3069,7 +3098,7 @@ impl FlowModel {
                     }
                     canvas
                 }
-                super::settings::GradientImageFitMode::FitV => {
+                crate::simulations::shared::ImageFitMode::FitV => {
                     // Fit vertically, center horizontally
                     let scale = target_h as f32 / gray.height() as f32;
                     let new_width = (gray.width() as f32 * scale) as u32;
@@ -3102,6 +3131,10 @@ impl FlowModel {
 
             if self.settings.image_mirror_horizontal {
                 image::imageops::flip_horizontal_in_place(&mut final_img);
+            }
+
+            if self.settings.image_mirror_vertical {
+                image::imageops::flip_vertical_in_place(&mut final_img);
             }
 
             if self.settings.image_invert_tone {
@@ -3291,7 +3324,7 @@ impl FlowModel {
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
             brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
+            display_mode: self.state.foreground_color_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
             _padding_1: 0,
@@ -3333,7 +3366,7 @@ impl FlowModel {
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
             brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
+            display_mode: self.state.foreground_color_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
             _padding_1: 0,
@@ -3375,7 +3408,7 @@ impl FlowModel {
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
             brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
+            display_mode: self.state.foreground_color_mode as u32,
             autospawn_pool_size: self.autospawn_pool_size,
             brush_pool_size: self.brush_pool_size,
             _padding_1: 0,
@@ -3417,7 +3450,7 @@ impl FlowModel {
             particle_autospawn: self.settings.particle_autospawn as u32,
             autospawn_rate: self.settings.autospawn_rate,
             brush_spawn_rate: self.settings.brush_spawn_rate,
-            display_mode: self.foreground_color_mode as u32,
+            display_mode: self.state.foreground_color_mode as u32,
             autospawn_pool_size: autospawn_count,
             brush_pool_size: brush_count,
             _padding_1: 0,

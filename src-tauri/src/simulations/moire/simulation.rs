@@ -23,11 +23,11 @@ use wgpu::{
 };
 
 use crate::commands::AppSettings;
-use crate::error::SimulationResult;
+use crate::error::{ColorSchemeError, SimulationResult};
 use crate::simulations::shared::camera::Camera;
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::ping_pong_textures::PingPongTextures;
-use crate::simulations::shared::{ColorScheme, ColorSchemeManager};
+use crate::simulations::shared::{ColorScheme, ColorSchemeManager, ImageFitMode};
 use crate::simulations::traits::Simulation;
 
 use super::settings::Settings;
@@ -59,6 +59,9 @@ struct Params {
     image_loaded: f32,
     image_mode_enabled: f32,
     image_interference_mode: f32,
+    image_mirror_horizontal: f32,
+    image_mirror_vertical: f32,
+    image_invert_tone: f32,
 }
 
 #[repr(C)]
@@ -73,6 +76,7 @@ struct RenderParams {
 #[derive(Debug)]
 pub struct MoireModel {
     pub settings: Settings,
+    pub state: super::state::State,
 
     // GPU resources
     compute_pipeline: ComputePipeline,
@@ -111,6 +115,9 @@ pub struct MoireModel {
     image_texture: Option<Texture>,
     image_view: Option<TextureView>,
     image_original: Option<image::DynamicImage>,
+
+    // Webcam capture support
+    pub webcam_capture: crate::simulations::shared::webcam::WebcamCapture,
 }
 
 impl MoireModel {
@@ -147,8 +154,8 @@ impl MoireModel {
         _queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         settings: Settings,
-        _app_settings: &Arc<AppSettings>,
-        lut_manager: &ColorSchemeManager,
+        app_settings: &AppSettings,
+        color_scheme_manager: &ColorSchemeManager,
     ) -> SimulationResult<Self> {
         let width = surface_config.width;
         let height = surface_config.height;
@@ -196,7 +203,7 @@ impl MoireModel {
 
         // Initialize LUT buffer with default color scheme
         let default_lut_name = "ZELDA_Fordite";
-        let default_lut = lut_manager.get(default_lut_name).unwrap();
+        let default_lut = color_scheme_manager.get(default_lut_name).unwrap();
         let lut_data = default_lut.to_u32_buffer();
         let lut_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Moiré LUT Buffer for {}", default_lut_name)),
@@ -206,7 +213,7 @@ impl MoireModel {
 
         // Create texture render params buffer
         let render_params = RenderParams {
-            filtering_mode: 1, // Linear filtering
+            filtering_mode: app_settings.texture_filtering.into(),
             _pad1: 0,
             _pad2: 0,
             _pad3: 0,
@@ -438,6 +445,17 @@ impl MoireModel {
 
         Ok(Self {
             settings,
+            state: super::state::State {
+                time: 0.0,
+                width,
+                height,
+                color_scheme_name: default_lut_name.to_string(),
+                color_scheme_reversed: false,
+                camera_position: [0.0, 0.0],
+                camera_zoom: 1.0,
+                simulation_time: 0.0,
+                is_running: true,
+            },
             compute_pipeline,
             render_infinite_pipeline,
             simulation_textures,
@@ -452,7 +470,7 @@ impl MoireModel {
             render_infinite_bind_group2,
             camera_bind_group,
             camera,
-            color_scheme_manager: Arc::new(lut_manager.clone()),
+            color_scheme_manager: Arc::new(color_scheme_manager.clone()),
             current_color_scheme: default_lut_name.to_string(),
             color_scheme_reversed: false,
             time: 0.0,
@@ -461,6 +479,7 @@ impl MoireModel {
             image_texture: None,
             image_view: None,
             image_original: None,
+            webcam_capture: crate::simulations::shared::webcam::WebcamCapture::new(),
         })
     }
 
@@ -471,7 +490,7 @@ impl MoireModel {
             super::settings::MoireGeneratorType::Linear => 0.0,
             super::settings::MoireGeneratorType::Radial => 1.0,
         };
-        
+
         let params = Params {
             time: self.time,
             width: self.width as f32,
@@ -507,6 +526,21 @@ impl MoireModel {
                 super::settings::ImageInterferenceMode::Mask => 4.0,
                 super::settings::ImageInterferenceMode::Modulate => 5.0,
             },
+            image_mirror_horizontal: if self.settings.image_mirror_horizontal {
+                1.0
+            } else {
+                0.0
+            },
+            image_mirror_vertical: if self.settings.image_mirror_vertical {
+                1.0
+            } else {
+                0.0
+            },
+            image_invert_tone: if self.settings.image_invert_tone {
+                1.0
+            } else {
+                0.0
+            },
         };
 
         queue.write_buffer(&self.params_buffer, 0, bytemuck::cast_slice(&[params]));
@@ -541,24 +575,16 @@ impl MoireModel {
             let target_w = self.width.max(1);
             let target_h = self.height.max(1);
 
-            let mut gray = original.to_luma8();
-            if self.settings.image_mirror_horizontal {
-                image::imageops::flip_horizontal_in_place(&mut gray);
-            }
-            if self.settings.image_invert_tone {
-                for p in gray.pixels_mut() {
-                    p.0[0] = 255 - p.0[0];
-                }
-            }
+            let gray = original.to_luma8();
 
             let processed = match self.settings.image_fit_mode {
-                super::settings::GradientImageFitMode::Stretch => image::imageops::resize(
+                crate::simulations::shared::ImageFitMode::Stretch => image::imageops::resize(
                     &gray,
                     target_w,
                     target_h,
                     image::imageops::FilterType::Lanczos3,
                 ),
-                super::settings::GradientImageFitMode::Center => {
+                crate::simulations::shared::ImageFitMode::Center => {
                     let mut canvas = image::ImageBuffer::new(target_w, target_h);
                     let (img_w, img_h) = (gray.width(), gray.height());
                     let start_x = if img_w < target_w {
@@ -580,7 +606,7 @@ impl MoireModel {
                     }
                     canvas
                 }
-                super::settings::GradientImageFitMode::FitH => {
+                crate::simulations::shared::ImageFitMode::FitH => {
                     let scale = target_w as f32 / gray.width() as f32;
                     let new_h = (gray.height() as f32 * scale) as u32;
                     let resized = image::imageops::resize(
@@ -603,7 +629,7 @@ impl MoireModel {
                     }
                     canvas
                 }
-                super::settings::GradientImageFitMode::FitV => {
+                crate::simulations::shared::ImageFitMode::FitV => {
                     let scale = target_h as f32 / gray.height() as f32;
                     let new_w = (gray.width() as f32 * scale) as u32;
                     let resized = image::imageops::resize(
@@ -767,30 +793,30 @@ impl MoireModel {
     }
 
     /// Get the current color scheme name
-    pub fn get_current_lut_name(&self) -> &str {
+    pub fn get_current_color_scheme(&self) -> &str {
         &self.current_color_scheme
     }
 
     /// Check if the current color scheme is reversed
-    pub fn is_lut_reversed(&self) -> bool {
+    pub fn is_color_scheme_reversed(&self) -> bool {
         self.color_scheme_reversed
     }
 
     /// Set the color scheme and update the LUT buffer
     pub fn set_color_scheme(
         &mut self,
-        lut_name: &str,
+        color_scheme_name: &str,
         reversed: bool,
         queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
-        self.current_color_scheme = lut_name.to_string();
+        self.current_color_scheme = color_scheme_name.to_string();
         self.color_scheme_reversed = reversed;
 
         // Load the new color scheme
         let color_scheme = self
             .color_scheme_manager
-            .get(lut_name)
-            .map_err(|e| format!("Failed to load color scheme '{}': {}", lut_name, e))?;
+            .get(color_scheme_name)
+            .map_err(|e| ColorSchemeError::load_failed(color_scheme_name, &e.to_string()))?;
 
         // Update the LUT buffer
         let mut lut_data = color_scheme.to_u32_buffer();
@@ -806,6 +832,83 @@ impl MoireModel {
 
         Ok(())
     }
+
+    /// Start webcam capture for image input
+    pub fn start_webcam_capture(&mut self, device_index: i32) -> SimulationResult<()> {
+        self.webcam_capture
+            .set_target_dimensions(self.width, self.height);
+        self.webcam_capture.start_capture(device_index)
+    }
+
+    /// Stop webcam capture
+    pub fn stop_webcam_capture(&mut self) {
+        self.webcam_capture.stop_capture();
+    }
+
+    /// Update image texture from webcam frame (only when new data is available)
+    pub fn update_image_from_webcam(
+        &mut self,
+        device: &Arc<Device>,
+        queue: &Arc<Queue>,
+    ) -> SimulationResult<()> {
+        if let Some(frame_data) = self.webcam_capture.get_latest_frame_data() {
+            let width = self.webcam_capture.target_width;
+            let height = self.webcam_capture.target_height;
+
+            // Only update if we don't have a texture yet or dimensions changed
+            let needs_new_texture =
+                self.image_texture.is_none() || self.width != width || self.height != height;
+
+            if needs_new_texture {
+                // Create new texture
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Moire Webcam Texture"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                self.image_texture = Some(texture);
+                self.image_view = Some(view);
+
+                // Rebuild bind groups with new texture
+                self.rebuild_compute_bind_groups(device);
+            }
+
+            // Update texture data directly (much faster than recreating)
+            if let Some(ref texture) = self.image_texture {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &frame_data,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(width),
+                        rows_per_image: Some(height),
+                    },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Simulation for MoireModel {
@@ -817,11 +920,21 @@ impl Simulation for MoireModel {
         delta_time: f32,
     ) -> SimulationResult<()> {
         self.time += delta_time * self.settings.speed;
+        self.state.time = self.time;
         self.update_params(queue);
 
         // Update camera and upload to GPU
         self.camera.update(delta_time);
         self.camera.upload_to_gpu(queue);
+
+        // Update image from webcam if active and image mode is enabled
+        if self.webcam_capture.is_active && self.settings.image_mode_enabled {
+            if let Err(e) = self.webcam_capture.update_frame() {
+                tracing::warn!("Failed to update webcam frame: {}", e);
+            } else if let Err(e) = self.update_image_from_webcam(device, queue) {
+                tracing::warn!("Failed to update image from webcam: {}", e);
+            }
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Moiré Render"),
@@ -1143,19 +1256,20 @@ impl Simulation for MoireModel {
     ) -> SimulationResult<()> {
         let old_settings = self.settings.clone();
         self.settings = serde_json::from_value(settings)?;
-        
+
         // If image-related settings changed and an image is loaded, reprocess it
         if self.image_original.is_some() {
-            let image_settings_changed = 
-                old_settings.image_fit_mode != self.settings.image_fit_mode ||
-                old_settings.image_mirror_horizontal != self.settings.image_mirror_horizontal ||
-                old_settings.image_invert_tone != self.settings.image_invert_tone;
-            
+            let image_settings_changed = old_settings.image_fit_mode
+                != self.settings.image_fit_mode
+                || old_settings.image_mirror_horizontal != self.settings.image_mirror_horizontal
+                || old_settings.image_mirror_vertical != self.settings.image_mirror_vertical
+                || old_settings.image_invert_tone != self.settings.image_invert_tone;
+
             if image_settings_changed {
                 self.reprocess_image_with_current_fit_mode(device, queue)?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -1165,6 +1279,7 @@ impl Simulation for MoireModel {
         _queue: &Arc<Queue>,
     ) -> SimulationResult<()> {
         self.time = 0.0;
+        self.state.time = 0.0;
         Ok(())
     }
 
@@ -1216,7 +1331,8 @@ impl Simulation for MoireModel {
             "speed" => self.settings.speed = value.as_f64().unwrap() as f32,
             "generator_type" => {
                 let s = value.as_str().unwrap_or("Linear");
-                self.settings.generator_type = s.parse::<super::settings::MoireGeneratorType>()
+                self.settings.generator_type = s
+                    .parse::<super::settings::MoireGeneratorType>()
                     .map_err(|e| format!("Invalid generator_type: {}", e))?;
             }
             "base_freq" => self.settings.base_freq = value.as_f64().unwrap() as f32,
@@ -1229,9 +1345,15 @@ impl Simulation for MoireModel {
             "moire_rotation3" => self.settings.moire_rotation3 = value.as_f64().unwrap() as f32,
             "moire_scale3" => self.settings.moire_scale3 = value.as_f64().unwrap() as f32,
             "moire_weight3" => self.settings.moire_weight3 = value.as_f64().unwrap() as f32,
-            "radial_swirl_strength" => self.settings.radial_swirl_strength = value.as_f64().unwrap() as f32,
-            "radial_starburst_count" => self.settings.radial_starburst_count = value.as_f64().unwrap() as f32,
-            "radial_center_brightness" => self.settings.radial_center_brightness = value.as_f64().unwrap() as f32,
+            "radial_swirl_strength" => {
+                self.settings.radial_swirl_strength = value.as_f64().unwrap() as f32
+            }
+            "radial_starburst_count" => {
+                self.settings.radial_starburst_count = value.as_f64().unwrap() as f32
+            }
+            "radial_center_brightness" => {
+                self.settings.radial_center_brightness = value.as_f64().unwrap() as f32
+            }
             "advect_strength" => self.settings.advect_strength = value.as_f64().unwrap() as f32,
             "advect_speed" => self.settings.advect_speed = value.as_f64().unwrap() as f32,
             "curl" => self.settings.curl = value.as_f64().unwrap() as f32,
@@ -1241,7 +1363,8 @@ impl Simulation for MoireModel {
             }
             "image_fit_mode" => {
                 let s = value.as_str().unwrap_or("Stretch");
-                self.settings.image_fit_mode = s.parse::<super::settings::GradientImageFitMode>()
+                self.settings.image_fit_mode = s
+                    .parse::<ImageFitMode>()
                     .map_err(|e| format!("Invalid image_fit_mode: {}", e))?;
                 // Reprocess existing image with new fit mode if an image is loaded
                 if self.image_original.is_some() {
@@ -1255,27 +1378,39 @@ impl Simulation for MoireModel {
                     self.reprocess_image_with_current_fit_mode(device, queue)?;
                 }
             }
-            "image_invert_tone" => {
-                self.settings.image_invert_tone = value.as_bool().unwrap_or(false);
-                // Reprocess existing image with new invert setting if an image is loaded
+            "image_mirror_vertical" => {
+                self.settings.image_mirror_vertical = value.as_bool().unwrap_or(false);
+                // Reprocess existing image with new mirror setting if an image is loaded
                 if self.image_original.is_some() {
                     self.reprocess_image_with_current_fit_mode(device, queue)?;
                 }
             }
+            "image_invert_tone" => {
+                self.settings.image_invert_tone = value.as_bool().unwrap_or(false);
+                self.update_params(queue);
+                // No need to reprocess image - shader handles tone inversion
+            }
             "image_interference_mode" => {
                 let s = value.as_str().unwrap_or("Replace");
-                self.settings.image_interference_mode = s.parse::<super::settings::ImageInterferenceMode>()
+                self.settings.image_interference_mode = s
+                    .parse::<super::settings::ImageInterferenceMode>()
                     .map_err(|e| format!("Invalid image_interference_mode: {}", e))?;
             }
             "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
                     self.color_scheme_reversed = reversed;
                     // Reload the current color scheme with the new reversal state
-                    if let Ok(mut lut_data) = self.color_scheme_manager.get(&self.current_color_scheme) {
+                    if let Ok(mut lut_data) =
+                        self.color_scheme_manager.get(&self.current_color_scheme)
+                    {
                         if self.color_scheme_reversed {
                             lut_data.reverse();
                         }
-                        queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data.to_u32_buffer()));
+                        queue.write_buffer(
+                            &self.lut_buffer,
+                            0,
+                            bytemuck::cast_slice(&lut_data.to_u32_buffer()),
+                        );
                     }
                 }
             }
@@ -1306,13 +1441,7 @@ impl Simulation for MoireModel {
     }
 
     fn get_state(&self) -> serde_json::Value {
-        serde_json::json!({
-            "time": self.time,
-            "width": self.width,
-            "height": self.height,
-            "color_scheme_name": self.current_color_scheme,
-            "color_scheme_reversed": self.color_scheme_reversed
-        })
+        serde_json::to_value(&self.state).unwrap_or_else(|_| serde_json::json!({}))
     }
 
     fn handle_mouse_release(

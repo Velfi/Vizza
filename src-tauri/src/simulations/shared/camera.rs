@@ -257,7 +257,7 @@ impl Camera {
     }
 
     /// Upload camera data to GPU buffer
-    pub fn upload_to_gpu(&self, queue: &Arc<Queue>) {
+    pub fn upload_to_gpu(&self, queue: &Queue) {
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[self.uniform_data]));
     }
 

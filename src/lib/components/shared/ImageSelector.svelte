@@ -5,30 +5,8 @@
             <Selector
                 options={['Stretch', 'Center', 'Fit H', 'Fit V']}
                 value={fitMode}
-                on:change={(e) => onFitModeChange?.(e.detail.value)}
-            />
-        </div>
-    {/if}
-
-    {#if showMirrorHorizontal}
-        <div class="setting-item">
-            <span class="setting-label">Mirror Horizontal:</span>
-            <input
-                type="checkbox"
-                checked={mirrorHorizontal}
                 on:change={(e) =>
-                    onMirrorHorizontalChange?.((e.target as HTMLInputElement).checked)}
-            />
-        </div>
-    {/if}
-
-    {#if showInvertTone}
-        <div class="setting-item">
-            <span class="setting-label">Invert Tone:</span>
-            <input
-                type="checkbox"
-                checked={invertTone}
-                on:change={(e) => onInvertToneChange?.((e.target as HTMLInputElement).checked)}
+                    onFitModeChange?.(e.detail.value as 'Center' | 'Stretch' | 'FitH' | 'FitV')}
             />
         </div>
     {/if}
@@ -52,18 +30,14 @@
 
     // Props
     export let fitMode: string = 'Stretch';
-    export let mirrorHorizontal: boolean = false;
-    export let invertTone: boolean = false;
     export let loadCommand: string = '';
     export let showFitMode: boolean = true;
-    export let showMirrorHorizontal: boolean = true;
-    export let showInvertTone: boolean = true;
     export let showLoadButton: boolean = true;
 
     // Event handlers
-    export let onFitModeChange: ((value: string) => void) | undefined = undefined;
-    export let onMirrorHorizontalChange: ((value: boolean) => void) | undefined = undefined;
-    export let onInvertToneChange: ((value: boolean) => void) | undefined = undefined;
+    export let onFitModeChange:
+        | ((value: 'Center' | 'Stretch' | 'FitH' | 'FitV') => void)
+        | undefined = undefined;
 
     async function handleLoadImage() {
         try {

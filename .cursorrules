@@ -48,6 +48,8 @@ This distinction is crucial for:
 - When calling Tauri commands from frontend, always use camelCase parameter names
 - The Rust function signature uses snake_case, but JavaScript invocations use camelCase
 
+However, when calling `update_simulation_setting`/`update_simulation_state`, use snake_case parameter names for `setting_name`/`state_name`.
+
 ### Example
 ```rust
 // Backend (Rust)
@@ -61,4 +63,16 @@ await invoke('save_preset', { presetName: 'My Preset' });
 
 // Frontend (JavaScript) - WRONG
 await invoke('save_preset', { preset_name: 'My Preset' });
+
+// Frontend (JavaScript) - CORRECT
+await invoke('update_simulation_settings', { settingsName: 'particle_count', value: 1000 });
+
+// Frontend (JavaScript) - WRONG
+await invoke('update_simulation_settings', { settingsName: 'particleCount', value: 1000 });
+
+// Frontend (JavaScript) - CORRECT
+await invoke('update_simulation_state', { stateName: 'particle_size', value: 10 });
+
+// Frontend (JavaScript) - WRONG
+await invoke('update_simulation_state', { stateName: 'particleSize', value: 10 });
 ```

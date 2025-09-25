@@ -216,7 +216,7 @@ pub struct PelletsModel {
     pub settings: Settings,
     pub state: State,
     pub camera: Camera,
-    pub lut_manager: Arc<ColorSchemeManager>,
+    pub color_scheme_manager: Arc<ColorSchemeManager>,
     pub app_settings: AppSettings,
 
     // Surface configuration
@@ -242,7 +242,7 @@ impl PelletsModel {
         surface_config: &SurfaceConfiguration,
         settings: Settings,
         app_settings: &AppSettings,
-        lut_manager: &ColorSchemeManager,
+        color_scheme_manager: &ColorSchemeManager,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Initialize particles
         let particles = Self::initialize_particles(settings.particle_count, &settings);
@@ -273,10 +273,10 @@ impl PelletsModel {
         };
 
         // Initialize LUT
-        let mut lut = lut_manager
-            .get(&state.current_lut_name)
-            .map_err(|e| format!("Failed to load LUT '{}': {}", state.current_lut_name, e))?;
-        if state.lut_reversed {
+        let mut lut = color_scheme_manager
+            .get(&state.current_color_scheme)
+            .map_err(|e| format!("Failed to load LUT '{}': {}", state.current_color_scheme, e))?;
+        if state.color_scheme_reversed {
             lut = lut.reversed();
         }
         let lut_data_u32 = lut.to_u32_buffer();
@@ -1348,7 +1348,7 @@ impl PelletsModel {
             settings: settings.clone(),
             state,
             camera,
-            lut_manager: Arc::new(lut_manager.clone()),
+            color_scheme_manager: Arc::new(color_scheme_manager.clone()),
             app_settings: app_settings.clone(),
             surface_config: surface_config.clone(),
             frame_count: 0,
@@ -1930,12 +1930,12 @@ impl PelletsModel {
     fn update_background_color(&self, queue: &Arc<Queue>) {
         // Get the background color from the LUT
         let mut lut = self
-            .lut_manager
-            .get(&self.state.current_lut_name)
-            .unwrap_or_else(|_| self.lut_manager.get_default());
+            .color_scheme_manager
+            .get(&self.state.current_color_scheme)
+            .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
         // Apply reversal if needed
-        if self.state.lut_reversed {
+        if self.state.color_scheme_reversed {
             lut = lut.reversed();
         }
 
@@ -1999,26 +1999,25 @@ impl PelletsModel {
         &mut self,
         _device: &Arc<Device>,
         queue: &Arc<Queue>,
-        lut_name: &str,
-        lut_reversed: bool,
+        color_scheme: &str,
+        color_scheme_reversed: bool,
     ) -> SimulationResult<()> {
-        let mut lut =
-            self.lut_manager
-                .get(lut_name)
-                .map_err(|e| SimulationError::InvalidSetting {
-                    setting_name: "current_lut".to_string(),
-                    message: format!("Failed to load LUT '{}': {}", lut_name, e),
-                })?;
+        let mut lut = self.color_scheme_manager.get(color_scheme).map_err(|e| {
+            SimulationError::InvalidSetting {
+                setting_name: "current_lut".to_string(),
+                message: format!("Failed to load LUT '{}': {}", color_scheme, e),
+            }
+        })?;
 
-        if lut_reversed {
+        if color_scheme_reversed {
             lut = lut.reversed();
         }
 
         let lut_data_u32 = lut.to_u32_buffer();
         queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&lut_data_u32));
 
-        self.state.current_lut_name = lut_name.to_string();
-        self.state.lut_reversed = lut_reversed;
+        self.state.current_color_scheme = color_scheme.to_string();
+        self.state.color_scheme_reversed = color_scheme_reversed;
 
         // Update the background color to match the new LUT
         self.update_background_color(queue);
@@ -2905,15 +2904,20 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     }
                 }
             }
-            "current_lut" => {
-                if let Some(lut_name) = value.as_str() {
-                    self.update_lut(device, queue, lut_name, self.state.lut_reversed)?;
+            "current_color_scheme_reversed" => {
+                if let Some(color_scheme) = value.as_str() {
+                    self.update_lut(
+                        device,
+                        queue,
+                        color_scheme,
+                        self.state.color_scheme_reversed,
+                    )?;
                 }
             }
-            "lut_reversed" => {
+            "color_scheme_reversed_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    let lut_name = self.state.current_lut_name.clone();
-                    self.update_lut(device, queue, &lut_name, reversed)?;
+                    let color_scheme = self.state.current_color_scheme.clone();
+                    self.update_lut(device, queue, &color_scheme, reversed)?;
                 }
             }
             "cursor_size" => {
@@ -2944,17 +2948,17 @@ impl crate::simulations::traits::Simulation for PelletsModel {
         queue: &Arc<Queue>,
     ) -> crate::error::SimulationResult<()> {
         match state_name {
-            "currentLut" => {
+            "current_color_scheme" => {
                 if let Some(lut_name) = value.as_str() {
-                    self.state.current_lut_name = lut_name.to_string();
+                    self.state.current_color_scheme = lut_name.to_string();
                     let lut_data = self
-                        .lut_manager
-                        .get(&self.state.current_lut_name)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+                        .color_scheme_manager
+                        .get(&self.state.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
-                    if self.state.lut_reversed {
+                    if self.state.color_scheme_reversed {
                         data_u32[0..256].reverse();
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
@@ -2963,17 +2967,17 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
-            "lutReversed" => {
+            "color_scheme_reversed" => {
                 if let Some(reversed) = value.as_bool() {
-                    self.state.lut_reversed = reversed;
+                    self.state.color_scheme_reversed = reversed;
                     let lut_data = self
-                        .lut_manager
-                        .get(&self.state.current_lut_name)
-                        .unwrap_or_else(|_| self.lut_manager.get_default());
+                        .color_scheme_manager
+                        .get(&self.state.current_color_scheme)
+                        .unwrap_or_else(|_| self.color_scheme_manager.get_default());
 
                     // Apply reversal if needed
                     let mut data_u32 = lut_data.to_u32_buffer();
-                    if self.state.lut_reversed {
+                    if self.state.color_scheme_reversed {
                         data_u32[0..256].reverse();
                         data_u32[256..512].reverse();
                         data_u32[512..768].reverse();
@@ -2982,22 +2986,22 @@ impl crate::simulations::traits::Simulation for PelletsModel {
                     queue.write_buffer(&self.lut_buffer, 0, bytemuck::cast_slice(&data_u32));
                 }
             }
-            "cursorSize" => {
+            "cursor_size" => {
                 if let Some(size) = value.as_f64() {
                     self.state.cursor_size = size as f32;
                 }
             }
-            "cursorStrength" => {
+            "cursor_strength" => {
                 if let Some(strength) = value.as_f64() {
                     self.state.cursor_strength = strength as f32;
                 }
             }
-            "trailsEnabled" => {
+            "trails_enabled" => {
                 if let Some(enabled) = value.as_bool() {
                     self.state.trails_enabled = enabled;
                 }
             }
-            "trailFade" => {
+            "trail_fade" => {
                 if let Some(fade) = value.as_f64() {
                     self.state.trail_fade = fade as f32;
                 }

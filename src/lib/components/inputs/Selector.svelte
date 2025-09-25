@@ -1,6 +1,6 @@
 <div class="selector">
     {#if label}
-        <label for={id || 'selector'}>
+        <label for={controlId}>
             {label}
         </label>
     {/if}
@@ -17,7 +17,7 @@
         </button>
 
         <select
-            {id}
+            id={controlId}
             {value}
             {placeholder}
             {disabled}
@@ -75,6 +75,9 @@
     export let disabled: boolean = false;
     export let label: string = '';
     export let id: string = '';
+
+    const generatedId = `selector-${Math.random().toString(36).slice(2)}`;
+    $: controlId = id && id.length > 0 ? id : generatedId;
 
     const dispatch = createEventDispatcher<{
         change: { value: string };

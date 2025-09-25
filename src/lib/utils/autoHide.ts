@@ -205,9 +205,10 @@ export class AutoHideManager {
 /**
  * Create event listeners for auto-hide functionality
  */
-export function createAutoHideEventListeners(
-    handleUserInteraction: () => void
-): { add: () => void; remove: () => void } {
+export function createAutoHideEventListeners(handleUserInteraction: () => void): {
+    add: () => void;
+    remove: () => void;
+} {
     const events = ['mousedown', 'mousemove', 'wheel', 'touchstart'];
 
     return {

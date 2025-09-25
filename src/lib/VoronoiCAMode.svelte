@@ -45,12 +45,12 @@
             <legend>Display Settings</legend>
             <div class="control-group">
                 <label for="vcaLutSelector">Color Scheme</label>
-                <LutSelector
+                <ColorSchemeSelector
                     bind:available_color_schemes={available_luts}
                     current_color_scheme={currentLut}
-                    reversed={lutReversed}
+                    reversed={colorSchemeReversed}
                     on:select={({ detail }) => applyLut(detail.name)}
-                    on:reverse={() => toggleLutReversed()}
+                    on:reverse={() => toggleColorSchemeReversed()}
                 />
             </div>
             <div class="control-group">
@@ -93,46 +93,23 @@
         <PostProcessingMenu simulationType="voronoi_ca" {enabled} />
 
         <!-- Controls -->
-        <fieldset>
-            <legend>Controls</legend>
-            <div class="interaction-controls-grid">
-                <div class="interaction-help">
-                    <div class="control-group">
-                        <Button
-                            variant="default"
-                            on:click={() => dispatch('navigate', 'how-to-play')}
-                        >
-                            📖 Camera Controls
-                        </Button>
-                    </div>
-                    <div class="control-group">
-                        <span class="camera-help-text"
-                            >Camera controls not working? Click the control bar at the top of the
-                            screen.</span
-                        >
-                    </div>
-                </div>
-                <div class="cursor-settings">
-                    <div class="cursor-settings-header">
-                        <span>{!running ? '🎨 Painting Settings' : '🎯 Cursor Settings'}</span>
-                    </div>
-                    <CursorConfig
-                        {cursorSize}
-                        {cursorStrength}
-                        sizeMin={0.01}
-                        sizeMax={1.0}
-                        sizeStep={0.01}
-                        strengthMin={0}
-                        strengthMax={1.0}
-                        strengthStep={0.01}
-                        sizePrecision={2}
-                        strengthPrecision={2}
-                        on:sizechange={(e) => updateCursorSize(e.detail)}
-                        on:strengthchange={(e) => updateCursorStrength(e.detail)}
-                    />
-                </div>
-            </div>
-        </fieldset>
+        <ControlsPanel
+            mouseInteractionText=""
+            cursorSettingsTitle={!running ? '🎨 Painting Settings' : '🎯 Cursor Settings'}
+            {cursorSize}
+            {cursorStrength}
+            sizeMin={0.01}
+            sizeMax={1.0}
+            sizeStep={0.01}
+            strengthMin={0}
+            strengthMax={1.0}
+            strengthStep={0.01}
+            sizePrecision={2}
+            strengthPrecision={2}
+            on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
+            on:cursorStrengthChange={(e) => updateCursorStrength(e.detail)}
+            on:navigate={(e) => dispatch('navigate', e.detail)}
+        />
 
         <!-- Settings -->
         <fieldset>
@@ -245,9 +222,9 @@
     import SimulationLayout from './components/shared/SimulationLayout.svelte';
     import NumberDragBox from './components/inputs/NumberDragBox.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
-    import LutSelector from './components/shared/ColorSchemeSelector.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
+    import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
     import Selector from './components/inputs/Selector.svelte';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import CameraControls from './components/shared/CameraControls.svelte';
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
@@ -308,10 +285,10 @@
     // LUT + controls
     let available_luts: string[] = [];
     let currentLut = 'MATPLOTLIB_bone';
-    let lutReversed = true;
+    let colorSchemeReversed = true;
     let coloringMode = 'Density';
     let bordersEnabled = true;
-    let cursorSize = 0.15; // Larger cursor to actually reach cells
+    let cursorSize = 0.15;
     let cursorStrength = 1.0;
 
     // Presets + UI
@@ -356,8 +333,8 @@
                         pointCount = settings.numPoints;
                     if (settings && typeof settings.currentLutName === 'string')
                         currentLut = settings.currentLutName;
-                    if (settings && typeof settings.lutReversed === 'boolean')
-                        lutReversed = settings.lutReversed;
+                    if (settings && typeof settings.colorSchemeReversed === 'boolean')
+                        colorSchemeReversed = settings.colorSchemeReversed;
                     if (settings && typeof settings.coloringMode === 'string')
                         coloringMode = settings.coloringMode;
                     if (settings && typeof settings.bordersEnabled === 'boolean')
@@ -390,7 +367,7 @@
             const luts = await invoke('get_available_color_schemes');
             available_luts = luts as string[];
         } catch (e) {
-            console.error('Failed to load LUTs:', e);
+            console.error('Failed to load color schemes:', e);
         }
     }
 
@@ -399,16 +376,16 @@
         try {
             await invoke('apply_color_scheme_by_name', { colorSchemeName: lutName });
         } catch (e) {
-            console.error('Failed to apply LUT:', e);
+            console.error('Failed to apply color scheme:', e);
         }
     }
 
-    async function toggleLutReversed() {
-        lutReversed = !lutReversed;
+    async function toggleColorSchemeReversed() {
+        colorSchemeReversed = !colorSchemeReversed;
         try {
             await invoke('toggle_color_scheme_reversed');
         } catch (e) {
-            console.error('Failed to reverse LUT:', e);
+            console.error('Failed to reverse color scheme:', e);
         }
     }
 
@@ -508,7 +485,8 @@
                 if (typeof settings.numPoints === 'number') pointCount = settings.numPoints;
                 if (typeof settings.currentLutName === 'string')
                     currentLut = settings.currentLutName;
-                if (typeof settings.lutReversed === 'boolean') lutReversed = settings.lutReversed;
+                if (typeof settings.colorSchemeReversed === 'boolean')
+                    colorSchemeReversed = settings.colorSchemeReversed;
                 if (typeof settings.coloringMode === 'string') coloringMode = settings.coloringMode;
                 if (typeof settings.bordersEnabled === 'boolean')
                     bordersEnabled = settings.bordersEnabled;
@@ -526,7 +504,7 @@
         try {
             await invoke('pause_simulation');
             running = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -541,7 +519,7 @@
         try {
             await invoke('resume_simulation');
             running = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running });
@@ -774,7 +752,6 @@
         }
     }
 
-
     onMount(() => {
         // Initialize auto-hide manager
         autoHideManager = new AutoHideManager(
@@ -839,42 +816,6 @@
 </script>
 
 <style>
-    .interaction-controls-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
-        align-items: start;
-    }
-
-    .interaction-help {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings-header {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.8);
-        padding: 0.15rem 0;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        hyphens: auto;
-    }
-
-    .camera-help-text {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        hyphens: auto;
-        line-height: 1.4;
-    }
-
     /* Settings grid for key/value pairs */
     .settings-grid {
         display: grid;
@@ -928,25 +869,5 @@
         margin: 0 0 0.75rem 0;
         padding: 0.25rem 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    /* Mobile responsive design */
-    @media (max-width: 768px) {
-        .interaction-controls-grid {
-            grid-template-columns: 1fr;
-            gap: 0.4rem;
-        }
-
-        .interaction-help {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings {
-            gap: 0.2rem;
-        }
-
-        .cursor-settings-header {
-            font-size: 0.85rem;
-        }
     }
 </style>

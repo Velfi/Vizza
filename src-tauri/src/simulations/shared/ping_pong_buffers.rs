@@ -16,12 +16,7 @@ pub struct PingPongBuffers {
 
 impl PingPongBuffers {
     /// Create a new ping-pong buffer pair
-    pub fn new(
-        device: &Device,
-        size: u64,
-        usage: wgpu::BufferUsages,
-        label: &str,
-    ) -> Self {
+    pub fn new(device: &Device, size: u64, usage: wgpu::BufferUsages, label: &str) -> Self {
         let create_buffer = |index: usize| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("{} {}", label, if index == 0 { "A" } else { "B" })),
@@ -70,4 +65,3 @@ impl PingPongBuffers {
         }
     }
 }
-

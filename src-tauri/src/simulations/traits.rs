@@ -19,8 +19,7 @@
 //! consistently across all simulation types.
 
 use crate::error::SimulationResult;
-use crate::simulations::gray_scott::GrayScottModel;
-use crate::simulations::voronoi_ca::simulation::VoronoiCASimulation;
+use crate::simulations::shared::ColorMode;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
@@ -38,6 +37,7 @@ macro_rules! delegate_to_simulation {
             SimulationType::Gradient(simulation) => simulation.$method(),
             SimulationType::VoronoiCA(simulation) => simulation.$method(),
             SimulationType::Moire(simulation) => simulation.$method(),
+            SimulationType::PrimordialParticles(simulation) => simulation.$method(),
         }
     };
     ($self:expr, $method:ident, $($arg:expr),+) => {
@@ -51,6 +51,7 @@ macro_rules! delegate_to_simulation {
             SimulationType::Gradient(simulation) => simulation.$method($($arg),+),
             SimulationType::VoronoiCA(simulation) => simulation.$method($($arg),+),
             SimulationType::Moire(simulation) => simulation.$method($($arg),+),
+            SimulationType::PrimordialParticles(simulation) => simulation.$method($($arg),+),
         }
     };
 }
@@ -235,8 +236,9 @@ pub enum SimulationType {
     Pellets(Box<crate::simulations::pellets::PelletsModel>),
     MainMenu(Box<crate::simulations::main_menu::MainMenuModel>),
     Gradient(Box<crate::simulations::gradient::GradientSimulation>),
-    VoronoiCA(Box<VoronoiCASimulation>),
+    VoronoiCA(Box<crate::simulations::voronoi_ca::simulation::VoronoiCASimulation>),
     Moire(Box<crate::simulations::moire::MoireModel>),
+    PrimordialParticles(Box<crate::simulations::primordial_particles::PrimordialParticlesModel>),
 }
 
 impl SimulationType {
@@ -247,7 +249,7 @@ impl SimulationType {
         queue: &Arc<Queue>,
         surface_config: &SurfaceConfiguration,
         adapter_info: &wgpu::AdapterInfo,
-        lut_manager: &crate::simulations::shared::ColorSchemeManager,
+        color_scheme_manager: &crate::simulations::shared::ColorSchemeManager,
         app_settings: &crate::commands::AppSettings,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         match simulation_type {
@@ -261,22 +263,16 @@ impl SimulationType {
                     10_000_000,
                     settings,
                     app_settings,
-                    lut_manager,
+                    color_scheme_manager,
                 )?;
                 Ok(SimulationType::SlimeMold(Box::new(simulation)))
             }
             "gray_scott" => {
                 let settings = crate::simulations::gray_scott::settings::Settings::default();
 
-                // Calculate simulation resolution based on scale factor
-                let sim_width =
-                    (surface_config.width as f32 * settings.simulation_resolution_scale) as u32;
-                let sim_height =
-                    (surface_config.height as f32 * settings.simulation_resolution_scale) as u32;
-
-                // Ensure minimum resolution
-                let sim_width = sim_width.max(256);
-                let sim_height = sim_height.max(256);
+                // Use full surface resolution for simulation
+                let sim_width = surface_config.width.max(256);
+                let sim_height = surface_config.height.max(256);
 
                 let simulation = crate::simulations::gray_scott::GrayScottModel::new(
                     device,
@@ -285,7 +281,8 @@ impl SimulationType {
                     sim_width,
                     sim_height,
                     settings,
-                    lut_manager,
+                    crate::simulations::gray_scott::state::State::default(),
+                    color_scheme_manager,
                     app_settings,
                 )?;
                 Ok(SimulationType::GrayScott(Box::new(simulation)))
@@ -300,8 +297,8 @@ impl SimulationType {
                     15000,
                     settings,
                     app_settings,
-                    lut_manager,
-                    crate::simulations::particle_life::simulation::ColorMode::ColorScheme,
+                    color_scheme_manager,
+                    ColorMode::ColorScheme,
                 )?;
                 Ok(SimulationType::ParticleLife(Box::new(simulation)))
             }
@@ -313,7 +310,7 @@ impl SimulationType {
                     surface_config,
                     settings,
                     app_settings,
-                    lut_manager,
+                    color_scheme_manager,
                 )?;
                 Ok(SimulationType::Flow(Box::new(simulation)))
             }
@@ -325,7 +322,7 @@ impl SimulationType {
                     surface_config,
                     settings,
                     app_settings,
-                    lut_manager,
+                    color_scheme_manager,
                 )?;
                 Ok(SimulationType::Pellets(Box::new(simulation)))
             }
@@ -342,27 +339,50 @@ impl SimulationType {
                 let simulation = crate::simulations::main_menu::MainMenuModel::new(
                     device,
                     surface_config,
-                    lut_manager,
+                    color_scheme_manager,
                     app_settings,
                 )?;
                 Ok(SimulationType::MainMenu(Box::new(simulation)))
             }
             "voronoi_ca" => {
                 let simulation =
-                    VoronoiCASimulation::new(device, queue, surface_config, app_settings)?;
+                    crate::simulations::voronoi_ca::simulation::VoronoiCASimulation::new(
+                        device,
+                        queue,
+                        surface_config,
+                        app_settings,
+                    )?;
                 Ok(SimulationType::VoronoiCA(Box::new(simulation)))
             }
             "moire" => {
                 let settings = crate::simulations::moire::settings::Settings::default();
+
                 let simulation = crate::simulations::moire::MoireModel::new(
                     device,
                     queue,
                     surface_config,
                     settings,
-                    &std::sync::Arc::new(app_settings.clone()),
-                    lut_manager,
+                    app_settings,
+                    color_scheme_manager,
                 )?;
                 Ok(SimulationType::Moire(Box::new(simulation)))
+            }
+            "primordial_particles" => {
+                use crate::simulations::primordial_particles::{
+                    PrimordialParticlesModel, settings::Settings, state::State,
+                };
+
+                let settings = Settings::default();
+                let state = State::new(surface_config.width, surface_config.height);
+
+                let simulation = PrimordialParticlesModel::new(
+                    device,
+                    queue,
+                    surface_config,
+                    &settings,
+                    &state,
+                )?;
+                Ok(SimulationType::PrimordialParticles(Box::new(simulation)))
             }
             _ => Err(format!("Unknown simulation type: {}", simulation_type).into()),
         }
@@ -404,10 +424,7 @@ impl Simulation for SimulationType {
         new_config: &SurfaceConfiguration,
     ) -> SimulationResult<()> {
         match self {
-            SimulationType::GrayScott(simulation) => {
-                // GrayScott has a different public method signature - call it directly
-                GrayScottModel::resize(simulation, device, queue, new_config)
-            }
+            SimulationType::GrayScott(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::SlimeMold(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::ParticleLife(simulation) => {
                 simulation.resize(device, queue, new_config)
@@ -418,6 +435,9 @@ impl Simulation for SimulationType {
             SimulationType::Gradient(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::VoronoiCA(simulation) => simulation.resize(device, queue, new_config),
             SimulationType::Moire(simulation) => simulation.resize(device, queue, new_config),
+            SimulationType::PrimordialParticles(simulation) => {
+                simulation.resize(device, queue, new_config)
+            }
         }
     }
 

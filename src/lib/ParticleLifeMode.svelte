@@ -51,9 +51,9 @@
                 <div class="display-controls-grid">
                     <div class="control-group">
                         <label for="colorSchemeSelector">Color Scheme</label>
-                        <LutSelector
+                        <ColorSchemeSelector
                             bind:available_color_schemes
-                            bind:current_color_scheme={state.current_color_scheme_name}
+                            bind:current_color_scheme={state.current_color_scheme}
                             bind:reversed={state.color_scheme_reversed}
                             on:select={(e) => updateColorScheme(e.detail.name)}
                             on:reverse={(e) => updateColorSchemeReversed(e.detail.reversed)}
@@ -61,7 +61,7 @@
                     </div>
                     <div class="control-group">
                         <Selector
-                            options={['Black', 'White', 'Gray18', 'ColorScheme']}
+                            options={['Black', 'White', 'Gray18', 'Color Scheme']}
                             bind:value={state.background_color_mode}
                             label="Background Color Mode"
                             on:change={({ detail }) => updateColorMode(detail.value)}
@@ -112,49 +112,22 @@
             <PostProcessingMenu simulationType="particle_life" />
 
             <!-- Controls -->
-            <fieldset>
-                <legend>Controls</legend>
-                <div class="interaction-controls-grid">
-                    <div class="interaction-help">
-                        <div class="control-group">
-                            <span>🖱️ Left click: Attract | Right click: Repel</span>
-                        </div>
-                        <div class="control-group">
-                            <Button
-                                variant="default"
-                                on:click={() => dispatch('navigate', 'how-to-play')}
-                            >
-                                📖 Camera Controls
-                            </Button>
-                        </div>
-                        <div class="control-group">
-                            <span
-                                >Camera controls not working? Click the control bar at the top of
-                                the screen.</span
-                            >
-                        </div>
-                    </div>
-                    <div class="cursor-settings">
-                        <div class="cursor-settings-header">
-                            <span>🎯 Cursor Settings</span>
-                        </div>
-                        <CursorConfig
-                            cursorSize={state.cursor_size}
-                            cursorStrength={state.cursor_strength}
-                            sizeMin={0.05}
-                            sizeMax={1.0}
-                            sizeStep={0.05}
-                            strengthMin={0}
-                            strengthMax={20}
-                            strengthStep={0.5}
-                            sizePrecision={2}
-                            strengthPrecision={1}
-                            on:sizechange={(e) => updateCursorSize(e.detail)}
-                            on:strengthchange={(e) => updateCursorStrength(e.detail)}
-                        />
-                    </div>
-                </div>
-            </fieldset>
+            <ControlsPanel
+                mouseInteractionText="🖱️ Left click: Attract | Right click: Repel"
+                cursorSize={state.cursor_size}
+                cursorStrength={state.cursor_strength}
+                sizeMin={0.05}
+                sizeMax={1.0}
+                sizeStep={0.05}
+                strengthMin={0}
+                strengthMax={20}
+                strengthStep={0.5}
+                sizePrecision={2}
+                strengthPrecision={1}
+                on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
+                on:cursorStrengthChange={(e) => updateCursorStrength(e.detail)}
+                on:navigate={(e) => dispatch('navigate', e.detail)}
+            />
 
             <!-- Settings -->
             <fieldset>
@@ -306,10 +279,9 @@
     import { listen } from '@tauri-apps/api/event';
     import Button from './components/shared/Button.svelte';
     import NumberDragBox from './components/inputs/NumberDragBox.svelte';
-    import LutSelector from './components/shared/ColorSchemeSelector.svelte';
+    import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
     import InteractivePhysicsDiagram from './components/particle-life/InteractivePhysicsDiagram.svelte';
     import InteractionMatrix from './components/particle-life/InteractionMatrix.svelte';
-    import CursorConfig from './components/shared/CursorConfig.svelte';
     import SimulationLayout from './components/shared/SimulationLayout.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import ButtonSelect from './components/inputs/ButtonSelect.svelte';
@@ -317,6 +289,7 @@
     import CollapsibleFieldset from './components/shared/CollapsibleFieldset.svelte';
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
+    import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
     import './shared-theme.css';
 
@@ -348,7 +321,7 @@
         position_generator: string;
         type_generator: string;
         matrix_generator: string;
-        current_color_scheme_name: string;
+        current_color_scheme: string;
         color_scheme_reversed: boolean;
         background_color_mode: string;
     }
@@ -743,7 +716,7 @@
                     position_generator: state.position_generator,
                     type_generator: state.type_generator,
                     background_color_mode: state.background_color_mode,
-                    current_color_scheme_name: state.current_color_scheme_name,
+                    current_color_scheme: state.current_color_scheme,
                 });
             }
         } catch (e) {
@@ -776,7 +749,7 @@
         try {
             await invoke('pause_simulation');
             isSimulationRunning = false;
-            
+
             // Update auto-hide manager state and handle pause
             if (autoHideManager) {
                 autoHideManager.updateState({ running: isSimulationRunning });
@@ -792,7 +765,7 @@
         try {
             await invoke('resume_simulation');
             isSimulationRunning = true;
-            
+
             // Update auto-hide manager state and handle resume
             if (autoHideManager) {
                 autoHideManager.updateState({ running: isSimulationRunning });
@@ -1219,7 +1192,7 @@
     async function updateColorScheme(colorSchemeName: string) {
         try {
             console.log(`Updating color scheme to: ${colorSchemeName}`);
-            state!.current_color_scheme_name = colorSchemeName;
+            state!.current_color_scheme = colorSchemeName;
             await invoke('apply_color_scheme_by_name', { colorSchemeName });
 
             // Immediately update species colors after color scheme change
@@ -1232,7 +1205,7 @@
     async function updateColorSchemeReversed(reversed: boolean) {
         try {
             console.log(
-                `Updating color scheme reversed to: ${reversed}, current color scheme: ${state!.current_color_scheme_name}`
+                `Updating color scheme reversed to: ${reversed}, current color scheme: ${state!.current_color_scheme}`
             );
             state!.color_scheme_reversed = reversed;
 
@@ -1297,51 +1270,5 @@
 
     .matrix-section {
         flex: 1;
-    }
-
-    .interaction-controls-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 0.5rem;
-        align-items: start;
-    }
-
-    .interaction-help {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .cursor-settings-header {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.8);
-        padding: 0.15rem 0;
-    }
-
-    /* Mobile responsive design */
-    @media (max-width: 768px) {
-        .interaction-controls-grid {
-            grid-template-columns: 1fr;
-            gap: 0.75rem;
-        }
-
-        .interaction-help {
-            gap: 0.4rem;
-        }
-
-        .cursor-settings {
-            gap: 0.4rem;
-        }
-
-        .cursor-settings-header {
-            font-size: 0.85rem;
-        }
     }
 </style>

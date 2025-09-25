@@ -5,9 +5,7 @@
 //! both the computational correctness and the integration between different
 //! components of the simulation system.
 
-use super::shaders::{
-    BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, GRADIENT_SHADER, QUAD_SHADER,
-};
+use super::shaders::{BACKGROUND_RENDER_SHADER, COMPUTE_SHADER, DISPLAY_SHADER, QUAD_SHADER};
 use super::simulation::{BackgroundParams, SimSizeUniform};
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use std::mem;
@@ -72,13 +70,13 @@ impl SlimeMoldValidator {
         Ok(())
     }
 
-    /// Validates that the Slime Mold gradient shader compiles without errors
-    fn validate_gradient_shader_compilation(&self) -> Result<(), String> {
+    /// Validates that the Slime Mold mask shader compiles without errors
+    fn validate_mask_shader_compilation(&self) -> Result<(), String> {
         let _ = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Slime Mold Gradient Shader"),
-                source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
+                label: Some("Slime Mold Mask Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gradient.wgsl").into()),
             });
         Ok(())
     }
@@ -122,16 +120,15 @@ impl SlimeMoldValidator {
             agent_sensor_distance: 9.0,
             diffusion_rate: 1.0,
             pheromone_deposition_rate: 1.0,
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 1.0,
+            mask_curve: 1.0,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
             random_seed: 123,
             position_generator: 0,
-            _pad1: 0,
         };
 
         // Create buffers
@@ -185,16 +182,15 @@ impl SlimeMoldValidator {
             agent_sensor_distance: 9.0,
             diffusion_rate: 1.0,
             pheromone_deposition_rate: 1.0,
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 1.0,
+            mask_curve: 1.0,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
             random_seed: 123,
             position_generator: 0,
-            _pad1: 0,
         };
 
         // Create trail map buffer
@@ -206,23 +202,23 @@ impl SlimeMoldValidator {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        // Create LUT buffer
+        // Create color scheme buffer
         let lut_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Slime Mold LUT Buffer"),
+                label: Some("Slime Mold Color Scheme Buffer"),
                 contents: bytemuck::cast_slice(&vec![0u32; 256 * 3]), // RGB values
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
 
-        // Create gradient map buffer
-        let gradient_map_buffer =
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Slime Mold Gradient Map Buffer"),
-                    contents: bytemuck::cast_slice(&vec![0.0f32; 1920 * 1080]),
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                });
+        // Create mask map buffer
+        let mask_map_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Slime Mold Mask Map Buffer"),
+                contents: bytemuck::cast_slice(&vec![0.0f32; 1920 * 1080]),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            });
 
         // Create sim params buffer
         let sim_params_buffer = self
@@ -320,7 +316,7 @@ impl SlimeMoldValidator {
                 resource_helpers::texture_view_entry(1, &display_view),
                 resource_helpers::buffer_entry(2, &sim_params_buffer),
                 resource_helpers::buffer_entry(3, &lut_buffer),
-                resource_helpers::buffer_entry(4, &gradient_map_buffer),
+                resource_helpers::buffer_entry(4, &mask_map_buffer),
             ],
         });
 
@@ -355,8 +351,8 @@ async fn test_slime_mold_shader_compilation() {
         .validate_display_shader_compilation()
         .expect("Display shader compilation failed");
     validator
-        .validate_gradient_shader_compilation()
-        .expect("Gradient shader compilation failed");
+        .validate_mask_shader_compilation()
+        .expect("Mask shader compilation failed");
     validator
         .validate_quad_shader_compilation()
         .expect("Quad shader compilation failed");
@@ -430,27 +426,26 @@ fn test_struct_layout_consistency() {
             agent_sensor_distance: 9.0,
             diffusion_rate: 1.0,
             pheromone_deposition_rate: 1.0,
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
+            mask_pattern: 0,
+            mask_target: 0,
+            mask_strength: 1.0,
+            mask_curve: 1.0,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
             random_seed: 123,
             position_generator: 0,
-            _pad1: 0,
         };
 
         let dummy_background_params = BackgroundParams {
             background_type: 0,
-            gradient_enabled: 0,
-            gradient_type: 0,
-            gradient_strength: 1.0,
-            gradient_center_x: 0.0,
-            gradient_center_y: 0.0,
-            gradient_size: 100.0,
-            gradient_angle: 0.0,
+            mask_enabled: 0,
+            mask_pattern: 0,
+            mask_strength: 1.0,
+            mask_invert_tone: 0,
+            mask_mirror_horizontal: 0,
+            mask_mirror_vertical: 0,
+            _pad0: 0,
         };
 
         // Create buffers and verify sizes

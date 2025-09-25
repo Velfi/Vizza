@@ -18,6 +18,9 @@
         on:dblclick={handleDoubleClick}
         role="spinbutton"
         tabindex="0"
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={value}
     >
         {#if isEditing}
             <input

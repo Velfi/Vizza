@@ -12,17 +12,12 @@ pub async fn kill_all_particles(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
-        &mut sim_manager.current_simulation
-    {
-        simulation
-            .kill_all_particles(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to kill particles: {}", e))?;
-        tracing::info!("All particles killed successfully");
-        Ok("All particles killed successfully".to_string())
-    } else {
-        Err("This command is only available for Flow simulation".to_string())
-    }
+    let simulation = sim_manager.flow_simulation_mut()?;
+    simulation
+        .kill_all_particles(&gpu_ctx.device, &gpu_ctx.queue)
+        .map_err(|e| format!("Failed to kill particles: {}", e))?;
+    tracing::info!("All particles killed successfully");
+    Ok("All particles killed successfully".to_string())
 }
 
 #[tauri::command]
@@ -39,30 +34,25 @@ pub async fn update_post_processing_state(
     );
     let mut sim_manager = manager.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
-        &mut sim_manager.current_simulation
-    {
-        match effect_name.as_str() {
-            "blur_filter" => {
-                simulation.post_processing_state.blur_filter.enabled = enabled;
-                if let Some(radius) = params.get("radius").and_then(|v| v.as_f64()) {
-                    simulation.post_processing_state.blur_filter.radius = radius as f32;
-                }
-                if let Some(sigma) = params.get("sigma").and_then(|v| v.as_f64()) {
-                    simulation.post_processing_state.blur_filter.sigma = sigma as f32;
-                }
-                tracing::info!(
-                    "Blur filter updated: enabled={}, radius={}, sigma={}",
-                    enabled,
-                    simulation.post_processing_state.blur_filter.radius,
-                    simulation.post_processing_state.blur_filter.sigma
-                );
-                Ok("Post processing state updated successfully".to_string())
+    let simulation = sim_manager.flow_simulation_mut()?;
+    match effect_name.as_str() {
+        "blur_filter" => {
+            simulation.post_processing_state.blur_filter.enabled = enabled;
+            if let Some(radius) = params.get("radius").and_then(|v| v.as_f64()) {
+                simulation.post_processing_state.blur_filter.radius = radius as f32;
             }
-            _ => Err(format!("Unknown post processing effect: {}", effect_name)),
+            if let Some(sigma) = params.get("sigma").and_then(|v| v.as_f64()) {
+                simulation.post_processing_state.blur_filter.sigma = sigma as f32;
+            }
+            tracing::info!(
+                "Blur filter updated: enabled={}, radius={}, sigma={}",
+                enabled,
+                simulation.post_processing_state.blur_filter.radius,
+                simulation.post_processing_state.blur_filter.sigma
+            );
+            Ok("Post processing state updated successfully".to_string())
         }
-    } else {
-        Err("This command is only available for Flow simulation".to_string())
+        _ => Err(format!("Unknown post processing effect: {}", effect_name)),
     }
 }
 
@@ -73,20 +63,15 @@ pub async fn get_post_processing_state(
     tracing::debug!("get_post_processing_state called");
     let sim_manager = manager.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
-        &sim_manager.current_simulation
-    {
-        let state = serde_json::json!({
-            "blur_filter": {
-                "enabled": simulation.post_processing_state.blur_filter.enabled,
-                "radius": simulation.post_processing_state.blur_filter.radius,
-                "sigma": simulation.post_processing_state.blur_filter.sigma,
-            }
-        });
-        Ok(state)
-    } else {
-        Err("This command is only available for Flow simulation".to_string())
-    }
+    let simulation = sim_manager.flow_simulation()?;
+    let state = serde_json::json!({
+        "blur_filter": {
+            "enabled": simulation.post_processing_state.blur_filter.enabled,
+            "radius": simulation.post_processing_state.blur_filter.radius,
+            "sigma": simulation.post_processing_state.blur_filter.sigma,
+        }
+    });
+    Ok(state)
 }
 
 #[tauri::command]
@@ -119,29 +104,24 @@ pub async fn draw_antialiased_shape(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(simulation)) =
-        &mut sim_manager.current_simulation
-    {
-        simulation
-            .draw_antialiased_shape(
-                &gpu_ctx.device,
-                &gpu_ctx.queue,
-                center_x,
-                center_y,
-                size,
-                shape_type,
-                color_array,
-                intensity,
-                antialiasing_width,
-                rotation,
-            )
-            .map_err(|e| format!("Failed to draw shape: {}", e))?;
+    let simulation = sim_manager.flow_simulation_mut()?;
+    simulation
+        .draw_antialiased_shape(
+            &gpu_ctx.device,
+            &gpu_ctx.queue,
+            center_x,
+            center_y,
+            size,
+            shape_type,
+            color_array,
+            intensity,
+            antialiasing_width,
+            rotation,
+        )
+        .map_err(|e| format!("Failed to draw shape: {}", e))?;
 
-        tracing::info!("Antialiased shape drawn successfully");
-        Ok("Shape drawn successfully".to_string())
-    } else {
-        Err("This command is only available for Flow simulation".to_string())
-    }
+    tracing::info!("Antialiased shape drawn successfully");
+    Ok("Shape drawn successfully".to_string())
 }
 
 #[tauri::command]
@@ -153,23 +133,18 @@ pub async fn set_flow_vector_field_type(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
-    {
-        sim.settings.vector_field_type = match vector_field_type.as_str() {
-            "Noise" | "noise" => crate::simulations::flow::settings::VectorFieldType::Noise,
-            "Image" | "image" => crate::simulations::flow::settings::VectorFieldType::Image,
-            _ => return Err("Invalid vector field type. Must be 'Noise' or 'Image'".to_string()),
-        };
+    let sim = sim_manager.flow_simulation_mut()?;
+    sim.settings.vector_field_type = match vector_field_type.as_str() {
+        "Noise" | "noise" => crate::simulations::flow::settings::VectorFieldType::Noise,
+        "Image" | "image" => crate::simulations::flow::settings::VectorFieldType::Image,
+        _ => return Err("Invalid vector field type. Must be 'Noise' or 'Image'".to_string()),
+    };
 
-        // Regenerate flow vectors to apply the new mode
-        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
+    // Regenerate flow vectors to apply the new mode
+    sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+        .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
 
-        Ok("Vector field type updated successfully".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
-    }
+    Ok("Vector field type updated successfully".to_string())
 }
 
 #[tauri::command]
@@ -181,49 +156,38 @@ pub async fn set_flow_image_fit_mode(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
+    let sim = sim_manager.flow_simulation_mut()?;
+    tracing::info!("Setting image fit mode to: {}", fit_mode);
+
+    sim.settings.image_fit_mode = match fit_mode.parse::<crate::simulations::shared::ImageFitMode>()
     {
-        tracing::info!("Setting image fit mode to: {}", fit_mode);
-
-        sim.settings.image_fit_mode = match fit_mode.as_str() {
-            "Stretch" | "stretch" => {
-                crate::simulations::flow::settings::GradientImageFitMode::Stretch
-            }
-            "Center" | "center" => crate::simulations::flow::settings::GradientImageFitMode::Center,
-            "Fit H" | "fit h" => crate::simulations::flow::settings::GradientImageFitMode::FitH,
-            "Fit V" | "fit v" => crate::simulations::flow::settings::GradientImageFitMode::FitV,
-            _ => {
-                return Err(
-                    "Invalid fit mode. Must be 'Stretch', 'Center', 'Fit H', or 'Fit V'"
-                        .to_string(),
-                );
-            }
-        };
-
-        // If image mode is active and we have an image loaded, reprocess and regenerate vectors
-        if sim.settings.vector_field_type
-            == crate::simulations::flow::settings::VectorFieldType::Image
-            && sim.vector_field_image_original.is_some()
-        {
-            tracing::info!("Reprocessing image with new fit mode");
-            sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to reprocess image: {}", e))?;
-            sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
-            tracing::info!("Image reprocessed and vectors regenerated");
-        } else {
-            tracing::warn!(
-                "Not reprocessing image - vector_field_type: {:?}, has_image: {}",
-                sim.settings.vector_field_type,
-                sim.vector_field_image_original.is_some()
+        Ok(m) => m,
+        Err(_) => {
+            return Err(
+                "Invalid fit mode. Must be 'Stretch', 'Center', 'Fit H', or 'Fit V'".to_string(),
             );
         }
+    };
 
-        Ok("Image fit mode updated successfully".to_string())
+    // If image mode is active and we have an image loaded, reprocess and regenerate vectors
+    if sim.settings.vector_field_type == crate::simulations::flow::settings::VectorFieldType::Image
+        && sim.vector_field_image_original.is_some()
+    {
+        tracing::info!("Reprocessing image with new fit mode");
+        sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to reprocess image: {}", e))?;
+        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
+        tracing::info!("Image reprocessed and vectors regenerated");
     } else {
-        Err("No Flow simulation running".to_string())
+        tracing::warn!(
+            "Not reprocessing image - vector_field_type: {:?}, has_image: {}",
+            sim.settings.vector_field_type,
+            sim.vector_field_image_original.is_some()
+        );
     }
+
+    Ok("Image fit mode updated successfully".to_string())
 }
 
 #[tauri::command]
@@ -235,26 +199,20 @@ pub async fn set_flow_image_mirror_horizontal(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
+    let sim = sim_manager.flow_simulation_mut()?;
+    sim.settings.image_mirror_horizontal = mirror;
+
+    // If image mode is active and we have an image loaded, reprocess and regenerate vectors
+    if sim.settings.vector_field_type == crate::simulations::flow::settings::VectorFieldType::Image
+        && sim.vector_field_image_original.is_some()
     {
-        sim.settings.image_mirror_horizontal = mirror;
-
-        // If image mode is active and we have an image loaded, reprocess and regenerate vectors
-        if sim.settings.vector_field_type
-            == crate::simulations::flow::settings::VectorFieldType::Image
-            && sim.vector_field_image_original.is_some()
-        {
-            sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to reprocess image: {}", e))?;
-            sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
-        }
-
-        Ok("Image mirror horizontal setting updated successfully".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
+        sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to reprocess image: {}", e))?;
+        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
     }
+
+    Ok("Image mirror horizontal setting updated successfully".to_string())
 }
 
 #[tauri::command]
@@ -266,26 +224,45 @@ pub async fn set_flow_image_invert_tone(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
+    let sim = sim_manager.flow_simulation_mut()?;
+    sim.settings.image_invert_tone = invert;
+
+    // If image mode is active and we have an image loaded, reprocess and regenerate vectors
+    if sim.settings.vector_field_type == crate::simulations::flow::settings::VectorFieldType::Image
+        && sim.vector_field_image_original.is_some()
     {
-        sim.settings.image_invert_tone = invert;
-
-        // If image mode is active and we have an image loaded, reprocess and regenerate vectors
-        if sim.settings.vector_field_type
-            == crate::simulations::flow::settings::VectorFieldType::Image
-            && sim.vector_field_image_original.is_some()
-        {
-            sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to reprocess image: {}", e))?;
-            sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-                .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
-        }
-
-        Ok("Image invert tone setting updated successfully".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
+        sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to reprocess image: {}", e))?;
+        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
     }
+
+    Ok("Image invert tone setting updated successfully".to_string())
+}
+
+#[tauri::command]
+pub async fn set_flow_image_mirror_vertical(
+    manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
+    gpu_context: State<'_, Arc<tokio::sync::Mutex<crate::GpuContext>>>,
+    mirror: bool,
+) -> Result<String, String> {
+    let mut sim_manager = manager.lock().await;
+    let gpu_ctx = gpu_context.lock().await;
+
+    let sim = sim_manager.flow_simulation_mut()?;
+    sim.settings.image_mirror_vertical = mirror;
+
+    // If image mode is active and we have an image loaded, reprocess and regenerate vectors
+    if sim.settings.vector_field_type == crate::simulations::flow::settings::VectorFieldType::Image
+        && sim.vector_field_image_original.is_some()
+    {
+        sim.reprocess_vector_field_image_with_current_fit_mode(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to reprocess image: {}", e))?;
+        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
+    }
+
+    Ok("Image mirror vertical setting updated successfully".to_string())
 }
 
 #[tauri::command]
@@ -297,24 +274,19 @@ pub async fn load_flow_vector_field_image(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
-    {
-        // Load the image
-        sim.load_vector_field_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
-            .map_err(|e| format!("Failed to load vector field image: {}", e))?;
+    let sim = sim_manager.flow_simulation_mut()?;
+    // Load the image
+    sim.load_vector_field_image_from_path(&gpu_ctx.device, &gpu_ctx.queue, &image_path)
+        .map_err(|e| format!("Failed to load vector field image: {}", e))?;
 
-        // Switch to image mode if not already
-        sim.settings.vector_field_type = crate::simulations::flow::settings::VectorFieldType::Image;
+    // Switch to image mode if not already
+    sim.settings.vector_field_type = crate::simulations::flow::settings::VectorFieldType::Image;
 
-        // Regenerate flow vectors to apply the image
-        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
+    // Regenerate flow vectors to apply the image
+    sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+        .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
 
-        Ok("Vector field image loaded and applied successfully".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
-    }
+    Ok("Vector field image loaded and applied successfully".to_string())
 }
 
 /// Load a vector field image from raw bytes (recommended for file inputs)
@@ -327,28 +299,23 @@ pub async fn load_flow_vector_field_image_bytes(
     let mut sim_manager = manager.lock().await;
     let gpu_ctx = gpu_context.lock().await;
 
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
-    {
-        // Decode image from memory
-        let img = image::load_from_memory(&data)
-            .map_err(|e| format!("Failed to decode image bytes: {}", e))?;
+    let sim = sim_manager.flow_simulation_mut()?;
+    // Decode image from memory
+    let img = image::load_from_memory(&data)
+        .map_err(|e| format!("Failed to decode image bytes: {}", e))?;
 
-        // Load image into GPU resources
-        sim.load_vector_field_image_from_data(&gpu_ctx.device, &gpu_ctx.queue, img)
-            .map_err(|e| format!("Failed to load vector field image: {}", e))?;
+    // Load image into GPU resources
+    sim.load_vector_field_image_from_data(&gpu_ctx.device, &gpu_ctx.queue, img)
+        .map_err(|e| format!("Failed to load vector field image: {}", e))?;
 
-        // Ensure we are in Image mode
-        sim.settings.vector_field_type = crate::simulations::flow::settings::VectorFieldType::Image;
+    // Ensure we are in Image mode
+    sim.settings.vector_field_type = crate::simulations::flow::settings::VectorFieldType::Image;
 
-        // Regenerate flow vectors
-        sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
-            .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
+    // Regenerate flow vectors
+    sim.regenerate_flow_vectors(&gpu_ctx.device, &gpu_ctx.queue)
+        .map_err(|e| format!("Failed to regenerate flow vectors: {}", e))?;
 
-        Ok("Vector field image loaded from bytes and applied successfully".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
-    }
+    Ok("Vector field image loaded from bytes and applied successfully".to_string())
 }
 
 #[tauri::command]
@@ -356,19 +323,14 @@ pub async fn start_flow_webcam_capture(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
-    {
-        let devices = sim.get_available_webcam_devices();
-        if devices.is_empty() {
-            return Err("No webcam devices available".to_string());
-        }
-        sim.start_webcam_capture(devices[0])
-            .map_err(|e| e.to_string())?;
-        Ok("Flow webcam started".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
+    let sim = sim_manager.flow_simulation_mut()?;
+    let devices = sim.get_available_webcam_devices();
+    if devices.is_empty() {
+        return Err("No webcam devices available".to_string());
     }
+    sim.start_webcam_capture(devices[0])
+        .map_err(|e| e.to_string())?;
+    Ok("Flow webcam started".to_string())
 }
 
 #[tauri::command]
@@ -376,14 +338,9 @@ pub async fn stop_flow_webcam_capture(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<String, String> {
     let mut sim_manager = manager.lock().await;
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &mut sim_manager.current_simulation
-    {
-        sim.stop_webcam_capture();
-        Ok("Flow webcam stopped".to_string())
-    } else {
-        Err("No Flow simulation running".to_string())
-    }
+    let sim = sim_manager.flow_simulation_mut()?;
+    sim.stop_webcam_capture();
+    Ok("Flow webcam stopped".to_string())
 }
 
 #[tauri::command]
@@ -391,11 +348,6 @@ pub async fn get_available_flow_webcam_devices(
     manager: State<'_, Arc<tokio::sync::Mutex<SimulationManager>>>,
 ) -> Result<Vec<i32>, String> {
     let sim_manager = manager.lock().await;
-    if let Some(crate::simulations::traits::SimulationType::Flow(sim)) =
-        &sim_manager.current_simulation
-    {
-        Ok(sim.get_available_webcam_devices())
-    } else {
-        Err("No Flow simulation running".to_string())
-    }
+    let sim = sim_manager.flow_simulation()?;
+    Ok(sim.get_available_webcam_devices())
 }
