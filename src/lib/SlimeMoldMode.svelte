@@ -174,14 +174,13 @@
                                 showFitMode={true}
                                 showLoadButton={true}
                                 onFitModeChange={async (
-                                    value: 'Center' | 'Stretch' | 'FitH' | 'FitV'
+                                    value: string
                                 ) => {
                                     if (settings) {
                                         settings.position_image_fit_mode = value;
                                         try {
-                                            await invoke('update_simulation_setting', {
-                                                settingName: 'position_image_fit_mode',
-                                                value: value,
+                                            await invoke('set_slime_mold_position_image_fit_mode', {
+                                                fitMode: value,
                                             });
                                         } catch (err) {
                                             console.error(
@@ -591,9 +590,8 @@
                                                 | 'FitH'
                                                 | 'FitV';
                                             try {
-                                                await invoke('update_simulation_state', {
-                                                    stateName: 'mask_image_fit_mode',
-                                                    value: value,
+                                                await invoke('set_slime_mold_mask_image_fit_mode', {
+                                                    fitMode: value,
                                                 });
                                             } catch (err) {
                                                 console.error('Failed to update fit mode:', err);
@@ -663,7 +661,7 @@
         pheromone_diffusion_rate: number;
 
         // Position image fit mode
-        position_image_fit_mode: 'Stretch' | 'Center' | 'FitH' | 'FitV';
+        position_image_fit_mode: string;
 
         // Update frequencies and randomness
         diffusion_frequency: number;
@@ -698,7 +696,7 @@
         mask_strength: number;
         mask_curve: number;
         mask_reversed: boolean;
-        mask_image_fit_mode: 'Stretch' | 'Center' | 'FitH' | 'FitV';
+        mask_image_fit_mode: string;
         mask_mirror_horizontal: boolean;
         mask_mirror_vertical: boolean;
         mask_invert_tone: boolean;

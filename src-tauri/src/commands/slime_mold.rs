@@ -122,7 +122,9 @@ pub async fn set_slime_mold_mask_image_fit_mode(
         sim.state.mask_image_fit_mode = fit_mode
             .parse::<crate::simulations::shared::ImageFitMode>()
             .expect("Invalid image fit mode");
-        Ok("Mask image fit mode set".to_string())
+        // Reprocess the image with the new fit mode
+        sim.reprocess_mask_image_with_current_fit_mode();
+        Ok("Mask image fit mode set and image reprocessed".to_string())
     } else {
         Err("No slime mold simulation running".to_string())
     }
@@ -159,7 +161,9 @@ pub async fn set_slime_mold_position_image_fit_mode(
         sim.settings.position_image_fit_mode = fit_mode
             .parse::<crate::simulations::shared::ImageFitMode>()
             .expect("Invalid position image fit mode");
-        Ok("Position image fit mode set".to_string())
+        // Reprocess the image with the new fit mode
+        sim.reprocess_position_image_with_current_fit_mode();
+        Ok("Position image fit mode set and image reprocessed".to_string())
     } else {
         Err("No slime mold simulation running".to_string())
     }

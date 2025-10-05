@@ -1960,7 +1960,7 @@ impl SlimeMoldModel {
     }
 
     /// Reprocess the stored original image with the current fit mode
-    fn reprocess_mask_image_with_current_fit_mode(&mut self) {
+    pub fn reprocess_mask_image_with_current_fit_mode(&mut self) {
         if let Some(original_img) = &self.mask_image_original {
             let (target_w, target_h) = (self.current_width as u32, self.current_height as u32);
 
