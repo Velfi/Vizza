@@ -68,26 +68,22 @@
                 cursorSize={state?.cursor_size}
                 cursorStrength={state?.cursor_strength}
                 on:cursorSizeChange={async (e) => {
-                    try {
-                        if (state) state.cursor_size = e.detail;
-                        await invoke('update_simulation_state', {
-                            stateName: 'cursor_size',
-                            value: e.detail,
-                        });
-                    } catch (err) {
-                        console.error('Failed to update cursor size:', err);
-                    }
+                    const result = await syncManager.updateStateOptimistic(
+                        state,
+                        'cursor_size',
+                        e.detail,
+                        true // sync from backend after update
+                    );
+                    if (result) state = result;
                 }}
                 on:cursorStrengthChange={async (e) => {
-                    try {
-                        if (state) state.cursor_strength = e.detail;
-                        await invoke('update_simulation_state', {
-                            stateName: 'cursor_strength',
-                            value: e.detail,
-                        });
-                    } catch (err) {
-                        console.error('Failed to update cursor strength:', err);
-                    }
+                    const result = await syncManager.updateStateOptimistic(
+                        state,
+                        'cursor_strength',
+                        e.detail,
+                        true // sync from backend after update
+                    );
+                    if (result) state = result;
                 }}
                 on:navigate={(e) => dispatch('navigate', e.detail)}
             />
@@ -317,6 +313,7 @@
     import ImageSelector from './components/shared/ImageSelector.svelte';
     import WebcamControls from './components/shared/WebcamControls.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
 
     const dispatch = createEventDispatcher();
@@ -407,6 +404,9 @@
 
     // Simulation state (runtime, not saved in presets)
     let state: State | undefined = undefined;
+
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, State>();
 
     // Preset and LUT state
     let current_preset = '';
@@ -528,7 +528,9 @@
     async function updateLutReversed() {
         try {
             await invoke('toggle_color_scheme_reversed');
-            await syncSettingsFromBackend(); // Sync UI with backend state
+            const synced = await syncManager.syncAll();
+            if (synced.settings) settings = synced.settings;
+            if (synced.state) state = synced.state;
         } catch (e) {
             console.error('Failed to toggle color scheme reversed:', e);
         }
@@ -538,7 +540,9 @@
         current_preset = value;
         try {
             await invoke('apply_preset', { presetName: value });
-            await syncSettingsFromBackend(); // Sync UI with new settings
+            const synced = await syncManager.syncAll();
+            if (synced.settings) settings = synced.settings;
+            if (synced.state) state = synced.state;
             console.log(`Applied preset: ${value}`);
         } catch (e) {
             console.error('Failed to apply preset:', e);
@@ -684,22 +688,9 @@
 
     // Sync settings and state from backend to frontend
     async function syncSettingsFromBackend() {
-        try {
-            const backendSettings = await invoke('get_current_settings');
-            const backendState = await invoke('get_current_state');
-
-            if (backendSettings) {
-                // Use backend settings directly
-                settings = backendSettings as Settings;
-            }
-
-            if (backendState) {
-                // Use backend state directly
-                state = backendState as State;
-            }
-        } catch (e) {
-            console.error('Failed to sync settings from backend:', e);
-        }
+        const synced = await syncManager.syncAll();
+        if (synced.settings) settings = synced.settings;
+        if (synced.state) state = synced.state;
     }
 
     let simulationInitializedUnlisten: (() => void) | null = null;
@@ -883,7 +874,9 @@
     async function updateLut(name: string) {
         try {
             await invoke('apply_color_scheme_by_name', { colorSchemeName: name });
-            await syncSettingsFromBackend(); // Sync UI with backend state
+            const synced = await syncManager.syncAll();
+            if (synced.settings) settings = synced.settings;
+            if (synced.state) state = synced.state;
         } catch (e) {
             console.error('Failed to update color scheme:', e);
         }

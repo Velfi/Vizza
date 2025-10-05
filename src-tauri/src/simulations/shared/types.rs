@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 pub enum ImageFitMode {
     Stretch,
     Center,
+    #[serde(rename = "Fit H")]
     FitH,
+    #[serde(rename = "Fit V")]
     FitV,
 }
 
@@ -62,9 +64,10 @@ impl std::str::FromStr for ImageFitMode {
 
 /// Color mode for particle rendering
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ColorMode {
+pub enum BackgroundColorMode {
     Gray18,
     White,
     Black,
+    #[serde(rename = "Color Scheme")]
     ColorScheme,
 }

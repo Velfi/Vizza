@@ -291,6 +291,7 @@
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
     import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
 
     const dispatch = createEventDispatcher();
@@ -331,6 +332,9 @@
 
     // Runtime state
     let state: State | undefined = undefined;
+
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, State>();
 
     // UI state
     let current_preset = '';
@@ -545,7 +549,7 @@
             }
 
             // Then update backend
-            await invoke('update_simulation_setting', { settingName, value });
+            await syncManager.updateSetting(settingName, value);
         } catch (e) {
             console.error(`Failed to update ${settingName}:`, e);
             // On error, sync from backend to restore correct state
@@ -589,43 +593,24 @@
 
     // Mouse interaction controls
     async function updateCursorSize(value: number) {
-        state!.cursor_size = value;
-        try {
-            await invoke('update_simulation_setting', { settingName: 'cursor_size', value });
-        } catch (e) {
-            console.error('Failed to update cursor size:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(state, 'cursor_size', value);
+        if (result) state = result;
     }
 
     async function updateCursorStrength(value: number) {
-        state!.cursor_strength = value;
-        try {
-            await invoke('update_simulation_setting', { settingName: 'cursor_strength', value });
-        } catch (e) {
-            console.error('Failed to update cursor strength:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(state, 'cursor_strength', value);
+        if (result) state = result;
     }
 
     // Rendering controls
     async function updateTracesEnabled(value: boolean) {
-        state!.traces_enabled = value;
-        try {
-            await invoke('update_simulation_setting', { settingName: 'traces_enabled', value });
-        } catch (e) {
-            console.error('Failed to update traces enabled:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(state, 'traces_enabled', value);
+        if (result) state = result;
     }
 
     async function updateTraceFade(value: number) {
-        state!.trace_fade = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'trace_fade',
-                value: value,
-            });
-        } catch (e) {
-            console.error('Failed to update trace fade:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(state, 'trace_fade', value);
+        if (result) state = result;
     }
 
     async function updateMatrixGenerator(value: string) {
@@ -643,6 +628,7 @@
         current_preset = value;
         try {
             await invoke('apply_preset', { presetName: value });
+            // Always sync both settings and state after preset change
             await syncSettingsFromBackend();
             console.log(`Applied preset: ${value}`);
         } catch (e) {
@@ -697,30 +683,20 @@
     }
 
     async function syncSettingsFromBackend() {
-        try {
-            const backendSettings = await invoke('get_current_settings');
-            const backendState = await invoke('get_current_state');
-
-            if (backendSettings) {
-                // Use backend settings directly
-                settings = backendSettings as Settings;
-            }
-
-            if (backendState) {
-                // Use backend state directly
-                state = backendState as State;
-
-                // Debug: Log the generator values to see what we're getting
-                console.log('Backend state received:', {
-                    matrix_generator: state.matrix_generator,
-                    position_generator: state.position_generator,
-                    type_generator: state.type_generator,
-                    background_color_mode: state.background_color_mode,
-                    current_color_scheme: state.current_color_scheme,
-                });
-            }
-        } catch (e) {
-            console.error('Failed to sync settings from backend:', e);
+        const synced = await syncManager.syncAll();
+        if (synced.settings !== null && synced.settings !== undefined) {
+            settings = synced.settings;
+        }
+        if (synced.state !== null && synced.state !== undefined) {
+            state = synced.state;
+            // Debug: Log the generator values to see what we're getting
+            console.log('Backend state received:', {
+                matrix_generator: state.matrix_generator,
+                position_generator: state.position_generator,
+                type_generator: state.type_generator,
+                background_color_mode: state.background_color_mode,
+                current_color_scheme: state.current_color_scheme,
+            });
         }
     }
 
@@ -1192,7 +1168,8 @@
     async function updateColorScheme(colorSchemeName: string) {
         try {
             console.log(`Updating color scheme to: ${colorSchemeName}`);
-            state!.current_color_scheme = colorSchemeName;
+            if (!state) return;
+            state.current_color_scheme = colorSchemeName;
             await invoke('apply_color_scheme_by_name', { colorSchemeName });
 
             // Immediately update species colors after color scheme change
@@ -1207,13 +1184,12 @@
             console.log(
                 `Updating color scheme reversed to: ${reversed}, current color scheme: ${state!.current_color_scheme}`
             );
-            state!.color_scheme_reversed = reversed;
-
-            // Update as a setting; backend listens for 'color_scheme_reversed' in update_setting
-            await invoke('update_simulation_setting', {
-                settingName: 'color_scheme_reversed',
-                value: reversed,
-            });
+            const result = await syncManager.updateStateOptimistic(
+                state,
+                'color_scheme_reversed',
+                reversed
+            );
+            if (result) state = result;
 
             // Immediately update species colors after color scheme change
             await updateSpeciesColors();
@@ -1225,11 +1201,12 @@
     async function updateColorMode(value: string) {
         try {
             console.log(`Updating background color mode to: ${value}`);
-            state!.background_color_mode = value;
-            await invoke('update_simulation_setting', {
-                settingName: 'background_color_mode',
-                value: value,
-            });
+            const result = await syncManager.updateStateOptimistic(
+                state,
+                'background_color_mode',
+                value
+            );
+            if (result) state = result;
 
             // Immediately update species colors after color mode change
             await updateSpeciesColors();

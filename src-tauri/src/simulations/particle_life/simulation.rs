@@ -1,7 +1,7 @@
 use crate::error::{SimulationError, SimulationResult};
 use crate::simulations::shared::gpu_utils::resource_helpers;
 use crate::simulations::shared::{
-    BindGroupBuilder, ColorMode, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
+    BindGroupBuilder, BackgroundColorMode, ColorSchemeManager, ComputePipelineBuilder, PositionGenerator,
     camera::Camera,
     post_processing::{PostProcessingResources, PostProcessingState},
 };
@@ -584,7 +584,7 @@ impl ParticleLifeModel {
         settings: Settings,
         app_settings: &crate::commands::app_settings::AppSettings,
         color_scheme_manager: &ColorSchemeManager,
-        color_mode: ColorMode,
+        color_mode: BackgroundColorMode,
     ) -> SimulationResult<Self> {
         let width = surface_config.width;
         let height = surface_config.height;
@@ -603,7 +603,7 @@ impl ParticleLifeModel {
             })?;
 
         // Create LUT buffer
-        let (lut_colors, current_color_scheme) = if color_mode == ColorMode::ColorScheme {
+        let (lut_colors, current_color_scheme) = if color_mode == BackgroundColorMode::ColorScheme {
             // Sample <num_species> + 1 equidistant stops
             // Use first color as background; remaining colors for species
             let raw_colors = lut
@@ -1221,10 +1221,10 @@ impl ParticleLifeModel {
 
         // Create color mode uniform buffer (16 bytes to match shader struct)
         let color_mode_value = match color_mode {
-            ColorMode::Gray18 => 0u32,
-            ColorMode::White => 1u32,
-            ColorMode::Black => 2u32,
-            ColorMode::ColorScheme => 3u32,
+            BackgroundColorMode::Gray18 => 0u32,
+            BackgroundColorMode::White => 1u32,
+            BackgroundColorMode::Black => 2u32,
+            BackgroundColorMode::ColorScheme => 3u32,
         };
         let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
         let color_mode_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2120,15 +2120,15 @@ impl ParticleLifeModel {
 
         // Initialize trail texture with background color
         let background_color = match color_mode {
-            ColorMode::Gray18 => wgpu::Color {
+            BackgroundColorMode::Gray18 => wgpu::Color {
                 r: 0.18,
                 g: 0.18,
                 b: 0.18,
                 a: 1.0,
             },
-            ColorMode::White => wgpu::Color::WHITE,
-            ColorMode::Black => wgpu::Color::BLACK,
-            ColorMode::ColorScheme => {
+            BackgroundColorMode::White => wgpu::Color::WHITE,
+            BackgroundColorMode::Black => wgpu::Color::BLACK,
+            BackgroundColorMode::ColorScheme => {
                 if !result.state.species_colors.is_empty() {
                     // Background is appended at the end (index = species_count)
                     let bg_index = (result.settings.species_count as usize)
@@ -2389,7 +2389,7 @@ impl ParticleLifeModel {
         device: &Arc<Device>,
         queue: &Arc<Queue>,
         color_scheme_manager: &ColorSchemeManager,
-        color_mode: ColorMode,
+        color_mode: BackgroundColorMode,
         color_scheme: Option<&str>,
         color_scheme_reversed: bool,
     ) -> SimulationResult<()> {
@@ -2420,7 +2420,7 @@ impl ParticleLifeModel {
         let species_count = self.settings.species_count as usize;
         let mut species_colors = Vec::with_capacity(species_count);
 
-        if color_mode == ColorMode::ColorScheme {
+        if color_mode == BackgroundColorMode::ColorScheme {
             // Sample <species_count> + 1 colors: first is background, remaining are species
             let raw_colors = lut
                 .get_colors(species_count + 1)
@@ -2506,10 +2506,10 @@ impl ParticleLifeModel {
 
         // Update color mode buffer (16 bytes to match shader struct)
         let color_mode_value = match self.state.background_color_mode {
-            ColorMode::Gray18 => 0u32,
-            ColorMode::White => 1u32,
-            ColorMode::Black => 2u32,
-            ColorMode::ColorScheme => 3u32,
+            BackgroundColorMode::Gray18 => 0u32,
+            BackgroundColorMode::White => 1u32,
+            BackgroundColorMode::Black => 2u32,
+            BackgroundColorMode::ColorScheme => 3u32,
         };
         let color_mode_data = [color_mode_value, 0u32, 0u32, 0u32]; // 16 bytes with padding
         queue.write_buffer(
@@ -2615,10 +2615,10 @@ impl ParticleLifeModel {
     pub fn update_background_params(&mut self, queue: &Arc<Queue>) {
         // Get background color based on color mode
         let background_color = match self.state.background_color_mode {
-            ColorMode::Black => [0.0, 0.0, 0.0, 1.0],     // Black
-            ColorMode::White => [1.0, 1.0, 1.0, 1.0],     // White
-            ColorMode::Gray18 => [0.18, 0.18, 0.18, 1.0], // Gray18
-            ColorMode::ColorScheme => {
+            BackgroundColorMode::Black => [0.0, 0.0, 0.0, 1.0],     // Black
+            BackgroundColorMode::White => [1.0, 1.0, 1.0, 1.0],     // White
+            BackgroundColorMode::Gray18 => [0.18, 0.18, 0.18, 1.0], // Gray18
+            BackgroundColorMode::ColorScheme => {
                 // Background color is appended at the end of species_colors in LUT mode
                 if !self.state.species_colors.is_empty() {
                     // Prefer the species_count index when present, otherwise fallback to last
@@ -3122,25 +3122,25 @@ impl Simulation for ParticleLifeModel {
 
             // Get background color for clearing
             let background_color = match self.state.background_color_mode {
-                ColorMode::Black => wgpu::Color {
+                BackgroundColorMode::Black => wgpu::Color {
                     r: 0.0,
                     g: 0.0,
                     b: 0.0,
                     a: 1.0,
                 },
-                ColorMode::White => wgpu::Color {
+                BackgroundColorMode::White => wgpu::Color {
                     r: 1.0,
                     g: 1.0,
                     b: 1.0,
                     a: 1.0,
                 },
-                ColorMode::Gray18 => wgpu::Color {
+                BackgroundColorMode::Gray18 => wgpu::Color {
                     r: 0.18,
                     g: 0.18,
                     b: 0.18,
                     a: 1.0,
                 },
-                ColorMode::ColorScheme => {
+                BackgroundColorMode::ColorScheme => {
                     if !self.state.species_colors.is_empty() {
                         // Background is appended at the end (index = species_count)
                         let bg_index = (self.settings.species_count as usize)
@@ -3586,11 +3586,11 @@ impl Simulation for ParticleLifeModel {
             "background_color_mode" => {
                 if let Some(mode_str) = value.as_str() {
                     let color_mode = match mode_str {
-                        "Gray18" => ColorMode::Gray18,
-                        "White" => ColorMode::White,
-                        "Black" => ColorMode::Black,
-                        "Color Scheme" => ColorMode::ColorScheme,
-                        _ => ColorMode::ColorScheme,
+                        "Gray18" => BackgroundColorMode::Gray18,
+                        "White" => BackgroundColorMode::White,
+                        "Black" => BackgroundColorMode::Black,
+                        "Color Scheme" => BackgroundColorMode::ColorScheme,
+                        _ => BackgroundColorMode::ColorScheme,
                     };
 
                     // Update the state color mode
@@ -3940,7 +3940,7 @@ impl Simulation for ParticleLifeModel {
         let species_count = self.settings.species_count as usize;
         let mut species_colors: Vec<[f32; 4]> = Vec::with_capacity(species_count + 1);
 
-        if self.state.background_color_mode == ColorMode::ColorScheme {
+        if self.state.background_color_mode == BackgroundColorMode::ColorScheme {
             // Sample background + species; first is background
             let raw_colors = effective_lut
                 .get_colors(species_count + 1)

@@ -75,17 +75,19 @@
                             updateSetting('foreground_color_mode', detail.value)}
                     />
                 </div>
-                <div class="control-group">
-                    <label for="densityRadius">Density Radius</label>
-                    <NumberDragBox
-                        value={settings?.density_radius ?? 0.04}
-                        min={0.005}
-                        max={0.1}
-                        step={0.005}
-                        precision={3}
-                        on:change={({ detail }) => updateSetting('density_radius', detail)}
-                    />
-                </div>
+                {#if settings?.foreground_color_mode === 'Density'}
+                    <div class="control-group">
+                        <label for="densityRadius">Density Radius</label>
+                        <NumberDragBox
+                            value={settings?.density_radius ?? 0.04}
+                            min={0.005}
+                            max={0.1}
+                            step={0.005}
+                            precision={3}
+                            on:change={({ detail }) => updateSetting('density_radius', detail)}
+                        />
+                    </div>
+                {/if}
                 <div class="control-group">
                     <label>
                         <input
@@ -281,6 +283,7 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
     import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
@@ -325,6 +328,10 @@
 
     let settings: PelletsSettings | null = null;
     let state: PelletsState | null = null;
+    
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<PelletsSettings, PelletsState>();
+    
     let running = false;
     let currentFps = 0;
     let showUI = true;
@@ -449,14 +456,16 @@
 
         try {
             console.log('Calling update_simulation_setting for:', key, value);
-            await invoke('update_simulation_setting', { settingName: key, value });
-            // Update local settings
+            await syncManager.updateSetting(key, value);
+            // Update local settings optimistically
             if (settings) {
                 (settings as unknown as Record<string, unknown>)[key] = value;
             }
             console.log('Setting updated successfully');
         } catch (error) {
             console.error('Failed to update setting:', error);
+            // Reload settings on error
+            await loadSettings();
         }
     };
 
@@ -511,28 +520,21 @@
     }
 
     const loadSettings = async () => {
-        try {
-            const response = await invoke('get_current_settings');
-            settings = response as PelletsSettings;
-        } catch (error) {
-            console.error('Failed to load settings:', error);
-        }
+        const synced = await syncManager.syncSettings();
+        if (synced) settings = synced;
     };
 
     const loadState = async () => {
-        try {
-            const response = await invoke('get_current_state');
-            state = response as PelletsState;
-
+        const synced = await syncManager.syncState();
+        if (synced) {
+            state = synced;
             // Sync cursor values from backend state
-            if (state && state.cursor_size !== undefined) {
+            if (state.cursor_size !== undefined) {
                 cursorSize = state.cursor_size;
             }
-            if (state && state.cursor_strength !== undefined) {
+            if (state.cursor_strength !== undefined) {
                 cursorStrength = state.cursor_strength;
             }
-        } catch (error) {
-            console.error('Failed to load state:', error);
         }
     };
 
@@ -541,7 +543,10 @@
 
         try {
             await invoke('apply_preset', { presetName });
-            await loadSettings();
+            // Always sync both settings and state after preset change
+            const synced = await syncManager.syncAll();
+            if (synced.settings) settings = synced.settings;
+            if (synced.state) state = synced.state;
             current_preset = presetName;
         } catch (error) {
             console.error('Failed to load preset:', error);

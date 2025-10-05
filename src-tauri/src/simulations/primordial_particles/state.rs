@@ -7,6 +7,7 @@ pub enum BackgroundColorMode {
     Black,
     White,
     Gray18,
+    #[serde(rename = "Color Scheme")]
     ColorScheme,
 }
 
@@ -109,6 +110,9 @@ pub struct State {
     /// Trail/trace settings
     pub traces_enabled: bool,
     pub trace_fade: f32,
+
+    /// Density visualization radius for UI
+    pub density_radius: f32,
 }
 
 /// Particle data structure for the simulation
@@ -153,6 +157,9 @@ impl Default for State {
             // Trail/trace defaults
             traces_enabled: false,
             trace_fade: 0.48,
+
+            // Density visualization defaults
+            density_radius: 0.04,
         }
     }
 }

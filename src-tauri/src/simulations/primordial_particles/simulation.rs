@@ -302,7 +302,7 @@ impl PrimordialParticlesModel {
         // Create density parameters buffer
         let density_params = DensityParams {
             particle_count: state.particle_count,
-            density_radius: settings.radius,
+            density_radius: state.density_radius,
             coloring_mode: state.foreground_color_mode as u32,
             _padding: 0,
         };
@@ -1152,7 +1152,7 @@ impl PrimordialParticlesModel {
         // Update density parameters
         let density_params = DensityParams {
             particle_count: state.particle_count,
-            density_radius: settings.radius,
+            density_radius: state.density_radius,
             coloring_mode: state.foreground_color_mode as u32,
             _padding: 0,
         };
@@ -2091,6 +2091,12 @@ impl Simulation for PrimordialParticlesModel {
                 if let Some(v) = value.as_f64() {
                     self.state.trace_fade = v as f32;
                     // Note: Trail infrastructure would need to be implemented for this to work
+                }
+            }
+            "density_radius" => {
+                if let Some(v) = value.as_f64() {
+                    self.state.density_radius = v as f32;
+                    self.update_simulation_parameters(queue)?;
                 }
             }
             _ => {

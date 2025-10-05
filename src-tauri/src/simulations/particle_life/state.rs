@@ -1,5 +1,5 @@
 use super::settings::{MatrixGenerator, TrailMapFiltering, TypeGenerator};
-use crate::simulations::shared::{ColorMode, PositionGenerator};
+use crate::simulations::shared::{BackgroundColorMode, PositionGenerator};
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,7 @@ pub struct State {
     // Color scheme management (moved from main struct)
     pub current_color_scheme: String,
     pub color_scheme_reversed: bool,
-    pub background_color_mode: ColorMode,
+    pub background_color_mode: BackgroundColorMode,
     /// Pre-computed exact RGBA colors for each species, used for both UI display and GPU rendering
     /// In LUT mode: contains species_count + 1 colors (background + species)
     /// In non-LUT mode: contains exactly species_count colors, one for each species
@@ -84,7 +84,7 @@ impl State {
             matrix_generator: MatrixGenerator::Random,
             current_color_scheme: "MATPLOTLIB_ocean".to_string(), // Use a proper default
             color_scheme_reversed: true,
-            background_color_mode: ColorMode::ColorScheme, // Use color scheme mode as default to match main constructor
+            background_color_mode: BackgroundColorMode::ColorScheme, // Use color scheme mode as default to match main constructor
             // Placeholder values - will be properly initialized when LUT is loaded in main constructor
             species_colors: vec![[0.0, 0.0, 0.0, 1.0]],
             particle_size: 0.1,
@@ -110,7 +110,7 @@ impl Default for State {
             matrix_generator: MatrixGenerator::Random,
             current_color_scheme: "MATPLOTLIB_cubehelix".to_string(),
             color_scheme_reversed: true,
-            background_color_mode: ColorMode::ColorScheme,
+            background_color_mode: BackgroundColorMode::ColorScheme,
             species_colors: Vec::new(),
             particle_size: 0.01,
             trail_map_filtering: TrailMapFiltering::Nearest,

@@ -1,4 +1,4 @@
-use crate::{simulation::SimulationManager, simulations::shared::ColorMode};
+use crate::{simulation::SimulationManager, simulations::shared::BackgroundColorMode};
 use std::sync::Arc;
 use tauri::{Emitter, State};
 
@@ -369,15 +369,15 @@ pub async fn clear_trail_texture(
             crate::simulations::traits::SimulationType::ParticleLife(particle_life) => {
                 // Determine background color based on color mode
                 let background_color = match particle_life.state.background_color_mode {
-                    ColorMode::Gray18 => wgpu::Color {
+                    BackgroundColorMode::Gray18 => wgpu::Color {
                         r: 0.18,
                         g: 0.18,
                         b: 0.18,
                         a: 1.0,
                     },
-                    ColorMode::White => wgpu::Color::WHITE,
-                    ColorMode::Black => wgpu::Color::BLACK,
-                    ColorMode::ColorScheme => {
+                    BackgroundColorMode::White => wgpu::Color::WHITE,
+                    BackgroundColorMode::Black => wgpu::Color::BLACK,
+                    BackgroundColorMode::ColorScheme => {
                         if let Some(&[r, g, b, a]) = particle_life.state.species_colors.last() {
                             wgpu::Color {
                                 r: r.into(),

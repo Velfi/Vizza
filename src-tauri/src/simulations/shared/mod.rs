@@ -39,7 +39,7 @@ pub use gpu_utils::{
 };
 pub use position_generators::{PositionGenerator, SlimeMoldPositionGenerator};
 pub use post_processing::{PostProcessingResources, PostProcessingState};
-pub use types::{ColorMode, ImageFitMode};
+pub use types::{BackgroundColorMode, ImageFitMode};
 pub use webcam::WebcamCapture;
 
 pub const INFINITE_RENDER_SHADER: &str = include_str!("infinite_render.wgsl");

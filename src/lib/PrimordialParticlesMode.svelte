@@ -86,6 +86,19 @@
                         on:change={({ detail }) => updateForegroundColorMode(detail.value)}
                     />
                 </div>
+                {#if state.foreground_color_mode === 'Density'}
+                    <div class="control-group">
+                        <label for="densityRadius">Density Radius</label>
+                        <NumberDragBox
+                            value={state.density_radius ?? 0.04}
+                            min={0.005}
+                            max={0.1}
+                            step={0.005}
+                            precision={3}
+                            on:change={({ detail }) => updateDensityRadius(detail)}
+                        />
+                    </div>
+                {/if}
                 <div class="control-group">
                     <label>
                         <input
@@ -313,6 +326,7 @@
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
     import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
 
     const dispatch = createEventDispatcher();
@@ -345,6 +359,7 @@
         trace_fade: number;
         cursor_size: number;
         cursor_strength: number;
+        density_radius: number;
     }
 
     // Helper functions for position generator conversion
@@ -377,6 +392,9 @@
     // Simulation state
     let settings: Settings | undefined = undefined;
     let state: State | undefined = undefined;
+
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, State>();
 
     // Local UI state for position generator selection (not applied until reset)
     let selectedPositionGenerator: number = 0;
@@ -588,6 +606,20 @@
         }
     }
 
+    async function updateDensityRadius(value: number) {
+        if (!state) return;
+
+        try {
+            state.density_radius = value;
+            await invoke('update_simulation_state', {
+                stateName: 'density_radius',
+                value: value,
+            });
+        } catch (e) {
+            console.error('Failed to update density radius:', e);
+        }
+    }
+
     async function clearTrails() {
         try {
             await invoke('clear_trail_texture');
@@ -671,33 +703,18 @@
     }
 
     async function syncSettingsFromBackend() {
-        try {
-            const backendSettings = await invoke('get_current_settings');
-            const backendState = await invoke('get_current_state');
-
-            if (backendSettings) {
-                settings = backendSettings as Settings;
-            }
-
-            if (backendState) {
-                state = backendState as State;
-                // Initialize the selected position generator to match current state
-                selectedPositionGenerator = state?.position_generator || 0;
-            }
-        } catch (e) {
-            console.error('Failed to sync settings from backend:', e);
+        const synced = await syncManager.syncAll();
+        if (synced.settings) settings = synced.settings;
+        if (synced.state) {
+            state = synced.state;
+            // Initialize the selected position generator to match current state
+            selectedPositionGenerator = state?.position_generator || 0;
         }
     }
 
     async function syncStateFromBackend() {
-        try {
-            const backendState = await invoke('get_current_state');
-            if (backendState) {
-                state = backendState as State;
-            }
-        } catch (e) {
-            console.error('Failed to sync state from backend:', e);
-        }
+        const synced = await syncManager.syncState();
+        if (synced) state = synced;
     }
 
     // Simulation control

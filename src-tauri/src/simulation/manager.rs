@@ -14,7 +14,7 @@ use crate::simulations::particle_life::{
 use crate::simulations::primordial_particles::{
     PrimordialParticlesModel, settings::Settings as PrimordialParticlesSettings,
 };
-use crate::simulations::shared::{ColorMode, ColorScheme};
+use crate::simulations::shared::{BackgroundColorMode, ColorScheme};
 use crate::simulations::shared::{
     ColorSchemeManager, SimulationColorSchemeManager, coordinates::ScreenCoords,
 };
@@ -302,7 +302,7 @@ impl SimulationManager {
                     settings,
                     &self.app_settings,
                     &self.color_scheme_manager,
-                    ColorMode::ColorScheme,
+                    BackgroundColorMode::ColorScheme,
                 )?;
 
                 self.current_simulation = Some(SimulationType::ParticleLife(Box::new(simulation)));

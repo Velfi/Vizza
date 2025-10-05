@@ -427,6 +427,7 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import type { AppMode } from '../types/app';
 
     // Props
@@ -466,6 +467,9 @@
         image_invert_tone: boolean;
         [key: string]: unknown; // Allow additional properties
     }
+
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, any>();
 
     // Settings
     let settings: Settings | null = null;
@@ -572,23 +576,17 @@
 
     // Load current settings
     async function loadSettings() {
-        try {
-            settings = await invoke('get_current_settings');
-        } catch (error) {
-            console.error('Failed to load settings:', error);
-        }
+        const synced = await syncManager.syncSettings();
+        if (synced) settings = synced;
     }
 
     // Load current state
     async function loadState() {
-        try {
-            const state = (await invoke('get_current_state')) as State;
-            if (state) {
-                color_scheme_name = state.color_scheme_name;
-                color_scheme_reversed = state.color_scheme_reversed || false;
-            }
-        } catch (error) {
-            console.error('Failed to load state:', error);
+        const synced = await syncManager.syncState();
+        if (synced) {
+            const state = synced as State;
+            color_scheme_name = state.color_scheme_name;
+            color_scheme_reversed = state.color_scheme_reversed || false;
         }
     }
 

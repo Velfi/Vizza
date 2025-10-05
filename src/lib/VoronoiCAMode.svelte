@@ -230,6 +230,7 @@
     import PresetFieldset from './components/shared/PresetFieldset.svelte';
     import Button from './components/shared/Button.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    // import { createSyncManager } from './utils/sync';
 
     const dispatch = createEventDispatcher();
     export let menuPosition: string = 'middle';
@@ -246,6 +247,9 @@
     // Auto-hide manager
     let autoHideManager: AutoHideManager;
     let eventListeners: { add: () => void; remove: () => void };
+
+    // Create sync manager for type-safe backend synchronization (not used in this mode)
+    // const syncManager = createSyncManager<any, any>();
 
     // Simple settings
     let rulestring = 'B3/S23';

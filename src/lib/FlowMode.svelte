@@ -59,8 +59,8 @@
                     <label for="colorSchemeSelector">Color Scheme</label>
                     <ColorSchemeSelector
                         available_color_schemes={available_luts}
-                        bind:current_color_scheme={state.currentColorScheme}
-                        bind:reversed={state.colorSchemeReversed}
+                        bind:current_color_scheme={state.current_color_scheme}
+                        bind:reversed={state.color_scheme_reversed}
                         on:select={({ detail }) => updateColorScheme(detail.name)}
                         on:reverse={(e) => updateColorSchemeReversed(e.detail.reversed)}
                     />
@@ -70,7 +70,7 @@
                     <label for="display-mode-select">Particle Color Mode</label>
                     <Selector
                         options={['Age', 'Random', 'Direction']}
-                        value={state?.foregroundColorMode}
+                        bind:value={state.foreground_color_mode}
                         on:change={({ detail }) => updateForegroundColorMode(detail.value)}
                     />
                 </div>
@@ -80,7 +80,7 @@
                     <Selector
                         id="backgroundColorMode"
                         options={['Black', 'White', 'Gray18', 'Color Scheme']}
-                        value={state?.backgroundColorMode}
+                        bind:value={state.background_color_mode}
                         on:change={({ detail }) => updateBackgroundColorMode(detail.value)}
                     />
                 </div>
@@ -92,7 +92,7 @@
             <!-- Controls -->
             <ControlsPanel
                 mouseInteractionText="🖱️ Left click: Spawn particles | Right click: Destroy particles"
-                cursorSize={state.cursorSize}
+                cursorSize={state.cursor_size}
                 on:cursorSizeChange={(e) => updateCursorSize(e.detail)}
                 on:navigate={(e) => dispatch('navigate', e.detail)}
             />
@@ -502,8 +502,13 @@
     import PostProcessingMenu from './components/shared/PostProcessingMenu.svelte';
     import ControlsPanel from './components/shared/ControlsPanel.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
     import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
+    
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, State>();
+    
     // Webcam state (mirrors SlimeMold approach)
     let webcamDevices: number[] = [];
     let webcamActive = false;
@@ -578,12 +583,12 @@
     };
 
     type State = {
-        cursorSize: number;
-        currentColorScheme: string;
-        colorSchemeReversed: boolean;
-        backgroundColorMode: string;
-        foregroundColorMode: string;
-        showParticles: boolean;
+        cursor_size: number;
+        current_color_scheme: string;
+        color_scheme_reversed: boolean;
+        background_color_mode: string;
+        foreground_color_mode: string;
+        show_particles: boolean;
     };
 
     let settings: Settings | undefined = undefined;
@@ -613,81 +618,47 @@
     let unlistenSimulationInitialized: (() => void) | null = null;
 
     async function updateBackgroundColorMode(value: string) {
-        try {
-            // Optimistically update local state like other sims
-            if (state) state.backgroundColorMode = value;
-
-            await invoke('update_simulation_state', {
-                stateName: 'backgroundColorMode',
-                value,
-            });
-            await syncStateFromBackend();
-        } catch (e) {
-            console.error('Failed to update background color mode:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'background_color_mode',
+            value,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updateForegroundColorMode(value: string) {
-        try {
-            // Optimistically update local state like other sims
-            if (state) state.foregroundColorMode = value;
-
-            await invoke('update_simulation_state', {
-                stateName: 'foregroundColorMode',
-                value,
-            });
-            await syncStateFromBackend();
-        } catch (e) {
-            console.error('Failed to update foreground color mode:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'foreground_color_mode',
+            value,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updateNoiseType(value: string) {
-        settings!.noise_type = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_type',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise type:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'noise_type', value);
+        if (result) settings = result;
     }
 
     async function updateParticleShape(value: string) {
-        settings!.particle_shape = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'particleShape',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update particle shape:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'particle_shape', value);
+        if (result) settings = result;
     }
 
     async function updateParticleAutospawn(value: boolean) {
-        settings!.particle_autospawn = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'particleAutospawn',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update particle autospawn:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'particle_autospawn',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateShowParticles(value: boolean) {
-        state!.showParticles = value;
-        try {
-            await invoke('update_simulation_state', {
-                stateName: 'showParticles',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update show particles:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(state, 'showParticles', value);
+        if (result) state = result;
     }
 
     async function returnToMenu() {
@@ -891,21 +862,12 @@
 
     // Setting update functions
     async function updateNoiseSeed(value: number) {
-        // Validate the value before using it
         if (typeof value !== 'number' || isNaN(value)) {
             console.error('Invalid noise seed value:', value);
             return;
         }
-
-        settings!.noise_seed = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_seed',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise seed:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'noise_seed', value);
+        if (result) settings = result;
     }
 
     async function updateNoiseScale(value: number) {
@@ -913,16 +875,8 @@
             console.error('Invalid noise scale value:', value);
             return;
         }
-
-        settings!.noise_scale = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_scale',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise scale:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'noise_scale', value);
+        if (result) settings = result;
     }
 
     async function updateNoiseX(value: number) {
@@ -930,16 +884,8 @@
             console.error('Invalid noise X value:', value);
             return;
         }
-
-        settings!.noise_x = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_x',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise X:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'noise_x', value);
+        if (result) settings = result;
     }
 
     async function updateNoiseY(value: number) {
@@ -947,16 +893,8 @@
             console.error('Invalid noise Y value:', value);
             return;
         }
-
-        settings!.noise_y = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_y',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise Y:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'noise_y', value);
+        if (result) settings = result;
     }
 
     async function updateNoiseDtMultiplier(value: number) {
@@ -964,16 +902,12 @@
             console.error('Invalid noise DT multiplier value:', value);
             return;
         }
-
-        settings!.noise_dt_multiplier = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'noise_dt_multiplier',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update noise DT multiplier:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'noise_dt_multiplier',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateVectorMagnitude(value: number) {
@@ -981,16 +915,12 @@
             console.error('Invalid vector magnitude value:', value);
             return;
         }
-
-        settings!.vector_magnitude = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'vector_magnitude',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update vector magnitude:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'vector_magnitude',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateParticleLifetime(value: number) {
@@ -998,16 +928,12 @@
             console.error('Invalid particle lifetime value:', value);
             return;
         }
-
-        settings!.particle_lifetime = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'particle_lifetime',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update particle lifetime:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'particle_lifetime',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateParticleSpeed(value: number) {
@@ -1015,36 +941,19 @@
             console.error('Invalid particle speed value:', value);
             return;
         }
-
-        settings!.particle_speed = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'particle_speed',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update particle speed:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'particle_speed', value);
+        if (result) settings = result;
     }
 
     async function updateParticleSize(value: number) {
-        // Validate the value before using it
         if (typeof value !== 'number' || isNaN(value)) {
             console.error('Invalid particle size value:', value);
             return;
         }
-
         // Ensure particle size is an integer
         const intValue = Math.round(value);
-        settings!.particle_size = intValue;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'particle_size',
-                value: intValue,
-            });
-        } catch (e) {
-            console.error('Failed to update particle size:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'particle_size', intValue);
+        if (result) settings = result;
     }
 
     async function updateAutospawnRate(value: number) {
@@ -1052,16 +961,8 @@
             console.error('Invalid autospawn rate value:', value);
             return;
         }
-
-        settings!.autospawn_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'autospawn_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update autospawn rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(settings, 'autospawn_rate', value);
+        if (result) settings = result;
     }
 
     async function updateBrushSpawnRate(value: number) {
@@ -1069,16 +970,12 @@
             console.error('Invalid brush spawn rate value:', value);
             return;
         }
-
-        settings!.brush_spawn_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'brush_spawn_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update brush spawn rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'brush_spawn_rate',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function killAllParticles() {
@@ -1095,16 +992,12 @@
             console.error('Invalid trail decay rate value:', value);
             return;
         }
-
-        settings!.trail_decay_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'trail_decay_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update trail decay rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'trail_decay_rate',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateTrailDepositionRate(value: number) {
@@ -1112,16 +1005,12 @@
             console.error('Invalid trail deposition rate value:', value);
             return;
         }
-
-        settings!.trail_deposition_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'trail_deposition_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update trail deposition rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'trail_deposition_rate',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateTrailDiffusionRate(value: number) {
@@ -1129,16 +1018,12 @@
             console.error('Invalid trail diffusion rate value:', value);
             return;
         }
-
-        settings!.trail_diffusion_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'trail_diffusion_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update trail diffusion rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'trail_diffusion_rate',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateTrailWashOutRate(value: number) {
@@ -1146,62 +1031,56 @@
             console.error('Invalid trail wash out rate value:', value);
             return;
         }
-
-        settings!.trail_wash_out_rate = value;
-        try {
-            await invoke('update_simulation_setting', {
-                settingName: 'trail_wash_out_rate',
-                value,
-            });
-        } catch (e) {
-            console.error('Failed to update trail wash out rate:', e);
-        }
+        const result = await syncManager.updateSettingOptimistic(
+            settings,
+            'trail_wash_out_rate',
+            value
+        );
+        if (result) settings = result;
     }
 
     async function updateColorScheme(colorSchemeName: string) {
-        state!.currentColorScheme = colorSchemeName;
-        try {
-            await invoke('update_simulation_state', {
-                stateName: 'currentColorScheme',
-                value: colorSchemeName,
-            });
-            await syncStateFromBackend();
-        } catch (e) {
-            console.error('Failed to update color scheme:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'current_color_scheme',
+            colorSchemeName,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updateColorSchemeReversed(reversed: boolean) {
-        try {
-            state!.colorSchemeReversed = reversed;
-            await invoke('update_simulation_state', {
-                stateName: 'colorSchemeReversed',
-                value: reversed,
-            });
-            await syncStateFromBackend();
-        } catch (e) {
-            console.error('Failed to update color scheme reversed:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'color_scheme_reversed',
+            reversed,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updateCursorSize(value: number) {
-        state!.cursorSize = value;
-        try {
-            await invoke('update_simulation_state', {
-                stateName: 'cursorSize',
-                value,
-            });
-            await syncStateFromBackend();
-        } catch (e) {
-            console.error('Failed to update cursor size:', e);
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'cursor_size',
+            value,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updatePreset(value: string) {
         current_preset = value;
         try {
             await invoke('apply_preset', { presetName: value });
-            await syncSettingsFromBackend();
+            // Always sync both settings and state after preset change
+            const synced = await syncManager.syncAll();
+            if (synced.settings !== null && synced.settings !== undefined) {
+                settings = synced.settings;
+            }
+            if (synced.state !== null && synced.state !== undefined) {
+                state = synced.state;
+            }
             console.log(`Applied preset: ${value}`);
         } catch (e) {
             console.error('Failed to apply preset:', e);
@@ -1241,26 +1120,16 @@
     }
 
     async function syncSettingsFromBackend() {
-        try {
-            const backendSettings = await invoke('get_current_settings');
-
-            if (backendSettings) {
-                // Use backend settings directly
-                settings = backendSettings as Settings;
-            }
-        } catch (e) {
-            console.error('Failed to sync settings from backend:', e);
+        const synced = await syncManager.syncSettings();
+        if (synced) {
+            settings = synced;
         }
     }
 
     async function syncStateFromBackend() {
-        try {
-            const backendState = await invoke('get_current_state');
-            if (backendState) {
-                state = backendState as State;
-            }
-        } catch (e) {
-            console.error('Failed to sync state from backend:', e);
+        const synced = await syncManager.syncState();
+        if (synced) {
+            state = synced;
         }
     }
 
@@ -1343,57 +1212,69 @@
         }
     });
 
-    // Vector field type functions
+    // Vector field type functions (uses custom command, not standard setting update)
     async function updateVectorFieldType(value: string) {
-        settings!.vector_field_type = value;
+        if (!settings) return;
+        const oldValue = settings.vector_field_type;
+        settings.vector_field_type = value;
         try {
             await invoke('set_flow_vector_field_type', {
                 vectorFieldType: value,
             });
         } catch (e) {
             console.error('Failed to update vector field type:', e);
+            settings.vector_field_type = oldValue;
         }
     }
 
-    // Image-related functions
+    // Image-related functions (use custom commands, not standard setting update)
     async function updateImageFitMode(value: string) {
-        settings!.image_fit_mode = value;
+        if (!settings) return;
+        const oldValue = settings.image_fit_mode;
+        settings.image_fit_mode = value;
         try {
             await invoke('set_flow_image_fit_mode', {
                 fitMode: value,
             });
         } catch (e) {
             console.error('Failed to update image fit mode:', e);
+            settings.image_fit_mode = oldValue;
         }
     }
 
     async function updateImageMirrorHorizontal(checked: boolean) {
         if (!settings) return;
+        const oldValue = settings.image_mirror_horizontal;
         settings.image_mirror_horizontal = checked;
         try {
             await invoke('set_flow_image_mirror_horizontal', { mirror: checked });
         } catch (e) {
             console.error('Failed to update image mirror horizontal:', e);
+            settings.image_mirror_horizontal = oldValue;
         }
     }
 
     async function updateImageMirrorVertical(checked: boolean) {
         if (!settings) return;
+        const oldValue = settings.image_mirror_vertical;
         settings.image_mirror_vertical = checked;
         try {
             await invoke('set_flow_image_mirror_vertical', { mirror: checked });
         } catch (e) {
             console.error('Failed to update image mirror vertical:', e);
+            settings.image_mirror_vertical = oldValue;
         }
     }
 
     async function updateImageInvertTone(checked: boolean) {
         if (!settings) return;
+        const oldValue = settings.image_invert_tone;
         settings.image_invert_tone = checked;
         try {
             await invoke('set_flow_image_invert_tone', { invert: checked });
         } catch (e) {
             console.error('Failed to update image invert tone:', e);
+            settings.image_invert_tone = oldValue;
         }
     }
 </script>

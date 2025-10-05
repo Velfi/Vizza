@@ -250,6 +250,7 @@
     import CameraControls from './components/shared/CameraControls.svelte';
     import Selector from './components/inputs/Selector.svelte';
     import { interpolate, formatHex } from 'culori';
+    // import { createSyncManager } from './utils/sync';
 
     const dispatch = createEventDispatcher();
 
@@ -286,6 +287,9 @@
 
     // Auto-hide functionality for controls when UI is hidden
     let hideTimeout: number | null = null;
+
+    // Create sync manager for type-safe backend synchronization (not used in this mode)
+    // const syncManager = createSyncManager<any, any>();
 
     // Simplified color interpolation functions using culori
     function interpolateColor(color1: string, color2: string, t: number): string {

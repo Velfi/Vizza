@@ -75,6 +75,7 @@ pub enum BackgroundColorMode {
     Black,
     White,
     Gray18,
+    #[serde(rename = "Color Scheme")]
     ColorScheme,
 }
 

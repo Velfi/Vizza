@@ -637,6 +637,7 @@
     import ImageSelector from './components/shared/ImageSelector.svelte';
     import WebcamControls from './components/shared/WebcamControls.svelte';
     import { AutoHideManager, createAutoHideEventListeners } from './utils/autoHide';
+    import { createSyncManager } from './utils/sync';
     import './shared-theme.css';
     import ColorSchemeSelector from './components/shared/ColorSchemeSelector.svelte';
 
@@ -728,6 +729,9 @@
     // Simulation state
     let settings: Settings | undefined = undefined;
     let state: State | undefined = undefined;
+
+    // Create sync manager for type-safe backend synchronization
+    const syncManager = createSyncManager<Settings, State>();
 
     // Agent count tracked separately (not part of preset settings)
     let currentAgentCount = 1_000_000;
@@ -849,43 +853,36 @@
     }
 
     async function updateLutReversed() {
-        if (state) {
-            state.color_scheme_reversed = !state.color_scheme_reversed;
-            try {
-                await invoke('update_simulation_state', {
-                    stateName: 'color_scheme_reversed',
-                    value: state.color_scheme_reversed,
-                });
-            } catch (e) {
-                console.error('Failed to toggle color scheme reversed:', e);
-            }
-        }
+        if (!state) return;
+        const newValue = !state.color_scheme_reversed;
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'color_scheme_reversed',
+            newValue,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     // Cursor configuration handlers
     async function updateCursorSize(size: number) {
-        if (state) {
-            state.cursor_size = size;
-            try {
-                await invoke('update_simulation_state', { stateName: 'cursor_size', value: size });
-            } catch (e) {
-                console.error('Failed to update cursor size:', e);
-            }
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'cursor_size',
+            size,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function updateCursorStrength(strength: number) {
-        if (state) {
-            state.cursor_strength = strength;
-            try {
-                await invoke('update_simulation_state', {
-                    stateName: 'cursor_strength',
-                    value: strength,
-                });
-            } catch (e) {
-                console.error('Failed to update cursor strength:', e);
-            }
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'cursor_strength',
+            strength,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function handleMaskPattern(e: CustomEvent) {
@@ -1015,26 +1012,14 @@
 
     // Sync settings from backend to frontend
     async function syncSettingsFromBackend() {
-        try {
-            const backendSettings = await invoke('get_current_settings');
-            if (backendSettings) {
-                settings = backendSettings as Settings;
-            }
-        } catch (e) {
-            console.error('Failed to sync settings from backend:', e);
-        }
+        const synced = await syncManager.syncSettings();
+        if (synced) settings = synced;
     }
 
     // Sync state from backend to frontend
     async function syncStateFromBackend() {
-        try {
-            const backendState = await invoke('get_current_state');
-            if (backendState) {
-                state = backendState as State;
-            }
-        } catch (e) {
-            console.error('Failed to sync state from backend:', e);
-        }
+        const synced = await syncManager.syncState();
+        if (synced) state = synced;
     }
 
     // Sync agent count separately from settings
@@ -1178,17 +1163,13 @@
     });
 
     async function updateLutName(value: string) {
-        if (state) {
-            state.current_color_scheme = value;
-            try {
-                await invoke('update_simulation_state', {
-                    stateName: 'current_color_scheme',
-                    value: state.current_color_scheme,
-                });
-            } catch (e) {
-                console.error('Failed to update color scheme name:', e);
-            }
-        }
+        const result = await syncManager.updateStateOptimistic(
+            state,
+            'current_color_scheme',
+            value,
+            true // sync from backend after update
+        );
+        if (result) state = result;
     }
 
     async function handleMouseEvent(e: CustomEvent) {

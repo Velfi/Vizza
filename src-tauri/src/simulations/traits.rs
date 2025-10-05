@@ -19,7 +19,7 @@
 //! consistently across all simulation types.
 
 use crate::error::SimulationResult;
-use crate::simulations::shared::ColorMode;
+use crate::simulations::shared::BackgroundColorMode;
 use serde_json::Value;
 use std::sync::Arc;
 use wgpu::{Device, Queue, SurfaceConfiguration, TextureView};
@@ -298,7 +298,7 @@ impl SimulationType {
                     settings,
                     app_settings,
                     color_scheme_manager,
-                    ColorMode::ColorScheme,
+                    BackgroundColorMode::ColorScheme,
                 )?;
                 Ok(SimulationType::ParticleLife(Box::new(simulation)))
             }
